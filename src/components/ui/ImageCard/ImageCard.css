@@ -1,0 +1,39 @@
+.image-card {
+  display: grid;
+  box-sizing: border-box;
+  width: var(--image-card-size, 64px);
+  min-width: var(--image-card-size, 64px);
+  height: var(--image-card-size, 64px);
+  min-height: var(--image-card-size, 64px);
+  place-items: center;
+  color: #e0cea6;
+  font: 14px var(--mono);
+  text-align: center;
+}
+
+.image-card img {
+  display: block;
+  width: var(--image-card-image-size, 100%);
+  height: var(--image-card-image-size, 100%);
+  object-fit: contain;
+}
+
+.image-card > svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 1.4;
+}
+
+.image-card--work {
+  --work-image-card-size: 58px;
+  --work-image-size: 48px;
+  justify-self: start;
+}
+
+@media (max-width: 650px) {
+  .image-card--work {
+    --work-image-card-size: 44px;
+    --work-image-size: 38px;
+  }
+}
+

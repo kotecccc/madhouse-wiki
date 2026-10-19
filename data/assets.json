@@ -1,0 +1,437 @@
+{
+  "legacyBossImageBase": "https://madhousebot.alexforge.xyz/app/",
+  "legacyBosses": {
+    "boss-1": {
+      "name": "Генри Литен",
+      "image": "old-bosses/P1.webp"
+    },
+    "boss-2": {
+      "name": "Амалия Банши",
+      "image": "old-bosses/P2.webp"
+    },
+    "boss-3": {
+      "name": "Крошка \"Сью\"",
+      "image": "old-bosses/P3.webp"
+    },
+    "boss-4": {
+      "name": "\"Малыш\" Джон",
+      "image": "old-bosses/P4.webp"
+    },
+    "boss-5": {
+      "name": "Охранник Манфред",
+      "image": "old-bosses/P5.webp"
+    },
+    "boss-6": {
+      "name": "Руди \"Аналитик\"",
+      "image": "old-bosses/P6.webp"
+    },
+    "boss-7": {
+      "name": "Аксель Шварценштайн",
+      "image": "old-bosses/P7.webp"
+    },
+    "boss-8": {
+      "name": "Агнет \"Балерина\"",
+      "image": "old-bosses/P8.webp"
+    },
+    "boss-9": {
+      "name": "Дорин Гамбринто",
+      "image": "old-bosses/P9.webp"
+    },
+    "boss-10": {
+      "name": "Бруно Цугенкноф",
+      "image": "old-bosses/P10.webp"
+    },
+    "boss-11": {
+      "name": "Олаф Слатер",
+      "image": "old-bosses/P11.webp"
+    },
+    "boss-12": {
+      "name": "Сестра Каролайн",
+      "image": "old-bosses/P12.webp"
+    },
+    "boss-13": {
+      "name": "Гордон Кирбероуз",
+      "image": "old-bosses/P13.webp"
+    },
+    "boss-14": {
+      "name": "Дуглас Макфадден",
+      "image": "old-bosses/P14.webp"
+    },
+    "boss-15": {
+      "name": "Броуди Кавальери",
+      "image": "old-bosses/P15.webp"
+    },
+    "boss-16": {
+      "name": "Франческа Де Ла Пизани",
+      "image": "old-bosses/P16.webp"
+    },
+    "boss-17": {
+      "name": "Ален Грант",
+      "image": "old-bosses/P17.webp"
+    },
+    "boss-18": {
+      "name": "Элайза Картер",
+      "image": "old-bosses/P18.webp"
+    },
+    "boss-19": {
+      "name": "Вальтер Шпинне",
+      "image": "old-bosses/P19.webp"
+    },
+    "boss-20": {
+      "name": "Стефан и Ганс Крейг",
+      "image": "old-bosses/P20.webp"
+    },
+    "boss-21": {
+      "name": "Зузанна и Анита Болеславски",
+      "image": "old-bosses/P21.webp"
+    },
+    "boss-22": {
+      "name": "Геррод и Герда",
+      "image": "old-bosses/P22.webp"
+    },
+    "boss-23": {
+      "name": "Хуго Ван Дер Вейден",
+      "image": "old-bosses/P23.webp"
+    },
+    "boss-24": {
+      "name": "Аделаида Шальца",
+      "image": "old-bosses/P24.webp"
+    },
+    "boss-25": {
+      "name": "Фрау Анжелина Буркхардт",
+      "image": "old-bosses/P25.webp"
+    },
+    "boss-26": {
+      "name": "Иероним Георг фон Риттер",
+      "image": "old-bosses/P26.webp"
+    },
+    "boss-27": {
+      "name": "Отто Магнус Иверман",
+      "image": "old-bosses/P27.webp"
+    },
+    "boss-28": {
+      "name": "Карл Магнус Иверман",
+      "image": "old-bosses/P28.webp"
+    },
+    "boss-29": {
+      "name": "Кибер-адъюнкт v.3.5",
+      "image": "old-bosses/P29.webp"
+    },
+    "boss-30": {
+      "name": "Профессор Г. Буркхардт",
+      "image": "old-bosses/P30.webp"
+    },
+    "boss-31": {
+      "name": "Директориус",
+      "image": "old-bosses/P31.webp"
+    },
+    "boss-32": {
+      "name": "Вий",
+      "image": "old-bosses/P32.webp"
+    },
+    "boss-33": {
+      "name": "Экзекутор",
+      "image": "old-bosses/P33.webp"
+    },
+    "boss-34": {
+      "name": "Бабушка",
+      "image": "old-bosses/P34.webp"
+    },
+    "boss-35": {
+      "name": "Нерожденные",
+      "image": "old-bosses/P35.webp"
+    },
+    "boss-36": {
+      "name": "Оно",
+      "image": "old-bosses/P36.webp"
+    },
+    "boss-37": {
+      "name": "Курильщица",
+      "image": "old-bosses/P37.webp"
+    },
+    "boss-38": {
+      "name": "Кентавр",
+      "image": "old-bosses/P38.webp"
+    },
+    "boss-39": {
+      "name": "Утопленный",
+      "image": "old-bosses/P39.webp"
+    },
+    "boss-40": {
+      "name": "Лоботом",
+      "image": "old-bosses/P40.webp"
+    },
+    "boss-41": {
+      "name": "Упырь",
+      "image": "old-bosses/P41.webp"
+    },
+    "boss-42": {
+      "name": "Привратник",
+      "image": "old-bosses/P42.webp"
+    },
+    "boss-43": {
+      "name": "Шаман",
+      "image": "old-bosses/P43.webp"
+    },
+    "boss-44": {
+      "name": "Матка",
+      "image": "old-bosses/P44.webp"
+    },
+    "boss-45": {
+      "name": "Вектор",
+      "image": "old-bosses/P45.webp"
+    },
+    "boss-46": {
+      "name": "Самсон",
+      "image": "old-bosses/P46.webp"
+    },
+    "boss-47": {
+      "name": "Безликая",
+      "image": "old-bosses/P47.webp"
+    },
+    "boss-48": {
+      "name": "Кровожадный Али",
+      "image": "old-bosses/P48.webp"
+    },
+    "boss-49": {
+      "name": "Уборщик",
+      "image": "old-bosses/P49.webp"
+    },
+    "boss-50": {
+      "name": "Толстяк",
+      "image": "old-bosses/P50.webp"
+    },
+    "boss-51": {
+      "name": "Глаз",
+      "image": "old-bosses/P51.webp"
+    },
+    "boss-52": {
+      "name": "Весельчаки",
+      "image": "old-bosses/P52.webp"
+    },
+    "boss-53": {
+      "name": "Гамбит",
+      "image": "old-bosses/P53.webp"
+    },
+    "boss-54": {
+      "name": "Ультиматум",
+      "image": "old-bosses/P54.webp"
+    },
+    "boss-55": {
+      "name": "Фройлен Моргенштерн",
+      "image": "old-bosses/P55.webp"
+    },
+    "boss-56": {
+      "name": "Мейнхард Рёхингер",
+      "image": "old-bosses/P56.webp"
+    },
+    "boss-57": {
+      "name": "Уна Мортана",
+      "image": "old-bosses/P57.webp"
+    },
+    "boss-58": {
+      "name": "Эо Арахнон",
+      "image": "old-bosses/P58.webp"
+    },
+    "boss-59": {
+      "name": "Морриган",
+      "image": "old-bosses/P59.webp"
+    },
+    "boss-60": {
+      "name": "Тлатоани",
+      "image": "old-bosses/P60.webp"
+    },
+    "boss-61": {
+      "name": "Хелмудт Берг",
+      "image": "old-bosses/P61.webp"
+    },
+    "boss-62": {
+      "name": "Ланзо Краузе",
+      "image": "old-bosses/P62.webp"
+    },
+    "boss-63": {
+      "name": "Джереон Кант",
+      "image": "old-bosses/P63.webp"
+    },
+    "boss-64": {
+      "name": "Колосс",
+      "image": "old-bosses/P64.webp"
+    },
+    "boss-65": {
+      "name": "Сид Бишоф",
+      "image": "old-bosses/P65.webp"
+    },
+    "boss-66": {
+      "name": "Руперт Мюлленгейм Готтлос",
+      "image": "old-bosses/P66.webp"
+    },
+    "boss-67": {
+      "name": "Румпельштильцхен",
+      "image": "old-bosses/P67.webp"
+    },
+    "boss-68": {
+      "name": "Арнольд Мецгер",
+      "image": "old-bosses/P68.webp"
+    },
+    "boss-69": {
+      "name": "Вильгельм Гольц",
+      "image": "old-bosses/P69.webp"
+    },
+    "boss-70": {
+      "name": "Госпожа Де Вит",
+      "image": "old-bosses/P70.webp"
+    },
+    "boss-71": {
+      "name": "Маркус Рауш",
+      "image": "old-bosses/P71.webp"
+    },
+    "boss-72": {
+      "name": "Вольфганг Мясник",
+      "image": "old-bosses/P72.webp"
+    },
+    "boss-73": {
+      "name": "Страж",
+      "image": "old-bosses/P73.webp"
+    },
+    "boss-74": {
+      "name": "Старец",
+      "image": "old-bosses/P74.webp"
+    },
+    "boss-75": {
+      "name": "Госпожа",
+      "image": "old-bosses/P75.webp"
+    },
+    "boss-76": {
+      "name": "Амбал",
+      "image": "old-bosses/P76.webp"
+    },
+    "boss-77": {
+      "name": "Фурия",
+      "image": "old-bosses/P77.webp"
+    },
+    "boss-78": {
+      "name": "Зверь",
+      "image": "old-bosses/P78.webp"
+    },
+    "boss-79": {
+      "name": "Снорк",
+      "image": "old-bosses/P79.webp"
+    },
+    "boss-80": {
+      "name": "Гарпия",
+      "image": "old-bosses/P80.webp"
+    },
+    "boss-81": {
+      "name": "Пироман",
+      "image": "old-bosses/P81.webp"
+    },
+    "boss-82": {
+      "name": "Шива",
+      "image": "old-bosses/P82.webp"
+    },
+    "boss-83": {
+      "name": "Эксперимент",
+      "image": "old-bosses/P83.webp"
+    },
+    "boss-84": {
+      "name": "Чёрная Бетти",
+      "image": "old-bosses/P84.webp"
+    },
+    "boss-85": {
+      "name": "Кукловод",
+      "image": "old-bosses/P85.webp"
+    },
+    "boss-86": {
+      "name": "Ронин",
+      "image": "old-bosses/P86.webp"
+    },
+    "boss-87": {
+      "name": "Слепой паломник",
+      "image": "old-bosses/P87.webp"
+    },
+    "boss-88": {
+      "name": "Демогоргон",
+      "image": "old-bosses/P88.webp"
+    },
+    "boss-89": {
+      "name": "Великий инквизитор",
+      "image": "old-bosses/P89.webp"
+    },
+    "boss-90": {
+      "name": "Набожный праведник",
+      "image": "old-bosses/P90.webp"
+    },
+    "boss-91": {
+      "name": "Тряпичная Энни",
+      "image": "old-bosses/P91.webp"
+    },
+    "boss-92": {
+      "name": "Хозяин боли",
+      "image": "old-bosses/P92.webp"
+    },
+    "boss-93": {
+      "name": "Cнежище",
+      "image": "old-bosses/P93.webp"
+    },
+    "boss-94": {
+      "name": "Делириум",
+      "image": "old-bosses/P94.webp"
+    },
+    "boss-95": {
+      "name": "Леди Бенедикт",
+      "image": "old-bosses/P95.webp"
+    },
+    "boss-96": {
+      "name": "Серый программист",
+      "image": "old-bosses/P96.webp"
+    },
+    "boss-97": {
+      "name": "Древний",
+      "image": "old-bosses/P97.webp"
+    },
+    "boss-98": {
+      "name": "Носферату",
+      "image": "old-bosses/P98.webp"
+    },
+    "boss-99": {
+      "name": "Охранник-мутант",
+      "image": "old-bosses/P99.webp"
+    },
+    "boss-100": {
+      "name": "Маньяк Бруно",
+      "image": "old-bosses/P100.webp"
+    },
+    "boss-101": {
+      "name": "Санта Буркхардт",
+      "image": "old-bosses/P101.webp"
+    },
+    "boss-102": {
+      "name": "Шайтан",
+      "image": "old-bosses/P102.webp"
+    },
+    "boss-103": {
+      "name": "Хипстер Артёмка",
+      "image": "old-bosses/P103.webp"
+    },
+    "boss-104": {
+      "name": "Озверевший Генри",
+      "image": "old-bosses/P104.webp"
+    },
+    "boss-105": {
+      "name": "Дикая Агнет",
+      "image": "old-bosses/P105.webp"
+    },
+    "boss-106": {
+      "name": "Беовульф",
+      "image": "old-bosses/P106.webp"
+    },
+    "boss-107": {
+      "name": "Падший",
+      "image": "old-bosses/P107.webp"
+    },
+    "boss-108": {
+      "name": "Кридокс - Разрушитель разума",
+      "image": "old-bosses/P108.webp"
+    }
+  }
+}

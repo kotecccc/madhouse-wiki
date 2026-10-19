@@ -1,0 +1,22 @@
+.floor-block-boss-card {
+  display: grid;
+  align-content: center;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.floor-block-boss-card {
+  --card-title-size: 12px;
+  --card-description-size: 9px;
+}
+
+.floor-block-boss-card {
+  grid-template-columns: 64px minmax(0, 1fr) 64px;
+  align-items: center;
+}
+
+.floor-block-boss-card > div {
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}

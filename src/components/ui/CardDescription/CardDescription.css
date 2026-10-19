@@ -1,0 +1,16 @@
+.card-description {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--card-description-color);
+  font-family: var(--sans);
+  font-size: var(--card-description-size);
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.012em;
+  line-height: var(--card-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-spacing: 0.04em;
+}

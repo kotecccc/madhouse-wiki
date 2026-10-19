@@ -1,0 +1,74 @@
+.requirement-card-copy {
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.requirement-card-visual {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.requirement-work-total {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--paper-bright);
+  font: 15px var(--mono);
+  white-space: nowrap;
+}
+
+.requirement-calculator-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+}
+
+.requirement-calculator-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+
+@media (max-width: 650px) {
+  .requirement-work-total {
+    font-size: 11px;
+  }
+  .requirement-card-visual {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+.requirement-card {
+  display: grid;
+  align-content: center;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.requirement-card {
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+@media (max-width: 650px) {
+  .requirement-card {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    gap: var(--card-content-gap);
+  }
+}
+
+.requirement-card {
+  --card-title-size: 12px;
+  --card-description-size: 9px;
+}
+.media-tile-value {
+  width: max-content;
+  min-width: 64px;
+  padding-inline: var(--card-padding);
+  white-space: nowrap;
+}
+

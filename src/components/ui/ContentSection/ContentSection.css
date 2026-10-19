@@ -1,0 +1,16 @@
+.content-section {
+  padding: 103px 3.5% 97px;
+}
+
+@media (max-width: 900px) {
+  .content-section {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+@media (max-width: 650px) {
+  .content-section {
+    padding-top: 69px;
+    padding-bottom: 69px;
+  }
+}

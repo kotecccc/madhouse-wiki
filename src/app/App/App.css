@@ -1,0 +1,15 @@
+.site-shell {
+  width: min(100% - 88px, 1320px);
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .site-shell {
+    width: min(100% - 48px, 760px);
+  }
+}
+@media (max-width: 650px) {
+  .site-shell {
+    width: calc(100% - 36px);
+  }
+}

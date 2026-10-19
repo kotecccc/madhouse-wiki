@@ -1,0 +1,44 @@
+.floor-business-card {
+  display: grid;
+  align-content: center;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.floor-business-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.floor-business-card > .floor-work-business-name,
+.floor-business-card > .card-description {
+  grid-column: 1;
+}
+
+.business-upgrade-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 92px;
+  font: 9px var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.business-upgrade-open svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.5;
+}
+
+.business-upgrade-open:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.floor-business-card {
+  --card-title-size: 12px;
+  --card-description-size: 9px;
+}

@@ -1,0 +1,5 @@
+.mono-label {
+  font: 8px var(--mono);
+  letter-spacing: 0.14em;
+  color: #918878;
+}

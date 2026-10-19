@@ -1,0 +1,49 @@
+.boss-card {
+  display: grid;
+  align-items: center;
+  gap: 13px;
+  min-height: 94px;
+}
+
+.boss-details h3 {
+  margin: 5px 0 3px;
+  color: #ddd0b3;
+  font-size: 13px;
+}
+@media (max-width: 650px) {
+  .boss-card {
+    grid-template-columns: 64px minmax(0, 1fr) 64px;
+    gap: 9px;
+  }
+  .boss-details h3 {
+    font-size: 12px;
+  }
+}
+
+.boss-card {
+  grid-template-columns: 64px minmax(0, 1fr) 64px;
+}
+
+@media (max-width: 650px) {
+  .boss-card {
+    grid-template-columns: 64px minmax(0, 1fr) 64px;
+    gap: 9px;
+  }
+}
+
+.boss-card {
+  --card-title-size: 12px;
+  --card-description-size: 9px;
+}
+
+.boss-details {
+  display: grid;
+  gap: 4px;
+}
+
+@media (max-width: 650px) {
+  .boss-card {
+    --card-title-size: 10px;
+    --card-description-size: 8px;
+  }
+}

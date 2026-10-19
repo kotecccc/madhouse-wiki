@@ -1,0 +1,15 @@
+.field-label {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  color: #b3aa98;
+  font-size: 10px;
+}
+
+.field-label span {
+  color: var(--red-bright);
+}
+
+.field-hint {
+  font: 10px var(--mono);
+}

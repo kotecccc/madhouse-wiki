@@ -1,0 +1,31 @@
+:root {
+  --floor-card-padding: 10px;
+  --floor-card-border-bottom: rgba(212, 196, 163, 0.1);
+  color-scheme: dark;
+  --bg: #191816;
+  --bg-deep: #11100f;
+  --panel: #22201d;
+  --card-background: rgba(55, 50, 42, 0.24);
+  --card-border: rgba(212, 196, 163, 0.13);
+  --card-radius: 4px;
+  --card-padding: 12px;
+  --card-content-gap: 6px;
+  --card-line-height: 1.4;
+  --card-title-color: #ddd0b3;
+  --card-title-size: 15px;
+  --card-description-color: #9e927d;
+  --card-description-size: 11px;
+  --paper: #d3c4a3;
+  --paper-bright: #e9dec5;
+  --muted: #9b9488;
+  --line: rgba(223, 207, 172, 0.16);
+  --red: #b63e34;
+  --red-bright: #df5a49;
+  --green: #a3a77f;
+  --mono: "DM Mono", monospace;
+  --sans: "Manrope", Arial, sans-serif;
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--paper-bright);
+  scroll-behavior: smooth;
+}

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+artifacts/
+BRIEF.md
+PLAN.md
+SOURCE_LEDGER.md

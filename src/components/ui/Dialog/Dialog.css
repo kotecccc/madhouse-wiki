@@ -1,0 +1,14 @@
+.ui-dialog {
+  width: min(var(--dialog-width, 520px), 100% - 28px);
+  max-width: none;
+  padding: 0;
+  border: 1px solid rgba(212, 196, 163, 0.28);
+  border-radius: var(--dialog-radius, 7px);
+  color: #ddd0b3;
+  background: var(--dialog-background, #211f1c);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.72);
+}
+.ui-dialog::backdrop {
+  background: rgba(7, 7, 7, var(--dialog-backdrop-opacity, 0.78));
+  backdrop-filter: blur(var(--dialog-backdrop-blur, 3px));
+}

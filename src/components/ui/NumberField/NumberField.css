@@ -1,0 +1,42 @@
+.input-wrap {
+  position: relative;
+  margin-bottom: 17px;
+}
+
+.input-wrap input {
+  display: block;
+  width: 100%;
+  height: 45px;
+  padding: 0 58px 0 13px;
+  border: 1px solid rgba(212, 196, 163, 0.15);
+  border-radius: 0;
+  outline: none;
+  background: #191714;
+  color: var(--paper-bright);
+  font: 12px var(--mono);
+  transition: border 0.2s;
+  appearance: textfield;
+}
+
+.input-wrap input::-webkit-inner-spin-button,
+.input-wrap input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.input-wrap input::placeholder {
+  color: #5e584e;
+}
+
+.input-wrap input:focus {
+  border-color: rgba(223, 90, 73, 0.65);
+}
+
+.input-suffix {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  transform: translateY(-50%);
+  color: #746d60;
+  font: 9px var(--mono);
+}

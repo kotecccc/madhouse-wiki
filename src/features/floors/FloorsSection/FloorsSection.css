@@ -1,0 +1,30 @@
+@media (max-width: 650px) {
+  .floor-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.floors-section {
+  padding-top: 28px;
+  padding-bottom: 48px;
+}
+
+.floor-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 25px;
+  padding-inline: clamp(10px, 2.2vw, 28px);
+  background: transparent;
+}
+
+@media (max-width: 650px) {
+  .floors-section {
+    padding-top: 12px;
+    padding-bottom: 34px;
+  }
+  .floor-grid {
+    gap: 20px;
+  }
+  .floor-grid {
+    padding-inline: 10px;
+  }
+}
