@@ -95,6 +95,10 @@ test("upstream failures preserve status and bounded retry while exceptions expos
   );
   assert.equal(res.statusCode, 502);
   assert.doesNotMatch(String(res.body), /secret/);
+  assert.equal(
+    res.headers["x-madhouse-transport-error"],
+    "upstream-network-failure",
+  );
 });
 
 test("Sites Fetch transport shares the same route and privacy boundary", async () => {

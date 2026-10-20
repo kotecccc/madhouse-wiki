@@ -77,7 +77,9 @@ export function createProductionApi(paths, fetcher = fetch) {
               ? "upstream-redirect-rejected"
               : "upstream-network-failure";
       console.warn("madhouse-api-transport", category);
-      return fail(502, "Game API is temporarily unavailable");
+      return fail(502, "Game API is temporarily unavailable", {
+        "X-Madhouse-Transport-Error": category,
+      });
     }
   };
 }
