@@ -1,6 +1,6 @@
 # Telegram bot and game connection — Track C
 
-Updated: 2026-10-20. Bot created and linked to the published website; fresh upstream game authentication rejected (HTTP 401).
+Updated: 2026-10-20. Bot created, linked to the published website, and native Telegram Desktop catalogue rendering verified; fresh upstream game authentication rejected (HTTP 401).
 
 ## Verified bot
 
@@ -16,7 +16,9 @@ Updated: 2026-10-20. Bot created and linked to the published website; fresh upst
 - BotFather `/setdomain` for `@MadhouseWikiBot` → `madhouse-wiki.damir-tarasov2016.chatgpt.site`: visible `Success! Domain updated.` This binds the Wiki bot's Login Widget domain; it does not provide game initData or implement a widget connection flow.
 - Provider publication and actual React catalogue were independently verified by Track B/coordinator; `/release.json` identifies source commit `6364781e8da7e32bc1f641c7c15704a6b211955d`. Initial local Chrome/shell connection resets were transient; Python urllib also encountered provider filtering. They are not evidence of app authentication.
 - Public screenshot, no secrets: `/Users/mac/.codex/visualizations/2026/10/20/01a15ac6-79c9-7380-a665-810eaa1daf3c/madhouse-wiki-bot.png`.
-- Telegram Web visibly shows `Открыть Wiki` in the bot chat. Clicking it and the normal launch confirmation creates an iframe with the canonical site origin. Full embedded catalogue rendering was not verified: accessibility inspection reported `about:blank`, while a later cropped screenshot showed the bot chat without the Mini App overlay. This UI/observer mismatch is not proof that the website itself renders a blank page. A later public curl HEAD returned HTTP 200 without X-Frame-Options/CSP headers; the cause of the embedded loading issue is unconfirmed. This is separate from the independently verified standalone website.
+- Native Telegram Desktop embedded rendering is **verified**. In the existing authorized account, the Wiki bot's `Открыть Wiki` menu led to a Mini App Terms/Launch dialog. Execution stopped before accepting those terms. The user then explicitly confirmed the specific action and reported completing Launch themselves. A subsequent read-only check found the `Mini App: Madhouse Wiki` window already displaying the real React catalogue: Wiki header, `Войти`, all 16 floor selectors A through $, A1–A3 cards with energy values 90/199/260, and the `@MadhouseWikiBot` footer. No further Launch acceptance, game opening, auth probe or session access was performed for this verification.
+- Native visual proof: `/Users/mac/.codex/visualizations/2026/10/20/01a15ac6-79c9-7380-a665-810eaa1daf3c/native-wiki-rendered.png`, mode `0600`, outside Git. The screenshot contains only the Mini App window, without other chats, launch URLs or credentials. Thumbnails appear blank in this capture; it proves embedded catalogue rendering, not successful loading of every image asset.
+- The earlier Telegram Web accessibility `about:blank` versus screenshot mismatch remains historical observer evidence and is superseded by the direct native Desktop visual proof for embedded rendering. It did not establish site incompatibility. The Launch/Terms approval barrier has been resolved by the user's action; the distinct game-authentication HTTP 401 blocker remains unresolved.
 - No webhook or continuously running bot worker is deployed. Opening the site uses the configured WebApp menu/public link; no conversational `/start` response is claimed.
 
 ## Secrets
