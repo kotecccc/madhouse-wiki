@@ -1,6 +1,18 @@
 import "./Icon.css";
 export function Icon({ type }) {
   const paths = {
+    chevron: <path d="m5 8.5 7 7 7-7" strokeWidth="1.5" />,
+    loot: (
+      <>
+        <path d="m8 3 2 5h4l2-5-4 1-4-1ZM9 8c-2 2-5 5-5 9 0 3 3 4 8 4s8-1 8-4c0-4-3-7-5-9M8 8h8" />
+        <path d="M12 12v5m-2-3h4" />
+      </>
+    ),
+    levels: (
+      <>
+        <path d="M4 3v17h17M8 16v-4m5 4V9m5 7V5" />
+      </>
+    ),
     lock: (
       <>
         <path d="M7.25 10V7.5a4.75 4.75 0 0 1 9.5 0V10" />
@@ -48,7 +60,13 @@ export function Icon({ type }) {
           <path d="M12 15.5h3.4" />
           <path d="M8.9 5.9v7.7" strokeWidth="1.1" />
           <circle cx="13" cy="5.7" r=".75" fill="currentColor" stroke="none" />
-          <circle cx="13.7" cy="19.8" r=".55" fill="currentColor" stroke="none" />
+          <circle
+            cx="13.7"
+            cy="19.8"
+            r=".55"
+            fill="currentColor"
+            stroke="none"
+          />
         </g>
       </>
     ),
@@ -102,12 +120,36 @@ export function Icon({ type }) {
         <path d="M8 7h8M8 11h2m4 0h2m-8 4h2m4 0h2m-8 4h2m4 0h2" />
       </>
     ),
+    coin: (
+      <>
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M14.5 8H11a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9.5M12 6.5v11" />
+      </>
+    ),
+    pill: (
+      <g transform="rotate(-45 12 12)">
+        <rect x="2" y="7" width="20" height="10" rx="5" />
+        <path d="M12 7v10" />
+      </g>
+    ),
+    banknote: (
+      <>
+        <rect x="2.5" y="5.5" width="19" height="13" rx="2" />
+        <circle cx="12" cy="12" r="3.25" />
+        <g fill="currentColor" stroke="none">
+          <circle cx="6" cy="12" r="0.8" />
+          <circle cx="18" cy="12" r="0.8" />
+        </g>
+      </>
+    ),
   };
   return (
     <svg
       className="ui-icon"
       viewBox="0 0 24 24"
-      strokeWidth={type === "floor" ? 1.75 : undefined}
+      strokeWidth={
+        ["floor", "coin", "pill", "banknote"].includes(type) ? 1.75 : undefined
+      }
       aria-hidden="true"
     >
       {paths[type]}

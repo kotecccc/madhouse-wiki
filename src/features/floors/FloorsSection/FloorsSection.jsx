@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import "./FloorsSection.css";
-import { orderedFloors } from "../../../model/knowledge-base.js";
+import {
+  orderedFloors,
+  departmentById,
+} from "../../../model/knowledge-base.js";
 import { FloorGroup } from "../FloorGroup/FloorGroup.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
+import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
+import { useFloorAvailability } from "../useFloorAvailability.js";
+import { useDepartmentAvailability } from "../useDepartmentAvailability.js";
 export function FloorsSection({ onCalculator, onUpgradeSelect }) {
-  const [view, setView] = useState("floors");
+  const { availability, status, retry } = useFloorAvailability();
   const [selectedFloorId, setSelectedFloorId] = useState(
     orderedFloors[0]?.id || null,
   );
@@ -16,17 +22,37 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
     (floor) => floor.id === selectedFloorId,
   );
 
+  const departmentState = useDepartmentAvailability(
+    selectedFloor?.code,
+    status,
+    availability[selectedFloor?.code],
+  );
+  const departmentAvailability =
+    availability[selectedFloor?.code] === false
+      ? Object.fromEntries(
+          (selectedFloor?.departmentIds || []).map((id) => [
+            departmentById[id]?.code,
+            false,
+          ]),
+        )
+      : departmentState.availability;
+
   const renderFloor = (floor) => (
     <FloorGroup
       key={floor.id}
       floor={floor}
-      viewMode={view}
+      hideOpeningConditions={
+        status === "ready" && availability[floor.code] === true
+      }
+      departmentAvailability={departmentAvailability}
+      viewMode="floors"
       onCalculator={onCalculator}
       onUpgradeSelect={onUpgradeSelect}
       focusedDepartmentId={focusedDepartmentId}
-      registerDepartment={(id, node) => { departmentRefs.current[id] = node; }}
+      registerDepartment={(id, node) => {
+        departmentRefs.current[id] = node;
+      }}
       onRequirementSelect={(department) => {
-        setView("floors");
         setSelectedFloorId(department.floorId);
         setFocusedDepartmentId(department.id);
       }}
@@ -39,7 +65,7 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
     if (!node) return;
     node.open = true;
     node.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusedDepartmentId, selectedFloorId, view]);
+  }, [focusedDepartmentId, selectedFloorId]);
 
   return (
     <ContentSection
@@ -50,56 +76,68 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
       <Title as="h2" className="sr-only" id="floors-title">
         Этажи и работёнки
       </Title>
-      <div className="floor-view-controls">
-        <Title as="h2" className="floor-view-title">Этажи</Title>
-        <div className="floor-view-switch" role="group" aria-label="Вид этажей">
-          <Button
-            variant="secondary"
-            className={`floor-view-option${view === "floors" ? " is-active" : ""}`}
-            aria-pressed={view === "floors"}
-            onClick={() => setView("floors")}
-          >
-            По этажам
-          </Button>
-          <Button
-            variant="secondary"
-            className={`floor-view-option${view === "list" ? " is-active" : ""}`}
-            aria-pressed={view === "list"}
-            onClick={() => setView("list")}
-          >
-            Список
+      {status === "loading" ? (
+        <div
+          className="floor-availability-state"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="floor-availability-spinner" aria-hidden="true" />
+          <span>Загружаем доступность этажей…</span>
+        </div>
+      ) : status === "error" ? (
+        <div
+          className="floor-availability-state floor-availability-error"
+          role="alert"
+        >
+          <span>Не удалось загрузить доступность этажей.</span>
+          <Button variant="secondary" onClick={retry}>
+            Повторить
           </Button>
         </div>
-      </div>
+      ) : (
+        <>
+          <div
+            className="floor-selector"
+            role="group"
+            aria-label="Выберите этаж"
+          >
+            {orderedFloors.map((floor) => (
+              <Button
+                key={floor.id}
+                variant="secondary"
+                className={`floor-selector-tile${floor.id === selectedFloorId ? " is-active" : ""}`}
+                aria-label={`Этаж ${floor.code}${availability[floor.code] === false ? " — заблокирован в игре" : ""}`}
+                aria-pressed={floor.id === selectedFloorId}
+                onClick={() => setSelectedFloorId(floor.id)}
+              >
+                <span className="floor-selector-code">
+                  <span className="floor-selector-dash">–</span>
+                  <span>{floor.code}</span>
+                  {availability[floor.code] === false && (
+                    <LockIndicator className="floor-selector-lock" />
+                  )}
+                  <span className="floor-selector-dash">–</span>
+                </span>
+              </Button>
+            ))}
+          </div>
 
-      {view === "floors" && (
-        <div className="floor-selector" role="group" aria-label="Выберите этаж">
-          {orderedFloors.map((floor) => (
-            <Button
-              key={floor.id}
-              variant="secondary"
-              className={`floor-selector-tile${floor.id === selectedFloorId ? " is-active" : ""}`}
-              aria-label={`Этаж ${floor.code}`}
-              aria-pressed={floor.id === selectedFloorId}
-              onClick={() => setSelectedFloorId(floor.id)}
-            >
-              <span className="floor-selector-code">
-                <span className="floor-selector-dash">–</span>
-                <span>{floor.code}</span>
-                <span className="floor-selector-dash">–</span>
-              </span>
-            </Button>
-          ))}
-        </div>
+          {departmentState.status === "loading" && (
+            <p className="department-access-status" role="status">
+              Загружаем доступность отделений…
+            </p>
+          )}
+          {departmentState.status === "error" && (
+            <p className="department-access-status" role="status">
+              Доступность отделений не удалось проверить.
+            </p>
+          )}
+          <div className="floor-grid" aria-live="polite">
+            {selectedFloor ? renderFloor(selectedFloor) : null}
+          </div>
+        </>
       )}
-
-      <div className="floor-grid" aria-live="polite">
-        {view === "list"
-          ? orderedFloors.map(renderFloor)
-          : selectedFloor
-            ? renderFloor(selectedFloor)
-            : null}
-      </div>
     </ContentSection>
   );
 }

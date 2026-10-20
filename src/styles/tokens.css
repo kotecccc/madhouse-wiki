@@ -1,4 +1,7 @@
 :root {
+  --scrollbar-thumb: rgba(212, 196, 163, 0.38);
+  --scrollbar-thumb-hover: rgba(212, 196, 163, 0.62);
+  --scrollbar-track: transparent;
   --space-2: 2px;
   --space-4: 4px;
   --space-6: 6px;
@@ -17,6 +20,11 @@
   --space-72: 72px;
   --space-80: 80px;
   --space-96: 96px;
+  --layout-gap-section: var(--space-16);
+  --layout-gap-group: var(--space-12);
+  --layout-gap-item: var(--space-8);
+  --page-gutter: var(--space-16);
+  --page-max-width: 1024px;
   --floor-card-border-bottom: rgba(212, 196, 163, 0.1);
   color-scheme: dark;
   --bg: #191816;
@@ -32,6 +40,8 @@
   --card-title-size: 15px;
   --card-description-color: #9e927d;
   --card-description-size: 11px;
+  --content-image-size: 58px;
+  --content-image-content-size: 48px;
   --paper: #d3c4a3;
   --paper-bright: #e9dec5;
   --muted: #9b9488;
@@ -45,4 +55,30 @@
   background: var(--bg);
   color: var(--paper-bright);
   scroll-behavior: smooth;
+}
+
+@media (max-width: 650px) {
+  :root {
+    --content-image-size: 44px;
+    --content-image-content-size: 38px;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --page-gutter: var(--space-24);
+  }
+}
+
+@media (min-width: 1200px) {
+  :root {
+    --page-gutter: var(--space-32);
+    --page-max-width: 1280px;
+  }
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --page-max-width: 1440px;
+  }
 }

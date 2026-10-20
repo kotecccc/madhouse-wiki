@@ -4,59 +4,58 @@
   }
 }
 .floors-section {
-  padding-top: var(--space-28);
+  padding-top: 0;
   padding-bottom: var(--space-48);
 }
 
-.floor-view-controls,
-.floor-selector {
-  margin-inline: clamp(var(--space-10), 2.2vw, var(--space-28));
-}
-
-.floor-view-controls {
+.floor-availability-state {
   display: flex;
+  min-height: 12rem;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-12);
-}
-
-.floor-view-title {
-  margin: 0;
+  justify-content: center;
+  gap: var(--space-12);
   color: var(--paper-bright);
-  font-size: clamp(22px, 2.4vw, 28px);
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  text-align: center;
 }
 
-.floor-view-switch {
-  display: inline-flex;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: 1px solid rgba(212, 196, 163, 0.12);
-  border-radius: var(--card-radius);
-  background: rgba(15, 14, 13, 0.38);
+.floor-availability-error {
+  flex-direction: column;
+  color: var(--card-description-color);
 }
 
-.floor-view-option.button-secondary {
-  min-height: 36px;
-  padding-inline: var(--space-12);
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
+.floor-availability-spinner {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  border: 2px solid rgba(212, 196, 163, 0.28);
+  border-top-color: var(--paper-bright);
+  border-radius: 50%;
+  animation: floor-availability-spin 0.8s linear infinite;
 }
 
-.floor-view-option.button-secondary.is-active {
-  border-color: rgba(212, 196, 163, 0.22);
-  background: rgba(212, 196, 163, 0.1);
-  color: var(--paper-bright);
+@keyframes floor-availability-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor-availability-spinner {
+    animation-duration: 2s;
+  }
 }
 
 .floor-selector {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: var(--space-8);
-  max-width: 860px;
-  margin-bottom: var(--space-24);
+  margin-bottom: var(--layout-gap-section);
+}
+
+@media (min-width: 1440px) {
+  .floor-selector {
+    grid-template-columns: repeat(16, minmax(0, 1fr));
+  }
 }
 
 .floor-selector-tile.button-secondary {
@@ -90,7 +89,7 @@
   display: inline-flex;
   align-items: baseline;
   justify-content: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   font: 700 22px/1 var(--mono);
   white-space: nowrap;
 }
@@ -103,25 +102,17 @@
 .floor-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-24);
-  padding-inline: clamp(var(--space-10), 2.2vw, var(--space-28));
+  gap: var(--layout-gap-section);
   background: transparent;
 }
 
 @media (max-width: 650px) {
   .floors-section {
-    padding-top: var(--space-12);
+    padding-top: 0;
     padding-bottom: var(--space-32);
   }
   .floor-grid {
-    gap: var(--space-20);
-  }
-  .floor-grid {
-    padding-inline: var(--space-10);
-  }
-  .floor-view-controls,
-  .floor-selector {
-    margin-inline: var(--space-10);
+    gap: var(--layout-gap-section);
   }
   .floor-view-controls {
     justify-content: space-between;
@@ -132,16 +123,47 @@
     width: 100%;
   }
   .floor-selector {
-    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-6);
   }
   .floor-selector-tile.button-secondary {
     padding: var(--space-6);
+    min-height: 64px;
+    aspect-ratio: auto;
   }
   .floor-selector-code {
-    font-size: 18px;
+    font-size: 20px;
   }
   .floor-selector-dash {
     font-size: 15px;
   }
+  .floor-selector-lock {
+    top: var(--space-8);
+    right: var(--space-8);
+  }
+}
+
+@media (max-width: 480px) {
+  .floor-selector {
+    gap: var(--space-4);
+  }
+  .floor-selector-code {
+    font-size: 18px;
+    gap: 0;
+  }
+}
+
+.department-access-status {
+  margin: 0 0 var(--space-12);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.floor-selector-tile {
+  position: relative;
+}
+.floor-selector-lock {
+  position: absolute;
+  top: var(--space-8);
+  right: var(--space-8);
 }

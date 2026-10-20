@@ -1,21 +1,29 @@
-# Knowledge base
+# SQL catalogue
 
-The JSON files in this directory are the canonical content source. `index.js` imports them and exports the assembled `knowledgeBase` object directly; it does not transform or project entity records.
+Canonical storage: `local-data/madhouse.sqlite`. Legacy entity JSON files and `data/index.js` were removed at the user's request. Swagger/OpenAPI JSON documents remain API contracts, not catalogue data.
 
-## Canonical files
+- `scripts/catalogue/schema.sql`: schema, relationships and entity views.
+- `scripts/catalogue/store.mjs`: transactional storage and source observations.
+- `scripts/catalogue/projection.mjs`: strict reference-field allowlists. Unknown fields and account state are discarded before persistence.
+- `scripts/catalogue/importer.mjs`: fixed upstream and allowlisted GET routes, plus the explicitly authorized `POST /api/works/open` for descriptions. Credentials stay in memory for the bounded import and are not returned or logged. Redirects are rejected.
+- `scripts/catalogue/discover-client.mjs`: parses the public client's literal activity routing table without executing client code. Only route identifiers and membership evidence are stored, separately from API definitions.
+- `scripts/catalogue/query.mjs`: SQL reads and relationships for the React view model.
+- `scripts/catalogue/vite-plugin.mjs`: `virtual:madhouse-catalogue`, queried during development, SSR and production builds. No exported JSON snapshot is created.
 
-- `metadata.json` stores `schemaVersion` and the dataset description.
-- `sources.json` stores source records and their verification notes.
-- `assets.json` stores shared asset metadata, including the legacy boss image map.
-- `floors.json` stores floors and their ordered `departmentIds`.
-- `departments.json` stores department facts and opening conditions.
-- `bosses.json` stores boss facts, including each `departmentId`.
-- `businesses.json` and `business-upgrades.json` store department-linked business data.
+`entities` stores typed, stable identities with their filtered definition fields. `entity_links` stores relationships, `sources` and `entity_observations` preserve provenance, and SQL views expose each entity kind. `api_operations` documents available GET contracts. `captures` records requested routes, status, date and projected record count, never raw responses. `unresolved_links` exposes targets not yet obtained.
 
-## Relationships
+The SQL database is a local ignored file. Run `node scripts/build-local-catalogue.mjs` to initialize or inspect it. With Vite running, authorize local Swagger and execute `GET /api/floors` to start or resume the API import. Missing requests are retried; completed requests are skipped. The importer stops scheduling requests after authentication failure or rate limiting. Its lifetime is bounded to 15 minutes.
 
-Use stable IDs to connect records. Floors own an ordered `departmentIds` list, and each department points back to its floor through `floorId`. Bosses, businesses, and business upgrades point to a department through `departmentId`. Opening conditions retain their source wording and type: `work_completions` uses `targetDepartmentId`, `boss_kills` uses `targetBossId`, and `business_level` uses `targetBusinessId`. An unresolved target may remain `null` with its `unresolvedTarget` note; preserve that uncertainty rather than inventing a relation.
+To refresh all existing definitions, stop the dev server, execute `DELETE FROM captures;` with a SQLite client, restart Vite and run the authorized floors request again. The previous definitions remain until replaced by new API observations. Do not delete or copy credentials; none belong in the database. The public client routing table must be refreshed explicitly if that client changes.
 
-Names and relations belong in their entity records. Preserve source references, verification state, raw wording, and explicit uncertainty. Do not add account-specific current counts, completion flags, progress, access, or business lock states. Keep IDs stable and update references when an ID must change.
+Partial API coverage is intentional and visible: closed floor details may be rejected; the client has no work routes on some floors; account-relative business level, income, next upgrade costs, owned item amounts and bank offers do not define global API catalogues. Fourteen business upgrade recipes (74 business levels) were separately imported from user-provided reference data by `node scripts/catalogue/import-user-upgrades.mjs`; these recipes are explicitly not API-verified. The importer retains source-declared totals alongside computed per-level sums, including the L3 bolt discrepancy (133 declared, 136 computed). See `local-data/sources/user-business-upgrades-2026-10-20.md` and the generated `local-data/catalogue-report.md`. Do not fill other gaps with legacy values or guessed relationships. Floor opening descriptions and typed requirements retain the API wording.
 
-Business upgrades use `businessId` to reference the existing matching business in their department. A null ID preserves an unmatched source record; the UI displays its table separately. These IDs replace the previous UI join by department and name. All original source fields and array orders are unchanged.
+The React model resolves API work/boss/business IDs through SQL relationships. Full work energy is calculated only when all returned task definitions have numeric `required` and `energyCost`; no current progress is used. A production build bundles the current filtered model and must be rebuilt after importing new data.
+
+The public-client route projection is metadata only. It carries floor and department codes plus the membership of routed boss, business and work API identifiers; it does not provide names, requirements, work titles, or costs. It discovers 239 memberships: 108 bosses, 92 businesses and 39 works. The React model joins those codes to existing API definitions and adds nameless metadata stubs where no API department definition exists. Current local coverage is 16 floors (A–O and `$`), 48 departments (three per floor), 108 boss definitions, 48 business definitions, and 24 work definitions. The API currently defines the 24 A–H departments; I–O and `$` departments remain code-only route metadata. Missing work definitions stay missing, and boss/business catalogue rows remain visible from their own API definitions.
+
+See `local-data/catalogue-coverage.md` for the current per-floor coverage and the definition gaps by route kind.
+
+To refresh route metadata, run `node scripts/catalogue/discover-client.mjs /tmp/madhouse-client.js` using a public client bundle. Its SHA-256 is carried into the projected metadata for provenance. For additional API definitions, the existing import routes are `GET /api/floors/{code}/info`, `GET /api/bosses/{bossId}`, `GET /api/businesses/{businessId}`, and the already authorized `POST /api/works/open`; there is no need to infer definitions from route membership. `GET /api/floors` supplies the floor identifiers but does not supply all department details. The importer already schedules the documented floor detail route for each returned A–O/`$` code and definitions for IDs in the public-client routing table.
+
+Requirement refresh replaces an owner's complete explicitly returned rule array and removes obsolete targets. Missing arrays are treated as unknown. The floor-list API omits unlock definitions for floors already accessible to its account; that omission must not erase previously observed reference rules. Personal availability is used only transiently to recognize this response shape and is never persisted. See `local-data/floor-unlock-report.md` for the latest floor requirement refresh and per-route timestamps.

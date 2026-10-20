@@ -1,5 +1,5 @@
 .content-section {
-  padding: var(--space-96) 3.5% var(--space-96);
+  padding: var(--space-96) 0;
 }
 
 @media (max-width: 900px) {

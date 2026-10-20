@@ -1,3 +1,5 @@
+import { authSessionPlugin } from "./scripts/auth-session-plugin.mjs";
+import { cataloguePlugin } from "./scripts/catalogue/vite-plugin.mjs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
@@ -17,6 +19,8 @@ function redirectApiDocs(server) {
 export default defineConfig({
   plugins: [
     react(),
+    authSessionPlugin(),
+    cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
     {
       name: "api-docs-entry",
       configureServer: redirectApiDocs,
@@ -34,7 +38,10 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         configure(proxy) {
-          installCatalogueCapture(proxy, fileURLToPath(new URL(".", import.meta.url)));
+          installCatalogueCapture(
+            proxy,
+            fileURLToPath(new URL(".", import.meta.url)),
+          );
         },
       },
     },

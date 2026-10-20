@@ -1,0 +1,83 @@
+.shared-modal {
+  --dialog-width: 520px;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  max-height: calc(100dvh - var(--space-32));
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.shared-modal[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.shared-modal-content {
+  display: grid;
+  gap: var(--space-16);
+  min-height: 0;
+  padding: var(--modal-content-padding);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.shared-modal-content--deep {
+  background: var(--bg-deep);
+}
+
+.shared-modal-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  flex: 0 0 auto;
+  padding: var(--modal-content-padding);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.shared-modal-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  padding: var(--modal-content-padding);
+  border-top: 1px solid var(--card-border);
+}
+
+.shared-modal-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.shared-modal-close {
+  flex: 0 0 auto;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 20px;
+}
+
+@media (max-width: 650px) {
+  .shared-modal {
+    --card-border: transparent;
+    --card-radius: 0;
+    --modal-content-padding: var(--space-12);
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+  }
+
+  .shared-modal-title {
+    font-size: 17px;
+  }
+
+  .shared-modal-close {
+    width: 44px;
+    min-height: 44px;
+  }
+}

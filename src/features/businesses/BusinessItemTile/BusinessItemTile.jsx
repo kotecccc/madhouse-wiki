@@ -1,7 +1,13 @@
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 
-export function BusinessItemTile({ itemId, labelled = true, size = 64 }) {
-  const label = `Предмет бизнеса №${itemId}`;
+export function BusinessItemTile({
+  itemId,
+  name,
+  labelled = true,
+  size = 64,
+  imageSize,
+}) {
+  const label = name || `Предмет бизнеса №${itemId}`;
   return (
     <ImageCard
       src={
@@ -10,6 +16,7 @@ export function BusinessItemTile({ itemId, labelled = true, size = 64 }) {
           : undefined
       }
       size={size}
+      imageSize={imageSize}
       label={labelled ? label : undefined}
       alt={labelled ? label : ""}
     />

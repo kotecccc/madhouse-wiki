@@ -1,10 +1,9 @@
+import { knowledgeBase as kb } from "virtual:madhouse-catalogue";
 import "./App.css";
 import { useState } from "react";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
 import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
 import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection.jsx";
-import { BossesSection } from "../../features/bosses/BossesSection/BossesSection.jsx";
-import { EnergyCalculator } from "../../features/calculator/EnergyCalculator/EnergyCalculator.jsx";
 import { RequirementCalculatorDialog } from "../../features/calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx";
 import { UpgradeDialog } from "../../features/businesses/UpgradeDialog/UpgradeDialog.jsx";
 export function App() {
@@ -14,12 +13,13 @@ export function App() {
     <div className="site-shell">
       <SiteHeader />
       <main id="top">
+        {kb.floors.length === 0 && (
+          <p role="status">Справочник ещё не заполнен.</p>
+        )}
         <FloorsSection
           onCalculator={setConditionDialog}
           onUpgradeSelect={setUpgradeDialog}
         />
-        <BossesSection />
-        <EnergyCalculator />
       </main>
       <SiteFooter />
       <RequirementCalculatorDialog

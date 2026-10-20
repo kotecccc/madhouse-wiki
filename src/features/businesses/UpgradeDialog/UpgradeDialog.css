@@ -1,107 +1,78 @@
 .business-upgrade-dialog {
-  --dialog-backdrop-opacity: 0.8;
-  --dialog-backdrop-blur: 4px;
-}
-
-.business-upgrade-dialog {
-  --dialog-width: 680px;
   max-height: min(82vh, 800px);
-  overflow: auto;
-  --dialog-radius: 8px;
-  --dialog-background:
-    radial-gradient(ellipse at 85% 0, rgba(127, 93, 51, 0.17), transparent 48%),
-    #211f1c;
-}
-
-.business-upgrade-dialog-panel {
-  position: relative;
-  display: grid;
-  gap: var(--space-16);
-  padding: var(--space-28);
-}
-
-.business-upgrade-dialog-close {
-  position: absolute;
-  top: 10px;
-  right: 14px;
-  border: 0;
-  color: #b7a787;
-  background: transparent;
-  font-size: 27px;
-  cursor: pointer;
-}
-
-.business-upgrade-dialog-panel .title--h2 {
-  margin: 0;
-  color: #e6d8b8;
-  font-size: 24px;
 }
 
 .business-upgrade-level-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-10);
+  gap: var(--space-12);
 }
 
 .business-upgrade-level-card {
   display: grid;
   align-content: start;
-  gap: var(--space-10);
+  gap: var(--space-12);
   min-width: 0;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
 }
 
 .business-upgrade-level-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  margin: 0;
   padding-bottom: var(--space-8);
   border-bottom: 1px solid rgba(212, 196, 163, 0.12);
-}
-
-.business-upgrade-level-heading span {
-  color: #9e9076;
-  font: 8px var(--mono);
-  letter-spacing: 0.1em;
-}
-
-.business-upgrade-level-heading strong {
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  border: 1px solid rgba(196, 157, 97, 0.38);
-  border-radius: 50%;
-  color: #e5c991;
-  background: rgba(148, 104, 48, 0.12);
-  font: 12px var(--mono);
+  color: var(--paper-bright);
+  font-size: 14px;
+  line-height: 1.3;
 }
 
 .business-upgrade-level-items {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-8);
 }
 
 .business-upgrade-item-card {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 64px auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--card-content-gap);
-}
-
-.business-upgrade-item-details {
-  display: grid;
-  gap: var(--space-4);
+  gap: var(--space-12);
   min-width: 0;
 }
 
-.business-upgrade-item-card > strong {
-  flex: 0 0 auto;
-  color: #e4cea0;
-  font: 12px var(--mono);
+.business-upgrade-bosses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  min-width: 0;
 }
 
-.business-upgrade-item-card {
-  --card-title-size: 11px;
-  --card-description-size: 9px;
+.business-upgrade-boss {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.business-upgrade-item-details {
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.business-upgrade-item-count {
+  min-width: 2.5em;
+  color: var(--paper-bright);
+  font: 12px var(--mono);
+  text-align: right;
+  margin-left: auto;
+}
+
+.business-upgrade-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .business-upgrade-item-card {
+    gap: var(--space-8);
+  }
 }

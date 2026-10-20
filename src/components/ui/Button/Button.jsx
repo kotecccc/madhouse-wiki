@@ -1,9 +1,11 @@
 import "./Button.css";
+import { Icon } from "../Icon/Icon.jsx";
 export function Button({
   type = "button",
   variant,
   className = "",
   children,
+  icon,
   ...props
 }) {
   const classes = [
@@ -15,7 +17,14 @@ export function Button({
     .join(" ");
   return (
     <button type={type} className={classes || undefined} {...props}>
-      {children}
+      {icon ? (
+        <>
+          <Icon type={icon} />
+          <span className="button-label">{children}</span>
+        </>
+      ) : (
+        children
+      )}
     </button>
   );
 }

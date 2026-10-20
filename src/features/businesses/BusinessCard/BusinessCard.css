@@ -1,6 +1,6 @@
 .floor-business-card {
-  --business-image-size: 64px;
-  --business-image-content-size: 48px;
+  --business-image-size: var(--content-image-size);
+  --business-image-content-size: var(--content-image-content-size);
   display: grid;
   align-content: center;
   gap: var(--card-content-gap);
@@ -24,20 +24,8 @@
 }
 
 .business-upgrade-open {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-6);
   grid-column: 3;
-  grid-row: 1 / span 2;
-  min-width: 92px;
-  font: 9px var(--mono);
-  letter-spacing: 0.04em;
-}
-
-.business-upgrade-open:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
+  grid-row: 1;
 }
 
 .floor-business-card {

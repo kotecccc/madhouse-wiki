@@ -1,0 +1,68 @@
+.business-requirements-content,
+.business-requirements-sources {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.business-requirements-sources {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.business-requirements-source {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.business-requirements-copy {
+  display: grid;
+  min-width: 0;
+  gap: var(--card-content-gap);
+}
+
+.business-requirements-drops {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.business-requirements-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.business-requirements-count {
+  color: var(--paper-bright);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.business-requirements-provenance {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .business-requirements-source {
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .business-requirements-drops {
+    max-width: 96px;
+    gap: 4px;
+  }
+}

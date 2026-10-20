@@ -1,81 +1,124 @@
 import "./UpgradeDialog.css";
-import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
+import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
-import { Button } from "../../../components/ui/Button/Button.jsx";
-import { getDepartmentBosses } from "../../../model/knowledge-base.js";
-import { Dialog } from "../../../components/ui/Dialog/Dialog.jsx";
+import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { bossById } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
-import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
-import { Title } from "../../../components/ui/Title/Title.jsx";
+import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
+
+const sameId = (left, right) =>
+  left != null && right != null && String(left) === String(right);
+
+function bossesForItem(item) {
+  return Object.values(bossById).filter((boss) =>
+    (boss.dropItems || []).some((drop) => sameId(drop.entityId, item.entityId)),
+  );
+}
+
 export function UpgradeDialog({ data, onClose }) {
   const { business, upgrade } = data;
-  const departmentBosses = getDepartmentBosses(business.departmentId);
-  const levels = Math.max(
+  const items = upgrade?.items || [];
+  const levelCount = Math.max(
     0,
-    ...(upgrade?.items || []).map((i) => i.levels.length),
+    ...items.map((item) => item.levels?.length || 0),
   );
+
   return (
-    <Dialog
+    <Modal
       className="business-upgrade-dialog"
+      title={business.title || "Бизнес"}
+      titleId="upgrade-title"
       onClose={onClose}
-      aria-labelledby="upgrade-title"
+      width={680}
     >
-      <section className="business-upgrade-dialog-panel">
-        <Button
-          className="business-upgrade-dialog-close"
-          onClick={onClose}
-          aria-label="Закрыть"
-        >
-          ×
-        </Button>
-        <Title as="h2" id="upgrade-title">{business.title || "Бизнес"}</Title>
-        {upgrade && (
-          <div className="business-upgrade-level-grid">
-            {Array.from({ length: levels }, (_, n) => (
-              <BaseCard
-                as="section"
-                variant="upgrade-level"
-                className="business-upgrade-level-card"
-                key={n}
-              >
-                <div className="business-upgrade-level-heading">
-                  <span>УРОВЕНЬ {String(n + 1).padStart(2, "0")}</span>
-                  <strong>{n + 1}</strong>
-                </div>
-                <div className="business-upgrade-level-items">
-                  {upgrade.items.map((item, i) => (
+      {!upgrade ? (
+        <p className="business-upgrade-empty">
+          Данные об улучшениях отсутствуют.
+        </p>
+      ) : (
+        <div className="business-upgrade-level-grid">
+          <CardDescription>
+            Источник: данные пользователя, 20.10.2026. Указаны количества
+            предметов для каждого улучшения.
+          </CardDescription>
+          {(upgrade.sourceTotals ?? [])
+            .filter((total) => !total.matches)
+            .map((total) => (
+              <p className="business-upgrade-empty" key={total.itemName}>
+                «{total.itemName}»: исходный итог {total.declared}, сумма по
+                уровням {total.computed}.
+              </p>
+            ))}
+          {Array.from({ length: levelCount }, (_, levelIndex) => (
+            <BaseCard
+              as="section"
+              variant="upgrade-level"
+              className="business-upgrade-level-card"
+              key={levelIndex}
+              aria-label={`Уровень ${levelIndex + 1}`}
+            >
+              <h3 className="business-upgrade-level-heading">
+                Уровень {levelIndex + 1}
+              </h3>
+              <div className="business-upgrade-level-items">
+                {items.map((item, itemIndex) => {
+                  const matches = bossesForItem(item);
+                  const count = item.levels?.[levelIndex];
+                  return (
                     <BaseCard
-                      as="div"
+                      as="article"
+                      variant="floor-data"
                       className="business-upgrade-item-card"
-                      key={item.name}
+                      key={`${item.entityId ?? item.name}-${itemIndex}`}
                     >
-                      <ImageCard
-                        src={departmentBosses[i]?.image || ""}
-                        alt=""
-                      />
+                      {matches.length > 0 ? (
+                        <div className="business-upgrade-bosses">
+                          {matches.map((boss) => (
+                            <div
+                              className="business-upgrade-boss"
+                              key={boss.id}
+                            >
+                              <ImageCard
+                                src={boss.image || ""}
+                                alt={boss.image ? boss.name : ""}
+                                label={
+                                  boss.image ? undefined : "Портрет отсутствует"
+                                }
+                                size={48}
+                              />
+                              <CardTitle className="business-upgrade-boss-name">
+                                {boss.name}
+                              </CardTitle>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="business-upgrade-item-details">
-                        <CardTitle>
-                          {departmentBosses[i]?.name || "Босс не указан"}
-                        </CardTitle>
-                        <CardDescription>{item.name}</CardDescription>
+                        <CardDescription className="business-upgrade-item-name">
+                          {item.name || "Предмет не указан"}
+                        </CardDescription>
+                        {item.entityId != null ? (
+                          <BusinessItemTile
+                            itemId={item.entityId}
+                            name={item.name}
+                            labelled={false}
+                            size={40}
+                          />
+                        ) : null}
                       </div>
-                      <BusinessItemTile
-                        itemId={departmentBosses[i]?.dropItemId}
-                        labelled={false}
-                      />
                       <strong className="business-upgrade-item-count">
-                        {item.levels[n] == null ? "—" : fmt(item.levels[n])}
+                        {count == null ? "—" : fmt(count)}
                       </strong>
                     </BaseCard>
-                  ))}
-                </div>
-              </BaseCard>
-            ))}
-          </div>
-        )}
-      </section>
-    </Dialog>
+                  );
+                })}
+              </div>
+            </BaseCard>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }

@@ -26,7 +26,9 @@ export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
         </CardDescription>
       </div>
       <Button
-        variant="secondary"
+        variant="card-action"
+        icon="levels"
+        title="Уровни бизнеса"
         className="business-upgrade-open"
         disabled={!upgrade}
         aria-label={`Требования по предметам для бизнеса «${business.title}»`}

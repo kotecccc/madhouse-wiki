@@ -3,47 +3,50 @@
 }
 
 .floor-opening-conditions {
-  margin-bottom: var(--space-12);
+  margin-bottom: var(--layout-gap-group);
 }
 
 .floor-opening-card {
   display: grid;
-  gap: var(--space-12);
+  gap: var(--layout-gap-group);
 }
 
 .floor-opening-disclosure {
-  margin-bottom: var(--space-12);
+  margin-bottom: var(--layout-gap-group);
 }
 
 .floor-opening-summary {
-  grid-template-columns: 58px minmax(0, 1fr) 18px;
+  grid-template-columns: minmax(0, 1fr) 18px;
 }
 
 .floor-work-summary.floor-opening-summary {
-  gap: var(--space-12);
-  min-height: 78px;
-  padding-right: 0;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  gap: var(--space-8);
+  min-height: 52px;
+  padding-right: var(--space-12);
 }
 
 .floor-opening-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
   min-width: 0;
   font-size: 15px;
   line-height: var(--card-line-height);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.floor-opening-lock-card {
-  --floor-code-card-size: 58px;
-  --floor-code-image-size: 42px;
-  color: #c3ad82;
+.floor-opening-heading > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.floor-opening-lock-card svg {
-  width: 24px;
-  height: 24px;
-  stroke-width: 1.7;
+.floor-opening-code {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .floor-opening-expanded {
@@ -72,12 +75,12 @@
 
 .floor-heading-label {
   align-items: baseline;
-  gap: var(--space-6);
+  gap: var(--layout-gap-item);
 }
 
 .floor-work-list {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--layout-gap-group);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -90,14 +93,10 @@
     margin-bottom: var(--space-8);
   }
   .floor-work-summary.floor-opening-summary {
-    grid-template-columns: 44px minmax(0, 1fr) 14px;
-    min-height: 60px;
-    gap: var(--space-8);
+    grid-template-columns: minmax(0, 1fr) 14px;
+    min-height: 48px;
+    gap: var(--space-6);
     padding: var(--space-12);
-  }
-  .floor-opening-lock-card {
-    --floor-code-card-size: 44px;
-    --floor-code-image-size: 32px;
   }
 }
 

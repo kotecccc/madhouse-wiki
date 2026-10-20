@@ -1,0 +1,15 @@
+.lock-indicator {
+  display: inline-flex;
+  flex: 0 0 var(--lock-indicator-size, 12px);
+  width: var(--lock-indicator-size, 12px);
+  height: var(--lock-indicator-size, 12px);
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-gold, #c3ad82);
+  vertical-align: middle;
+}
+
+.lock-indicator .ui-icon {
+  width: 100%;
+  height: 100%;
+}

@@ -1,4 +1,4 @@
-import { knowledgeBase as kb } from "../../data/index.js";
+import { knowledgeBase as kb } from "virtual:madhouse-catalogue";
 const indexById = (records) =>
   Object.fromEntries(records.map((record) => [record.id, record]));
 export const floorById = indexById(kb.floors);
@@ -11,7 +11,8 @@ export function getRequirementDepartment(requirement) {
   const departmentId =
     (requirement.targetBusinessId &&
       businessById[requirement.targetBusinessId]?.departmentId) ||
-    (requirement.targetBossId && bossById[requirement.targetBossId]?.departmentId);
+    (requirement.targetBossId &&
+      bossById[requirement.targetBossId]?.departmentId);
   return departmentById[departmentId] || null;
 }
 const floorOrder = [..."ABCDEFGHIJKLMNO", "$"];
@@ -47,6 +48,12 @@ export function getDepartmentBusinesses(departmentId) {
 export function getDepartmentUpgrades(departmentId) {
   return kb.businessUpgrades.filter(
     (upgrade) => upgrade.departmentId === departmentId,
+  );
+}
+export function getBusinessUpgrade(businessId) {
+  return (
+    kb.businessUpgrades.find((upgrade) => upgrade.businessId === businessId) ??
+    null
   );
 }
 export function getBossGroups(floorCode) {

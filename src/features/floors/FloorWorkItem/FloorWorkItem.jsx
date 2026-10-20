@@ -13,7 +13,17 @@ import { RequirementCard } from "../RequirementCard/RequirementCard.jsx";
 import { UpgradeTable } from "../../businesses/UpgradeTable/UpgradeTable.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
-export function FloorWorkItem({ work, onCalculator, onUpgradeSelect, onRequirementSelect, focused, registerDepartment, suppressRequirements = false }) {
+import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
+export function FloorWorkItem({
+  work,
+  onCalculator,
+  onUpgradeSelect,
+  onRequirementSelect,
+  focused,
+  registerDepartment,
+  suppressRequirements = false,
+  locked = false,
+}) {
   const deptBosses = getDepartmentBosses(work.id);
   const businesses = getDepartmentBusinesses(work.id);
   const upgrades = getDepartmentUpgrades(work.id);
@@ -23,7 +33,12 @@ export function FloorWorkItem({ work, onCalculator, onUpgradeSelect, onRequireme
       !(work.code === "A1" && r.type === "player_level" && r.required === 0),
   );
   return (
-    <li className="floor-work" ref={(node) => registerDepartment?.(work.id, node?.querySelector("details"))}>
+    <li
+      className="floor-work"
+      ref={(node) =>
+        registerDepartment?.(work.id, node?.querySelector("details"))
+      }
+    >
       <details className="floor-work-disclosure" open={focused || undefined}>
         <summary className="floor-work-summary">
           <ImageCard
@@ -31,22 +46,29 @@ export function FloorWorkItem({ work, onCalculator, onUpgradeSelect, onRequireme
             size="var(--work-image-card-size)"
             imageSize="var(--work-image-size)"
             src={work.work?.image}
-            label={work.work?.stash || "Набор"}
-            title={work.work?.stash || "Набор"}
-          />
+            label={work.work?.stash || "Отделение"}
+            title={work.work?.stash || "Отделение"}
+          >
+            {!work.work?.image && <span>{work.code}</span>}
+          </ImageCard>
           <div className="floor-work-details">
             <div className="floor-work-copy">
-              <CardTitle>
-                <span className="floor-work-id" lang="en">
-                  {work.code}
-                </span>
-                {work.name && (
-                  <>
-                    {" "}
-                    · <span>{work.name}</span>
-                  </>
-                )}
-              </CardTitle>
+              <div className="floor-work-title">
+                <CardTitle>
+                  <span className="floor-work-code">
+                    {locked && <LockIndicator size="1em" />}
+                    <span className="floor-work-id" lang="en">
+                      {work.code}
+                    </span>
+                  </span>
+                  {work.name && (
+                    <>
+                      {" "}
+                      · <span>{work.name}</span>
+                    </>
+                  )}
+                </CardTitle>
+              </div>
               <CardDescription className="floor-work-description">
                 {[work.work?.title, work.work?.stash]
                   .filter(Boolean)

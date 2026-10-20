@@ -198,11 +198,35 @@ const html = await readFile(
   new URL("../public/api-docs/index.html", import.meta.url),
   "utf8",
 );
+assert(html.includes('src="./wiki-auth.js"'));
+const authScript = await readFile(
+  new URL("../public/api-docs/wiki-auth.js", import.meta.url),
+  "utf8",
+);
 let swaggerConfig;
-runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], {
-  window: {},
-  SwaggerUIBundle(config) {
-    swaggerConfig = config;
+let authorized = false;
+runInNewContext(authScript.replace(/^import[\s\S]*?;\n/, ""), {
+  window: {
+    SwaggerUIBundle(config) {
+      swaggerConfig = config;
+    },
+  },
+  document: {
+    getElementById() {
+      return { textContent: "" };
+    },
+  },
+  readSession() {
+    return { status: "empty" };
+  },
+  formatExpiry() {
+    return "Токен не добавлен";
+  },
+  subscribeSession() {},
+  setInterval() {},
+  authorizeRequest(request) {
+    authorized = true;
+    return request;
   },
 });
 assert.equal(swaggerConfig.url, "./openapi.readonly.json");
@@ -212,6 +236,7 @@ for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
 }
 const getRequest = { method: "GET" };
 assert.equal(swaggerConfig.requestInterceptor(getRequest), getRequest);
+assert(authorized, "Swagger must use the shared Wiki JWT interceptor");
 console.log(
   `${Object.keys(spec.paths).length} paths; ${operations.size}/${seen.size} OpenAPI/Postman operations; ${observed.size} operations with captured JSON response structures.`,
 );

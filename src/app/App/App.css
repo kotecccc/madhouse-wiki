@@ -1,15 +1,9 @@
 .site-shell {
-  width: min(100% - 88px, 1320px);
+  width: min(calc(100% - 2 * var(--page-gutter)), var(--page-max-width));
   margin: 0 auto;
 }
 
-@media (max-width: 900px) {
-  .site-shell {
-    width: min(100% - 48px, 760px);
-  }
-}
-@media (max-width: 650px) {
-  .site-shell {
-    width: calc(100% - 36px);
-  }
+
+#top {
+  padding-top: var(--layout-gap-section);
 }

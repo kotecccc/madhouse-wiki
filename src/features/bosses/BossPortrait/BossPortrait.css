@@ -1,0 +1,18 @@
+.boss-portrait {
+  display: block;
+  align-self: start;
+  box-sizing: border-box;
+  width: 58px;
+  max-width: 58px;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.boss-portrait img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}

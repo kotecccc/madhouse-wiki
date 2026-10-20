@@ -1,0 +1,226 @@
+.login-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.login-control > .button:not(.profile-control) {
+  min-height: 36px;
+  padding-inline: var(--space-16);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+}
+
+.login-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.login-form p,
+.login-form small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.login-form [role="alert"] {
+  color: var(--red-bright);
+}
+
+.login-token-field {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--paper-bright);
+  font: 12px var(--mono);
+}
+
+.login-token-field:focus-visible {
+  outline: 2px solid var(--red-bright);
+  outline-offset: 2px;
+}
+
+.login-actions > .button {
+  width: 100%;
+  min-height: 40px;
+}
+
+.profile-control.button {
+  gap: var(--space-12);
+  min-height: 48px;
+  padding: var(--space-6) var(--space-12);
+  text-align: left;
+  max-width: 280px;
+}
+
+.profile-avatar {
+  --profile-avatar-size: 34px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--profile-avatar-size);
+  width: var(--profile-avatar-size);
+  height: var(--profile-avatar-size);
+  color: var(--paper-bright);
+  background: var(--red);
+  border-radius: 50%;
+  overflow: hidden;
+  font: 11px var(--mono);
+}
+
+.profile-copy {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.profile-name,
+.profile-status {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.profile-name {
+  font-size: 12px;
+}
+
+.profile-status {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.profile-chevron {
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.profile-chevron .ui-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.profile-control[aria-expanded="true"] .profile-chevron {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 650px) {
+  .login-control {
+    margin-left: auto;
+  }
+
+  .profile-control.button {
+    max-width: min(200px, 48vw);
+    gap: var(--space-6);
+    padding-inline: var(--space-8);
+  }
+}
+
+.login-control {
+  position: relative;
+}
+
+.profile-session {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-8));
+  right: 0;
+  width: min(240px, calc(100vw - var(--space-32)));
+  display: grid;
+  gap: var(--card-content-gap);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.profile-session p {
+  margin: 0;
+}
+
+.profile-session-expiry {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.profile-session-expiry span {
+  display: block;
+}
+
+.profile-avatar img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: var(--profile-avatar-size);
+  height: var(--profile-avatar-size);
+  object-fit: cover;
+  object-position: center;
+}
+.profile-name {
+  line-height: 1.3;
+}
+.profile-status {
+  line-height: 1.3;
+}
+
+.profile-stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-12) var(--space-8);
+  margin: 0;
+}
+.profile-stats div {
+  min-width: 0;
+}
+.profile-stats dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: var(--space-4);
+}
+.profile-stats dt .ui-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+.profile-stats dd {
+  margin: 0;
+  color: var(--paper-bright);
+  font: 12px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.profile-attributes {
+  display: grid;
+  gap: var(--space-12);
+  margin: 0;
+}
+.profile-attributes dt {
+  margin-bottom: var(--space-4);
+  color: var(--muted);
+  font-size: 11px;
+}
+.profile-attributes dd {
+  margin: 0;
+  color: var(--paper-bright);
+  font: 13px var(--mono);
+}
+.profile-attributes small {
+  color: var(--muted);
+  font: 11px var(--sans);
+}

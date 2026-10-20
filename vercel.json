@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build:hosted",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/[...path].js": {
+      "maxDuration": 30,
+      "includeFiles": "public/api-docs/openapi.readonly.json"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/api-docs",
+      "destination": "/api-docs/index.html",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api/|api-docs/|assets/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
