@@ -1,0 +1,42 @@
+.title {
+  margin: 0;
+  color: var(--paper-bright);
+  font-family: var(--sans);
+  font-weight: 700;
+}
+
+.title--h1 {
+  font-size: clamp(40px, 5vw, 56px);
+  line-height: 1.04;
+  letter-spacing: -0.055em;
+}
+
+.title--h2 {
+  font-size: clamp(30px, 3.5vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.title--h3 {
+  font-size: clamp(21px, 2.2vw, 26px);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.title--h4 {
+  font-size: 16px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.title--h5 {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.title--h6 {
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

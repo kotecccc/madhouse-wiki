@@ -81,6 +81,22 @@ const requirementTargets = {
   boss_kills: ["targetBossId", "bosses"],
   business_level: ["targetBusinessId", "businesses"],
 };
+const standaloneRequirementTypes = new Set([
+  "player_level", "combat_rating", "rage_total", "dice_level", "stash_medallion", "department_open",
+]);
+for (const floor of knowledgeBase.floors) {
+  for (const [index, condition] of (floor.openingConditions ?? []).entries()) {
+    const context = `floor ${floor.id} openingConditions[${index}]`;
+    assert(condition && typeof condition.type === "string", `${context} needs a type`);
+    const target = requirementTargets[condition.type];
+    if (target && condition[target[0]] != null)
+      requireReference(target[1], condition[target[0]], context);
+    if (condition.targetDepartmentId)
+      requireReference("departments", condition.targetDepartmentId, context);
+    else if (!target || condition[target[0]] == null)
+      assert(standaloneRequirementTypes.has(condition.type), `${context} has unsupported requirement type ${condition.type}`);
+  }
+}
 for (const department of knowledgeBase.departments) {
   for (const [index, condition] of (
     department.openingConditions ?? []

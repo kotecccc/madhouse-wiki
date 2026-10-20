@@ -7,6 +7,7 @@ import { Dialog } from "../../../components/ui/Dialog/Dialog.jsx";
 import { NumberField } from "../../../components/ui/NumberField/NumberField.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { fmt, fmtEnergy, restoreTime } from "../../../lib/format.js";
+import { Title } from "../../../components/ui/Title/Title.jsx";
 export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
   const [energyLimit, setEnergyLimit] = useState("");
   if (!conditionDialog) return null;
@@ -48,7 +49,7 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
           ×
         </Button>
         <MonoLabel>РАСЧЁТ УСЛОВИЯ</MonoLabel>
-        <h2 id="requirement-calc-title">Калькулятор</h2>
+        <Title as="h2" id="requirement-calc-title">Калькулятор</Title>
         <BaseCard as="p" className="requirement-calculator-condition">
           {conditionDialog.requirement.label || "Условие не указано"}
         </BaseCard>

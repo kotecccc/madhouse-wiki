@@ -16,8 +16,8 @@
 .business-upgrade-dialog-panel {
   position: relative;
   display: grid;
-  gap: 16px;
-  padding: 27px;
+  gap: var(--space-16);
+  padding: var(--space-28);
 }
 
 .business-upgrade-dialog-close {
@@ -31,7 +31,7 @@
   cursor: pointer;
 }
 
-.business-upgrade-dialog-panel h2 {
+.business-upgrade-dialog-panel .title--h2 {
   margin: 0;
   color: #e6d8b8;
   font-size: 24px;
@@ -40,13 +40,13 @@
 .business-upgrade-level-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  gap: var(--space-10);
 }
 
 .business-upgrade-level-card {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: var(--space-10);
   min-width: 0;
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
 }
@@ -55,7 +55,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 8px;
+  padding-bottom: var(--space-8);
   border-bottom: 1px solid rgba(212, 196, 163, 0.12);
 }
 
@@ -79,7 +79,7 @@
 
 .business-upgrade-level-items {
   display: grid;
-  gap: 7px;
+  gap: var(--space-6);
 }
 
 .business-upgrade-item-card {
@@ -91,7 +91,7 @@
 
 .business-upgrade-item-details {
   display: grid;
-  gap: 4px;
+  gap: var(--space-4);
   min-width: 0;
 }
 

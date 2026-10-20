@@ -1,0 +1,296 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/achievements",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/achievements/{category}",
+    "status": "200",
+    "samples": 2
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/telegram",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/bank/packages",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/bosses/battles/{battleId}",
+    "status": "200",
+    "samples": 2
+  },
+  {
+    "method": "GET",
+    "path": "/api/bosses/invitations",
+    "status": "200",
+    "samples": 393
+  },
+  {
+    "method": "GET",
+    "path": "/api/bosses/statistics",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/bosses/{bossId}",
+    "status": "200",
+    "samples": 39
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/me",
+    "status": "200",
+    "samples": 12
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/search",
+    "status": "400",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/{clanId}/events",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/{clanId}/members",
+    "status": "200",
+    "samples": 2
+  },
+  {
+    "method": "GET",
+    "path": "/api/clothing",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/clothing/by-category/{id}",
+    "status": "200",
+    "samples": 9
+  },
+  {
+    "method": "GET",
+    "path": "/api/clothing/items/mutagens/available",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/clothing/items/mutagens/installed",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/combat",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/combat/battles/{battleId}",
+    "status": "404",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/dice-game",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/floors",
+    "status": "200",
+    "samples": 8
+  },
+  {
+    "method": "GET",
+    "path": "/api/floors/{code}/info",
+    "status": "200",
+    "samples": 8
+  },
+  {
+    "method": "GET",
+    "path": "/api/friends",
+    "status": "200",
+    "samples": 51
+  },
+  {
+    "method": "GET",
+    "path": "/api/friends/requests/incoming",
+    "status": "200",
+    "samples": 5
+  },
+  {
+    "method": "GET",
+    "path": "/api/friends/requests/outgoing",
+    "status": "200",
+    "samples": 5
+  },
+  {
+    "method": "GET",
+    "path": "/api/leaderboard/achievements",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/leaderboard/clans",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/leaderboard/combat",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/leaderboard/damage",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/leaderboard/experience",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/me",
+    "status": "200",
+    "samples": 11
+  },
+  {
+    "method": "GET",
+    "path": "/api/me/bag",
+    "status": "200",
+    "samples": 2
+  },
+  {
+    "method": "GET",
+    "path": "/api/mutagens/chests/state",
+    "status": "200",
+    "samples": 3
+  },
+  {
+    "method": "GET",
+    "path": "/api/mutagens/exchange/state",
+    "status": "200",
+    "samples": 19
+  },
+  {
+    "method": "GET",
+    "path": "/api/mutagens/state",
+    "status": "200",
+    "samples": 15
+  },
+  {
+    "method": "GET",
+    "path": "/api/notifications",
+    "status": "200",
+    "samples": 58
+  },
+  {
+    "method": "POST",
+    "path": "/api/notifications/read",
+    "status": "200",
+    "samples": 2
+  },
+  {
+    "method": "GET",
+    "path": "/api/notifications/settings",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/ornaments/zones/{id}",
+    "status": "200",
+    "samples": 13
+  },
+  {
+    "method": "GET",
+    "path": "/api/pets/{id}",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/player-interactions/booster-gifts/incoming",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/player-interactions/booster-requests/incoming",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/player-interactions/booster-requests/outgoing",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/player-interactions/pill-gifts/today",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/player/customization/options",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/poker-game",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/quests/{section}",
+    "status": "200",
+    "samples": 6
+  },
+  {
+    "method": "GET",
+    "path": "/api/rooms",
+    "status": "200",
+    "samples": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/stash/sets",
+    "status": "200",
+    "samples": 2
+  },
+  {
+    "method": "GET",
+    "path": "/api/weapons/{id}",
+    "status": "200",
+    "samples": 1
+  }
+]

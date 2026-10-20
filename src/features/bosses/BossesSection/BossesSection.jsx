@@ -5,6 +5,7 @@ import { useState } from "react";
 import { knowledgeBase as kb } from "../../../../data/index.js";
 import { bossFloors, getBossGroups } from "../../../model/knowledge-base.js";
 import { BossCard } from "../BossCard/BossCard.jsx";
+import { Title } from "../../../components/ui/Title/Title.jsx";
 export function BossesSection() {
   const [floorPage, setFloorPage] = useState(0);
   const [oldBossView, setOldBossView] = useState(false);
@@ -21,7 +22,7 @@ export function BossesSection() {
           <div className="eyebrow">
             <span className="eyebrow-line" /> БЕСТИАРИЙ
           </div>
-          <h2 id="bosses-title">Боссы этажей</h2>
+          <Title as="h2" id="bosses-title">Боссы этажей</Title>
         </div>
         <label className="boss-view-toggle">
           <input
@@ -62,7 +63,7 @@ export function BossesSection() {
       <div className="boss-grid" aria-live="polite">
         {Object.entries(bossGroups).map(([zone, bosses]) => (
           <section className="boss-group" key={zone}>
-            <h3>{zone}</h3>
+            <Title as="h3">{zone}</Title>
             <div className="boss-group-cards">
               {bosses.map((b) => (
                 <BossCard key={b.id} boss={b} old={oldBossView} />

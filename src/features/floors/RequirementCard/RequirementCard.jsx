@@ -6,18 +6,20 @@ import {
   bossById,
   departmentById,
   businessById,
+  getRequirementDepartment,
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
-export function RequirementCard({ requirement: r, work, onCalculator }) {
+export function RequirementCard({ requirement: r, work, onCalculator, onTargetSelect, embedded = false }) {
   const boss = r.targetBossId ? bossById[r.targetBossId] : null;
   const targetWork = r.targetDepartmentId
     ? departmentById[r.targetDepartmentId]
     : null;
   const business = r.targetBusinessId ? businessById[r.targetBusinessId] : null;
   const type = r.type;
+  const targetDepartment = getRequirementDepartment(r);
   const label = r.label || "Условие не указано";
   const img =
     type === "boss_kills"
@@ -25,6 +27,14 @@ export function RequirementCard({ requirement: r, work, onCalculator }) {
       : type === "work_completions"
         ? targetWork?.work?.image
         : null;
+  const iconType = {
+    business_level: "business",
+    department_open: "floor",
+    combat_rating: "combat",
+    rage_total: "fire",
+    dice_level: "dice",
+    stash_medallion: "stash",
+  }[type] || "business";
   const iconAlt =
     type === "boss_kills"
       ? `Босс: ${boss?.name || label}`
@@ -36,29 +46,48 @@ export function RequirementCard({ requirement: r, work, onCalculator }) {
     energy = targetWork.energyCycle.full * r.required;
   const amount =
     type === "business_level"
-      ? `${r.requiredLevel ?? r.required} ур.`
-      : `×${fmt(Number(r.required) || 0)}`;
-  return (
-    <BaseCard
-      variant="floor-data"
-      as="li"
-      className={`requirement-card requirement-card-${type || "unknown"}`}
-    >
-      <ImageCard src={img} alt={img ? iconAlt : ""}>
-        {!img && <Icon type="business" />}
+      ? r.requiredLevel == null && r.required == null
+        ? "Ур. не указан"
+        : `${r.requiredLevel ?? r.required} ур.`
+      : type === "department_open"
+        ? "Открыт"
+      : ["combat_rating", "rage_total", "dice_level", "stash_medallion"].includes(type)
+        ? type === "dice_level"
+          ? `${fmt(Number(r.required) || 0)} ур.`
+          : type === "stash_medallion"
+            ? "Коллекция"
+            : fmt(Number(r.required) || 0)
+        : `×${fmt(Number(r.required) || 0)}`;
+  const content = (
+    <>
+      <ImageCard
+        src={img}
+        alt={img ? iconAlt : ""}
+        size="var(--requirement-image-size)"
+        imageSize="var(--requirement-image-content-size)"
+      >
+        {!img && <Icon type={iconType} />}
       </ImageCard>
-      <div className="requirement-card-copy">
-        <CardTitle>{label}</CardTitle>
-        <CardDescription as="small">
+      <div className={`requirement-card-copy${targetDepartment && onTargetSelect ? " is-linkable" : ""}`}>
+        {targetDepartment && onTargetSelect ? (
+          <Button variant="plain" className="requirement-target-link" type="button" onClick={() => onTargetSelect(targetDepartment)} aria-label={`Перейти к отделу ${targetDepartment.code}: ${targetDepartment.name || label}`}>
+            <CardTitle>{label}</CardTitle>
+            <CardDescription as="small">{targetDepartment.code}</CardDescription>
+          </Button>
+        ) : <>
+          <CardTitle>{label}</CardTitle>
+          <CardDescription as="small">
           {type === "boss_kills"
             ? departmentById[boss?.departmentId]?.code || ""
             : type === "work_completions"
               ? targetWork?.code || ""
               : type === "business_level"
-                ? work.code
+                ? work?.code || targetDepartment?.code || ""
                 : label}
-        </CardDescription>
+          </CardDescription>
+        </>}
       </div>
+      {type !== "department_open" && (
       <div className="requirement-card-visual">
         {energy != null ? (
           <>
@@ -75,9 +104,8 @@ export function RequirementCard({ requirement: r, work, onCalculator }) {
             </Button>
           </>
         ) : (
-          <BaseCard
-            as="span"
-            className="media-tile-value"
+          <span
+            className={`requirement-amount${type === "business_level" ? " requirement-amount--level" : ""}`}
             aria-label={
               type === "business_level"
                 ? `Требуемый уровень: ${amount}`
@@ -85,9 +113,24 @@ export function RequirementCard({ requirement: r, work, onCalculator }) {
             }
           >
             {amount}
-          </BaseCard>
+          </span>
         )}
       </div>
+      )}
+    </>
+  );
+
+  return embedded ? (
+    <div className={`requirement-card requirement-card--embedded requirement-card-${type || "unknown"}`}>
+      {content}
+    </div>
+  ) : (
+    <BaseCard
+      variant="floor-data"
+      as="li"
+      className={`requirement-card requirement-card-${type || "unknown"}`}
+    >
+      {content}
     </BaseCard>
   );
 }

@@ -1,21 +1,21 @@
 .boss-card {
   display: grid;
   align-items: center;
-  gap: 13px;
+  gap: var(--space-12);
   min-height: 94px;
 }
 
-.boss-details h3 {
-  margin: 5px 0 3px;
+.boss-details .boss-card-title {
+  margin: var(--space-4) 0 var(--space-2);
   color: #ddd0b3;
   font-size: 13px;
 }
 @media (max-width: 650px) {
   .boss-card {
     grid-template-columns: 64px minmax(0, 1fr) 64px;
-    gap: 9px;
+    gap: var(--space-8);
   }
-  .boss-details h3 {
+  .boss-details .boss-card-title {
     font-size: 12px;
   }
 }
@@ -27,7 +27,7 @@
 @media (max-width: 650px) {
   .boss-card {
     grid-template-columns: 64px minmax(0, 1fr) 64px;
-    gap: 9px;
+    gap: var(--space-8);
   }
 }
 
@@ -38,7 +38,7 @@
 
 .boss-details {
   display: grid;
-  gap: 4px;
+  gap: var(--space-4);
 }
 
 @media (max-width: 650px) {

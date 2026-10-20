@@ -3,14 +3,14 @@
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--line);
-  gap: 40px;
+  gap: var(--space-40);
 }
 
 .status-pill {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 10px 13px;
+  gap: var(--space-8);
+  padding: var(--space-10) var(--space-12);
   font: 9px var(--mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -33,25 +33,25 @@
 
 @media (max-width: 900px) {
   .topbar {
-    gap: 20px;
+    gap: var(--space-20);
   }
 }
 @media (max-width: 650px) {
   .topbar {
     position: relative;
     height: 72px;
-    gap: 14px;
+    gap: var(--space-12);
   }
   .status-pill {
     margin-left: auto;
-    padding: 8px 9px;
+    padding: var(--space-8);
     font-size: 7px;
   }
   .menu-toggle {
     order: 3;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-4);
     width: 30px;
     height: 32px;
     align-items: center;
@@ -69,7 +69,7 @@
 
 .main-nav {
   display: flex;
-  gap: 38px;
+  gap: var(--space-40);
   margin-left: auto;
 }
 .main-nav a {
@@ -82,7 +82,7 @@
 }
 @media (max-width: 900px) {
   .main-nav {
-    gap: 22px;
+    gap: var(--space-20);
   }
 }
 @media (max-width: 650px) {
@@ -93,11 +93,11 @@
     top: 61px;
     left: 0;
     right: 0;
-    padding: 16px;
+    padding: var(--space-16);
     border: 1px solid var(--line);
     background: #1c1a17;
     flex-direction: column;
-    gap: 17px;
+    gap: var(--space-16);
   }
   .main-nav.is-open {
     display: flex;

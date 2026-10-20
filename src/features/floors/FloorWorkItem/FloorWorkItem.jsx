@@ -12,17 +12,19 @@ import { fmt } from "../../../lib/format.js";
 import { RequirementCard } from "../RequirementCard/RequirementCard.jsx";
 import { UpgradeTable } from "../../businesses/UpgradeTable/UpgradeTable.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
-export function FloorWorkItem({ work, onCalculator, onUpgradeSelect }) {
+import { Title } from "../../../components/ui/Title/Title.jsx";
+export function FloorWorkItem({ work, onCalculator, onUpgradeSelect, onRequirementSelect, focused, registerDepartment, suppressRequirements = false }) {
   const deptBosses = getDepartmentBosses(work.id);
   const businesses = getDepartmentBusinesses(work.id);
   const upgrades = getDepartmentUpgrades(work.id);
   const requirements = (work.openingConditions || []).filter(
     (r) =>
+      !suppressRequirements &&
       !(work.code === "A1" && r.type === "player_level" && r.required === 0),
   );
   return (
-    <li className="floor-work">
-      <details className="floor-work-disclosure">
+    <li className="floor-work" ref={(node) => registerDepartment?.(work.id, node?.querySelector("details"))}>
+      <details className="floor-work-disclosure" open={focused || undefined}>
         <summary className="floor-work-summary">
           <ImageCard
             className="image-card--work"
@@ -61,7 +63,7 @@ export function FloorWorkItem({ work, onCalculator, onUpgradeSelect }) {
         <div className="floor-work-expanded">
           {requirements.length > 0 && (
             <section className="floor-work-extra floor-work-requirements">
-              <h4>Условие открытия</h4>
+              <Title as="h4">Условие открытия</Title>
               <ul className="floor-work-requirement-list">
                 {requirements.map((r, i) => (
                   <RequirementCard
@@ -69,13 +71,14 @@ export function FloorWorkItem({ work, onCalculator, onUpgradeSelect }) {
                     requirement={r}
                     work={work}
                     onCalculator={onCalculator}
+                    onTargetSelect={onRequirementSelect}
                   />
                 ))}
               </ul>
             </section>
           )}
           <section className="floor-work-extra floor-work-bosses">
-            <h4>Боссы</h4>
+            <Title as="h4">Боссы</Title>
             {deptBosses.length ? (
               <ul className="floor-work-boss-list">
                 {deptBosses.map((boss) => (
@@ -89,7 +92,7 @@ export function FloorWorkItem({ work, onCalculator, onUpgradeSelect }) {
             )}
           </section>
           <section className="floor-work-extra">
-            <h4>Бизнесы</h4>
+            <Title as="h4">Бизнесы</Title>
             {businesses.length ? (
               <ul className="floor-work-business-list">
                 {businesses.map((business) => (

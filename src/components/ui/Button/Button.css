@@ -3,8 +3,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  padding: 0 19px;
+  gap: var(--space-20);
+  padding: 0 var(--space-20);
   border: 0;
   cursor: pointer;
   font-size: 11px;
@@ -30,7 +30,7 @@
 
 .button-secondary {
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--space-12);
   border: 1px solid rgba(212, 196, 163, 0.24);
   color: #dfd0ae;
   background: rgba(55, 50, 42, 0.46);

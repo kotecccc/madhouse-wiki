@@ -1,5 +1,5 @@
 .content-section {
-  padding: 103px 3.5% 97px;
+  padding: var(--space-96) 3.5% var(--space-96);
 }
 
 @media (max-width: 900px) {
@@ -10,7 +10,7 @@
 }
 @media (max-width: 650px) {
   .content-section {
-    padding-top: 69px;
-    padding-bottom: 69px;
+    padding-top: var(--space-72);
+    padding-bottom: var(--space-72);
   }
 }

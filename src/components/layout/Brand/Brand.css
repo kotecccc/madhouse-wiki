@@ -1,7 +1,7 @@
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   min-width: max-content;
 }
 .brand-mark {
@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: var(--space-2);
   transform: skew(-10deg);
   border: 1px solid rgba(223, 90, 73, 0.65);
 }

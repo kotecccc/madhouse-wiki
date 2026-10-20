@@ -1,0 +1,716 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/auth/dev-userid",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/bank/purchases",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/battles/{battleId}/attack",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/battles/{battleId}/invitations",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/battles/{battleId}/invitations/bulk",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/battles/{battleId}/items/use",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/battles/{battleId}/surrender",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/invitations/{invitationId}/accept",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/invitations/{invitationId}/decline",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/bosses/{bossId}/battles",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/businesses/collect-all",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/businesses/{businessId}",
+    "successfulResponseEvidence": "client-bundle-response-normalizer",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/businesses/{businessId}/collect",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/businesses/{businessId}/upgrade",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/character-stats/upgrade",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/invitations/{invitationId}/accept",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/invitations/{invitationId}/decline",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/rating",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/search",
+    "successfulResponseEvidence": "network-response-shape",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/clans/{clanId}/applications",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/applications/cancel",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/applications/{applicationId}/accept",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/applications/{applicationId}/reject",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "PUT",
+    "path": "/api/clans/{clanId}/daily-message",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/disband",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/invitations",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/join",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/leader/transfer",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/leave",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clans/{clanId}/members/{playerId}/kick",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "PUT",
+    "path": "/api/clans/{clanId}/members/{playerId}/role",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "PUT",
+    "path": "/api/clans/{clanId}/permissions",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "PUT",
+    "path": "/api/clans/{clanId}/settings",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/clothing/equip",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/clothing/equip/{id}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/clothing/items/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/clothing/items/mutagens/extract",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/clothing/items/mutagens/install",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/clothing/sets/{id}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/combat/battles",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/combat/battles/direct",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/combat/battles/{battleId}",
+    "successfulResponseEvidence": "network-response-shape",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/combat/battles/{battleId}/attack",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/combat/battles/{battleId}/items/use",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/combat/candidates/refresh",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/combat/energy/refill",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/daily-rewards/claim",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/daily-rewards/state",
+    "successfulResponseEvidence": "client-bundle-response-normalizer",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/dice-game/start",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/dice-game/{gameId}/collect",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/dice-game/{gameId}/reroll",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/floors/{code}/leaderboard",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/floors/{floorCode}/tribute/collect",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/friends/requests",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/friends/requests/{playerId}",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/friends/requests/{playerId}/accept",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/friends/search",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/friends/search/suggestions",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/friends/{playerId}",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/hubs/game/negotiate",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/me/bag/boosters/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/me/bag/boosters/use",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/me/bag/combat-items/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/me/energy/spend",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/me/nickname",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/me/offer/accept",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/me/settings",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/mini-game/cards/{cardId}/cancel",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/mini-game/cards/{cardId}/try",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/mutagens/chests/openings/claim",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/mutagens/chests/openings/speedup",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/mutagens/chests/openings/start",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/mutagens/chests/slots/unlock",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/mutagens/craft",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/mutagens/exchange",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/notifications/non-actionable",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/notifications/settings",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/ornaments/elements/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/ornaments/equip",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/ornaments/equip/{id}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/ornaments/sets/{id}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/ornaments/sets/{id}/zones",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/partner-campaigns/hooligans/confirm",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/pets/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/pets/select",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/pets/select",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/pets/upgrade",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/player-interactions/booster-gifts/{giftId}/claim",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/player-interactions/booster-requests",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/player-interactions/booster-requests/{requestId}/fulfill",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/player-interactions/pill-gift-campaigns/all-friends",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/player-interactions/pill-gift-campaigns/{campaignId}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/player-interactions/pill-gifts",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "PUT",
+    "path": "/api/player/customization",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/players/{playerId}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/players/{playerId}/achievements",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/players/{playerId}/bosses/statistics",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/poker-game/chips/purchase",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/poker-game/start",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/poker-game/{gameId}/collect",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/poker-game/{gameId}/exchange",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/poker-game/{gameId}/showdown",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/quests/{section}/{taskId}/claim",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/rooms/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/rooms/select",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/stash/craft",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/stash/help-gifts",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/stash/help-requests",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/stash/help-requests/{setId}/{ingredientId}",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/stash/help-requests/{targetPlayerId}",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/stash/ingredients/purchase",
+    "successfulResponseEvidence": "client-response-handler",
+    "unknownSuccessSchema": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/weapons/buy",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/weapons/repair",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/weapons/select",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/weapons/select",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/weapons/upgrade",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/works/open",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/works/tasks/perform",
+    "successfulResponseEvidence": "client-derived-or-unknown",
+    "unknownSuccessSchema": true
+  }
+]

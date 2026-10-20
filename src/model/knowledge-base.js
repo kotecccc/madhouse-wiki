@@ -5,6 +5,15 @@ export const floorById = indexById(kb.floors);
 export const departmentById = indexById(kb.departments);
 export const bossById = indexById(kb.bosses);
 export const businessById = indexById(kb.businesses);
+export function getRequirementDepartment(requirement) {
+  if (requirement.targetDepartmentId)
+    return departmentById[requirement.targetDepartmentId] || null;
+  const departmentId =
+    (requirement.targetBusinessId &&
+      businessById[requirement.targetBusinessId]?.departmentId) ||
+    (requirement.targetBossId && bossById[requirement.targetBossId]?.departmentId);
+  return departmentById[departmentId] || null;
+}
 const floorOrder = [..."ABCDEFGHIJKLMNO", "$"];
 export const orderedFloors = [...kb.floors].sort(
   (a, b) => floorOrder.indexOf(a.code) - floorOrder.indexOf(b.code),

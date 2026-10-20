@@ -11,7 +11,7 @@
 }
 
 .base-card--upgrade-level {
-  --card-padding: 12px;
+  --card-padding: var(--space-12);
   --card-border: rgba(212, 196, 163, 0.19);
   --card-radius: 5px;
   --card-background: linear-gradient(
@@ -22,7 +22,7 @@
 }
 
 .base-card--floor-data {
-  padding: var(--floor-card-padding);
+  padding: var(--space-10);
   border-bottom-color: var(--floor-card-border-bottom);
 }
 

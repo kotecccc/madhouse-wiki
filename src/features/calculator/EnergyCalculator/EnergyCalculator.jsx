@@ -8,6 +8,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { useState } from "react";
 import { calcFloors, getDepartmentWorks } from "../../../model/knowledge-base.js";
 import { fmt, fmtEnergy } from "../../../lib/format.js";
+import { Title } from "../../../components/ui/Title/Title.jsx";
 export function EnergyCalculator() {
   const [calcFloor, setCalcFloor] = useState(calcFloors[0]?.code || "A");
   const [calcWork, setCalcWork] = useState("");
@@ -36,7 +37,7 @@ export function EnergyCalculator() {
         <div className="calc-card-head">
           <div>
             <MonoLabel>РАСЧЁТ ПОЛНОГО ЦИКЛА</MonoLabel>
-            <h2 id="calc-title">Энергия на работёнку</h2>
+            <Title as="h2" id="calc-title">Энергия на работёнку</Title>
           </div>
         </div>
         <SelectField

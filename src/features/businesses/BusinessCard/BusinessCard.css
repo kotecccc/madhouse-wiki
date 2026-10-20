@@ -1,4 +1,6 @@
 .floor-business-card {
+  --business-image-size: 64px;
+  --business-image-content-size: 48px;
   display: grid;
   align-content: center;
   gap: var(--card-content-gap);
@@ -6,31 +8,31 @@
 }
 
 .floor-business-card {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: var(--business-image-size) minmax(0, 1fr) auto;
   align-items: center;
 }
 
-.floor-business-card > .floor-work-business-name,
-.floor-business-card > .card-description {
-  grid-column: 1;
+.floor-business-icon {
+  grid-row: 1;
+}
+
+.floor-business-copy {
+  display: grid;
+  grid-column: 2;
+  gap: var(--card-content-gap);
+  min-width: 0;
 }
 
 .business-upgrade-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  grid-column: 2;
+  gap: var(--space-6);
+  grid-column: 3;
   grid-row: 1 / span 2;
   min-width: 92px;
   font: 9px var(--mono);
   letter-spacing: 0.04em;
-}
-
-.business-upgrade-open svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 1.5;
 }
 
 .business-upgrade-open:disabled {

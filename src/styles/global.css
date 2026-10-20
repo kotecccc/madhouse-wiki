@@ -57,7 +57,7 @@ p {
 }
 
 h2 {
-  margin: 18px 0 0;
+  margin: var(--space-16) 0 0;
   color: var(--paper-bright);
   font-size: clamp(35px, 4vw, 51px);
   line-height: 1.08;

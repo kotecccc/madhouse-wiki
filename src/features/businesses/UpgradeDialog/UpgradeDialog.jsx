@@ -8,6 +8,7 @@ import { getDepartmentBosses } from "../../../model/knowledge-base.js";
 import { Dialog } from "../../../components/ui/Dialog/Dialog.jsx";
 import { fmt } from "../../../lib/format.js";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
+import { Title } from "../../../components/ui/Title/Title.jsx";
 export function UpgradeDialog({ data, onClose }) {
   const { business, upgrade } = data;
   const departmentBosses = getDepartmentBosses(business.departmentId);
@@ -29,7 +30,7 @@ export function UpgradeDialog({ data, onClose }) {
         >
           ×
         </Button>
-        <h2 id="upgrade-title">{business.title || "Бизнес"}</h2>
+        <Title as="h2" id="upgrade-title">{business.title || "Бизнес"}</Title>
         {upgrade && (
           <div className="business-upgrade-level-grid">
             {Array.from({ length: levels }, (_, n) => (

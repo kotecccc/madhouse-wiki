@@ -1,0 +1,565 @@
+{
+  "bundle": "https://cargohustle.online/app.b3a2797399.js",
+  "sha256": "b3a27973995a3548e58fd6a3a8b315ebcff60685d700425e8dff1de5039640c8",
+  "scope": "Client serialization and validation only; server-requiredness is not independently verified.",
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/api/auth/dev-userid",
+      "evidence": "client-request-validator",
+      "clientSource": "a2x"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/telegram",
+      "evidence": "client-request-validator",
+      "clientSource": "a2x / a2y"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bank/purchases",
+      "evidence": "client-request-validator",
+      "clientSource": "c98 / c90"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/battles/{battleId}/attack",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/battles/{battleId}/invitations",
+      "evidence": "client-request-validator",
+      "clientSource": "abE"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/battles/{battleId}/invitations/bulk",
+      "evidence": "client-request-validator",
+      "clientSource": "abG"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/battles/{battleId}/items/use",
+      "evidence": "client-request-validator",
+      "clientSource": "combat item validator / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/battles/{battleId}/surrender",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/invitations/{invitationId}/accept",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/invitations/{invitationId}/decline",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bosses/{bossId}/battles",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/businesses/collect-all",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/businesses/{businessId}/collect",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/businesses/{businessId}/upgrade",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/character-stats/upgrade",
+      "evidence": "client-request-validator",
+      "clientSource": "akm / ajR"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans",
+      "evidence": "client-request-validator",
+      "clientSource": "a8n / a82"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/invitations/{invitationId}/accept",
+      "evidence": "client-request-validator",
+      "clientSource": "a8v"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/invitations/{invitationId}/decline",
+      "evidence": "client-request-validator",
+      "clientSource": "a8v"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/applications/cancel",
+      "evidence": "client-request-validator",
+      "clientSource": "a8p"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/applications/{applicationId}/accept",
+      "evidence": "client-request-validator",
+      "clientSource": "a8q"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/applications/{applicationId}/reject",
+      "evidence": "client-request-validator",
+      "clientSource": "a8q"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/clans/{clanId}/daily-message",
+      "evidence": "client-request-validator",
+      "clientSource": "a8D"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/disband",
+      "evidence": "client-request-validator",
+      "clientSource": "a8F"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/invitations",
+      "evidence": "client-request-validator",
+      "clientSource": "a8u"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/join",
+      "evidence": "client-request-validator",
+      "clientSource": "a8o"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/leader/transfer",
+      "evidence": "client-request-validator",
+      "clientSource": "a8B"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/leave",
+      "evidence": "client-request-validator",
+      "clientSource": "a8y"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clans/{clanId}/members/{playerId}/kick",
+      "evidence": "client-request-validator",
+      "clientSource": "a8z"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/clans/{clanId}/members/{playerId}/role",
+      "evidence": "client-request-validator",
+      "clientSource": "a8A"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/clans/{clanId}/permissions",
+      "evidence": "client-request-validator",
+      "clientSource": "a8E"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/clans/{clanId}/settings",
+      "evidence": "client-request-validator",
+      "clientSource": "a8C / a82"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clothing/equip",
+      "evidence": "client-request-validator",
+      "clientSource": "bv8"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clothing/items/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "bv7"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clothing/items/mutagens/extract",
+      "evidence": "client-request-validator",
+      "clientSource": "bvn"
+    },
+    {
+      "method": "POST",
+      "path": "/api/clothing/items/mutagens/install",
+      "evidence": "client-request-validator",
+      "clientSource": "bvk"
+    },
+    {
+      "method": "POST",
+      "path": "/api/combat/battles",
+      "evidence": "client-request-validator",
+      "clientSource": "combat start validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/combat/battles/direct",
+      "evidence": "client-request-validator",
+      "clientSource": "combat direct battle validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/combat/battles/{battleId}/attack",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/combat/battles/{battleId}/items/use",
+      "evidence": "client-request-validator",
+      "clientSource": "combat item validator / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/combat/energy/refill",
+      "evidence": "client-request-validator",
+      "clientSource": "client action wrapper / a2K"
+    },
+    {
+      "method": "POST",
+      "path": "/api/daily-rewards/claim",
+      "evidence": "client-request-validator",
+      "clientSource": "ajK"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dice-game/start",
+      "evidence": "client-request-validator",
+      "clientSource": "dice/poker/quest action validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dice-game/{gameId}/collect",
+      "evidence": "client-request-validator",
+      "clientSource": "dice/poker/quest action validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dice-game/{gameId}/reroll",
+      "evidence": "client-request-validator",
+      "clientSource": "dice reroll validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/floors/{floorCode}/tribute/collect",
+      "evidence": "client-request-validator",
+      "clientSource": "bU3"
+    },
+    {
+      "method": "POST",
+      "path": "/api/friends/requests",
+      "evidence": "client-request-validator",
+      "clientSource": "a4z / a4k"
+    },
+    {
+      "method": "POST",
+      "path": "/api/friends/requests/{playerId}/accept",
+      "evidence": "client-request-validator",
+      "clientSource": "a4B / a4k"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/bag/boosters/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "ake / akc"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/bag/boosters/use",
+      "evidence": "client-request-validator",
+      "clientSource": "akj / akc"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/bag/combat-items/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "aki"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/energy/spend",
+      "evidence": "client-request-validator",
+      "clientSource": "akl / scene energy-spend callsite"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/me/nickname",
+      "evidence": "client-request-validator",
+      "clientSource": "akk / aeN"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/me/settings",
+      "evidence": "client-request-validator",
+      "clientSource": "settings update validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-game/cards/{cardId}/cancel",
+      "evidence": "client-request-validator",
+      "clientSource": "a9q / a9p"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-game/cards/{cardId}/try",
+      "evidence": "client-request-validator",
+      "clientSource": "a9q / a9p"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mutagens/chests/openings/claim",
+      "evidence": "client-request-validator",
+      "clientSource": "bvs / bvz"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mutagens/chests/openings/speedup",
+      "evidence": "client-request-validator",
+      "clientSource": "bvs / bvy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mutagens/chests/openings/start",
+      "evidence": "client-request-validator",
+      "clientSource": "bvs / bvw"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mutagens/chests/slots/unlock",
+      "evidence": "client-request-validator",
+      "clientSource": "bvs / bvx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mutagens/craft",
+      "evidence": "client-request-validator",
+      "clientSource": "bvj"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mutagens/exchange",
+      "evidence": "client-request-validator",
+      "clientSource": "bvJ"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/read",
+      "evidence": "client-request-validator",
+      "clientSource": "a6h"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/notifications/settings",
+      "evidence": "client-request-validator",
+      "clientSource": "a6f"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ornaments/elements/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "ak8"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ornaments/equip",
+      "evidence": "client-request-validator",
+      "clientSource": "ak9"
+    },
+    {
+      "method": "POST",
+      "path": "/api/partner-campaigns/hooligans/confirm",
+      "evidence": "client-request-validator",
+      "clientSource": "ajP"
+    },
+    {
+      "method": "POST",
+      "path": "/api/pets/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "bYx"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/pets/select",
+      "evidence": "client-request-validator",
+      "clientSource": "bYy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/pets/upgrade",
+      "evidence": "client-request-validator",
+      "clientSource": "bYA"
+    },
+    {
+      "method": "POST",
+      "path": "/api/player-interactions/booster-gifts/{giftId}/claim",
+      "evidence": "client-request-validator",
+      "clientSource": "a5u"
+    },
+    {
+      "method": "POST",
+      "path": "/api/player-interactions/booster-requests",
+      "evidence": "client-request-validator",
+      "clientSource": "a5r"
+    },
+    {
+      "method": "POST",
+      "path": "/api/player-interactions/booster-requests/{requestId}/fulfill",
+      "evidence": "client-request-validator",
+      "clientSource": "a5s"
+    },
+    {
+      "method": "POST",
+      "path": "/api/player-interactions/pill-gift-campaigns/all-friends",
+      "evidence": "client-request-validator",
+      "clientSource": "a5p"
+    },
+    {
+      "method": "POST",
+      "path": "/api/player-interactions/pill-gifts",
+      "evidence": "client-request-validator",
+      "clientSource": "a5o"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/player/customization",
+      "evidence": "client-request-validator",
+      "clientSource": "akb"
+    },
+    {
+      "method": "POST",
+      "path": "/api/poker-game/chips/purchase",
+      "evidence": "client-request-validator",
+      "clientSource": "poker chip purchase validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/poker-game/start",
+      "evidence": "client-request-validator",
+      "clientSource": "dice/poker/quest action validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/poker-game/{gameId}/collect",
+      "evidence": "client-request-validator",
+      "clientSource": "dice/poker/quest action validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/poker-game/{gameId}/exchange",
+      "evidence": "client-request-validator",
+      "clientSource": "poker exchange validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/poker-game/{gameId}/showdown",
+      "evidence": "client-request-validator",
+      "clientSource": "dice/poker/quest action validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/quests/{section}/{taskId}/claim",
+      "evidence": "client-request-validator",
+      "clientSource": "dice/poker/quest action validator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rooms/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "aaQ"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/rooms/select",
+      "evidence": "client-request-validator",
+      "clientSource": "aaR"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stash/craft",
+      "evidence": "client-request-validator",
+      "clientSource": "akr"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stash/help-gifts",
+      "evidence": "client-request-validator",
+      "clientSource": "agU"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stash/help-requests",
+      "evidence": "client-request-validator",
+      "clientSource": "akp"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stash/ingredients/purchase",
+      "evidence": "client-request-validator",
+      "clientSource": "aks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/weapons/buy",
+      "evidence": "client-request-validator",
+      "clientSource": "a9V"
+    },
+    {
+      "method": "POST",
+      "path": "/api/weapons/repair",
+      "evidence": "client-request-validator",
+      "clientSource": "a9Z"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/weapons/select",
+      "evidence": "client-request-validator",
+      "clientSource": "a9W"
+    },
+    {
+      "method": "POST",
+      "path": "/api/weapons/upgrade",
+      "evidence": "client-request-validator",
+      "clientSource": "a9Y"
+    },
+    {
+      "method": "POST",
+      "path": "/api/works/open",
+      "evidence": "client-request-validator",
+      "clientSource": "bF6"
+    },
+    {
+      "method": "POST",
+      "path": "/api/works/tasks/perform",
+      "evidence": "client-request-validator",
+      "clientSource": "bF7"
+    }
+  ]
+}

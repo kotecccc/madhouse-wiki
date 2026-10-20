@@ -1,0 +1,601 @@
+{
+  "scope": "Client event-consumption model, not a captured server event contract. Known values are not an exhaustive server event enum. No live payload values are retained.",
+  "evidence": "public-client-bundle",
+  "bundle": "https://cargohustle.online/app.b3a2797399.js",
+  "sha256": "b3a27973995a3548e58fd6a3a8b315ebcff60685d700425e8dff1de5039640c8",
+  "transport": {
+    "protocol": "SignalR",
+    "hubPath": "/api/hubs/game",
+    "negotiatePath": "/api/hubs/game/negotiate",
+    "negotiateQuery": {
+      "negotiateVersion": 1
+    },
+    "transport": "WebSocket",
+    "networkVerified": false
+  },
+  "serverToClient": {
+    "method": "gameEvent",
+    "envelope": {
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "description": "Client reads only string values before deduplication.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "x-known-values": [
+            "achievement.unlocked",
+            "boss.inviteAccepted",
+            "boss.inviteCancelled",
+            "boss.inviteCreated",
+            "boss.inviteDeclined",
+            "boss.inviteExpired",
+            "boss.room.forbidden",
+            "boss.room.joined",
+            "boss.room.leader",
+            "boss.room.left",
+            "boss.room.reconnected",
+            "boss.room.settled",
+            "boss.room.state",
+            "clan.applicationCreated",
+            "clan.applicationResolved",
+            "clan.dailyMessageChanged",
+            "clan.disbanded",
+            "clan.eventLogged",
+            "clan.invitationReceived",
+            "clan.invitationResolved",
+            "clan.membersChanged",
+            "clan.permissionsChanged",
+            "clan.progressChanged",
+            "clan.roleChanged",
+            "clan.settingsChanged",
+            "floor.leaderChanged",
+            "friend.removed",
+            "friend.requestAccepted",
+            "friend.requestCancelled",
+            "friend.requestCreated",
+            "friend.requestDeclined",
+            "interaction.boosterGiftReceived",
+            "interaction.boosterRequestCreated",
+            "interaction.boosterRequestFulfilled",
+            "interaction.pillsGiftCampaignCompleted",
+            "interaction.pillsGiftReceived",
+            "interaction.stashHelpReceived",
+            "system.bank.purchaseCredited",
+            "system.clanWeeklyReward"
+          ]
+        },
+        "payload": true,
+        "occurredAtUtc": {
+          "description": "Used as notification timestamp; complete wire format not established."
+        },
+        "category": true,
+        "actor": true,
+        "notificationId": true,
+        "isRead": true,
+        "createdAtUtc": true,
+        "expiresAtUtc": true,
+        "battleId": {
+          "description": "Fallback boss room identifier accepted only as string.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": true,
+      "x-evidence": "client-event-consumer"
+    },
+    "eventPayloads": {
+      "achievement.unlocked": {
+        "type": "object",
+        "properties": {
+          "achievementKey": {
+            "description": "Client requires a nonempty trimmed string.",
+            "type": "string"
+          },
+          "category": {
+            "description": "Client normalizes a nonempty category key.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "image": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "imageUrl": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "previewImageUrl": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "previewUrl": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "iconUrl": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "Accepted by the client only when a string.",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "Client coerces to a nonnegative parsed integer; wire type not established."
+          },
+          "points": {
+            "description": "Client coerces to a nonnegative parsed integer; wire type not established."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "system.bank.purchaseCredited": {
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "description": "Forwarded to wallet updater only when an object.",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "system.clanWeeklyReward": {
+        "type": "object",
+        "properties": {
+          "walletDollar": {
+            "description": "Client parses integer and applies only if finite and nonnegative; wire type not established."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "floor.leaderChanged": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.settled": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Read by battle notification/cache helpers; wire validation not established."
+          },
+          "reward": {
+            "description": "Forwarded to reward handler; wire shape not established."
+          },
+          "status": {
+            "description": "Notification conversion accepts the string won after trim/lowercase.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.inviteCreated": {
+        "type": "object",
+        "properties": {
+          "invitationId": {
+            "description": "Client requires a nonempty trimmed string.",
+            "type": "string"
+          },
+          "battleId": {
+            "description": "Client requires a nonempty trimmed string.",
+            "type": "string"
+          },
+          "bossId": {
+            "description": "Client parses a positive integer; wire type not established."
+          },
+          "playerId": {
+            "description": "Positive parsed integer; inviterPlayerId or envelope actor may provide fallback."
+          },
+          "inviterPlayerId": {
+            "description": "Alternative inviter ID; parsed to positive integer."
+          },
+          "status": {
+            "description": "Client accepts pending after lowercasing.",
+            "type": "string"
+          },
+          "battleStatus": {
+            "description": "When present, client accepts active after lowercasing.",
+            "type": "string"
+          },
+          "expiresAtUtc": {
+            "description": "Client requires a parseable future date string.",
+            "type": "string"
+          },
+          "bulk": {
+            "description": "The exact boolean true suppresses an invitation notification."
+          },
+          "guaranteedReward": {
+            "description": "Reward keys exp/dollar/gold/pills are coerced to positive parsed integers; wire types not established."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "interaction.pillsGiftReceived": {
+        "type": "object",
+        "properties": {
+          "pillsBalance": {
+            "description": "Client Number-coerces, checks finite/nonnegative and truncates; wire type not established."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "interaction.pillsGiftCampaignCompleted": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "friend.requestCreated": {
+        "type": "object",
+        "properties": {
+          "relationship": {
+            "description": "Exact pendingIncoming/pendingOutgoing values control refresh; otherwise both lists refresh."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.membersChanged": {
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "description": "Client parses a positive integer."
+          },
+          "change": {
+            "description": "Exact left/kicked/joined values select the update branch."
+          },
+          "memberCount": {
+            "description": "Passed through when non-null."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.applicationCreated": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "description": "Parsed by the clan application normalizer when an object.",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.applicationResolved": {
+        "type": "object",
+        "properties": {
+          "applicationId": {
+            "description": "Client parses a positive integer."
+          },
+          "playerId": {
+            "description": "Client parses a positive integer."
+          },
+          "status": {
+            "description": "Compared with the exact value accepted."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.invitationReceived": {
+        "type": "object",
+        "properties": {
+          "invitation": {
+            "description": "Parsed by clan invitation normalizer when an object.",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.invitationResolved": {
+        "type": "object",
+        "properties": {
+          "invitationId": {
+            "description": "Forwarded to clan invitation state helper."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.roleChanged": {
+        "type": "object",
+        "properties": {
+          "version": true,
+          "playerId": true,
+          "role": true,
+          "viewerMembership": {
+            "description": "Used only if an object.",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.settingsChanged": {
+        "type": "object",
+        "properties": {
+          "version": true,
+          "clanPatch": {
+            "description": "Object forwarded to clan state; joinType/minLevel/emblem are mapped to internal accessType/minimumLevel/flag names.",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.permissionsChanged": {
+        "type": "object",
+        "properties": {
+          "version": true,
+          "rolePermissions": true,
+          "viewerPermissions": true
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.dailyMessageChanged": {
+        "type": "object",
+        "properties": {
+          "dailyMessage": {
+            "description": "Passed through, with null fallback."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.eventLogged": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.progressChanged": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "description": "Consumed with non-null checks or subsequent client normalization; wire type not established."
+          },
+          "experience": {
+            "description": "Consumed with non-null checks or subsequent client normalization; wire type not established."
+          },
+          "maxMembers": {
+            "description": "Consumed with non-null checks or subsequent client normalization; wire type not established."
+          },
+          "playerId": {
+            "description": "Consumed with non-null checks or subsequent client normalization; wire type not established."
+          },
+          "weeklyImpact": {
+            "description": "Consumed with non-null checks or subsequent client normalization; wire type not established."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "clan.disbanded": {
+        "type": "object",
+        "properties": {
+          "clanId": {
+            "description": "Forwarded to clan state helpers."
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.inviteAccepted": {
+        "type": "object",
+        "properties": {
+          "invitationId": {
+            "description": "Client requires a trimmed string to remove invitation state.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.inviteDeclined": {
+        "type": "object",
+        "properties": {
+          "invitationId": {
+            "description": "Client requires a trimmed string to remove invitation state.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.inviteCancelled": {
+        "type": "object",
+        "properties": {
+          "invitationId": {
+            "description": "Client requires a trimmed string to remove invitation state.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.inviteExpired": {
+        "type": "object",
+        "properties": {
+          "invitationId": {
+            "description": "Client requires a trimmed string to remove invitation state.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "friend.requestAccepted": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "friend.requestDeclined": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "friend.requestCancelled": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "friend.removed": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "interaction.boosterRequestCreated": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "interaction.boosterRequestFulfilled": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "interaction.boosterGiftReceived": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "interaction.stashHelpReceived": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.joined": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Room routing reads a string battleId case-insensitively from payload or envelope, then trims/lowercases it.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.leader": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Room routing reads a string battleId case-insensitively from payload or envelope, then trims/lowercases it.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.left": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Room routing reads a string battleId case-insensitively from payload or envelope, then trims/lowercases it.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.state": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Room routing reads a string battleId case-insensitively from payload or envelope, then trims/lowercases it.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.forbidden": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Room routing reads a string battleId case-insensitively from payload or envelope, then trims/lowercases it.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      },
+      "boss.room.reconnected": {
+        "type": "object",
+        "properties": {
+          "battleId": {
+            "description": "Room routing reads a string battleId case-insensitively from payload or envelope, then trims/lowercases it.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "x-evidence": "client-event-consumer"
+      }
+    },
+    "locallySynthesizedTypes": ["boss.room.forbidden", "boss.room.reconnected"],
+    "roomDispatchPrefix": "boss.room.",
+    "clanDispatchPrefix": "clan.",
+    "sourceAnchors": [
+      "adr / add",
+      "ad6",
+      "ad7 / ad9 / ada / adc",
+      "a8Y / a90",
+      "a6X / a70 / a71"
+    ]
+  },
+  "clientToServer": [
+    {
+      "method": "JoinBossBattle",
+      "arguments": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1,
+        "maxItems": 1
+      },
+      "description": "One trimmed battleId string. Client retains original casing for invocation and lowercases room bookkeeping keys.",
+      "source": "adu / adc"
+    },
+    {
+      "method": "LeaveBossBattle",
+      "arguments": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1,
+        "maxItems": 1
+      },
+      "description": "One trimmed battleId string. Client retains original casing for invocation and lowercases room bookkeeping keys.",
+      "source": "adv"
+    }
+  ]
+}

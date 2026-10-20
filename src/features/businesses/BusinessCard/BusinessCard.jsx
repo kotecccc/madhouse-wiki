@@ -4,16 +4,27 @@ import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 
 export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
   return (
     <BaseCard variant="floor-data" as="li" className="floor-business-card">
-      <CardTitle className="floor-work-business-name">
-        {business.title}
-      </CardTitle>
-      <CardDescription as="small" className="floor-business-income">
-        Доход не указан
-      </CardDescription>
+      <ImageCard
+        className="floor-business-icon"
+        size="var(--business-image-size)"
+        imageSize="var(--business-image-content-size)"
+        label={`Бизнес: ${business.title}`}
+      >
+        <Icon type="business" />
+      </ImageCard>
+      <div className="floor-business-copy">
+        <CardTitle className="floor-work-business-name">
+          {business.title}
+        </CardTitle>
+        <CardDescription as="small" className="floor-business-income">
+          Доход не указан
+        </CardDescription>
+      </div>
       <Button
         variant="secondary"
         className="business-upgrade-open"
@@ -21,7 +32,6 @@ export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
         aria-label={`Требования по предметам для бизнеса «${business.title}»`}
         onClick={() => onUpgradeSelect({ business, upgrade })}
       >
-        <Icon type="book" />
         <span>Уровни</span>
       </Button>
     </BaseCard>
