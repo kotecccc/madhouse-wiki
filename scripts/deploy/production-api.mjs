@@ -63,7 +63,20 @@ export function createProductionApi(paths, fetcher = fetch) {
         [204, 205, 304].includes(upstream.status) ? null : body,
         { status: upstream.status, headers },
       );
-    } catch {
+    } catch (error) {
+      // Log a fixed diagnostic enum only: never requests, tokens, URLs, bodies
+      // or exception messages. This distinguishes runtime config from outage.
+      const message = typeof error?.message === "string" ? error.message : "";
+      const category = /cache|RequestInitializer/i.test(message)
+        ? "unsupported-cache-option"
+        : /AbortSignal|timeout.*not.*function/i.test(message)
+          ? "unsupported-timeout-api"
+          : ["TimeoutError", "AbortError"].includes(error?.name)
+            ? "upstream-timeout"
+            : /redirect/i.test(message)
+              ? "upstream-redirect-rejected"
+              : "upstream-network-failure";
+      console.warn("madhouse-api-transport", category);
       return fail(502, "Game API is temporarily unavailable");
     }
   };
