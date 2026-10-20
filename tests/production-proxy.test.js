@@ -59,7 +59,7 @@ test("production proxy forwards only Bearer and JSON Accept to fixed upstream; n
     Authorization: "Bearer test.session.token",
     Accept: "application/json",
   });
-  assert.equal(call.options.redirect, "error");
+  assert.equal(call.options.redirect, "manual");
   assert.equal(call.options.cache, "no-store");
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["set-cookie"], undefined);
@@ -108,7 +108,7 @@ test("Sites Fetch transport shares the same route and privacy boundary", async (
   const transport = createProductionApi(["/api/me"], async (url, options) => {
     called = true;
     assert.equal(url, "https://cargohustle.online/api/me");
-    assert.equal(options.redirect, "error");
+    assert.equal(options.redirect, "manual");
     assert.equal(options.headers.Cookie, undefined);
     return new Response("{}", {
       status: 403,
@@ -149,4 +149,35 @@ test("dollar-floor encoded identifier remains a valid fixed-upstream GET", async
   );
   assert.equal(res.statusCode, 200);
   assert.equal(destination, "https://cargohustle.online/api/floors/%24/info");
+});
+
+test("hosted redirects are rejected without forwarding Location, secrets or following target", async () => {
+  let calls = 0;
+  const proxy = createProxy(async () => {
+    calls++;
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "https://check.ddos-guard.net/check?secret=private",
+      },
+    });
+  });
+  const res = response();
+  await proxy(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: "Bearer fake" },
+    },
+    res,
+  );
+  assert.equal(calls, 1);
+  assert.equal(res.statusCode, 502);
+  assert.equal(res.headers.location, undefined);
+  assert.equal(res.headers["x-madhouse-redirect-class"], "ddos-protection");
+  assert.equal(res.headers["x-madhouse-upstream-status"], "302");
+  assert.doesNotMatch(
+    JSON.stringify(res.headers) + String(res.body),
+    /secret=|check\.ddos/,
+  );
 });

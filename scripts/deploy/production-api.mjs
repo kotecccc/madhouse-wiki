@@ -47,11 +47,39 @@ export function createProductionApi(paths, fetcher = fetch) {
         {
           method: "GET",
           headers: { Authorization: authorization, Accept: "application/json" },
-          redirect: "error",
+          redirect: "manual",
           cache: "no-store",
           signal: AbortSignal.timeout(20000),
         },
       );
+      if (upstream.status >= 300 && upstream.status < 400) {
+        let redirectClass = "unclassified";
+        try {
+          const target = new URL(
+            upstream.headers.get("location"),
+            "https://cargohustle.online",
+          );
+          redirectClass =
+            target.hostname === "cargohustle.online"
+              ? "same-origin"
+              : /(^|\.)ddos-guard\.(net|com|ru)$/.test(target.hostname)
+                ? "ddos-protection"
+                : "external-origin";
+        } catch {
+          /* No untrusted redirect text leaves this scope. */
+        }
+        // Manual mode NEVER follows a redirect or sends Bearer to its target.
+        console.warn(
+          "madhouse-api-transport",
+          "upstream-redirect-rejected",
+          redirectClass,
+        );
+        return fail(502, "Game API redirect rejected", {
+          "X-Madhouse-Transport-Error": "upstream-redirect-rejected",
+          "X-Madhouse-Redirect-Class": redirectClass,
+          "X-Madhouse-Upstream-Status": String(upstream.status),
+        });
+      }
       const body = await upstream.arrayBuffer();
       if (body.byteLength > 4 * 1024 * 1024)
         return fail(502, "Upstream response too large");
