@@ -1,6 +1,6 @@
 # Telegram bot and game connection — Track C
 
-Updated: 2026-10-20. Bot created; upstream game authentication rejected; hosted menu URL pending.
+Updated: 2026-10-20. Bot created and linked to the published website; fresh upstream game authentication rejected (HTTP 401).
 
 ## Verified bot
 
@@ -10,7 +10,14 @@ Updated: 2026-10-20. Bot created; upstream game authentication rejected; hosted 
 - Bot API `getMe`: `ok=true`, username `MadhouseWikiBot`.
 - `setMyDescription` and `setMyShortDescription`: `ok=true`; independent community reference wording, no claim of official affiliation.
 - Configuration: [BotFather](https://t.me/BotFather), `/mybots` → @MadhouseWikiBot.
-- Menu/domain/live-site link: waiting for Track B's verified HTTPS URL.
+- Live site: [Madhouse Wiki](https://madhouse-wiki.damir-tarasov2016.chatgpt.site/).
+- Bot API `setChatMenuButton`: `ok=true`; `getChatMenuButton` confirmed `type=web_app`, text `Открыть Wiki`, and the exact live-site URL above.
+- Descriptions now include the public site URL; both setters and `getMyDescription`/`getMyShortDescription` confirmed success. The public `t.me/MadhouseWikiBot` page visibly shows the new short description and website address.
+- BotFather `/setdomain` for `@MadhouseWikiBot` → `madhouse-wiki.damir-tarasov2016.chatgpt.site`: visible `Success! Domain updated.` This binds the Wiki bot's Login Widget domain; it does not provide game initData or implement a widget connection flow.
+- Provider publication and actual React catalogue were independently verified by Track B/coordinator; `/release.json` identifies source commit `6364781e8da7e32bc1f641c7c15704a6b211955d`. Initial local Chrome/shell connection resets were transient; Python urllib also encountered provider filtering. They are not evidence of app authentication.
+- Public screenshot, no secrets: `/Users/mac/.codex/visualizations/2026/10/20/01a15ac6-79c9-7380-a665-810eaa1daf3c/madhouse-wiki-bot.png`.
+- Telegram Web visibly shows `Открыть Wiki` in the bot chat. Clicking it and the normal launch confirmation creates an iframe with the canonical site origin. Full embedded catalogue rendering was not verified: accessibility inspection reported `about:blank`, while a later cropped screenshot showed the bot chat without the Mini App overlay. This UI/observer mismatch is not proof that the website itself renders a blank page. A later public curl HEAD returned HTTP 200 without X-Frame-Options/CSP headers; the cause of the embedded loading issue is unconfirmed. This is separate from the independently verified standalone website.
+- No webhook or continuously running bot worker is deployed. Opening the site uses the configured WebApp menu/public link; no conversational `/start` response is claimed.
 
 ## Secrets
 
@@ -50,3 +57,11 @@ A public Wiki bot and a functioning website do not establish a hosted game conne
 Use only deliberately supplied fresh initData for the official game. The file must be outside the repository, readable only by its owner (`0600` or `0400`), and at most 32 KiB. The command performs one fixed-upstream login, then `/api/me` only if a token is returned. It uses no previous Bearer, follows no redirects, retries no requests, prints only allowlisted proof metadata, and keeps token/profile responses in memory without saving them. Login itself may initialize game state; no gameplay operations are performed. It does not obtain Telegram user access or make an end-user connection flow available.
 
 Focused validation: `node --test scripts/telegram/prove-game-auth.test.mjs` — **4 tests passed** (clean auth header/body, subsequent token use, no personal/token output, rejection stopping before `/me`, no arbitrary error echo, invalid input preflight). Formatting and scoped `git diff --check` passed. Shared auth/frontend/deploy files were not changed by Track C.
+
+## Final scope and limitations
+
+Track C bot setup is complete. The automatic game-account connection is **not implemented or proven** because the upstream rejects fresh official launch credentials. A successful bot creation, domain binding, or menu opening is not game authentication. The proof CLI is a local diagnostic, not an end-user connector.
+
+No valid existing game JWT was available in the authorized target-user context (the existing local Wiki visibly showed `Войти`). Therefore an authorized production `/api/me` call is also unverified. Production anonymous/invalid-token error behavior belongs to Track B and must be reported separately from a successful authenticated read.
+
+Next useful action for game connection: obtain a supported backend authentication contract or capture a successful fresh official-client auth exchange with explicit authorization; determine why the server rejects its own bot's current launch data. Do not collect a broad Telegram user-device session or build a hosted connector until that foundation is proven. A manual valid JWT, if supplied by the user through the normal Wiki login, can independently verify the production GET transport.

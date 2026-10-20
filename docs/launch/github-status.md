@@ -1,31 +1,37 @@
 # GitHub publication status
 
-Date: 2026-10-20 (Europe/Minsk). Track A active; repository created and verified, initial source checkpoint pushed and exact remote SHA verified; final integration pending.
+Date: 2026-10-20 (Europe/Minsk). Track A source publication complete; final evidence documentation prepared for push.
 
-## Verified identity and repository
+## Repository and authorship
 
-- Repository: [kotecccc/madhouse-wiki](https://github.com/kotecccc/madhouse-wiki), public, project title Madhouse Wiki. Created 2026-10-20 by coordinator through normal helper-backed GitHub API: verified owner `kotecccc`, lookup 404, create 201. Independent connector lookup confirms repository ID 1427474139, public visibility and admin/push permission.
-- SSH origin configured: `git@github.com:kotecccc/madhouse-wiki.git`.
-- GitHub connector authenticated login: `kotecccc` (ID 200638584). SSH authentication independently returned the same login.
-- GitHub CLI is installed but unauthenticated. Connected GitHub tools support repository lookup and Git objects, but provide no repository creation action. Existing Git osxkeychain helper returns a credential; it was used only in process memory for normal GitHub API authentication, with no value output or copy. Requests failed before account validation; coordinator subsequently verified `/user` as `kotecccc` and created the empty repository.
-- Chrome and Codex in-app browser both fail opening `https://github.com/new` with `ERR_CONNECTION_RESET`; Chrome reload fails too. Shell HTTPS to GitHub fails with a broken pipe. No credentials were exposed or network/security settings changed. Unauthenticated Python HTTPS reached the GitHub home page and API (200), but `/new` timed out and helper-backed `/user` requests failed with network errors; this is a route/client-specific access failure, not proof of a global GitHub outage.
-- Existing Git root is `/Users/mac/projects/madhouse-wiki`, branch `main`, initial HEAD `f47a7ce073f28516b2fdf1995cb4d723422d5251`; no remotes configured at start.
-- Existing history author is Тарасов Дамир with the established work email. New publication commits will use Тарасов Дамир and the personal email already configured in Frontend Punks. Existing history is preserved.
+- Public repository: [kotecccc/madhouse-wiki](https://github.com/kotecccc/madhouse-wiki), repository ID 1427474139. Title/description: Madhouse Wiki. GitHub default branch: `main`.
+- Homepage: [Madhouse Wiki](https://madhouse-wiki.damir-tarasov2016.chatgpt.site/), updated and verified through GitHub API.
+- Owner `kotecccc` confirmed independently by the connected GitHub account, SSH authentication, and normal Git credential-helper API authentication. Admin/push permissions verified.
+- SSH origin: `git@github.com:kotecccc/madhouse-wiki.git`.
+- New commits use the user's established personal identity: Тарасов Дамир <damir.tarasov2016@gmail.com>. Existing history and its original authorship remain intact.
+- Existing dirty `main` was preserved and its authorized UI/catalogue migration published. No reset, stash, checkout, clean, force-push or history rewriting was performed. Only Track A mutated the Git index, commits and push; coordinator created the empty repository and updated its homepage after verified authentication.
 
-## Audit and publication scope
+## Published source
 
-- Both existing commits audited: 151 unique blobs checked for JWTs, GitHub tokens, Telegram bot token formats and private key headers; no matches.
-- Current src/scripts/shared/tests/docs/public/source-note files scanned (135 files at initial pass); no credential matches. This is a pattern scan, supplemented by review of publication paths.
-- API contracts and Postman templates are documentation. Environment credential/user fields are empty, while catalogue values are reference-only.
-- Publish application source, relevant scripts/tests, public API documentation and audited release documentation. Preserve intentional legacy JSON removals. Do not bulk-stage untracked artifacts, captures, environment files, private local SQLite or session files.
-- Track B owns sanitized SQLite build input and ignore rules; await exact paths and clean-build readiness before checkpoint. Only Track A stages, commits and pushes.
-- Additional historical scans found no concrete Bearer/Telegram initData/API hash/password literals. Three already-tracked refactor screenshots were inspected and contain only the public catalogue UI.
-- No license is invented for third-party game assets.
+- Initial audited checkpoint: `86f488cff0f7b4f28c56187e75771a356173f551`.
+- Hosting/Telegram source integration: `6364781e8da7e32bc1f641c7c15704a6b211955d`.
+- Deployed source: [`cff5288b21dc08d7f059aa261a7422ead5f939b3`](https://github.com/kotecccc/madhouse-wiki/commit/cff5288b21dc08d7f059aa261a7422ead5f939b3). Intermediate narrowly scoped commits add safe proxy diagnostics; all were pushed without rewriting history.
+- The final evidence commit changes documentation only. Its HEAD may differ from the deployed source SHA above; source runtime/catalogue assets are unchanged.
 
-## Next steps
+## Safety audit and build input
 
-1. Track B confirmed isolated build from seed passed and 3 proxy tests passed. Sanitized seed independently checked: 4,821 entities, 1,829 links, 500 provenance sources, 239 routing entries, empty source_documents and no credential-pattern rows.
-2. Exact staged tree audited: 162 files, zero credential-pattern findings, no private SQLite, environment, session or dependency/build paths. Staged diff whitespace check passed. The single user-provided reference source note is explicitly included; other ignored artifacts remain local. Safe checkpoint will preserve the current authorized UI/catalogue migration and production build input.
-3. Initial checkpoint pushed: [`86f488cff0f7b4f28c56187e75771a356173f551`](https://github.com/kotecccc/madhouse-wiki/commit/86f488cff0f7b4f28c56187e75771a356173f551), branch `main`. SSH `git ls-remote origin refs/heads/main` independently matches exact local SHA. New commit authorship: Тарасов Дамир <damir.tarasov2016@gmail.com>.
-4. Wait for deployment/Telegram final-ready and coordinator integration decision, then audit and push final source.
-5. Final deployment verification remains Track B/coordinator responsibility. Initial push is confirmed; production website and final integration are not yet claimed.
+- Audited both original commits (151 unique blobs), current source/documentation, and exact staged trees for JWTs, GitHub/Telegram tokens, private-key headers and concrete launch credentials. No credential-pattern findings. Additional historical Bearer/API-hash/password checks were clear. Pattern scans were supplemented with path/content review.
+- Three already-tracked refactor screenshots were visually inspected and contain only catalogue UI. Untracked artifact dumps were not bulk-added.
+- No environment values, private canonical SQLite, session files, raw account captures, dependency/build directories, bot token or signed launch payloads were committed. Ignore rules protect these paths. Secret values stayed outside the repository or in process memory.
+- API contracts and empty Postman credential templates remain public documentation. Legacy JSON catalogue removals are preserved. No license was invented for third-party game assets.
+- Published `catalogue/reference.sqlite` is a newly generated reference-only seed: 4,821 entities, 1,829 links, 500 provenance rows, 239 route discoveries and 535 route/status/count/time coverage rows. Raw source_documents are empty; observations/private pages/free-form capture notes are excluded. Existing strict per-kind projections are reused. One audited user-provided reference-cost source note is explicitly included.
+- Track B verified isolated clean builds without private local-data and rebuilt from the pushed GitHub source. Canonical local-data/madhouse.sqlite remains the local source of truth; clean builds restore the sanitized seed through the same SQL/Vite pipeline.
+
+## Verification and limits
+
+- SSH remote branch checks match pushed local SHAs; connected GitHub commit lookup independently confirmed publication.
+- Track A independently fetched public `/release.json`: correct repository and exact source SHA `cff5288b21dc08d7f059aa261a7422ead5f939b3`.
+- Track A independently requested public `/api/me` with a deliberately invalid non-secret token: HTTP 401, `Cache-Control: private, no-store, max-age=0` and CDN no-store headers. No real account credentials were used in this check.
+- Coordinator validated final deployed source: 49 tests passed, 0 failed; lint/data/diff checks passed. Track B validated six final proxy cases and production smoke. Aggregate formatting has pre-existing warnings, so a full aggregate check is not claimed.
+- Telegram bot exists and links to the live website; embedded Telegram rendering remains unverified. Fresh official-game login returned HTTP 401 twice, no token was issued, and successful authenticated production reads remain unverified. See `telegram-status.md`; no successful connector is claimed.
+- Hosting deployment/version, public mobile/assets checks and provider constraints are recorded in `deploy-status.md`; overall release acceptance and outstanding external limits are recorded in `release-status.md`.

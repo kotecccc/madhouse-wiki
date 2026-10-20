@@ -1,53 +1,55 @@
 # Madhouse Wiki release status
 
-Date: 2026-10-20 (Europe/Minsk). Overall status: in progress; release is not yet verified.
+Date: 2026-10-20 (Europe/Minsk). Overall status: public reference site and bot launched; production GET transport forwards invalid-session responses correctly. Fresh game-account connection and embedded Telegram rendering remain unproven. Coordinator goal remains active for the unresolved connection scope.
 
-## Coordination and ownership
+## Public deliverables
 
-- Coordinator: `01a15ac6-b0b3-7132-b606-accd4a604f55`; integration evidence and this file.
-- GitHub publication: `01a15ac6-2ce0-7633-9726-421e45045bb0`; exclusive git index, commit and push ownership; `github-status.md`.
-- Deployment: `01a15ac6-777e-74c3-a65c-fb22ad25f1b7`; catalogue packaging, production transport and deployment; `deploy-status.md`.
-- Telegram: `01a15ac6-79c9-7380-a665-810eaa1daf3c`; exclusive Telegram/BotFather and connection proof; `telegram-status.md`.
+- Website: [Madhouse Wiki](https://madhouse-wiki.damir-tarasov2016.chatgpt.site/).
+- Repository: [kotecccc/madhouse-wiki](https://github.com/kotecccc/madhouse-wiki), public, branch `main`. Repository homepage points to the live website.
+- Bot: [@MadhouseWikiBot](https://t.me/MadhouseWikiBot). Its WebApp menu, descriptions and BotFather domain point to the live website.
+- Release marker: [release.json](https://madhouse-wiki.damir-tarasov2016.chatgpt.site/release.json).
+- Independently verified pushed/deployed source: `cff5288b21dc08d7f059aa261a7422ead5f939b3`. Sites deployment: `appgdep_6ad7c32e35248191ac77bbba732ff356`. A later evidence-only documentation commit may advance repository HEAD; the deployed application is identified by its own source SHA.
 
-The coordinator goal is active. All tracks received cross-track IDs and the required release sequence. No additional agents were created. Existing dirty `main` is preserved; coordinator does not stage or commit.
+## Acceptance by layer
 
-## Evidence at start
+| Layer                 | State                                               | Evidence and limits                                                                                                                                            |
+| --------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub                | Verified                                            | Correct owner, public API/SSH pushed SHA checks, reviewed publication scope and established user authorship                                                    |
+| Catalogue             | Verified                                            | Audited reference-only SQLite seed; isolated clean hosted build without private local-data                                                                     |
+| Public website        | Verified                                            | HTTPS renders the actual React catalogue; assets, API docs and disclosure/drop modal work; mobile 390×844 checked                                              |
+| Production API guards | Verified                                            | No-session me/dollar-floor 401; writes 405; unknown routes rejected; no-store responses                                                                        |
+| Upstream forwarding   | Invalid-session forwarding verified                 | Controlled invalid Bearer now gets real upstream 401 with private/CDN no-store. No valid JWT was available for an authenticated read                           |
+| Telegram bot          | Configured                                          | Bot API identity/menu/description getters, public profile and BotFather domain confirmation. Embedded catalogue rendering inside Telegram is not yet confirmed |
+| Fresh game connection | Observed rejection                                  | Two fresh official-game launches produced clean 401 telegram_auth_failed without old Bearer; no new token or subsequent me proof; reason unknown               |
+| Final integration     | Source/deployment verified; evidence commit pending | Clean exact-source deployment, public marker and smoke checks passed; final documentation push follows                                                         |
 
-- Workspace and Git root confirmed: `/Users/mac/projects/madhouse-wiki`.
-- Branch: `main`; initial HEAD: `f47a7ce073f28516b2fdf1995cb4d723422d5251` (`feat: db`).
-- Substantial authorized UI/catalogue changes and untracked source/tests are present. Historical JSON removals belong to the active SQLite migration and must not be restored automatically.
-- Current build uses React/Vite with a canonical local SQLite catalogue. Production packaging and API transport require track B verification.
+The Wiki bot is a website entry point. No persistent bot worker, conversational start handler, MTProto backend, automatic game connector or successful game login is claimed. Existing manual-JWT UI is preserved; its authenticated production behavior remains unverified.
 
-## Release acceptance
+## Verification
 
-| Layer                    | Status                                            | Required evidence                                                                                                                           |
-| ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub                   | Safe checkpoint pushed; final integration pending | `https://github.com/kotecccc/madhouse-wiki`, public, owner `kotecccc`, branch `main`, checkpoint `86f488cff0f7b4f28c56187e75771a356173f551` |
-| Reproducible catalogue   | Local clean build verified                        | Audited `catalogue/reference.sqlite`; isolated hosted build passed without private local-data                                               |
-| Production website       | Pending                                           | Free public HTTPS URL, deployed SHA, assets/catalogue, mobile smoke test                                                                    |
-| Production API transport | Pending                                           | Fixed upstream, bounded read-only routes, private/no-store behavior, observed public errors and authorized reads where available            |
-| Telegram bot             | Created; live link pending                        | Track C created `https://t.me/MadhouseWikiBot`; website URL/configuration still pending                                                     |
-| Game account connection  | Pending                                           | Fresh target-specific initData exchange without old Bearer, resulting token and read-only `/api/me`, or precise external blocker            |
-| Final integration        | Pending                                           | Final audit, track A push, deployment of that SHA, public smoke test and verified bot URLs                                                  |
+- Final coordinator test run on deployed source: **49 passed, 0 failed**, including four proof CLI and six production transport checks. Final lint, data validation and diff check passed. HMR port contention was a non-fatal test-run warning.
+- Coordinator lint and data validation passed: SQLite integrity ok, zero unresolved links, 16 floor definitions and 108 bosses.
+- Aggregate formatting check reported 12 existing application/API/script/test formatting warnings, plus this document before formatting. No unrelated formatting churn was introduced; full aggregate check is not claimed.
+- Seed audit: 4,821 entities, 1,829 links, 500 sources, 535 route/status/count/time coverage records and 239 discovery records. Raw source documents are empty, observations absent, integrity/FK checks pass. Fresh database export reprojects payloads through reference allowlists; source metadata was manually reviewed by tracks A/B.
+- Track B built a clean clone of the pushed source, embedding the original React/Vite assets with a fixed-upstream GET Worker. Private SQLite is not served; provider checkout/publish is isolated from the project's Git index.
+- Coordinator independently read GitHub commits and live release marker: source repository/SHA matched. Browser interactions opened A1 boss/business content and the drop modal with reference costs/stats.
+- Root, JS/CSS, auth-session.js, API docs/OpenAPI return 200; docs redirect works. Mobile width 390 has no horizontal overflow. External CDN images loaded after one normal reload; coordinator confirmed visible stash image width 122. No asset path/source changes were needed.
+- Python urllib encountered provider Cloudflare filtering and Chrome occasionally reset connections. Curl and the in-app browser successfully verified public deployment; local client filtering is separate from upstream game auth.
+- No-session API guards are independently confirmed with curl. Earlier invalid-Bearer probes returned 502 and the fixed diagnostic identified rejected upstream redirects. Final source uses manual mode and unconditionally rejects every redirect without following it or forwarding Location/Bearer. The final public deployment independently returns actual upstream 401 for a controlled invalid token with no-store headers and no transport-error header. The earlier cause is not conclusively attributed to cache/runtime incompatibility; no redirect was bypassed. Fixed diagnostic enums contain no requests, credentials, URLs, bodies or raw errors.
+- Telegram menu/destination is verified, but embedded rendering is unverified because accessibility and screenshot observations disagreed; this is not proof of a blank or incompatible site. Standalone responses have no CSP/X-Frame-Options blocking embedding.
+- Coordinator CORS preflight to the fixed game API with the Wiki Origin returned 204 without Access-Control-Allow-Origin/Headers/Methods, so direct browser forwarding was not substituted.
+- Track C obtained fresh official-game launch data through existing authorized Telegram Web. Two direct clean auth probes returned 401; the official client's own auth request was not captured. Protected local proof CLI is diagnostic only. No fabricated signature, developer-ID shortcut, gameplay write or new Telegram device session was used.
 
-Push, deploy, bot setup and game login are distinct acceptance layers. No completion claim is made until supporting evidence is available. Secrets, raw account captures and session files must remain outside published source and status files.
+Public mobile screenshot: `artifacts/launch/production-mobile.png` (ignored local verification artifact).
 
-## Integration checks and findings
+## Security and coordination
 
-- Baseline `npm test`: 39 passed, 0 failed (2026-10-20). The test runner reported existing HMR port 24678 contention; assertions still passed. This is local unit/render evidence, not public deployment proof.
-- Coordinator `npm run lint` passed. `npm run validate:data` passed: SQLite integrity `ok`, zero unresolved links; includes 16 floor definitions and 108 bosses. These checks cover the current working tree while deployment integration is still ongoing.
-- Integrated `npm test` after B/C source changes: 47 passed, 0 failed, including four shared production transport checks and four safe game-auth proof CLI checks. Existing HMR port contention remains a non-fatal test-run warning.
-- Aggregate `npm run format:check` reports formatting issues in 12 pre-existing application/API/script/test files plus this evolving status file. Coordinator formats only its own status file; no unrelated UI/catalogue formatting changes are introduced. Lint, data validation and tests passed; full aggregate `check` is not claimed.
-- Current login accepts a user-provided game JWT and stores it in browser localStorage. API responses use an in-memory session cache. A working manual JWT login does not establish Telegram-to-game connection.
-- Track A confirmed GitHub owner `kotecccc` and working SSH authentication. Browser requests failed and gh CLI was unauthenticated. On Track A's explicit handoff, coordinator used the existing macOS Git credential helper in memory for normal GitHub API requests: `/user` returned 200 with `kotecccc`, target repository lookup returned 404, and repository creation returned 201. Public empty repository: `https://github.com/kotecccc/madhouse-wiki`, owner `kotecccc`, `private=false`. No secret was printed or persisted and no local Git metadata was changed by coordinator. Track A retains exclusive index/commit/push ownership.
-- Track B is preparing a sanitized reference-only SQLite seed excluding raw source documents and observations. Public hosting URL is pending provider access.
-- Track C detected that an existing unrelated project's MTProto session and active Telegram Desktop display different identities. It stopped mutations through that session; identity must be resolved before game authentication. Dedicated BotFather work stays with the authorized active Telegram surface.
-- Track C reports creation of `@MadhouseWikiBot` on the authorized active Desktop account after checking owned bots for duplicates. Token storage is outside the repository with mode 600. Coordinator's separate public t.me HTTP check failed locally and does not independently verify bot functionality; BotFather/Bot API proof remains with track C.
-- Coordinator network checks using Python urllib received HTTP 200 from GitHub, GitHub API, Vercel and Vercel API; `/new` routes are reachable too (GitHub redirects to login). Browser reset is narrower than a global service outage. GitHub/provider authenticated creation paths remain under investigation.
-- Independent public GitHub API read confirms repository HTTP 200, `private=false`, owner `kotecccc`, default branch `main` (empty at the time of this check).
-- Independent seed read confirms 4,821 entities, 1,829 links, 500 provenance sources, 535 coverage records and 239 discovered routes. Raw source documents are empty; SQLite integrity is `ok` and foreign-key check reports zero violations. Export creates a fresh database and reprojects entity payloads through reference allowlists.
-- Track B reports isolated `build:hosted` passed without private local-data, with 106 modules; three targeted production-proxy tests passed. Vercel CLI currently rejects its token. Track B is checking legitimate login and the Sites hosting fallback with an isolated provider source repository.
-- Safe source checkpoint pushed by Track A: `86f488cff0f7b4f28c56187e75771a356173f551`, `main`. Coordinator independently read the public GitHub commits API: HTTP 200 and the same SHA/message. Track A reports 162-file staged audit with zero credential findings and `git diff --check` passing. Final integration/deployment still pending.
-- Sites fallback project is registered by Track B. Expected origin is not release evidence until published and checked. Vercel authentication is not yet available; no paid resource is authorized.
-- Track C obtained fresh launch data through the official game in existing authorized Telegram Web. A clean POST without an old Bearer returned 401 (`telegram_auth_failed`), so no new game token or authenticated `/api/me` proof exists yet. Investigating the actual official client request; no connected success should be claimed.
-- Track C source is ready: protected local proof CLI and four tests are integrated. Two distinct fresh launches returned clean 401; status of the official client's own authentication request could not be captured and remains unknown. The CLI is a diagnostic tool, not an end-user hosted connector. Temporary signed launch inputs were deleted; retained private proof contains sanitized status only.
+Track A owns Git index/commits/pushes; B hosting/catalogue packaging/transport; C Telegram/BotFather/proof; coordinator this file and independent integration checks. Cross-chat messages are explicitly authorized by PLAN.md. No extra agents were created.
+
+Workspace/root and initial dirty main were checked before work. Existing authorized UI/catalogue work was preserved and published after audit. No reset, stash, clean, checkout, force push or unrelated project changes. Initial HEAD was f47a7ce073f28516b2fdf1995cb4d723422d5251; first checkpoint 86f488cff0f7b4f28c56187e75771a356173f551.
+
+GitHub creation used the existing macOS Git credential helper in memory after owner verification, without printing or persisting credentials. Publication audits found no credential material. Raw captures, private SQLite, environment/session files stay excluded. Bot secrets are outside the repository with restrictive permissions. Track C's status records handling of a temporary signed launch URL in a private tool result; it was never published/committed and must not be copied.
+
+An unrelated project's MTProto session resolved to a different identity and was excluded from Wiki creation/game login; its temporary helper was removed. The authorized active Telegram account created/configured the bot. No paid plan, domain purchase, D1/R2 or persistent user-session service was provisioned. Vercel auth was unavailable; Sites supplied the provider subdomain.
+
+See github-status.md, deploy-status.md and telegram-status.md for detailed evidence. Push, deployment, bot setup and game connection are separate claims.
