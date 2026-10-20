@@ -1,5 +1,8 @@
+import { connectionFailure } from "./diagnostics.js";
+
 export function createConnection({
   createClient,
+  errorTypes,
   exchange,
   onState = () => {},
   storage = "madhouse-wiki-telegram-v1",
@@ -25,8 +28,10 @@ export function createConnection({
   async function restore(expectedUserId) {
     const started = generation;
     if (cleanup) await cleanup;
-    const current = await getClient();
+    let stage = "CLIENT";
     try {
+      const current = await getClient();
+      stage = "RESTORE";
       const self = await current.getMe();
       if (started !== generation) throw new Error("cancelled");
       if (expectedUserId && String(self.id) !== expectedUserId) {
@@ -55,8 +60,7 @@ export function createConnection({
         return false;
       }
       // Raw Telegram errors may contain request information; do not retain them.
-      // eslint-disable-next-line preserve-caught-error
-      throw new Error("telegram_unavailable");
+      throw connectionFailure(error, stage, errorTypes);
     }
   }
   async function gameLogin(expectedUserId) {

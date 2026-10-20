@@ -4,6 +4,7 @@ import { BaseCard } from "../../../src/components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../src/components/ui/CardTitle/CardTitle.jsx";
 import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { createConnection } from "../../session.js";
+import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
 
 const messages = {
@@ -48,8 +49,9 @@ export function ConnectionApp() {
   const fail = useCallback(
     (error) =>
       setError(
-        messages[error?.text || error?.message] ||
-          "Не удалось завершить подключение. Повторите попытку.",
+        (messages[error?.text || error?.message] ||
+          "Не удалось завершить подключение. Повторите попытку.") +
+          diagnosticSuffix(error),
       ),
     [],
   );
@@ -113,9 +115,15 @@ export function ConnectionApp() {
         const response = await fetch("/api/config", { cache: "no-store" });
         if (!response.ok) throw new Error();
         const settings = await response.json();
-        const { TelegramClient } = await import("@mtcute/web");
+        const {
+          TelegramClient,
+          MtTimeoutError,
+          MtSecurityError,
+          MtUnsupportedError,
+        } = await import("@mtcute/web");
         if (stopped) return;
         const conn = createConnection({
+          errorTypes: { MtTimeoutError, MtSecurityError, MtUnsupportedError },
           createClient: (storage) =>
             new TelegramClient({
               apiId: settings.apiId,
@@ -212,10 +220,13 @@ export function ConnectionApp() {
         } catch {
           /* A standalone page cannot start a privileged connection. */
         }
-      } catch {
+      } catch (error) {
         if (!stopped) {
           setStage("unavailable");
-          setError("Подключение временно недоступно.");
+          setError(
+            "Подключение временно недоступно." +
+              diagnosticSuffix(connectionFailure(error, "BOOT")),
+          );
         }
       }
     })();
