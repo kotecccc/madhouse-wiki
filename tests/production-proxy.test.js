@@ -5,7 +5,7 @@ function response() {
   return {
     headers: {},
     setHeader(key, value) {
-      this.headers[key] = value;
+      this.headers[key.toLowerCase()] = value;
     },
     end(body) {
       this.body = body;
@@ -26,7 +26,7 @@ test("production proxy rejects writes, unknown destinations and missing sessions
     const res = response();
     await proxy({ method, url, headers: {} }, res);
     assert.equal(res.statusCode, expected);
-    assert.match(res.headers["Cache-Control"], /no-store/);
+    assert.match(res.headers["cache-control"], /no-store/);
   }
 });
 test("production proxy forwards only Bearer and JSON Accept to fixed upstream; never forwards cookies or caches personal data", async () => {
@@ -63,7 +63,7 @@ test("production proxy forwards only Bearer and JSON Accept to fixed upstream; n
   assert.equal(call.options.cache, "no-store");
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["set-cookie"], undefined);
-  assert.match(res.headers["Vercel-CDN-Cache-Control"], /no-store/);
+  assert.match(res.headers["vercel-cdn-cache-control"], /no-store/);
 });
 test("upstream failures preserve status and bounded retry while exceptions expose no secret", async () => {
   for (const status of [401, 403, 429]) {
@@ -80,7 +80,7 @@ test("upstream failures preserve status and bounded retry while exceptions expos
       res,
     );
     assert.equal(res.statusCode, status);
-    if (status === 429) assert.equal(res.headers["Retry-After"], "15");
+    if (status === 429) assert.equal(res.headers["retry-after"], "15");
   }
   const res = response();
   await createProxy(async () => {
@@ -94,5 +94,55 @@ test("upstream failures preserve status and bounded retry while exceptions expos
     res,
   );
   assert.equal(res.statusCode, 502);
-  assert.doesNotMatch(res.body, /secret/);
+  assert.doesNotMatch(String(res.body), /secret/);
+});
+
+test("Sites Fetch transport shares the same route and privacy boundary", async () => {
+  const { createProductionApi } =
+    await import("../scripts/deploy/production-api.mjs");
+  let called = false;
+  const transport = createProductionApi(["/api/me"], async (url, options) => {
+    called = true;
+    assert.equal(url, "https://cargohustle.online/api/me");
+    assert.equal(options.redirect, "error");
+    assert.equal(options.headers.Cookie, undefined);
+    return new Response("{}", {
+      status: 403,
+      headers: { "set-cookie": "secret" },
+    });
+  });
+  const denied = await transport(
+    new Request("https://wiki.invalid/api/unknown", {
+      headers: { Authorization: "Bearer fake" },
+    }),
+  );
+  assert.equal(denied.status, 404);
+  assert.equal(called, false);
+  const result = await transport(
+    new Request("https://wiki.invalid/api/me", {
+      headers: { Authorization: "Bearer fake", Cookie: "private" },
+    }),
+  );
+  assert.equal(result.status, 403);
+  assert.equal(result.headers.get("set-cookie"), null);
+  assert.match(result.headers.get("cache-control"), /no-store/);
+});
+
+test("dollar-floor encoded identifier remains a valid fixed-upstream GET", async () => {
+  let destination;
+  const proxy = createProxy(async (url) => {
+    destination = url;
+    return new Response("{}");
+  });
+  const res = response();
+  await proxy(
+    {
+      method: "GET",
+      url: "/api/floors/%24/info",
+      headers: { authorization: "Bearer fake" },
+    },
+    res,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(destination, "https://cargohustle.online/api/floors/%24/info");
 });

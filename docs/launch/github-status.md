@@ -1,6 +1,6 @@
 # GitHub publication status
 
-Date: 2026-10-20 (Europe/Minsk). Track A active; repository created and verified, first source checkpoint prepared for push.
+Date: 2026-10-20 (Europe/Minsk). Track A active; repository created and verified, initial source checkpoint pushed and exact remote SHA verified; final integration pending.
 
 ## Verified identity and repository
 
@@ -26,6 +26,6 @@ Date: 2026-10-20 (Europe/Minsk). Track A active; repository created and verified
 
 1. Track B confirmed isolated build from seed passed and 3 proxy tests passed. Sanitized seed independently checked: 4,821 entities, 1,829 links, 500 provenance sources, 239 routing entries, empty source_documents and no credential-pattern rows.
 2. Exact staged tree audited: 162 files, zero credential-pattern findings, no private SQLite, environment, session or dependency/build paths. Staged diff whitespace check passed. The single user-provided reference source note is explicitly included; other ignored artifacts remain local. Safe checkpoint will preserve the current authorized UI/catalogue migration and production build input.
-3. Push to the verified public repository; creation blocker is resolved.
+3. Initial checkpoint pushed: [`86f488cff0f7b4f28c56187e75771a356173f551`](https://github.com/kotecccc/madhouse-wiki/commit/86f488cff0f7b4f28c56187e75771a356173f551), branch `main`. SSH `git ls-remote origin refs/heads/main` independently matches exact local SHA. New commit authorship: Тарасов Дамир <damir.tarasov2016@gmail.com>.
 4. Wait for deployment/Telegram final-ready and coordinator integration decision, then audit and push final source.
-5. Verify remote owner, branch and exact SHA. No push or deployment success is claimed yet.
+5. Final deployment verification remains Track B/coordinator responsibility. Initial push is confirmed; production website and final integration are not yet claimed.
