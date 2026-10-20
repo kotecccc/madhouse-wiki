@@ -7,6 +7,7 @@ import {
   cpSync,
 } from "node:fs";
 import { resolve, relative, extname } from "node:path";
+import { productionConnectorConfig } from "./connector-release-config.mjs";
 const root = process.cwd();
 const commit = process.env.MADHOUSE_RELEASE_SHA;
 if (!/^[a-f0-9]{40}$/.test(commit || ""))
@@ -38,6 +39,10 @@ function collect(directory) {
   }
 }
 collect(dist);
+const connector = productionConnectorConfig(
+  JSON.parse(readFileSync(resolve(dist, "connection-config.json"), "utf8")),
+  process.env.MADHOUSE_REQUIRE_TELEGRAM_CONNECTOR === "1",
+);
 files["/release.json"] = {
   type: "application/json; charset=utf-8",
   body: Buffer.from(
@@ -46,6 +51,7 @@ files["/release.json"] = {
       sourceCommit: commit,
       provider: "Sites",
       catalogue: "reference-only-sqlite",
+      telegramConnector: connector,
     }),
   ).toString("base64"),
 };

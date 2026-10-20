@@ -1,0 +1,225 @@
+export function createConnection({
+  createClient,
+  exchange,
+  onState = () => {},
+  storage = "madhouse-wiki-telegram-v1",
+  now = Date.now,
+  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  let client,
+    clientPromise,
+    generation = 0,
+    active = null,
+    account = null,
+    qrExpires = 0,
+    cleanup = null;
+  const authOperations = new Set();
+  const state = (value) => onState(value);
+  async function getClient() {
+    if (!client) {
+      clientPromise ??= Promise.resolve().then(() => createClient(storage));
+      client = await clientPromise;
+    }
+    return client;
+  }
+  async function restore(expectedUserId) {
+    const started = generation;
+    if (cleanup) await cleanup;
+    const current = await getClient();
+    try {
+      const self = await current.getMe();
+      if (started !== generation) throw new Error("cancelled");
+      if (expectedUserId && String(self.id) !== expectedUserId) {
+        state({ stage: "wrong-account" });
+        return false;
+      }
+      account = String(self.id);
+      qrExpires = 0;
+      state({ stage: "connected" });
+      return true;
+    } catch (error) {
+      if (started !== generation || error?.message === "cancelled") {
+        // eslint-disable-next-line preserve-caught-error
+        throw new Error("cancelled");
+      }
+      if (
+        [
+          "AUTH_KEY_UNREGISTERED",
+          "SESSION_REVOKED",
+          "SESSION_EXPIRED",
+          "USER_DEACTIVATED",
+        ].includes(error?.text)
+      ) {
+        account = null;
+        state({ stage: "consent" });
+        return false;
+      }
+      // Raw Telegram errors may contain request information; do not retain them.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error("telegram_unavailable");
+    }
+  }
+  async function gameLogin(expectedUserId) {
+    const identity = expectedUserId || null;
+    if (active?.identity === identity) return active.promise;
+    if (active) cancel();
+    const started = generation;
+    const task = (async () => {
+      if (!(await restore(expectedUserId))) return { status: "login-required" };
+      if (started !== generation) throw new Error("cancelled");
+      const launch = await client.openWebview({
+        bot: "imadhouse_bot",
+        platform: "web",
+        webview: { type: "main" },
+      });
+      if (started !== generation) throw new Error("cancelled");
+      const url = new URL(launch.url);
+      if (url.origin !== "https://cargohustle.online")
+        throw new Error("invalid_launch");
+      const initData = new URLSearchParams(url.hash.slice(1)).get(
+        "tgWebAppData",
+      );
+      if (!initData) throw new Error("invalid_launch");
+      // Exactly one exchange. A rejected initData is never replayed.
+      const accessToken = await exchange(initData);
+      if (started !== generation) throw new Error("cancelled");
+      return { status: "connected", accessToken };
+    })();
+    const entry = { promise: task, identity };
+    active = entry;
+    try {
+      return await task;
+    } finally {
+      if (active === entry) active = null;
+    }
+  }
+  function cancel() {
+    generation++;
+    active = null;
+  }
+  async function runAuth(operation) {
+    const started = generation;
+    if (cleanup) await cleanup;
+    const current = await getClient();
+    if (started !== generation) throw new Error("cancelled");
+    const task = Promise.resolve().then(() => operation(current));
+    authOperations.add(task);
+    let result;
+    try {
+      result = await task;
+      if (result?._ === "auth.loginToken" && Number.isFinite(result.expires))
+        qrExpires = result.expires * 1000 + 3000;
+    } finally {
+      authOperations.delete(task);
+    }
+    if (started !== generation) {
+      await logout();
+      throw new Error("cancelled");
+    }
+    return result;
+  }
+  async function logout() {
+    if (cleanup) return cleanup;
+    cancel();
+    account = null;
+    cleanup = revoke();
+    try {
+      return await cleanup;
+    } finally {
+      cleanup = null;
+    }
+  }
+  async function revoke() {
+    let remoteRevoked = false,
+      localCleared = false;
+    try {
+      const current = await getClient();
+      // Let an already submitted code/password finish before revoking its key.
+      await Promise.allSettled([...authOperations]);
+      // An unapproved QR can still be approved until it expires. Keep its key
+      // long enough to revoke a late grant instead of orphaning a new session.
+      const monitorUntil = Math.min(qrExpires, now() + 120000);
+      while (now() < monitorUntil) {
+        try {
+          await current.getMe();
+          break;
+        } catch (error) {
+          if (error?.text !== "AUTH_KEY_UNREGISTERED") throw error;
+        }
+        await pause(Math.min(1000, qrExpires - now()));
+      }
+      await current.logOut();
+      remoteRevoked = true;
+    } catch (error) {
+      if (error?.text === "AUTH_KEY_UNREGISTERED")
+        remoteRevoked = now() >= qrExpires;
+    } finally {
+      if (client) {
+        // Clear the browser key even when the server cannot confirm revocation.
+        try {
+          await client.notifyLoggedOut();
+          localCleared = true;
+        } catch {
+          /* Report unconfirmed storage cleanup. */
+        }
+        try {
+          await client.destroy();
+        } catch {
+          /* Closing a socket is not proof of key removal. */
+        }
+        client = null;
+        clientPromise = null;
+      }
+      qrExpires = 0;
+      state({ stage: "consent" });
+    }
+    return { status: "disconnected", remoteRevoked, localCleared };
+  }
+  async function phoneCode(phone) {
+    state({ stage: "busy" });
+    let result;
+    try {
+      result = await runAuth((current) => current.sendCode({ phone }));
+    } catch (error) {
+      state({ stage: "phone" });
+      throw error;
+    }
+    if ("phoneCodeHash" in result) {
+      state({ stage: "code" });
+      return result.phoneCodeHash;
+    }
+    account = String(result.id);
+    return null;
+  }
+  async function signIn(phone, phoneCodeHash, phoneCode) {
+    try {
+      await runAuth((current) =>
+        current.signIn({ phone, phoneCodeHash, phoneCode }),
+      );
+    } catch (error) {
+      if (error?.text === "SESSION_PASSWORD_NEEDED") {
+        state({ stage: "password" });
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  }
+  async function password(value) {
+    await runAuth((current) => current.checkPassword(value));
+  }
+  return {
+    restore,
+    gameLogin,
+    logout,
+    cancel,
+    phoneCode,
+    signIn,
+    password,
+    getClient,
+    runAuth,
+    get account() {
+      return account;
+    },
+  };
+}

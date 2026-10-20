@@ -13,16 +13,49 @@ import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import "./LoginControl.css";
 import { profileAvatarUrl } from "../profile.js";
+import {
+  TelegramConnection,
+  TELEGRAM_CONNECTOR_ORIGIN,
+} from "../TelegramConnection/TelegramConnection.jsx";
+import {
+  AUTO_CONNECT_KEY,
+  CONNECTION_EPOCH_KEY,
+} from "../../../../shared/telegram-connector.js";
+
+function autoConnectionEnabled() {
+  try {
+    return window.localStorage.getItem(AUTO_CONNECT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function LoginControl() {
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [autoConnect, setAutoConnect] = useState(autoConnectionEnabled);
+  const telegramRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const controlRef = useRef(null);
   const refreshProfileRef = useRef(() => {});
   const authenticated = session.status === "ready";
+  useEffect(() => {
+    const changed = (event) => {
+      if (
+        event.key === CONNECTION_EPOCH_KEY ||
+        (event.key === AUTO_CONNECT_KEY && event.newValue !== "1")
+      ) {
+        setAutoConnect(false);
+        telegramRef.current?.cancel();
+      } else if (event.key === AUTO_CONNECT_KEY)
+        setAutoConnect(event.newValue === "1");
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, []);
   useEffect(() => {
     if (!open || !authenticated) return;
     const outside = (event) => {
@@ -124,19 +157,46 @@ export function LoginControl() {
     setOpen(false);
     setToken("");
     setError("");
+    setConnectionOpen(false);
   };
   const label = formatExpiry(session);
   const activeProfile = authenticated
     ? profile || { name: "Профиль", username: "" }
     : null;
-  const logout = () => {
+  const logout = async () => {
     try {
+      setAutoConnect(false);
+      try {
+        window.localStorage.setItem(CONNECTION_EPOCH_KEY, crypto.randomUUID());
+        window.localStorage.removeItem(AUTO_CONNECT_KEY);
+      } catch {
+        /* No secret is stored here. */
+      }
       clearToken();
       setSession(readSession());
       close();
+      if (TELEGRAM_CONNECTOR_ORIGIN) {
+        const result = await telegramRef.current.logout();
+        if (!result?.remoteRevoked || !result?.localCleared)
+          setError(
+            "Игровой вход удалён. Отключение Telegram-сессии не подтверждено полностью — проверьте Telegram → Устройства.",
+          );
+      }
     } catch (error) {
-      setError(error.message);
+      setError(
+        TELEGRAM_CONNECTOR_ORIGIN
+          ? "Не удалось подтвердить отзыв Telegram-сессии. Проверьте Telegram → Устройства."
+          : error.message,
+      );
     }
+  };
+  const connect = () => {
+    setError("");
+    setConnectionOpen(true);
+    telegramRef.current.connect().catch((error) => {
+      if (error?.message !== "cancelled")
+        setError("Не удалось завершить подключение. Повторите попытку.");
+    });
   };
   return (
     <>
@@ -150,6 +210,10 @@ export function LoginControl() {
           aria-expanded={authenticated ? open : undefined}
           aria-controls={authenticated && open ? "profile-session" : undefined}
           onClick={() => {
+            if (!authenticated && TELEGRAM_CONNECTOR_ORIGIN) {
+              connect();
+              return;
+            }
             if (authenticated && !open) refreshProfileRef.current();
             setOpen((value) => !value);
           }}
@@ -247,7 +311,39 @@ export function LoginControl() {
           </BaseCard>
         )}
       </div>
-      {open && !authenticated && (
+      {!authenticated && error && !connectionOpen && (
+        <p className="login-connection-error" role="alert">
+          {error}
+        </p>
+      )}
+      {TELEGRAM_CONNECTOR_ORIGIN && (
+        <TelegramConnection
+          ref={telegramRef}
+          open={connectionOpen}
+          error={error}
+          sessionStatus={session.status}
+          autoConnect={autoConnect}
+          onRetry={connect}
+          onWarning={() =>
+            setError(
+              "Не удалось подтвердить отключение Telegram-сессии. Проверьте Telegram → Устройства.",
+            )
+          }
+          onClose={() => setConnectionOpen(false)}
+          onToken={(value) => {
+            saveToken(value);
+            try {
+              window.localStorage.setItem(AUTO_CONNECT_KEY, "1");
+            } catch {
+              /* JWT storage is checked separately. */
+            }
+            setAutoConnect(true);
+            setSession(readSession());
+            close();
+          }}
+        />
+      )}
+      {open && !authenticated && !TELEGRAM_CONNECTOR_ORIGIN && (
         <Modal title="Вход" titleId="login-title" width={400} onClose={close}>
           <form
             className="login-form"

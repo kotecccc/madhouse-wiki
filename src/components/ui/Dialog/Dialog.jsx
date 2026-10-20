@@ -37,6 +37,7 @@ export function Dialog({
   children,
   className = "",
   modal = false,
+  visible = true,
   surface,
   ...props
 }) {
@@ -44,7 +45,7 @@ export function Dialog({
   useEffect(() => {
     const previous = document.activeElement;
     const dialog = ref.current;
-    if (!dialog) return;
+    if (!dialog || !visible) return;
     if (modal && !dialog.open) dialog.showModal();
     const unlockScroll = modal ? lockPageScroll() : undefined;
     const autofocus = dialog.querySelector("[autofocus]");
@@ -60,7 +61,7 @@ export function Dialog({
       unlockScroll?.();
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [modal]);
+  }, [modal, visible]);
   const Surface = surface ? BaseCard : "dialog";
   return (
     <Surface
@@ -68,7 +69,8 @@ export function Dialog({
       {...props}
       className={`ui-dialog ${className}`.trim()}
       ref={ref}
-      open={modal ? undefined : true}
+      hidden={!visible}
+      open={modal ? undefined : visible}
       onKeyDown={(event) => {
         if (!modal && event.key === "Escape") {
           event.preventDefault();

@@ -2,6 +2,12 @@
 
 Date: 2026-10-20 (Europe/Minsk). Public reference site, bot and native Telegram rendering are verified. A fresh official-game exchange and an authenticated production read are now proven. Automatic or one-button login from Wiki remains unimplemented; dedicated research continues, including a separately authorized investigation of a full Telegram user-session login. The earlier 401-only blocker is superseded.
 
+## Current production-parameter authorization
+
+The human explicitly approved in the auth chat: «Разрешаю использовать API_ID/API_HASH Frontend Punks публично в подключении Wiki». This supersedes the earlier LOCAL-ONLY restriction recorded in historical research notes below. Scope is exactly those two application parameters in the public browser connector runtime configuration. It does not include STRING_SESSION, another account's login, Telegram user-session export, personal data in Git, or paid resources. Parameter values must still stay out of commits, build artifacts and tool/log output; browser visibility through the approved runtime endpoint is intentional and disclosed.
+
+The deployment track is authorized to create the separate free connector Site, configure only those runtime parameters, bind its real HTTPS origin to the Wiki build and deploy the reviewed source. No further duplicate permission question is needed for this exact approved exposure. Source audit, exact-SHA clean builds, public production login, all target clients, renewal and logout checks remain required; the local proof alone does not complete the release. Historical statements below that production permission was pending describe the earlier checkpoint and are superseded by this section.
+
 ## Public deliverables
 
 - Website: [Madhouse Wiki](https://madhouse-wiki.damir-tarasov2016.chatgpt.site/).
@@ -93,3 +99,45 @@ Subsequent controlled checks support observed single-use behavior of the tested 
 An isolated React/mtcute browser prototype outside the repository passed its build and a real unauthenticated WebSocket help.getConfig call. Login using the public test application parameters is disabled. User login, restoration, fresh game launch, repeat login and logout/revocation remain untested with the user's own Telegram API application; my.telegram.org/apps requires the user's login. A human handoff request is pending in the dedicated auth chat. No new Telegram user session has been created. The private prototype is not publication input.
 
 Before integration, the browser client must explicitly address application-parameter visibility, full-session scope, IndexedDB lifetime, remote revocation versus local logout, all three Telegram platforms, and same-origin script access. The published API docs currently load external Swagger JavaScript from a mutable major-version CDN URL on the Wiki origin; that code would share access to persistent Telegram-session IndexedDB if a full client were integrated on the same origin unchanged. Isolation or an appropriately reviewed self-hosted/pinned script policy must be settled before publishing such persistence. No production source change is made merely from the successful unauthenticated transport probe.
+
+## Human-authorized local Telegram-session lifecycle proof
+
+The user explicitly approved using only the existing project's API_ID/API_HASH for private local research, without its STRING_SESSION, another account's login, publication or production use. Only those two application parameters were supplied to the private local form; no values were printed, committed, bundled or deployed. After a human handoff, the user completed a separate Telegram login themselves.
+
+The auth owner reports this verified local-browser sequence on 2026-10-20 (all timestamps UTC): first game auth/me200 at 20:18:27.924; repeat without another Telegram login at 20:19:07.858; browser reload plus application parameters restored the IndexedDB Telegram session without phone/code/QR and produced another game auth/me200 at 20:19:20.222. All me assertions were strict objects and only the new JWT was used. Remote auth.logOut completed, in-memory game JWT was cleared, and the client destroyed. A later restoration attempt at 20:19:38.216 required a phone login and reported disconnected. Telegram-session revocation is not claimed to revoke previously issued game JWTs on the game's server.
+
+This supersedes earlier statements that no research user session had ever been created or that local lifecycle was untested. It proves the local browser prototype, not production cross-platform integration. The approved parameters remain LOCAL-ONLY.
+
+The next candidate uses a separate connector origin with self-hosted JS/WASM, full-session IndexedDB confined to that origin, and a narrow exact-origin/source/correlated-message interface returning game JWT/status/logout outcomes to Wiki. No Telegram session export or arbitrary MTProto dispatch is permitted. Library fit review found default browser WebSocket transport and small local WASM binaries; production Worker must serve application/wasm and actual CSP headers. Nested Telegram Web iframe ancestors and phone/native storage behavior must be tested rather than inferred. Application-parameter delivery/exposure and actual production login remain gates before publication. Existing app code/deploy are unchanged; the separate two-origin candidate is still being prepared.
+
+## Local two-origin candidate and integration review
+
+A two-origin candidate now exists in the working tree: connector/ owns the isolated browser Telegram client and fixed game-auth relay; shared/telegram-connector.js owns the parent message bridge; TelegramConnection integrates with the existing LoginControl and shared Modal/Dialog components. API application parameters are not VITE build variables; the local connector reads a private runtime-only file. No production parameters, connector hosting project or auth deployment has been configured.
+
+The auth owner reports the first real local Wiki iframe flow succeeded: the connection dialog closed, the existing profile UI appeared, and me200 used the newly issued game JWT without manual token copying. This remains local-browser proof, not native Telegram Desktop/phone production auth proof.
+
+Coordinator reviewed the protocol/source/origin/nonce checks, fixed relay, single-flight exchange, shared UI changes and failure paths. Two issues were reproduced with in-memory mock clients and no real Telegram calls: a deferred getMe completed after logout and wrote a stale connected state; combined remote-logout and local-storage-cleanup failures incorrectly returned localCleared true. The auth owner is addressing these, late phone/QR grant cancellation, timeout cancellation, cross-tab logout, expected-account single-flight identity and retry/error completion before source freeze. No app-source edits or git-index mutations were made by coordinator.
+
+Deployment read-only fit checks confirm separate Worker CSP headers, explicit application/wasm, five library WebSocket endpoints, and non-shared memory for both default crypto WASM binaries. No default-crypto requirement for COOP/COEP or SharedArrayBuffer was found. Nested iframe ancestor policy and all actual target clients still require end-to-end tests. Runtime app-parameter exposure remains a separate user decision because current credentials are approved for local research only.
+
+## Review fixes and local automatic renewal
+
+The actual Wiki iframe login produced profile UI and me200/strict object at 2026-10-20 20:29:25.890 UTC (23:29:25.890 Europe/Minsk), with auto-connect enabled and no manual game-token copying. After deleting only the local game JWT while retaining the approved Telegram session and auto flag, the background iframe obtained a different new JWT without another code or interaction in 1385ms; me200/strict object followed at 20:33:49.733 UTC (23:33:49.733 Europe/Minsk).
+
+Coordinator independently reran the two earlier mock fixtures against the revised session code: a deferred getMe after logout no longer emitted connected, and simultaneous remote-revocation/storage-cleanup failures reported both remoteRevoked false and localCleared false. The owner reports ten focused tests covering late code/QR grants, cancellation, identity-bound single flight, bridge timeout cancellation, stale messages and cleanup failures. Broader checks and source freeze remain pending; these fixes are not yet a published production claim.
+
+A hosted-release guard is required: the ignored local .env.local intentionally selects http://127.0.0.1:4199 for local testing and must never enter a public build. Final artifacts must be clean-built with the real approved HTTPS connector origin and identifiable main/connector source versions. API application parameters remain approved for local use only. Native/phone production login and a decision about public browser application parameters remain separate gates.
+
+## Frozen local auth candidate reviewed
+
+The owner froze the local two-origin candidate after a serial full-suite run of 62 tests passed, lint passed, main and connector builds passed, and Worker packaging passed. A concurrent test/Vite-cache shutdown problem did not reproduce in the serial suite; it is not used as proof of a production defect. Thirteen focused auth tests cover the reviewed control-plane scenarios. After the final wrong-account logout warning fix, lint and those thirteen tests passed again. Coordinator read the fix and approved the frozen local candidate's static integration; no other mandatory source finding remains from this review.
+
+Live local Wiki logout at 2026-10-20 20:37:51.307 UTC (23:37:51.307 Europe/Minsk) confirmed remote revocation and local cleanup, removed profile UI in two tabs, and required consent/login on reopening. This complements the already proven fresh login and automatic renewal. Public deployment and native/phone auth are not inferred from local-browser proof.
+
+Release packaging now reads built connection-config metadata, rejects enabled localhost/invalid origins, and can require a real HTTPS connector. A negative test actually rejected the current local main build. Connector release.json carries its service/source/protocol/Wiki origin; local packaged metadata correctly says sourceCommit local. Final publication must replace that with an exact pushed source SHA and the actual second Site identity/origin. Read-only Worker checks verified explicit WASM MIME, CSP on success/errors, no COOP/COEP, no source maps or API Hash literals, and no accidental Wiki project identity in the connector package.
+
+Production remains gated on the user's decision about application parameters being visible to browser visitors, or a separate dedicated Telegram API application. Existing parameters are LOCAL-ONLY and have not been published. Safe source checkpoint and production credential configuration are separate actions; no production activation is claimed here.
+
+## Production activation started after explicit approval
+
+The frozen candidate passed static integration review after its final wrong-account logout warning fix. The user then explicitly approved public browser runtime use of the two application parameters. Coordinator released the registration/configuration/deployment hold to track B and safe source publication to track A; no parameter value is a publication input. Auth owner retains exclusive Telegram/browser UI and will arrange the public-origin human login handoff. Actual connector origin, source/deployment versions and production proof will be recorded after creation; no guessed domain is treated as live.

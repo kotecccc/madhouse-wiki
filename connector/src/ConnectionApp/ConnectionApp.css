@@ -1,0 +1,60 @@
+.connection-app {
+  min-width: 0;
+  padding: var(--space-16);
+  display: grid;
+  gap: var(--space-16);
+  font-family: var(--sans);
+}
+.connection-app p,
+.connection-app h2 {
+  margin: 0;
+}
+.connection-consent {
+  display: grid;
+  gap: var(--card-content-gap);
+}
+.connection-explanation {
+  color: var(--card-description-color);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.connection-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+.connection-form,
+.connection-form label {
+  display: grid;
+  gap: var(--space-12);
+}
+.connection-form input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: var(--space-12);
+  background: var(--bg);
+  color: var(--paper-bright);
+  border: 1px solid var(--line);
+  font: inherit;
+}
+.connection-form input:focus-visible {
+  outline: 2px solid var(--red-bright);
+  outline-offset: 2px;
+}
+.connection-qr {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-16);
+  font-size: 12px;
+  text-align: center;
+}
+.connection-qr img {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+}
+.connection-error {
+  color: var(--red-bright);
+  font-size: 12px;
+}

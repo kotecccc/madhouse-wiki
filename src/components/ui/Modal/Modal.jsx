@@ -12,11 +12,13 @@ export function Modal({
   width,
   footer,
   contentBackground,
+  visible = true,
 }) {
   const id = titleId || "modal-title";
   return (
     <Dialog
       modal
+      visible={visible}
       surface="modal"
       className={`shared-modal ${className}`.trim()}
       aria-labelledby={id}

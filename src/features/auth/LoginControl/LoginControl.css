@@ -4,6 +4,12 @@
   gap: var(--space-8);
 }
 
+.login-connection-error {
+  max-width: 280px;
+  color: var(--red-bright);
+  font-size: 11px;
+}
+
 .login-control > .button:not(.profile-control) {
   min-height: 36px;
   padding-inline: var(--space-16);

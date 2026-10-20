@@ -1,0 +1,480 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "../../../src/components/ui/Button/Button.jsx";
+import { BaseCard } from "../../../src/components/ui/BaseCard/BaseCard.jsx";
+import { CardTitle } from "../../../src/components/ui/CardTitle/CardTitle.jsx";
+import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
+import { createConnection } from "../../session.js";
+import "./ConnectionApp.css";
+
+const messages = {
+  PHONE_NUMBER_INVALID: "Проверьте номер телефона.",
+  PHONE_CODE_INVALID: "Неверный код Telegram.",
+  PHONE_CODE_EXPIRED: "Код истёк. Начните вход заново.",
+  PASSWORD_HASH_INVALID: "Неверный пароль.",
+  API_ID_INVALID: "Подключение временно недоступно.",
+  telegram_unavailable: "Не удалось соединиться с Telegram.",
+  game_auth_rejected: "Игра не приняла вход. Попробуйте подключиться заново.",
+  game_unavailable: "Игра сейчас недоступна.",
+  try_later: "Слишком много запросов. Попробуйте позже.",
+};
+
+export function ConnectionApp() {
+  const connection = useRef(null),
+    currentRequest = useRef(null),
+    loginAbort = useRef(null);
+  const [config, setConfig] = useState(null),
+    [stage, setStage] = useState("loading");
+  const [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [qr, setQr] = useState("");
+  const [phone, setPhone] = useState(""),
+    [code, setCode] = useState(""),
+    [password, setPassword] = useState("");
+  const phoneHash = useRef(null),
+    passwordWaiter = useRef(null);
+  const reply = useCallback((request, payload, kind = "result") => {
+    if (!request || currentRequest.current !== request) return;
+    window.parent.postMessage(
+      {
+        channel: CHANNEL,
+        version: VERSION,
+        id: request.data.id,
+        kind,
+        ...payload,
+      },
+      request.origin,
+    );
+  }, []);
+  const fail = useCallback(
+    (error) =>
+      setError(
+        messages[error?.text || error?.message] ||
+          "Не удалось завершить подключение. Повторите попытку.",
+      ),
+    [],
+  );
+  const run = useCallback(
+    async (operation) => {
+      const request = currentRequest.current;
+      setBusy(true);
+      setError("");
+      try {
+        await operation();
+      } catch (error) {
+        if (
+          error?.name !== "AbortError" &&
+          error?.message !== "cancelled" &&
+          currentRequest.current === request
+        ) {
+          fail(error);
+          if (
+            !["PHONE_CODE_INVALID", "PASSWORD_HASH_INVALID"].includes(
+              error?.text,
+            )
+          ) {
+            setStage("retry");
+            reply(request, { status: "failed" });
+          }
+        }
+      } finally {
+        if (currentRequest.current === request) setBusy(false);
+      }
+    },
+    [fail, reply],
+  );
+  const complete = useCallback(
+    async (request) => {
+      if (!request || currentRequest.current !== request) {
+        if (request?.freshLogin) await connection.current.logout();
+        return;
+      }
+      setCode("");
+      setPassword("");
+      setPhone("");
+      setQr("");
+      phoneHash.current = null;
+      const result = await connection.current.gameLogin(
+        request.data.expectedUserId,
+      );
+      if (result.status === "connected") {
+        request.freshLogin = false;
+        reply(request, result);
+      } else if (request.data.interactive)
+        reply(request, { status: "login-required" }, "interaction-required");
+      else reply(request, { status: "login-required" });
+    },
+    [reply],
+  );
+  useEffect(() => {
+    let stopped = false,
+      remove = () => {};
+    (async () => {
+      try {
+        const response = await fetch("/api/config", { cache: "no-store" });
+        if (!response.ok) throw new Error();
+        const settings = await response.json();
+        const { TelegramClient } = await import("@mtcute/web");
+        if (stopped) return;
+        const conn = createConnection({
+          createClient: (storage) =>
+            new TelegramClient({
+              apiId: settings.apiId,
+              apiHash: settings.apiHash,
+              storage,
+              logLevel: 0,
+              disableUpdates: true,
+              initConnectionOptions: {
+                deviceModel: "Madhouse Wiki",
+                appVersion: "1.0.0",
+                systemVersion: "Browser",
+              },
+            }),
+          exchange: async (initData) => {
+            const result = await fetch("/api/game-session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ initData }),
+              cache: "no-store",
+            });
+            const data = await result.json();
+            if (!result.ok) throw new Error(data.error);
+            return data.accessToken;
+          },
+          onState: (value) => {
+            if (!stopped) setStage(value.stage);
+          },
+        });
+        connection.current = conn;
+        setConfig(settings);
+        setStage("waiting");
+        const accept = createMessageGate({
+          origins: settings.wikiOrigins,
+          parent: window.parent,
+        });
+        const listener = (event) => {
+          if (!accept(event)) return;
+          const request = { origin: event.origin, data: event.data };
+          if (event.data.action === "cancel") {
+            const cancelled = currentRequest.current;
+            currentRequest.current = null;
+            loginAbort.current?.abort();
+            conn.cancel();
+            setPhone("");
+            setCode("");
+            setPassword("");
+            setQr("");
+            phoneHash.current = null;
+            passwordWaiter.current = null;
+            if (cancelled?.freshLogin)
+              conn
+                .logout()
+                .then((result) =>
+                  window.parent.postMessage(
+                    {
+                      channel: CHANNEL,
+                      version: VERSION,
+                      id: event.data.id,
+                      kind: "result",
+                      ...result,
+                    },
+                    event.origin,
+                  ),
+                )
+                .catch(() => {});
+            return;
+          }
+          currentRequest.current = request;
+          if (event.data.action === "logout") {
+            loginAbort.current?.abort();
+            run(async () => reply(request, await conn.logout()));
+          } else if (event.data.action === "status") {
+            run(async () =>
+              reply(request, {
+                status: (await conn.restore(event.data.expectedUserId))
+                  ? "connected"
+                  : "login-required",
+              }),
+            );
+          } else run(() => complete(request));
+        };
+        window.addEventListener("message", listener);
+        remove = () => window.removeEventListener("message", listener);
+        try {
+          const parentOrigin = new URL(document.referrer).origin;
+          if (
+            settings.wikiOrigins.includes(parentOrigin) &&
+            window.parent !== window
+          )
+            window.parent.postMessage(
+              { channel: CHANNEL, version: VERSION, kind: "ready" },
+              parentOrigin,
+            );
+        } catch {
+          /* A standalone page cannot start a privileged connection. */
+        }
+      } catch {
+        if (!stopped) {
+          setStage("unavailable");
+          setError("Подключение временно недоступно.");
+        }
+      }
+    })();
+    return () => {
+      stopped = true;
+      remove();
+      loginAbort.current?.abort();
+      connection.current?.cancel();
+    };
+  }, [complete, reply, run]);
+
+  const startQr = async () => {
+    const request = currentRequest.current;
+    if (!request?.data.interactive) return;
+    request.freshLogin = true;
+    loginAbort.current = new AbortController();
+    const signal = loginAbort.current.signal;
+    const deadline = Date.now() + 180000;
+    const { default: QRCode } = await import("qrcode");
+    setStage("qr");
+    let shown = "";
+    while (Date.now() < deadline) {
+      signal.throwIfAborted();
+      let result;
+      try {
+        result = await connection.current.runAuth((current) =>
+          current.call({
+            _: "auth.exportLoginToken",
+            apiId: config.apiId,
+            apiHash: config.apiHash,
+            exceptIds: [],
+          }),
+        );
+        signal.throwIfAborted();
+        if (result._ === "auth.loginTokenMigrateTo") {
+          await connection.current.runAuth((current) =>
+            current.changePrimaryDc(result.dcId),
+          );
+          const token = result.token;
+          result = await connection.current.runAuth((current) =>
+            current.call({ _: "auth.importLoginToken", token }),
+          );
+          signal.throwIfAborted();
+        }
+      } catch (error) {
+        if (error?.text !== "SESSION_PASSWORD_NEEDED") throw error;
+        const value = await new Promise((resolve, reject) => {
+          passwordWaiter.current = resolve;
+          setStage("password");
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Cancelled", "AbortError")),
+            { once: true },
+          );
+        });
+        await connection.current.password(value);
+        signal.throwIfAborted();
+        await complete(request);
+        return;
+      }
+      if (result._ === "auth.loginTokenSuccess") {
+        await connection.current.runAuth((current) =>
+          current.notifyLoggedIn(result.authorization),
+        );
+        signal.throwIfAborted();
+        await complete(request);
+        return;
+      }
+      if (result._ !== "auth.loginToken") throw new Error();
+      const url =
+        "tg://login?token=" +
+        btoa(String.fromCharCode(...result.token))
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+      if (url !== shown) {
+        setQr(await QRCode.toDataURL(url));
+        shown = url;
+      }
+      await new Promise((resolve, reject) => {
+        const cancel = () => {
+          clearTimeout(timer);
+          reject(new DOMException("Cancelled", "AbortError"));
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener("abort", cancel);
+          resolve();
+        }, 5000);
+        signal.addEventListener("abort", cancel, { once: true });
+      });
+    }
+    setQr("");
+    setStage("consent");
+    throw new Error("try_later");
+  };
+  const interactive = !!currentRequest.current?.data.interactive;
+  return (
+    <main className="connection-app">
+      {stage === "loading" && <p role="status">Подготавливаем подключение…</p>}
+      {stage === "waiting" && <p>Откройте подключение из Madhouse Wiki.</p>}
+      {interactive && ["consent", "wrong-account"].includes(stage) && (
+        <BaseCard className="connection-consent">
+          <CardTitle as="h2">
+            {stage === "wrong-account"
+              ? "Подключён другой аккаунт"
+              : "Подключить Telegram"}
+          </CardTitle>
+          <p className="connection-explanation">
+            Один раз войдите в Telegram. Затем Wiki сможет сама получать свежий
+            вход в Madhouse, без копирования токенов.
+          </p>
+          <p className="connection-explanation">
+            Это полноценная Telegram-сессия с техническим доступом к аккаунту.
+            Она хранится только в этом браузере, отдельно от Wiki. Отозвать её
+            можно через Telegram → Настройки → Устройства или кнопкой «Выйти» в
+            Wiki.
+          </p>
+          {stage === "wrong-account" ? (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const result = await connection.current.logout();
+                  if (!result.remoteRevoked || !result.localCleared)
+                    setError(
+                      "Не удалось подтвердить полное отключение. Проверьте Telegram → Настройки → Устройства и завершите сессию Madhouse Wiki.",
+                    );
+                })
+              }
+            >
+              Отключить этот аккаунт
+            </Button>
+          ) : (
+            <div className="connection-buttons">
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => setStage("phone")}
+              >
+                Войти по номеру
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => run(startQr)}
+              >
+                Войти по QR
+              </Button>
+            </div>
+          )}
+        </BaseCard>
+      )}
+      {interactive && stage === "phone" && (
+        <form
+          className="connection-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const request = currentRequest.current;
+            request.freshLogin = true;
+            run(async () => {
+              phoneHash.current = await connection.current.phoneCode(phone);
+              if (!phoneHash.current) await complete(request);
+            });
+          }}
+        >
+          <label>
+            Номер Telegram
+            <input
+              type="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              autoComplete="tel"
+              placeholder="+375…"
+              required
+            />
+          </label>
+          <Button variant="primary" type="submit" disabled={busy}>
+            Получить код
+          </Button>
+        </form>
+      )}
+      {interactive && stage === "code" && (
+        <form
+          className="connection-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const request = currentRequest.current,
+              value = code;
+            setCode("");
+            run(async () => {
+              if (
+                await connection.current.signIn(phone, phoneHash.current, value)
+              )
+                await complete(request);
+            });
+          }}
+        >
+          <p>Введите код из сообщения Telegram.</p>
+          <label>
+            Код Telegram
+            <input
+              inputMode="numeric"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              autoComplete="one-time-code"
+              required
+            />
+          </label>
+          <Button variant="primary" type="submit" disabled={busy}>
+            Подтвердить вход
+          </Button>
+        </form>
+      )}
+      {interactive && stage === "password" && (
+        <form
+          className="connection-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const request = currentRequest.current,
+              value = password;
+            setPassword("");
+            if (passwordWaiter.current) {
+              passwordWaiter.current(value);
+              passwordWaiter.current = null;
+            } else
+              run(async () => {
+                await connection.current.password(value);
+                await complete(request);
+              });
+          }}
+        >
+          <label>
+            Пароль двухэтапной аутентификации
+            <input
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+          <Button variant="primary" type="submit">
+            Подтвердить
+          </Button>
+        </form>
+      )}
+      {interactive && stage === "qr" && qr && (
+        <div className="connection-qr">
+          <p>Telegram → Настройки → Устройства → Подключить устройство</p>
+          <img src={qr} alt="QR для входа в Telegram" />
+        </div>
+      )}
+      {(busy || stage === "connected") && <p role="status">Подключаемся…</p>}
+      {error && (
+        <p className="connection-error" role="alert">
+          {error}
+        </p>
+      )}
+    </main>
+  );
+}

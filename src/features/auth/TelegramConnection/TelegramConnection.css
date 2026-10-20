@@ -1,0 +1,11 @@
+.telegram-connection-frame {
+  display: block;
+  width: 100%;
+  height: min(560px, 70dvh);
+  border: 0;
+  color-scheme: dark;
+}
+.telegram-connection-retry {
+  display: grid;
+  gap: var(--space-12);
+}
