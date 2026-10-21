@@ -137,7 +137,7 @@ export function FeedbackWidget({ screen = "floors", onOpenPrivacy }) {
       <Button
         variant="primary"
         className="feedback-floating-button"
-        icon="message"
+        icon="bug"
         onClick={openDialog}
         aria-label="Оставить обратную связь"
         title="Обратная связь"
@@ -151,21 +151,6 @@ export function FeedbackWidget({ screen = "floors", onOpenPrivacy }) {
         className="feedback-modal"
         width="min(560px, calc(100vw - 24px))"
       >
-        {!telegram.initData && (
-          <div className="feedback-telegram-required" role="note">
-            <p>
-              Отправка доступна только из Wiki Mini App в Telegram, чтобы
-              администратор мог ответить.
-            </p>
-            <a
-              href="https://t.me/madhouse_wiki_bot?startapp=home"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Открыть Wiki в Telegram
-            </a>
-          </div>
-        )}
         <form className="feedback-form" onSubmit={submit}>
           <FieldLabel
             htmlFor="feedback-message"
