@@ -140,9 +140,10 @@ export function FeedbackWidget({ screen = "floors", onOpenPrivacy }) {
         icon="bug"
         iconSize="medium"
         onClick={openDialog}
-        aria-label="Оставить обратную связь"
-        title="Обратная связь"
-      ></Button>
+        aria-label="Сообщить об ошибке"
+      >
+        Сообщить об ошибке
+      </Button>
       <Modal
         title="Обратная связь"
         titleId="feedback-title"

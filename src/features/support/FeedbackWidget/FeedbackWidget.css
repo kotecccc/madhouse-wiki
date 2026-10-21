@@ -3,36 +3,70 @@
   z-index: 24;
   right: 0;
   bottom: max(18px, env(safe-area-inset-bottom, 0px));
-  width: 56px;
-  min-width: 56px;
-  height: 56px;
-  min-height: 56px;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
   padding: 0;
   border: 1px solid rgba(233, 222, 197, 0.14);
   border-right: 0;
   border-radius: 12px 0 0 12px;
   gap: 0;
-  color: var(--red-bright);
+  color: var(--paper-bright);
   background: rgba(17, 16, 15, 0.3);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  transition:
+    width var(--control-transition-duration) var(--control-transition-easing),
+    min-width var(--control-transition-duration)
+      var(--control-transition-easing),
+    transform var(--control-transition-duration)
+      var(--control-transition-easing),
+    background var(--control-transition-duration)
+      var(--control-transition-easing);
 }
 
-.feedback-floating-button.button-primary:hover {
+.feedback-floating-button.button-primary:hover,
+.feedback-floating-button.button-primary:focus-visible {
+  width: 162px;
+  min-width: 162px;
   background: rgba(17, 16, 15, 0.38);
 }
 
 .feedback-floating-button .button-label {
-  display: none;
+  display: block;
+  width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  font-size: 11px;
+  white-space: nowrap;
+  transition:
+    width var(--control-transition-duration) var(--control-transition-easing),
+    margin-left var(--control-transition-duration)
+      var(--control-transition-easing),
+    opacity var(--control-transition-duration) var(--control-transition-easing);
+}
+
+.feedback-floating-button:hover .button-label,
+.feedback-floating-button:focus-visible .button-label {
+  width: 120px;
+  margin-left: 8px;
+  opacity: 1;
 }
 
 .feedback-floating-button > .ui-icon {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
+  color: var(--red-bright);
   transition: transform var(--control-transition-duration)
     var(--control-transition-easing);
 }
 
-.feedback-floating-button:hover > .ui-icon {
+.feedback-floating-button:hover > .ui-icon,
+.feedback-floating-button:focus-visible > .ui-icon {
   transform: rotate(180deg);
 }
 
