@@ -2,11 +2,11 @@ import { useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
+import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { BossCardView } from "../../bosses/BossCard/BossCardView.jsx";
 import {
   getRaidDisplayZone,
   getRaidStatus,
-  getRaidStatusMarker,
   hasUnknownRaidStatusMarker,
   RAID_STATUS_INFO,
 } from "../../../lib/raid-schedule.js";
@@ -31,13 +31,12 @@ for (const boss of knowledgeBase.bosses) {
 function RaidLeader({ leader }) {
   const [copyState, setCopyState] = useState("");
   const sourceText = String(leader || "").trim();
-  const username = /^@[A-Za-z0-9_]{1,64}$/.test(sourceText)
-    ? sourceText
-    : null;
+  const copyText = sourceText;
+  if (!copyText) return <CardDescription as="span">—</CardDescription>;
 
-  async function copyUsername() {
+  async function copyLeader() {
     try {
-      await navigator.clipboard.writeText(username);
+      await navigator.clipboard.writeText(copyText);
       setCopyState("Скопировано");
     } catch {
       setCopyState("Не удалось скопировать");
@@ -45,28 +44,21 @@ function RaidLeader({ leader }) {
     window.setTimeout(() => setCopyState(""), 1800);
   }
 
-  if (!username)
-    return (
-      <CardDescription as="span">{sourceText || "—"}</CardDescription>
-    );
-
   return (
     <span className="raid-leader-control">
-      <span className="raid-leader-avatar" aria-hidden="true">
-        {username.slice(1, 2).toLocaleUpperCase("ru-RU")}
-      </span>
+      <CardDescription as="span" className="raid-leader-name">
+        {copyText}
+      </CardDescription>
       <Button
         type="button"
-        variant="secondary"
+        variant="icon-copy"
         icon="copy"
         iconSize="small"
         className="raid-leader-copy"
-        title={`Скопировать ${username}`}
-        aria-label={`Скопировать имя ведущего ${username}`}
-        onClick={copyUsername}
-      >
-        {username}
-      </Button>
+        title="Скопировать имя ведущего"
+        aria-label="Скопировать имя ведущего"
+        onClick={copyLeader}
+      />
       <span className="sr-only" aria-live="polite">
         {copyState}
       </span>
@@ -76,32 +68,25 @@ function RaidLeader({ leader }) {
 
 function RaidStatus({ raid, status }) {
   const info = RAID_STATUS_INFO[status] || RAID_STATUS_INFO.unknown;
-  const marker = getRaidStatusMarker(raid);
   const hasUnknownMarker = hasUnknownRaidStatusMarker(raid);
-  const label = marker
-    ? `${info.label} · ${marker}`
-    : hasUnknownMarker
-      ? "Маркер не распознан"
-      : info.label;
+  const label = hasUnknownMarker ? "Маркер не распознан" : info.label;
+  if (status === "locked")
+    return (
+      <span
+        className="raid-status raid-status--locked"
+        aria-label="Этаж закрыт"
+      >
+        <Icon type="lock" size="small" />
+        <span>Закрыт</span>
+      </span>
+    );
   return (
     <span
       className={`raid-status raid-status--${info.color}`}
       title={
-        marker
-          ? `Метка ${marker} из Telegram отображается как «${info.label.toLocaleLowerCase("ru-RU")}».`
-          : hasUnknownMarker
-            ? "В зоне есть нераспознанный маркер; состояние рейда не выводится."
-            : status === "scheduled"
-              ? "В Telegram нет маркера; рейд отображается как запланированный."
-              : "В Telegram нет маркера, по которому можно определить состояние рейда."
+        hasUnknownMarker ? "В канале нераспознанный маркер состояния." : label
       }
-      aria-label={
-        marker
-          ? `${info.label}. Маркер канала: ${marker}.`
-          : hasUnknownMarker
-            ? "Статус не распознан. Метка остаётся в поле зоны."
-            : info.label
-      }
+      aria-label={label}
     >
       <span className="raid-status-dot" aria-hidden="true" />
       <span>{label}</span>
@@ -109,7 +94,11 @@ function RaidStatus({ raid, status }) {
   );
 }
 
-export function RaidEventCard({ raid, status: statusOverride }) {
+export function RaidEventCard({
+  raid,
+  status: statusOverride,
+  floorAvailability = {},
+}) {
   const name = String(raid?.boss || "Босс не указан").trim();
   const boss = bossesByName.get(normaliseBossName(name)) || {
     id: `raid-${name}`,
@@ -119,12 +108,12 @@ export function RaidEventCard({ raid, status: statusOverride }) {
     dropItems: [],
   };
   const status = statusOverride || getRaidStatus(raid);
-  const fields = [
-    ["Зона", getRaidDisplayZone(raid)],
-    ["Клан", raid?.clan],
-    ["Ведущий", <RaidLeader key="leader" leader={raid?.leader} />],
-    ["Длительность", raid?.duration],
-  ];
+  const zone = getRaidDisplayZone(raid) || "—";
+  const floorCode = String(raid?.zone || "")
+    .trim()
+    .match(/^[A-Z]/i)?.[0];
+  const floorLocked =
+    floorCode && floorAvailability[floorCode.toUpperCase()] === false;
 
   return (
     <BossCardView
@@ -132,27 +121,28 @@ export function RaidEventCard({ raid, status: statusOverride }) {
       as="article"
       variant="raid"
       titleAs="h3"
+      className="raid-card"
+      title={`${name} • Зона ${zone}`}
       showInfo={false}
-      showDropList={false}
-      action={<RaidStatus raid={raid} status={status} />}
-      hasPortrait={Boolean(boss.image)}
-    >
-      <dl className="raid-event-fields">
-        {fields.map(([label, value]) => (
-          <div className="raid-event-field" key={label}>
-            <dt>{label}</dt>
-            <dd title={typeof value === "string" ? value || "—" : undefined}>
-              {label === "Ведущий" ? (
-                value
-              ) : (
-                <CardDescription as="span" className="raid-event-field-value">
-                  {value || "—"}
-                </CardDescription>
-              )}
-            </dd>
+      showDropList={!!boss.dropItems?.length}
+      hasPortrait
+      action={
+        <div className="raid-event-meta">
+          <div className="raid-event-statuses">
+            {floorLocked && <RaidStatus raid={raid} status="locked" />}
+            <RaidStatus raid={raid} status={status} />
           </div>
-        ))}
-      </dl>
+        </div>
+      }
+    >
+      <CardDescription className="raid-event-summary">
+        <span>Время: {raid?.time || "не указано"}</span>
+        <span aria-hidden="true">•</span>
+        <span>Длительность: {raid?.duration || "не указана"}</span>
+        <span aria-hidden="true">•</span>
+        <span>Ведущий:{raid?.clan ? ` [${raid.clan}]` : ""}</span>
+        <RaidLeader leader={raid?.leader} />
+      </CardDescription>
     </BossCardView>
   );
 }

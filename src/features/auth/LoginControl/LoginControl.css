@@ -34,18 +34,7 @@
 }
 
 .login-token-field {
-  width: 100%;
   min-height: 40px;
-  padding: 0 var(--space-12);
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--paper-bright);
-  font: 12px var(--mono);
-}
-
-.login-token-field:focus-visible {
-  outline: 2px solid var(--red-bright);
-  outline-offset: 2px;
 }
 
 .profile-control.button {
@@ -219,50 +208,38 @@
   font: 11px var(--sans);
 }
 
-.login-methods {
-  display: grid;
-  gap: var(--space-8);
-}
-
-.login-methods p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.login-modal-footer {
+.login-modal-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-8);
   width: 100%;
 }
 
-.login-modal-footer > .button {
+.login-modal-actions > .button {
   width: 100%;
   min-height: 40px;
   padding-inline: var(--space-12);
 }
 
-.login-modal-footer--single {
+.login-modal-actions--single {
   grid-template-columns: 1fr;
 }
 
 @media (max-width: 650px) {
-  .login-modal-footer {
+  .login-modal-actions {
     grid-template-columns: 1fr;
   }
 }
 
 .login-token-help {
-  display: grid;
-  gap: var(--space-12);
+  display: block;
   overflow: hidden;
 }
 
 .login-token-help > summary {
   display: flex;
   align-items: center;
+  min-height: var(--space-20);
   justify-content: space-between;
   gap: var(--space-12);
   list-style: none;
@@ -281,12 +258,13 @@
   margin-right: var(--space-4);
   border-right: 1.5px solid var(--muted);
   border-bottom: 1.5px solid var(--muted);
-  transform: translateY(-2px) rotate(45deg);
+  align-self: center;
+  transform: rotate(45deg);
   transition: transform 0.18s ease;
 }
 
 .login-token-help[open] > summary::after {
-  transform: translateY(2px) rotate(225deg);
+  transform: rotate(225deg);
 }
 
 .login-token-help > summary:focus-visible {
@@ -297,8 +275,13 @@
 
 .login-token-device-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-6);
+  margin-top: var(--space-12);
+}
+
+.login-token-device-switch .button-toggle[aria-pressed="true"] {
+  box-shadow: none;
 }
 
 .login-token-help-content,
@@ -353,7 +336,7 @@
 }
 
 @media (max-width: 420px) {
-  .login-modal-footer {
+  .login-modal-actions {
     grid-template-columns: 1fr;
   }
 }

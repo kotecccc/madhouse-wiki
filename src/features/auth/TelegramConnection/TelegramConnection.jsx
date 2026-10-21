@@ -170,9 +170,9 @@ export function TelegramConnection({
     if (uiState?.requestId)
       bridge.current?.uiAction(command, uiState.requestId);
   };
-  const footer = (
+  const actions = (
     <div
-      className={`telegram-connection-footer telegram-connection-footer--${
+      className={`telegram-connection-actions telegram-connection-actions--${
         uiState?.stage || "loading"
       }`}
       aria-busy={uiState?.busy || undefined}
@@ -248,11 +248,8 @@ export function TelegramConnection({
       title="Вход через Telegram"
       titleId="telegram-connection-title"
       width={440}
-      compact
-      dense
       contentScrollable={uiState?.stage !== "consent"}
       visible={open}
-      footer={footer}
       onClose={() => {
         onClose();
       }}
@@ -278,6 +275,7 @@ export function TelegramConnection({
           </p>
         </div>
       )}
+      {actions}
     </Modal>
   );
 }

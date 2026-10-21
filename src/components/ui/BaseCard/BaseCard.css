@@ -22,10 +22,10 @@
 }
 
 .base-card--raid {
-  --card-padding: var(--space-16);
-  --card-title-size: 15px;
-  --card-description-size: 11px;
-  --card-title-end-space: 112px;
+  --card-padding: var(--space-12);
+  --card-title-size: 12px;
+  --card-description-size: 9px;
+  --card-title-end-space: 0px;
 }
 
 .base-card--boss {
@@ -42,15 +42,26 @@
   --card-padding: 0;
   --card-border: rgba(212, 196, 163, 0.15);
   --card-radius: 4px;
-  --card-background: rgba(15, 14, 13, 0.35);
+  --card-background: var(--image-card-surface);
 }
 
 .base-card--popover {
   --card-background: var(--bg-deep);
 }
 
+.base-card--archive {
+  --card-padding: var(--space-16);
+}
+
+.base-card--glass-nav {
+  --card-background: var(--navigation-glass);
+  --card-border: var(--navigation-glass-border);
+  --card-radius: var(--space-32);
+  --card-padding: var(--space-6);
+}
+
 .base-card--token-help {
-  --card-padding: var(--space-12) var(--space-12) var(--space-8);
+  --card-padding: var(--space-12);
   --card-border: rgba(212, 196, 163, 0.22);
   --card-radius: 5px;
   --card-background: var(--panel);
@@ -59,11 +70,13 @@
 }
 
 .base-card--modal {
-  --card-padding: 0;
-  --modal-content-padding: var(--space-24);
-  --card-border: rgba(212, 196, 163, 0.2);
-  --card-radius: 6px;
-  --card-background: var(--panel);
+  --modal-content-padding: var(--space-16);
+  --modal-border: rgba(212, 196, 163, 0.2);
+  --modal-radius: 6px;
+  padding: 0;
+  border-color: var(--modal-border);
+  border-radius: var(--modal-radius);
+  background: var(--panel);
 }
 
 @media (max-width: 650px) {
@@ -74,8 +87,8 @@
 
   .base-card--raid {
     --card-padding: var(--space-12);
-    --card-title-size: 12px;
-    --card-description-size: 10px;
-    --card-title-end-space: 98px;
+    --card-title-size: 10px;
+    --card-description-size: 8px;
+    --card-title-end-space: 0px;
   }
 }

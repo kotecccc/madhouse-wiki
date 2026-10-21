@@ -44,6 +44,7 @@ export function Dialog({
   const ref = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
+    const restoreKeyboardFocus = previous?.matches(":focus-visible");
     const dialog = ref.current;
     if (!dialog || !visible) return;
     if (modal && !dialog.open) dialog.showModal();
@@ -51,15 +52,15 @@ export function Dialog({
     const autofocus = dialog.querySelector("[autofocus]");
     (
       autofocus ||
-      (modal && dialog.querySelector("input")) ||
-      dialog.querySelector("button")
+      (modal ? dialog : dialog.querySelector("button"))
     )?.focus({
       preventScroll: true,
     });
     return () => {
       if (modal && dialog.open) dialog.close();
       unlockScroll?.();
-      if (previous?.isConnected) previous.focus({ preventScroll: true });
+      if (restoreKeyboardFocus && previous?.isConnected)
+        previous.focus({ preventScroll: true });
     };
   }, [modal, visible]);
   const Surface = surface ? BaseCard : "dialog";
@@ -70,6 +71,7 @@ export function Dialog({
       className={`ui-dialog ${className}`.trim()}
       ref={ref}
       hidden={!visible}
+      tabIndex={modal ? -1 : undefined}
       open={modal ? undefined : visible}
       onKeyDown={(event) => {
         if (!modal && event.key === "Escape") {

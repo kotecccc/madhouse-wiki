@@ -1,0 +1,31 @@
+.raid-post {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-12);
+}
+
+.raid-archive-date {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8) var(--space-12);
+  color: var(--card-description-color);
+  font-size: 11px;
+}
+
+.raid-archive-date time {
+  color: var(--card-title-color);
+  font-weight: 700;
+}
+
+.raid-event-list {
+  display: grid;
+  gap: var(--space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.raid-event-list > li {
+  min-width: 0;
+}

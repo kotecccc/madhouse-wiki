@@ -1,6 +1,12 @@
 import "./Icon.css";
 export function Icon({ type, size, className = "" }) {
   const paths = {
+    boss: (
+      <>
+        <path d="M5 21v-2a7 7 0 0 1 14 0v2M8 6l1-3h6l1 3v5a4 4 0 0 1-8 0V6Z" />
+        <path d="M10 9h.01M14 9h.01M10 12h4" />
+      </>
+    ),
     chevron: <path d="m5 8.5 7 7 7-7" strokeWidth="1.5" />,
     "external-link": (
       <>
@@ -28,6 +34,13 @@ export function Icon({ type, size, className = "" }) {
     lock: (
       <>
         <path d="M7.25 10V7.5a4.75 4.75 0 0 1 9.5 0V10" />
+        <rect x="5" y="10" width="14" height="11" rx="1.8" />
+        <path d="M12 14v3" />
+      </>
+    ),
+    unlock: (
+      <>
+        <path d="M7.25 10V7.5a4.75 4.75 0 0 1 9.5 0" />
         <rect x="5" y="10" width="14" height="11" rx="1.8" />
         <path d="M12 14v3" />
       </>

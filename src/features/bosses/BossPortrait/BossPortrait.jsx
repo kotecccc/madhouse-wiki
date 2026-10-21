@@ -1,8 +1,16 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
+import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import "./BossPortrait.css";
 
-export function BossPortrait({ src, alt = "", onHeight }) {
+export function BossPortrait({ src, alt = "", onHeight, hasPortrait = true }) {
   const portraitRef = useRef(null);
+  const [failedSrc, setFailedSrc] = useState(null);
+  const [loadedSrc, setLoadedSrc] = useState(null);
+  const imageFailed = Boolean(src) && failedSrc === src;
+  const showImage = Boolean(src) && !imageFailed;
+  const imageLoaded = showImage && loadedSrc === src;
+
   useLayoutEffect(() => {
     const portrait = portraitRef.current;
     if (!portrait || !onHeight) return;
@@ -12,18 +20,33 @@ export function BossPortrait({ src, alt = "", onHeight }) {
     observer.observe(portrait);
     updateHeight();
     return () => observer.disconnect();
-  }, [src, onHeight]);
-  if (!src) return null;
+  }, [src, onHeight, hasPortrait]);
+  if (!hasPortrait) return null;
 
   return (
     <BaseCard
       as="span"
       variant="image"
-      className="boss-portrait"
+      className={`boss-portrait${imageLoaded ? " boss-portrait--loaded" : " boss-portrait--placeholder"}`}
       ref={portraitRef}
     >
-      <img src={src} alt={alt} loading="lazy" />
+      {showImage && (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          onLoad={() => {
+            setFailedSrc(null);
+            setLoadedSrc(src);
+          }}
+          onError={() => setFailedSrc(src)}
+        />
+      )}
+      {!imageLoaded && (
+        <span className="boss-portrait-placeholder" aria-hidden="true">
+          <Icon type="boss" />
+        </span>
+      )}
     </BaseCard>
   );
 }
-import { useLayoutEffect, useRef } from "react";

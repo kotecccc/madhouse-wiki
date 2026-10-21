@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:raids": "MADHOUSE_RAIDS_FIXTURE=1 vite",
     "dev:connector": "vite --config connector/vite.config.mjs",
     "build:connector": "vite build --config connector/vite.config.mjs",
     "build": "vite build",

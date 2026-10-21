@@ -14,7 +14,7 @@ const departmentCodeOrder = new Intl.Collator("en", {
 
 export function FloorGroup({
   floor,
-  hideOpeningConditions = false,
+  floorAvailable,
   viewMode,
   onCalculator,
   onUpgradeSelect,
@@ -29,25 +29,30 @@ export function FloorGroup({
     .sort((left, right) =>
       departmentCodeOrder.compare(String(left.code), String(right.code)),
     );
-  const openingConditions = hideOpeningConditions
-    ? []
-    : floor.openingConditions ||
-      (floor.code === "A" ? [] : works[0]?.openingConditions || []);
+  const openingConditions = floor.openingConditions ||
+    (floor.code === "A" ? [] : works[0]?.openingConditions || []);
   const isFloorView = viewMode === "floors";
   const floorOpeningCard =
     isFloorView && openingConditions.length > 0 ? (
-      <details className="floor-opening-disclosure floor-work-disclosure" open>
+      <details
+        key={`${floor.id}-${floorAvailable ?? "unknown"}`}
+        className="floor-opening-disclosure floor-work-disclosure"
+        open={floorAvailable === false}
+      >
         <summary className="floor-work-summary floor-opening-summary">
           <CardTitle className="floor-opening-heading">
-            <LockIndicator
-              size="1em"
-              label={`Условие открытия этажа ${floor.code}`}
-            />
             <span>Условия открытия этажа </span>
             <span className="floor-opening-code">
               {floor.code}
             </span>
           </CardTitle>
+          <LockIndicator
+            size={20}
+            locked={floorAvailable !== true}
+            label={floorAvailable == null
+              ? `Условия открытия этажа ${floor.code}`
+              : `Этаж ${floor.code} ${floorAvailable ? "открыт" : "заблокирован"}`}
+          />
         </summary>
         <div className="floor-work-expanded floor-opening-expanded">
           <ul className="floor-work-requirement-list floor-opening-requirements">

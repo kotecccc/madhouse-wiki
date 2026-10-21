@@ -1,16 +1,10 @@
 .requirement-calculator-card {
-  position: relative;
+  --input-height: var(--space-48);
+  --input-font-size: 16px;
+  --field-label-size: 12px;
   display: grid;
   gap: var(--space-12);
-  padding: var(--space-24);
-}
-
-.requirement-calculator-card .title--h2 {
-  margin: 0;
-  max-width: calc(100% - 32px);
-  color: #e4d7b9;
-  font-size: 21px;
-  line-height: 1.25;
+  padding: 0;
 }
 
 .requirement-calculator-total {
@@ -19,17 +13,32 @@
   justify-content: space-between;
   gap: var(--space-12);
   margin: 0;
+  height: var(--input-height);
 }
 
 .requirement-calculator-total-label {
   color: var(--card-description-color);
-  font-size: 12px;
+  font-size: var(--input-font-size);
 }
 
 .requirement-calculator-total-value {
   color: var(--card-title-color);
-  font: 600 22px/1.2 var(--mono);
+  font: 600 var(--input-font-size)/1.2 var(--mono);
   white-space: nowrap;
+}
+
+.requirement-calculator-energy-field .field-label {
+  margin-bottom: var(--space-2);
+}
+
+.requirement-calculator-energy-field .input-wrap {
+  margin-bottom: 0;
+}
+
+.requirement-calculator-energy-suffix {
+  --input-suffix-color: var(--card-title-color);
+  --input-suffix-size: var(--input-font-size);
+  --input-suffix-font: var(--mono);
 }
 
 .requirement-calculator-profile {
@@ -40,13 +49,41 @@
 
 .requirement-calculator-result {
   display: grid;
-  gap: var(--space-12);
+  gap: var(--space-8);
   color: var(--card-title-color);
   font: 12px/1.45 var(--sans);
 }
 
 .requirement-calculator-result p {
   margin: 0;
+}
+
+.requirement-calculator-option {
+  position: relative;
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+}
+
+.requirement-calculator-option h3 {
+  margin: 0;
+  color: var(--card-title-color);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.requirement-calculator-option:has(.requirement-calculator-option-icon) h3 {
+  padding-right: var(--space-24);
+}
+
+.requirement-calculator-option-icon {
+  position: absolute;
+  top: var(--card-padding);
+  right: var(--card-padding);
+  width: 16px;
+  height: 16px;
+  color: var(--card-description-color);
+  font: 16px/1 var(--sans);
 }
 
 .requirement-calculator-recovery {
@@ -56,28 +93,25 @@
   gap: var(--space-12);
 }
 
-.requirement-calculator-recovery-amount,
 .requirement-calculator-recovery-time {
   display: flex;
   align-items: center;
   gap: var(--space-8);
 }
 
-.requirement-calculator-recovery-amount > span {
+.requirement-calculator-recovery > span {
   color: var(--card-description-color);
 }
 
-.requirement-calculator-recovery-amount strong {
-  font: 600 14px/1.3 var(--mono);
+.requirement-calculator-recovery > span strong,
+.requirement-calculator-recovery-time {
+  color: var(--card-title-color);
+  font: 600 13px/1.3 var(--mono);
 }
 
 .requirement-calculator-recovery-time {
   color: var(--card-description-color);
   white-space: nowrap;
-}
-
-.requirement-calculator-recovery-time > span:first-child {
-  font-size: 16px;
 }
 
 .requirement-calculator-enough-energy {
@@ -87,7 +121,8 @@
 
 .requirement-calculator-refills {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  width: min(100%, 260px);
   gap: var(--space-12);
 }
 
@@ -146,51 +181,39 @@
 }
 
 .requirement-calculator-banknotes {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: var(--space-8);
+  justify-content: space-between;
   padding-top: var(--space-8);
   border-top: 1px solid var(--line);
+  gap: var(--space-8);
+  color: var(--card-description-color);
+  white-space: nowrap;
 }
 
-.requirement-calculator-banknote-icon {
-  width: 20px;
-  height: 20px;
-  color: var(--paper);
+.requirement-calculator-banknotes-value {
+  text-align: right;
 }
 
 .requirement-calculator-banknotes strong {
-  font: 600 14px/1 var(--mono);
+  font: 600 13px/1.3 var(--mono);
 }
 
 .requirement-calculator-banknotes span {
   color: var(--card-description-color);
 }
 
-.requirement-calculator-close {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  border: 0;
-  color: #b7a787;
-  background: transparent;
-  font-size: 25px;
-  cursor: pointer;
+.requirement-calculator-option--purchase {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-16);
+}
+
+.requirement-calculator-option--purchase h3 {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 650px) {
-  .requirement-calculator-card {
-    padding: var(--space-20) var(--space-16);
-  }
-
-  .requirement-calculator-card .title--h2 {
-    font-size: 18px;
-  }
-
-  .requirement-calculator-total-value {
-    font-size: 19px;
-  }
-
   .requirement-calculator-recovery {
     align-items: flex-start;
     flex-direction: column;

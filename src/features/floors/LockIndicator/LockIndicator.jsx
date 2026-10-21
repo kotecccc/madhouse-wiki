@@ -5,6 +5,7 @@ export function LockIndicator({
   label = "Заблокировано в игре",
   className = "",
   size = 12,
+  locked = true,
 }) {
   return (
     <span
@@ -14,7 +15,7 @@ export function LockIndicator({
       aria-label={label}
       title={label}
     >
-      <Icon type="lock" />
+      <Icon type={locked ? "lock" : "unlock"} />
     </span>
   );
 }

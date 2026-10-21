@@ -1,12 +1,10 @@
 import "./RequirementCalculatorDialog.css";
 import { calculateRequirementEnergy } from "../../../lib/energy.js";
-import { Button } from "../../../components/ui/Button/Button.jsx";
 import { useEffect, useState } from "react";
-import { Dialog } from "../../../components/ui/Dialog/Dialog.jsx";
+import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { NumberField } from "../../../components/ui/NumberField/NumberField.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { fmt, fmtEnergy, restoreTime } from "../../../lib/format.js";
-import { Title } from "../../../components/ui/Title/Title.jsx";
 import { getSessionJson } from "../../../../shared/session-api.js";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
@@ -127,11 +125,12 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
       : null;
 
   return (
-    <Dialog
+    <Modal
       className="requirement-calculator-dialog"
-      modal
+      title={calculatorTitle}
+      titleId="requirement-calc-title"
+      width={620}
       onClose={onClose}
-      aria-labelledby="requirement-calc-title"
     >
       <form
         className="requirement-calculator-card"
@@ -140,20 +139,10 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
           onClose();
         }}
       >
-        <Button
-          className="requirement-calculator-close"
-          onClick={onClose}
-          aria-label="Закрыть"
-        >
-          ×
-        </Button>
-        <Title as="h2" id="requirement-calc-title">
-          {calculatorTitle}
-        </Title>
         {requirementCalc != null && (
-          <BaseCard className="requirement-calculator-total">
+          <BaseCard variant="floor-data" className="requirement-calculator-total">
             <span className="requirement-calculator-total-label">
-              Энергия на условие
+              Необходимо энергии
             </span>
             <strong className="requirement-calculator-total-value">
               {fmtEnergy(requirementCalc)} <span aria-hidden="true">⚡</span>
@@ -161,27 +150,33 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
           </BaseCard>
         )}
         {profileStatus === "loading" ? (
-          <BaseCard className="requirement-calculator-profile" role="status">
+          <BaseCard variant="floor-data" className="requirement-calculator-profile" role="status">
             Загружаю запас энергии из профиля…
           </BaseCard>
         ) : profileEnergy ? (
-          <BaseCard className="requirement-calculator-profile">
+          <BaseCard variant="floor-data" className="requirement-calculator-profile">
             Текущий запас: {fmt(profileEnergy.currentEnergy)} из{" "}
             {fmt(profileEnergy.maxEnergy)} ⚡
           </BaseCard>
         ) : (
-          <NumberField
-            id="requirement-energy-limit"
-            label="Максимальный лимит энергии"
-            suffix="⚡"
-            min="1"
-            placeholder="Введите лимит энергии"
-            value={energyLimit}
-            onChange={(event) => setEnergyLimit(event.target.value)}
-          />
+          <div className="requirement-calculator-energy-field">
+            <NumberField
+              id="requirement-energy-limit"
+              label="Максимальный лимит энергии"
+              suffix="⚡"
+              suffixClassName="requirement-calculator-energy-suffix"
+              min="1"
+              placeholder="Введите лимит энергии"
+              value={energyLimit}
+              onChange={(event) => setEnergyLimit(event.target.value)}
+            />
+          </div>
         )}
         {(requirementCalc == null || energyPlan) && (
-          <BaseCard className="requirement-calculator-result" aria-live="polite">
+          <div
+            className="requirement-calculator-result"
+            aria-live="polite"
+          >
             {requirementCalc == null ? (
               <p>
                 Для этого условия в подключённых источниках не указана
@@ -189,60 +184,71 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
               </p>
             ) : (
               <>
-                {energyPlan.remaining > 0 ? (
-                  <div className="requirement-calculator-recovery">
-                    <div className="requirement-calculator-recovery-amount">
-                      <span>Восстановить</span>
-                      <strong>{fmtEnergy(energyPlan.remaining)} ⚡</strong>
+                <BaseCard variant="floor-data" className="requirement-calculator-option">
+                  <span className="requirement-calculator-option-icon" aria-hidden="true">⏱</span>
+                  <h3>Вариант 1: ждать энергию</h3>
+                  {energyPlan.remaining > 0 ? (
+                    <div className="requirement-calculator-recovery">
+                      <span>
+                        Восстановить{" "}
+                        <strong>{fmtEnergy(energyPlan.remaining)} ⚡</strong>
+                      </span>
+                      <strong className="requirement-calculator-recovery-time">
+                        {restoreTime(energyPlan.minutes)}
+                      </strong>
                     </div>
-                    <div className="requirement-calculator-recovery-time">
-                      <span aria-hidden="true">⏱</span>
-                      <span>{restoreTime(energyPlan.minutes)}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="requirement-calculator-enough-energy">
-                    Текущего запаса энергии хватит.
-                  </p>
-                )}
-                <div
-                  className="requirement-calculator-refills"
-                  aria-label="Дефибрилляторы для восстановления энергии"
+                  ) : (
+                    <p className="requirement-calculator-enough-energy">
+                      Текущего запаса энергии хватит.
+                    </p>
+                  )}
+                </BaseCard>
+                <BaseCard
+                  variant="floor-data"
+                  className="requirement-calculator-option requirement-calculator-option--purchase"
                 >
-                  <div className="requirement-calculator-refill">
-                    <DefibrillatorIcon variant="small" />
-                    <span className="requirement-calculator-refill-copy">
-                      <strong>Малый</strong>
-                      <small>10% лимита</small>
-                    </span>
-                    <strong className="requirement-calculator-refill-count">
-                      ×{fmt(energyPlan.smallRefills)}
-                    </strong>
-                  </div>
-                  <div className="requirement-calculator-refill">
-                    <DefibrillatorIcon variant="large" />
-                    <span className="requirement-calculator-refill-copy">
-                      <strong>Большой</strong>
-                      <small>100% лимита</small>
-                    </span>
-                    <strong className="requirement-calculator-refill-count">
-                      ×{fmt(energyPlan.largeRefills)}
-                    </strong>
-                  </div>
-                </div>
-                <div className="requirement-calculator-banknotes">
                   <Icon
                     type="banknote"
-                    className="requirement-calculator-banknote-icon"
+                    className="requirement-calculator-option-icon"
                   />
-                  <strong>{fmt(energyPlan.banknotes)}</strong>
-                  <span>купюр</span>
-                </div>
+                  <h3>Вариант 2: купить дефибрилляторы</h3>
+                  <div
+                    className="requirement-calculator-refills"
+                    aria-label="Дефибрилляторы для восстановления энергии"
+                  >
+                    <div className="requirement-calculator-refill">
+                      <DefibrillatorIcon variant="small" />
+                      <span className="requirement-calculator-refill-copy">
+                        <strong>Малый</strong>
+                        <small>10% лимита</small>
+                      </span>
+                      <strong className="requirement-calculator-refill-count">
+                        ×{fmt(energyPlan.smallRefills)}
+                      </strong>
+                    </div>
+                    <div className="requirement-calculator-refill">
+                      <DefibrillatorIcon variant="large" />
+                      <span className="requirement-calculator-refill-copy">
+                        <strong>Большой</strong>
+                        <small>100% лимита</small>
+                      </span>
+                      <strong className="requirement-calculator-refill-count">
+                        ×{fmt(energyPlan.largeRefills)}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="requirement-calculator-banknotes">
+                    <span>Итого</span>
+                    <span className="requirement-calculator-banknotes-value">
+                      <strong>{fmt(energyPlan.banknotes)}</strong> купюр
+                    </span>
+                  </div>
+                </BaseCard>
               </>
             )}
-          </BaseCard>
+          </div>
         )}
       </form>
-    </Dialog>
+    </Modal>
   );
 }

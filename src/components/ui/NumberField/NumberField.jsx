@@ -1,13 +1,21 @@
 import { FieldLabel } from "../FieldLabel/FieldLabel.jsx";
+import { Input } from "../Input/Input.jsx";
 import "./NumberField.css";
-export function NumberField({ id, label, hint, suffix, ...props }) {
+export function NumberField({
+  id,
+  label,
+  hint,
+  suffix,
+  suffixClassName = "",
+  ...props
+}) {
   return (
     <>
       <FieldLabel htmlFor={id} hint={hint}>
         {label}
       </FieldLabel>
       <div className="input-wrap">
-        <input
+        <Input
           id={id}
           type="number"
           min="0"
@@ -15,7 +23,7 @@ export function NumberField({ id, label, hint, suffix, ...props }) {
           inputMode="numeric"
           {...props}
         />
-        <span className="input-suffix">{suffix}</span>
+        <span className={`input-suffix ${suffixClassName}`}>{suffix}</span>
       </div>
     </>
   );

@@ -1,16 +1,33 @@
 .raid-schedule-section {
   border-top: 1px solid var(--line);
+  padding-top: var(--space-24);
+}
+
+.app-screen--floors .floors-section {
+  padding-bottom: var(--space-24);
 }
 
 .raid-section-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-24);
   margin-bottom: var(--space-32);
 }
 
+.raid-section-title {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8) var(--space-20);
+  min-width: 0;
+}
+
 .raid-channel-link {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
   flex: 0 0 auto;
   width: auto;
   min-height: 36px;
@@ -20,11 +37,6 @@
   font-size: 11px;
   text-decoration: none;
   white-space: nowrap;
-}
-
-.raid-channel-link .ui-icon {
-  width: 16px;
-  height: 16px;
 }
 
 .raid-channel-link:hover {
@@ -45,334 +57,36 @@
 }
 
 .raid-post-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-24);
-}
-
-.raid-post {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--space-16);
-}
-
-.raid-day-context {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-12);
-  min-height: 20px;
-}
-
-.raid-day-date {
-  color: var(--card-title-color);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.raid-day-timezone {
-  color: var(--card-description-color);
-  font-size: 11px;
-}
-
-.raid-day-scale {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
-}
-
-.raid-time-axis {
-  position: relative;
-  min-width: 0;
-  height: 28px;
-  padding-top: var(--space-8);
-  color: var(--muted);
-  font: 9px var(--mono);
-}
-
-.raid-time-axis::before {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: linear-gradient(90deg, var(--red-bright), var(--line) 28%);
-  content: "";
-}
-
-.raid-time-tick {
-  position: absolute;
-  top: var(--space-8);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-4);
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
-.raid-time-tick::before {
-  position: absolute;
-  top: calc(-1 * var(--space-8));
-  left: 50%;
-  width: 1px;
-  height: 6px;
-  background: var(--line);
-  content: "";
-}
-
-.raid-time-tick:first-child {
-  align-items: flex-start;
-  transform: none;
-}
-
-.raid-time-tick--start-edge {
-  align-items: flex-start;
-  transform: none;
-}
-
-.raid-time-tick:last-child {
-  align-items: flex-end;
-  transform: translateX(-100%);
-}
-
-.raid-time-tick--end-edge {
-  align-items: flex-end;
-  transform: translateX(-100%);
-}
-
-.raid-time-tick--late-evening {
-  align-items: flex-end;
-  transform: translateX(-100%);
-}
-
-.raid-time-tick small {
-  color: var(--card-description-color);
-  font: 8px var(--mono);
-  letter-spacing: 0.04em;
-}
-
-.raid-time-marker-track {
-  position: relative;
-  height: 18px;
-  margin-top: var(--space-4);
-}
-
-.raid-time-marker-track::before {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  left: 0;
-  height: 2px;
-  transform: translateY(-50%);
-  border-radius: 999px;
-  background: var(--line);
-  content: "";
-}
-
-.raid-time-marker {
-  position: absolute;
-  top: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 8px;
-  height: 8px;
-  transform: translate(-50%, -50%);
-  border: 1px solid var(--bg-deep);
-  border-radius: 50%;
-  background: #aaa69d;
-  box-shadow: 0 0 0 1px rgba(170, 166, 157, 0.55);
-}
-
-.raid-time-marker--start-edge {
-  transform: translateY(-50%);
-}
-
-.raid-time-marker--end-edge {
-  transform: translate(-100%, -50%);
-}
-
-.raid-time-marker--multiple {
-  min-width: 18px;
-  width: auto;
-  height: 18px;
-  padding-inline: 3px;
-  border-radius: 999px;
-  color: var(--bg-deep);
-  font: 700 8px var(--mono);
-}
-
-.raid-time-marker--active {
-  background: #73c993;
-  box-shadow: 0 0 0 1px rgba(115, 201, 147, 0.55);
-}
-
-.raid-time-marker--completed {
-  background: #e17869;
-  box-shadow: 0 0 0 1px rgba(225, 120, 105, 0.55);
-}
-
-.raid-timeline-list {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.raid-timeline-list::before {
-  position: absolute;
-  top: var(--space-16);
-  bottom: var(--space-16);
-  left: 68px;
-  width: 1px;
-  background: linear-gradient(
-    180deg,
-    rgba(225, 120, 105, 0.75),
-    rgba(212, 196, 163, 0.24) 35%,
-    rgba(115, 201, 147, 0.72)
-  );
-  content: "";
-}
-
-.raid-timeline-item {
-  position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: 68px minmax(0, 1fr);
-  align-items: stretch;
-  gap: var(--space-16);
-}
-
-.raid-timeline-time {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: var(--space-12);
-  color: var(--card-title-color);
-  font: 12px var(--mono);
-  white-space: nowrap;
-}
-
-.raid-timeline-time::after {
-  position: absolute;
-  top: 50%;
-  right: -4px;
-  width: 9px;
-  height: 9px;
-  transform: translateY(-50%);
-  border: 2px solid var(--bg-deep);
-  border-radius: 50%;
-  background: #aaa69d;
-  box-shadow: 0 0 0 1px rgba(170, 166, 157, 0.55);
-  content: "";
-}
-
-.raid-timeline-item--active .raid-timeline-time::after {
-  background: #73c993;
-  box-shadow: 0 0 0 1px rgba(115, 201, 147, 0.55);
-}
-
-.raid-timeline-item--completed .raid-timeline-time::after {
-  background: #e17869;
-  box-shadow: 0 0 0 1px rgba(225, 120, 105, 0.55);
-}
-
-.raid-post--archive {
-  border-top: 1px solid var(--line);
-  padding-top: var(--space-16);
-}
-
-.raid-post--archive > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-16);
-  cursor: pointer;
-  color: var(--card-title-color);
-  list-style: none;
-}
-
-.raid-post--archive > summary::-webkit-details-marker {
-  display: none;
-}
-
-.raid-post--archive > summary::after {
-  color: var(--card-description-color);
-  content: "+";
-  font: 18px var(--mono);
-}
-
-.raid-post--archive[open] > summary::after {
-  content: "−";
-}
-
-.raid-archive-title {
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.raid-archive-meta {
-  margin-left: auto;
-  color: var(--card-description-color);
-  font-size: 10px;
-}
-
-@media (max-width: 900px) {
-  .raid-timeline-list::before {
-    left: 56px;
-  }
-
-  .raid-timeline-item {
-    grid-template-columns: 56px minmax(0, 1fr);
-  }
+  gap: var(--space-24);
 }
 
 @media (max-width: 650px) {
   .raid-schedule-section {
-    padding-top: var(--space-48);
+    border-top: 0;
+    padding-top: var(--space-8);
   }
-
   .raid-section-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-8);
     margin-bottom: var(--space-24);
   }
-
+  .raid-section-title {
+    grid-column: 1;
+    grid-row: 1;
+  }
   .raid-channel-link {
-    min-height: 36px;
-    padding-inline: var(--space-8);
+    grid-column: 2;
+    grid-row: 1;
   }
-
-  .raid-time-axis {
-    font-size: 8px;
+  .raid-channel-link {
+    width: 36px;
+    padding: 0;
   }
-
-  .raid-time-tick--secondary {
+  .raid-channel-label {
     display: none;
-  }
-
-  .raid-time-tick small {
-    font-size: 7px;
-  }
-
-  .raid-timeline-list {
-    gap: var(--space-10);
-  }
-
-  .raid-timeline-list::before {
-    left: 48px;
-  }
-
-  .raid-timeline-item {
-    grid-template-columns: 48px minmax(0, 1fr);
-    gap: var(--space-8);
-  }
-
-  .raid-timeline-time {
-    font-size: 10px;
-    padding-right: var(--space-8);
   }
 }

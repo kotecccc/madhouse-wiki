@@ -3,7 +3,20 @@
   margin: 0 auto;
 }
 
-
 #top {
   padding-top: var(--layout-gap-section);
+}
+
+@media (max-width: 650px) {
+  .app-content--raids#top {
+    padding-top: 0;
+  }
+  .site-shell {
+    padding-bottom: calc(var(--space-96) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-content--floors > .app-screen--raids,
+  .app-content--raids > .app-screen--floors {
+    display: none;
+  }
 }

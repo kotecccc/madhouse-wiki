@@ -63,9 +63,7 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
     <FloorGroup
       key={floor.id}
       floor={floor}
-      hideOpeningConditions={
-        status === "ready" && availability[floor.code] === true
-      }
+      floorAvailable={status === "ready" ? availability[floor.code] : undefined}
       departmentAvailability={departmentAvailability}
       viewMode="floors"
       onCalculator={onCalculator}

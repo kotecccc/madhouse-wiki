@@ -1,0 +1,30 @@
+.raid-archive > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  cursor: pointer;
+  list-style: none;
+}
+.raid-archive > summary::-webkit-details-marker {
+  display: none;
+}
+.raid-archive[open] > summary > .ui-icon {
+  transform: rotate(180deg);
+}
+.raid-archive-posts {
+  display: grid;
+  gap: var(--space-24);
+  min-width: 0;
+  margin-top: var(--space-24);
+}
+.raid-archive-loader {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-12);
+  color: var(--card-description-color);
+  font-size: 11px;
+}
+.raid-archive-loader p {
+  margin: 0;
+}
