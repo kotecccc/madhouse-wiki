@@ -208,10 +208,28 @@ if (service === "connector") {
     true,
     60,
   );
+  const wikiBotFiles = [
+    "api/telegram/bot-webhook.js",
+    "scripts/telegram/wiki-bot.mjs",
+    "scripts/telegram/wiki-bot-vercel-handler.mjs",
+    "scripts/catalogue/query.mjs",
+    "scripts/catalogue/public-assets.mjs",
+    "scripts/catalogue/item-facts.mjs",
+    "local-data/madhouse.sqlite",
+  ];
+  functionFiles(
+    "api/telegram/bot-webhook",
+    wikiBotFiles,
+    "export {default} from './api/telegram/bot-webhook.js';",
+  );
   routes.push({ src: "/api/raids", dest: "/api/raids" });
   routes.push({
     src: "/api/telegram/raids-sync",
     dest: "/api/telegram/raids-sync",
+  });
+  routes.push({
+    src: "/api/telegram/bot-webhook",
+    dest: "/api/telegram/bot-webhook",
   });
   routes.push({ src: "/api/(.*)", dest: "/api" });
   routes.push({
