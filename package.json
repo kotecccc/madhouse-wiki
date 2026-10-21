@@ -10,6 +10,7 @@
     "build": "vite build",
     "build:hosted": "node scripts/catalogue/restore-seed.mjs && vite build",
     "start:raids-worker": "node --env-file-if-exists=.env.local scripts/telegram/raid-live-worker.mjs",
+    "telegram:configure": "node scripts/telegram/configure-wiki-bot.mjs",
     "catalogue:package": "node scripts/catalogue/package-seed.mjs",
     "preview": "vite preview",
     "lint": "eslint .",

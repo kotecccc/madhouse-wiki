@@ -238,3 +238,23 @@ Shared package.json and build-vercel.mjs contain separate bot configuration/webh
 After the review hold, the user authorized local worker operation and authorized the temporary Development Blob connection used to save the encrypted MTProto session. The Development connection was disabled after session storage. The worker now runs under `com.madhouse-wiki.raid-live-worker`, owns the renewable shared Blob lease, and receives Telegram new/edit/delete updates; startup and 10-minute history reconciliation recover missed events. This Mac sleeps and logs out, so it is a temporary listener, not a 24/7 host.
 
 The candidate now removes the daily Cron from future Vercel Build Output, keeps the protected sync endpoint for manual recovery, disables `/api/raids` caching, and refreshes the React feed every 10 seconds. Production still runs the previously deployed UI/API and daily Cron until a reviewed replacement release is published. Existing dirty checkout contains unrelated Wiki/auth/bot edits and has not been staged, committed, pushed, or deployed. No tests or build were run per the existing verification boundary; the LaunchAgent plist passed `plutil -lint` and live status inspection reported running.
+
+## Consolidated release ownership — 2026-10-21
+
+The user assigned integration and Production publication of both active chats to
+«Объединить ветки и релизнуть прод». All existing raid and Wiki bot branch heads
+are reconciled into one `main` history, retaining the later raid date/time-zone
+fix and Vercel webhook raw-body fix. Pending calculator, collection requirement,
+business-drop and login UI edits from the primary checkout are included.
+
+Production publication must use the consolidated `main` commit. The two feature
+chats must not independently promote a branch deployment or reassign the public
+alias. Future feature work should use isolated worktrees and merge through main.
+The realtime worker remains the existing single Mac LaunchAgent; sleep/logout
+still interrupt listening until restart reconciliation. No permanent worker host
+was provisioned by this consolidation.
+
+The release candidate is being submitted to Vercel for remote build validation;
+local tests/builds were not run, preserving the feature chats' verification limit.
+The existing energy test was updated to import the current calculator helper and
+check limit-based refill costs rather than the removed fixed-size formula.
