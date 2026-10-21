@@ -2,6 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 
 const TARGET_USERNAME = "madhouse_wiki_bot";
 const DEFAULT_WIKI_ORIGIN = "https://madhouse-wiki.vercel.app";
+const TMA_URL = `https://t.me/${TARGET_USERNAME}?startapp=home`;
+const START_IMAGE_PATH = "/madhouse-wiki-bot-start.png";
 const MAX_WEBHOOK_BODY_BYTES = 96 * 1024;
 const MAX_MESSAGE_LENGTH = 4096;
 const INLINE_ANSWER_TIMEOUT_MS = 5000;
@@ -64,15 +66,18 @@ function normalizeOrigin(value) {
   }
 }
 
-function inlineMarkup(siteUrl, sourceUrl = null) {
+function inlineMarkup(sourceUrl = null, shareQuery = null) {
   const links = [];
+  if (shareQuery) {
+    links.push({ text: "↗ Поделиться", switch_inline_query: shareQuery });
+  }
   if (sourceUrl) links.push({ text: "📄 Источник", url: sourceUrl });
   links.push({
     text: "📚 Madhouse Wiki",
-    url: siteUrl,
+    url: TMA_URL,
     style: "primary",
   });
-  return { inline_keyboard: [links] };
+  return { inline_keyboard: links.map((link) => [link]) };
 }
 
 function inlineArticle({
@@ -80,8 +85,8 @@ function inlineArticle({
   title,
   description,
   message,
-  siteUrl,
   sourceUrl,
+  shareQuery = null,
 }) {
   const messageText = String(message || "");
   return {
@@ -94,7 +99,7 @@ function inlineArticle({
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     },
-    reply_markup: inlineMarkup(siteUrl, sourceUrl),
+    reply_markup: inlineMarkup(sourceUrl, shareQuery),
   };
 }
 
@@ -161,7 +166,8 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
     `<b>🏢 Этаж ${escapeHtml(floor.code)} · отделения и условия открытия</b>`,
   ];
   const floorText = String(floor.openingConditionText || "").trim();
-  if (floorText) lines.push(escapeHtml(floorText));
+  if (floorText)
+    lines.push(`<blockquote>${escapeHtml(floorText)}</blockquote>`);
 
   const additionalConditions = (floor.openingConditions || []).filter(
     (condition) => {
@@ -213,7 +219,9 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
           ),
         );
       } else {
-        lines.push("• Условия открытия отделения в каталоге не указаны.");
+        lines.push(
+          "• <i>Условия открытия отделения в каталоге не указаны.</i>",
+        );
       }
     }
   }
@@ -237,7 +245,7 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
       ...sourceCaveats(
         knowledgeBase,
         businessUnlocks.map((unlock) => unlock.sourceId),
-      ).map(escapeHtml),
+      ).map((note) => `<i>${escapeHtml(note)}</i>`),
     );
     for (const unlock of businessUnlocks) {
       if (unlock.sourceHeading)
@@ -251,6 +259,7 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
     description: floorText || "Бизнесы и условия открытия отделений",
     message: fitHtmlLines(lines),
     siteUrl,
+    shareQuery: `этаж ${floor.code}`,
   });
 }
 
@@ -309,7 +318,7 @@ function describeDepartment(
       }
     }
   } else {
-    lines.push("", "Условия открытия отделения в каталоге не указаны.");
+    lines.push("", "<i>Условия открытия отделения в каталоге не указаны.</i>");
   }
 
   return inlineArticle({
@@ -318,6 +327,7 @@ function describeDepartment(
     description: department.work?.title || "Условия открытия отделения",
     message: fitHtmlLines(lines),
     siteUrl,
+    shareQuery: `${energy ? "энергия" : "отделение"} ${department.code}`,
   });
 }
 
@@ -373,7 +383,7 @@ function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
   if (!hasEnergyData) {
     lines.push(
       "",
-      "Для этого этажа в каталоге пока нет подтверждённого расчёта энергии.",
+      "<i>Для этого этажа в каталоге пока нет подтверждённого расчёта энергии.</i>",
     );
   }
 
@@ -385,6 +395,7 @@ function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
       : "Энергия в каталоге пока не указана",
     message: fitHtmlLines(lines),
     siteUrl,
+    shareQuery: `энергия ${floor.code}`,
   });
 }
 
@@ -408,7 +419,7 @@ function describeRaidPost(post, siteUrl) {
   const raids = Array.isArray(post?.raids) ? post.raids : [];
   const lines = [
     `<b>${escapeHtml(post?.sourceTitle || `🔥 РЕЙДЫ — ${post?.raidDateLabel || "дата не указана"}`)}</b>`,
-    `Время: ${escapeHtml(post?.timeZone || "не указано")}`,
+    `<i>Время указано в зоне ${escapeHtml(post?.timeZone || "не указано")}</i>`,
   ];
 
   for (const raid of raids.slice(0, 20)) {
@@ -417,7 +428,7 @@ function describeRaidPost(post, siteUrl) {
     const duration = raid?.duration ? ` · ${escapeHtml(raid.duration)}` : "";
     lines.push(
       "",
-      `<b>${escapeHtml(raid?.zone || "Зона не указана")} · ${escapeHtml(raid?.time || "время не указано")}</b>`,
+      `<b>📍 ${escapeHtml(raid?.zone || "Зона не указана")} · ${escapeHtml(raid?.time || "время не указано")}</b>`,
       `${details.join(" · ") || "Детали рейда не указаны"}${leader}${duration}`,
     );
   }
@@ -437,6 +448,7 @@ function describeRaidPost(post, siteUrl) {
     message: fitHtmlLines(lines),
     siteUrl,
     sourceUrl,
+    shareQuery: "рейды",
   });
 }
 
@@ -480,7 +492,8 @@ function describeBusinessUnlocks(knowledgeBase, siteUrl) {
       };
     })
     .sort((left, right) => {
-      const leftRank = floorRanks.get(left.floor?.id) ?? Number.MAX_SAFE_INTEGER;
+      const leftRank =
+        floorRanks.get(left.floor?.id) ?? Number.MAX_SAFE_INTEGER;
       const rightRank =
         floorRanks.get(right.floor?.id) ?? Number.MAX_SAFE_INTEGER;
       if (leftRank !== rightRank) return leftRank - rightRank;
@@ -495,7 +508,7 @@ function describeBusinessUnlocks(knowledgeBase, siteUrl) {
     ...sourceCaveats(
       knowledgeBase,
       unlocks.map((unlock) => unlock.sourceId),
-    ).map(escapeHtml),
+    ).map((note) => `<i>${escapeHtml(note)}</i>`),
   );
   let previousFloor = null;
   for (const unlock of unlocks) {
@@ -516,6 +529,7 @@ function describeBusinessUnlocks(knowledgeBase, siteUrl) {
     description: `${unlocks.length} связей из каталога Madhouse Wiki`,
     message: fitHtmlLines(lines),
     siteUrl,
+    shareQuery: "этажи",
   });
 }
 
@@ -550,7 +564,7 @@ function describeOpeningEnergy(knowledgeBase, siteUrl) {
 
   const lines = [
     "<b>⚡ Энергия для открытия отделений</b>",
-    "Итог рассчитан по энергии полного цикла работ; лимит игрока и время восстановления не учитываются.",
+    "<i>Итог рассчитан по энергии полного цикла работ; лимит игрока и время восстановления не учитываются.</i>",
   ];
   let previousFloor = null;
   for (const { department, condition } of requirements) {
@@ -580,7 +594,10 @@ function describeOpeningEnergy(knowledgeBase, siteUrl) {
   }
 
   if (!requirements.length) {
-    lines.push("", "В каталоге не найдено условий открытия через выполнение работ.");
+    lines.push(
+      "",
+      "В каталоге не найдено условий открытия через выполнение работ.",
+    );
   }
 
   return inlineArticle({
@@ -589,6 +606,7 @@ function describeOpeningEnergy(knowledgeBase, siteUrl) {
     description: `${requirements.length} условий · итог по полным циклам работ`,
     message: fitHtmlLines(lines),
     siteUrl,
+    shareQuery: "энергия",
   });
 }
 
@@ -766,17 +784,21 @@ export function createWikiBotApi({
     });
   }
 
+  async function sendPhoto(chatId, photo, caption, replyMarkup) {
+    await callBotApi("sendPhoto", {
+      chat_id: chatId,
+      photo,
+      caption,
+      parse_mode: "HTML",
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    });
+  }
+
   function startKeyboard(chatType) {
     const rows = [
-      [
-        {
-          text: "🏢 Этажи",
-          switch_inline_query: "этажи",
-          style: "primary",
-        },
-        { text: "⚡ Энергия", switch_inline_query: "энергия" },
-      ],
-      [{ text: "🔥 Актуальные рейды", switch_inline_query: "рейды" }],
+      [{ text: "🏢 Этажи и отделения", callback_data: "menu:floors" }],
+      [{ text: "⚡ Энергия работ", callback_data: "menu:energy" }],
+      [{ text: "🔥 Актуальные рейды", callback_data: "menu:raids" }],
     ];
     rows.push(
       chatType === "private"
@@ -790,12 +812,160 @@ export function createWikiBotApi({
         : [
             {
               text: "📖 Открыть Madhouse Wiki",
-              url: siteUrl,
+              url: TMA_URL,
               style: "primary",
             },
           ],
     );
     return { inline_keyboard: rows };
+  }
+
+  function floorPicker(mode) {
+    const isEnergy = mode === "energy";
+    return {
+      inline_keyboard: [
+        ...knowledgeBase.floors.map((floor) => [
+          {
+            text: `${isEnergy ? "⚡" : "🏢"} Этаж ${floor.code}`,
+            callback_data: `${isEnergy ? "energyfloor" : "floor"}:${floor.code}`,
+          },
+        ]),
+        [{ text: "↩ Главное меню", callback_data: "menu:home" }],
+      ],
+    };
+  }
+
+  function screenMarkup(shareQuery = null, extraRows = []) {
+    const inlineKeyboard = [];
+    if (shareQuery) {
+      inlineKeyboard.push([
+        { text: "↗ Поделиться карточкой", switch_inline_query: shareQuery },
+      ]);
+    }
+    inlineKeyboard.push(...extraRows);
+    inlineKeyboard.push([
+      { text: "↩ Главное меню", callback_data: "menu:home" },
+      { text: "📖 Madhouse Wiki", url: TMA_URL },
+    ]);
+    return { inline_keyboard: inlineKeyboard };
+  }
+
+  async function sendArticle(
+    chatId,
+    article,
+    replyMarkup = article.reply_markup,
+  ) {
+    if (!article) {
+      await sendMessage(chatId, "Раздел пока недоступен.", screenMarkup());
+      return;
+    }
+    await sendMessage(
+      chatId,
+      article.input_message_content.message_text,
+      replyMarkup,
+    );
+  }
+
+  async function handleCallback(callback) {
+    const chatId = callback.message?.chat?.id;
+    if (!chatId || typeof callback.data !== "string") return;
+    await callBotApi("answerCallbackQuery", { callback_query_id: callback.id });
+
+    if (callback.data === "menu:home") {
+      await sendMessage(
+        chatId,
+        "<b>🕯 Madhouse Wiki</b>\nВыберите, что посмотреть:",
+        startKeyboard(callback.message.chat.type),
+      );
+      return;
+    }
+    if (callback.data === "menu:floors") {
+      await sendMessage(
+        chatId,
+        "<b>🏢 Этажи и отделения</b>\nВыберите этаж, чтобы посмотреть условия открытия и связанные отделения.",
+        floorPicker("floors"),
+      );
+      return;
+    }
+    if (callback.data === "menu:energy") {
+      await sendMessage(
+        chatId,
+        "<b>⚡ Энергия работ</b>\nВыберите этаж, чтобы посмотреть расход энергии за полный цикл и расчёты для условий открытия.",
+        floorPicker("energy"),
+      );
+      return;
+    }
+    if (callback.data === "menu:raids") {
+      await sendArticle(
+        chatId,
+        await readLatestRaidArticle(),
+        screenMarkup("рейды"),
+      );
+      return;
+    }
+
+    const floorMatch = /^(floor|energyfloor):(.+)$/u.exec(callback.data);
+    if (floorMatch) {
+      const floor = knowledgeBase.floors.find(
+        (candidate) =>
+          normalizeCode(candidate.code) === normalizeCode(floorMatch[2]),
+      );
+      if (!floor) {
+        await sendMessage(chatId, "Этаж не найден в каталоге.", screenMarkup());
+        return;
+      }
+      const article =
+        floorMatch[1] === "energyfloor"
+          ? describeEnergyFloor(floor, knowledgeBase, siteUrl)
+          : describeFloor(floor, knowledgeBase, siteUrl);
+      const departments = getDepartments(knowledgeBase, floor);
+      const departmentRows = departments.map((department) => [
+        {
+          text: `${floorMatch[1] === "energyfloor" ? "⚡" : "🏥"} ${department.code} · ${department.name}`.slice(
+            0,
+            64,
+          ),
+          callback_data: `department:${floorMatch[1] === "energyfloor" ? "energy:" : ""}${department.code}`,
+        },
+      ]);
+      await sendArticle(
+        chatId,
+        article,
+        screenMarkup(
+          `${floorMatch[1] === "energyfloor" ? "энергия" : "этаж"} ${floor.code}`,
+          departmentRows,
+        ),
+      );
+      return;
+    }
+
+    const departmentMatch = /^department:(energy:)?(.+)$/u.exec(callback.data);
+    if (departmentMatch) {
+      const department = knowledgeBase.departments.find(
+        (candidate) =>
+          normalizeCode(candidate.code) === normalizeCode(departmentMatch[2]),
+      );
+      if (!department) {
+        await sendMessage(
+          chatId,
+          "Отделение не найдено в каталоге.",
+          screenMarkup(),
+        );
+        return;
+      }
+      const energy = Boolean(departmentMatch[1]);
+      const article = describeDepartment(
+        department,
+        knowledgeBase,
+        siteUrl,
+        energy,
+      );
+      await sendArticle(
+        chatId,
+        article,
+        screenMarkup(`${energy ? "энергия" : "отделение"} ${department.code}`),
+      );
+    }
   }
 
   async function handleMessage(message) {
@@ -808,13 +978,10 @@ export function createWikiBotApi({
     const chatId = message.chat.id;
 
     if (command === "/start") {
-      await sendMessage(
+      await sendPhoto(
         chatId,
-        [
-          "🕯 <b>Madhouse Wiki</b>",
-          "Справочник по этажам, отделениям, энергии работ и актуальным рейдам.",
-          "\nЧтобы переслать карточку в общеигровой чат, нажмите кнопку ниже или введите в чате <code>@madhouse_wiki_bot этаж B</code>, <code>@madhouse_wiki_bot энергия A</code> или <code>@madhouse_wiki_bot рейды</code>.",
-        ].join("\n\n"),
+        new URL(START_IMAGE_PATH, siteUrl).toString(),
+        "<b>🕯 Madhouse Wiki</b>\nСправочник по этажам, отделениям, энергии работ и актуальным рейдам.\n\nВыберите раздел — карточки можно отправить в другие чаты прямо с экрана.",
         startKeyboard(message.chat.type),
       );
       return;
@@ -824,12 +991,9 @@ export function createWikiBotApi({
       await sendMessage(
         chatId,
         [
-          "<b>Как поделиться карточкой</b>",
-          "В любом чате начните ввод с <code>@madhouse_wiki_bot</code> и добавьте запрос:",
-          "• <code>этаж B</code> — отделения и условия открытия",
-          "• <code>энергия A</code> — энергия полного цикла и затраты на работу для открытия",
-          "• <code>рейды</code> — актуальное расписание",
-          "Выберите карточку из списка — она отправится в чат.",
+          "<b>Как пользоваться Madhouse Wiki</b>",
+          "Выберите раздел в меню бота. В карточке нажмите <b>↗ Поделиться карточкой</b>, чтобы отправить её в другой чат.",
+          "Или найдите карточку прямо в переписке: <code>@madhouse_wiki_bot этаж B</code>, <code>@madhouse_wiki_bot энергия A</code>, <code>@madhouse_wiki_bot рейды</code>.",
         ].join("\n\n"),
         startKeyboard(message.chat.type),
       );
@@ -837,24 +1001,12 @@ export function createWikiBotApi({
     }
 
     if (["/floors", "/energy"].includes(command)) {
-      const query = command === "/floors" ? "этажи" : "энергия";
       await sendMessage(
         chatId,
         command === "/floors"
-          ? "Выберите этаж в inline-списке. Для точного поиска можно ввести <code>этаж B</code> или <code>отделение B1</code>."
-          : "Энергия указана за полный цикл работ. Например: <code>энергия A</code> или <code>энергия A2</code>.",
-        {
-          inline_keyboard: [
-            [
-              {
-                text:
-                  command === "/floors" ? "🏢 Найти этаж" : "⚡ Найти энергию",
-                switch_inline_query: query,
-                style: "primary",
-              },
-            ],
-          ],
-        },
+          ? "<b>🏢 Этажи и отделения</b>\nВыберите этаж, чтобы посмотреть условия открытия."
+          : "<b>⚡ Энергия работ</b>\nЭнергия указана за полный цикл работ. Выберите этаж.",
+        floorPicker(command === "/floors" ? "floors" : "energy"),
       );
       return;
     }
@@ -879,11 +1031,10 @@ export function createWikiBotApi({
         );
         return;
       }
-      const keyboard = article.reply_markup;
       await sendMessage(
         chatId,
         article.input_message_content.message_text,
-        keyboard,
+        screenMarkup("рейды"),
       );
     }
   }
@@ -919,6 +1070,8 @@ export function createWikiBotApi({
     try {
       if (update?.inline_query?.id) {
         await answerInlineQuery(update.inline_query);
+      } else if (update?.callback_query?.id) {
+        await handleCallback(update.callback_query);
       } else if (update?.message) {
         await handleMessage(update.message);
       }

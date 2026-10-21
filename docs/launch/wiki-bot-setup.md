@@ -2,7 +2,8 @@
 
 ## Implementation
 
-- `api/telegram/bot-webhook` handles `/start`, `/help`, `/floors`, `/energy`, `/raids`, and inline queries.
+- `api/telegram/bot-webhook` handles `/start`, `/help`, `/floors`, `/energy`, `/raids`, inline queries, and button navigation callbacks.
+- `/start` sends the branded bot image and opens an in-bot section menu. Floor, energy, and raid screens have their own share action; shared cards keep the read-only source and Wiki actions.
 - Inline queries return a combined business-unlock list, per-floor and per-department opening conditions, total energy formulas for work-based unlocks, and the latest public raid schedule.
 - Floor and energy facts come from the canonical SQLite catalogue. Energy totals use only complete full-cycle costs and do not include a player's energy limit or recovery time. Raid cards read the public `/api/raids` feed. The bot does not store player progress or personal data.
 - The Mini App keeps the existing Madhouse Wiki catalogue, calls `WebApp.ready()` after the React view is mounted, expands to the available height, applies the Wiki background to Telegram's header and uses a short branded loading screen.
@@ -15,9 +16,9 @@ For the new bot:
 
 1. Create `Madhouse Wiki` with username `madhouse_wiki_bot`.
 2. Use `/setinline` and set the placeholder to `Этажи, энергия, рейды`.
-3. In `/mybots` → `Madhouse Wiki` → `Bot Settings` → `Configure Mini App`, set the Main Mini App URL to `https://madhouse-wiki.vercel.app/`. This adds the profile's `Launch app` button. The setup command also configures the private-chat menu button.
-4. In `Configure Mini App` → `Configure Splash Screen`, upload [`public/madhouse-wiki-splash.svg`](../../public/madhouse-wiki-splash.svg) (512×512) and set the light and dark loading backgrounds to `#191816`. This is Telegram's native loading placeholder; the React launch screen appears after the Mini App loads and calls `Telegram.WebApp.ready()`.
-5. Optionally add a profile photo and Mini App preview media from the existing Wiki screens.
+3. In `/mybots` → `Madhouse Wiki` → `Bot Settings` → `Configure Mini App`, enable the Main Mini App and set its URL to `https://madhouse-wiki.vercel.app/`. The profile's `Launch app` button and the bot's `?startapp=home` buttons depend on this Main Mini App being enabled. The setup command configures the private-chat menu button as a Telegram Web App.
+4. Upload [`public/madhouse-wiki-bot-avatar.png`](../../public/madhouse-wiki-bot-avatar.png) as the bot profile photo in BotFather. `/start` uses [`public/madhouse-wiki-bot-start.png`](../../public/madhouse-wiki-bot-start.png), served from the Wiki origin.
+5. In `Configure Mini App` → `Configure Splash Screen`, upload [`public/madhouse-wiki-splash.svg`](../../public/madhouse-wiki-splash.svg) (512×512) and set the light and dark loading backgrounds to `#191816`. This is Telegram's native loading placeholder; the React launch screen appears after the Mini App loads and calls `Telegram.WebApp.ready()`.
 
 ## Server configuration
 
@@ -44,7 +45,7 @@ For local Bot API setup, keep the Telegram token, webhook secret, and the two or
 node --env-file=/Users/mac/.config/madhouse-wiki/madhouse-wiki-bot.env scripts/telegram/configure-wiki-bot.mjs --metadata-only
 ```
 
-The full command checks the token's username and inline-mode flag, sets the same profile metadata, adds the `Открыть Wiki` menu button, and then registers the webhook with Telegram's secret-token header. Run it only after deploying and verifying the webhook route:
+The full command checks the token's username and inline-mode flag, sets the same profile metadata, adds the `Открыть Wiki` menu button, and registers message, inline-query, and button-callback updates with Telegram's secret-token header. Run it only after deploying and verifying the webhook route:
 
 ```sh
 node --env-file=/Users/mac/.config/madhouse-wiki/madhouse-wiki-bot.env scripts/telegram/configure-wiki-bot.mjs
@@ -56,7 +57,7 @@ It verifies the webhook URL without printing the token or secret. The Main Mini 
 
 ## Sharing
 
-In any group, enter one of:
+Use the bot's floor, energy, and raid menus for browsing. Each data card has a separate share action. Inline search is also available in any group; enter one of:
 
 - `@madhouse_wiki_bot этаж B`
 - `@madhouse_wiki_bot энергия A`

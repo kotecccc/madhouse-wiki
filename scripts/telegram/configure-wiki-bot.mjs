@@ -8,9 +8,11 @@ const metadataOnly = process.argv.includes("--metadata-only");
 let webhookUrl;
 
 if (!token || (!metadataOnly && !webhookSecret)) {
-  console.error(metadataOnly
-    ? "Set TELEGRAM_BOT_TOKEN in the environment."
-    : "Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_WEBHOOK_SECRET in the environment.");
+  console.error(
+    metadataOnly
+      ? "Set TELEGRAM_BOT_TOKEN in the environment."
+      : "Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_WEBHOOK_SECRET in the environment.",
+  );
   process.exit(1);
 }
 if (!metadataOnly && !/^[A-Za-z0-9_-]{32,256}$/.test(webhookSecret)) {
@@ -128,7 +130,7 @@ try {
   await callBotApi("setWebhook", {
     url: webhookUrl,
     secret_token: webhookSecret,
-    allowed_updates: ["message", "inline_query"],
+    allowed_updates: ["message", "inline_query", "callback_query"],
     drop_pending_updates: false,
   });
 
