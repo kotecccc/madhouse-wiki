@@ -247,7 +247,6 @@ export function LoginControl() {
           }
           aria-expanded={authenticated ? open : undefined}
           aria-controls={authenticated && open ? "profile-session" : undefined}
-          aria-busy={!authenticated && restoring}
           onClick={() => {
             if (!authenticated) {
               setError("");
@@ -296,11 +295,6 @@ export function LoginControl() {
               <span className="profile-chevron" aria-hidden="true">
                 <Icon type="chevron" />
               </span>
-            </>
-          ) : restoring ? (
-            <>
-              <span className="login-loading-indicator" aria-hidden="true" />
-              <span>Проверяем вход…</span>
             </>
           ) : pendingLogin ? (
             "Продолжить вход"

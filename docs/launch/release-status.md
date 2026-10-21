@@ -226,3 +226,35 @@ Publication track committed and pushed the reviewed 23-path tree84689e9ece0fd81a
 Vercel showed the enabled daily /api/telegram/raids-sync job at0 20 * * *. Coordinator ran it once through the provider Cron UI after deployment verification. Runtime logs showed its successful GET200 at12:37:21.84 Europe/Minsk; the earlier401 was the deliberate unauthenticated probe. No second import was triggered. Public /api/raids returned30 schedules and447 parsed raid rows; latest post73 has date2026-10-21 and six rows. Actual source link: https://t.me/raidsMadness/73. Public React rendering displayed the latest schedule, literal source values, МСК timezone and collapsed archives.
 
 Desktop rendering used three columns without horizontal overflow. Mobile viewport390×844 used one347px column without horizontal overflow; the temporary viewport override was reset after capture. Screenshots outside Git: /Users/mac/.codex/visualizations/2026/10/20/01a15ac6-b0b3-7132-b606-accd4a604f55/raids-production-desktop.png and raids-production-mobile.png. Future daily execution is configured for23:00 Europe/Minsk with Hobby scheduling precision up to59minutes later; an actual future scheduled invocation has not yet been observed.
+
+## Raid realtime candidate review hold — 2026-10-21
+
+The raid owner prepared local realtime-worker and boss-card/timeline UI changes in a dirty shared checkout. No publication or worker start is authorized by this checkpoint. Read-only coordinator review found a session-ownership race: Cron can pass the live-lease check before worker startup, then acquire its separate sync lock after worker startup synchronization releases it, while the persistent worker already owns a Telegram client. Worker heartbeat loss also does not currently stop queued processing or disconnect before awaiting the queue. Owner was asked to implement common atomic session ownership, bounded lease renewal/loss handling and shared component style variants before freezing a release candidate.
+
+Shared package.json and build-vercel.mjs contain separate bot configuration/webhook changes outside the raid manifest; future raid staging must isolate those hunks. No always-on worker host is designated in this release handoff, and no new credential destination or paid service was chosen. Existing Production Cron remains unchanged. No tests/build or real Telegram/Blob calls were made during this read-only review.
+
+## Raid realtime local activation — 2026-10-21
+
+After the review hold, the user authorized local worker operation and authorized the temporary Development Blob connection used to save the encrypted MTProto session. The Development connection was disabled after session storage. The worker now runs under `com.madhouse-wiki.raid-live-worker`, owns the renewable shared Blob lease, and receives Telegram new/edit/delete updates; startup and 10-minute history reconciliation recover missed events. This Mac sleeps and logs out, so it is a temporary listener, not a 24/7 host.
+
+The candidate now removes the daily Cron from future Vercel Build Output, keeps the protected sync endpoint for manual recovery, disables `/api/raids` caching, and refreshes the React feed every 10 seconds. Production still runs the previously deployed UI/API and daily Cron until a reviewed replacement release is published. Existing dirty checkout contains unrelated Wiki/auth/bot edits and has not been staged, committed, pushed, or deployed. No tests or build were run per the existing verification boundary; the LaunchAgent plist passed `plutil -lint` and live status inspection reported running.
+
+## Consolidated release ownership — 2026-10-21
+
+The user assigned integration and Production publication of both active chats to
+«Объединить ветки и релизнуть прод». All existing raid and Wiki bot branch heads
+are reconciled into one `main` history, retaining the later raid date/time-zone
+fix and Vercel webhook raw-body fix. Pending calculator, collection requirement,
+business-drop and login UI edits from the primary checkout are included.
+
+Production publication must use the consolidated `main` commit. The two feature
+chats must not independently promote a branch deployment or reassign the public
+alias. Future feature work should use isolated worktrees and merge through main.
+The realtime worker remains the existing single Mac LaunchAgent; sleep/logout
+still interrupt listening until restart reconciliation. No permanent worker host
+was provisioned by this consolidation.
+
+The release candidate is being submitted to Vercel for remote build validation;
+local tests/builds were not run, preserving the feature chats' verification limit.
+The existing energy test was updated to import the current calculator helper and
+check limit-based refill costs rather than the removed fixed-size formula.

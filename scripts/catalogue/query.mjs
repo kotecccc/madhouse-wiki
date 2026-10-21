@@ -125,6 +125,23 @@ export function readKnowledgeBase(root) {
     const activityItemNames = new Map(
       of("activity_item").map((item) => [String(item.itemId), item.name]),
     );
+    const stashSets = of("stash_set");
+    const stashSetForRequirement = (r) => {
+      if (r.type !== "stash_medallion" || typeof r.label !== "string")
+        return null;
+      const medallionName = r.label
+        .replace(/^Собрать коллекцию\s*/i, "")
+        .trim()
+        .toLocaleLowerCase("ru");
+      return (
+        stashSets.find(
+          (set) =>
+            text(set.medallionReward?.name)
+              .trim()
+              .toLocaleLowerCase("ru") === medallionName,
+        ) || null
+      );
+    };
     const inDepartment = (row) =>
       routeMembership.get(`${row.kind}:${row.apiId}`) ??
       links.find(
@@ -139,6 +156,7 @@ export function readKnowledgeBase(root) {
         id == null
           ? null
           : all.find((e) => e.kind === kind && e.apiId === String(id));
+      const stashSet = stashSetForRequirement(r);
       return {
         ...r,
         targetBossId: r.targetBossId ?? target("boss", r.bossId)?.id ?? null,
@@ -146,6 +164,7 @@ export function readKnowledgeBase(root) {
           r.targetBusinessId ?? target("business", r.businessId)?.id ?? null,
         targetDepartmentId:
           r.targetDepartmentId ?? inDepartment(target("work", r.workId) ?? {}),
+        targetStashSetId: r.targetStashSetId ?? stashSet?.id ?? null,
       };
     };
     const conditions = (row) => {
@@ -183,7 +202,6 @@ export function readKnowledgeBase(root) {
       title: text(w.title),
       departmentId: inDepartment(w),
     }));
-    const stashSets = of("stash_set");
     const departments = [...departmentsById.values()].map((d) => {
       const w = works.find((w) => w.departmentId === d.id);
       const tasks = w?.tasks ?? [];
@@ -384,6 +402,7 @@ export function readKnowledgeBase(root) {
         title: text(b.title ?? b.name),
         departmentId: inDepartment(b),
       })),
+      stashSets,
       businessUpgrades: of("business_upgrade"),
       sources: db.prepare("SELECT * FROM sources").all(),
       coverage: db.prepare("SELECT * FROM captures ORDER BY path").all(),

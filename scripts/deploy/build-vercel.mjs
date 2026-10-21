@@ -19,12 +19,31 @@ const sourceCommit =
   process.env.VERCEL_GIT_COMMIT_SHA || process.env.MADHOUSE_RELEASE_SHA;
 if (!/^[a-f0-9]{40}$/.test(sourceCommit || ""))
   throw new Error("A verified source commit SHA is required");
+const publicHttpsOrigin = (value, name) => {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be an HTTPS origin`);
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(`${name} must be an HTTPS origin`);
+  return url.origin;
+};
 const productionOrigin = (value) =>
   productionConnectorConfig({ origin: value, protocolVersion: 1 }, true).origin;
 const wikiOrigin =
   service === "connector"
     ? productionOrigin(process.env.CONNECTOR_WIKI_ORIGIN)
-    : null;
+    : publicHttpsOrigin(
+        process.env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.vercel.app",
+        "WIKI_PUBLIC_ORIGIN",
+      );
 const connectorOrigin =
   service === "connector"
     ? productionOrigin(process.env.CONNECTOR_PUBLIC_ORIGIN)
@@ -211,10 +230,28 @@ if (service === "connector") {
     true,
     60,
   );
+  const wikiBotFiles = [
+    "api/telegram/bot-webhook.js",
+    "scripts/telegram/wiki-bot.mjs",
+    "scripts/telegram/wiki-bot-vercel-handler.mjs",
+    "scripts/catalogue/query.mjs",
+    "scripts/catalogue/public-assets.mjs",
+    "scripts/catalogue/item-facts.mjs",
+    "local-data/madhouse.sqlite",
+  ];
+  functionFiles(
+    "api/telegram/bot-webhook",
+    wikiBotFiles,
+    "export {default} from './api/telegram/bot-webhook.js';",
+  );
   routes.push({ src: "/api/raids", dest: "/api/raids" });
   routes.push({
     src: "/api/telegram/raids-sync",
     dest: "/api/telegram/raids-sync",
+  });
+  routes.push({
+    src: "/api/telegram/bot-webhook",
+    dest: "/api/telegram/bot-webhook",
   });
   routes.push({ src: "/api/(.*)", dest: "/api" });
   routes.push({

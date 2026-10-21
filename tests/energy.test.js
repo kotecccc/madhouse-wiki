@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateCycleEnergy, calculateRecovery } from "../src/lib/energy.js";
+import {
+  calculateCycleEnergy,
+  calculateRequirementEnergy,
+} from "../src/lib/energy.js";
 import { restoreTime } from "../src/lib/format.js";
 
 test("full cycles support zero and multiply the published energy cost", () => {
@@ -18,20 +21,34 @@ test("unknown costs and invalid counts never become an energy estimate", () => {
   for (const count of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1])
     assert.equal(calculateCycleEnergy(90, count), null);
 });
-test("recovery subtracts a full initial reserve and rounds refills up", () => {
-  assert.deepEqual(calculateRecovery(688, 105), {
+test("recovery uses current energy and limit-based refills", () => {
+  assert.deepEqual(calculateRequirementEnergy(688, 105, 105), {
     remaining: 583,
     minutes: 1166,
-    largeRefills: 3,
-    smallRefills: 21,
+    maxEnergy: 105,
+    currentEnergy: 105,
+    largeRefills: 6,
+    smallRefills: 0,
+    defibrillators: 6,
+    banknotes: 60,
   });
-  assert.deepEqual(calculateRecovery(90, 185), {
+  assert.deepEqual(calculateRequirementEnergy(90, 185, 90), {
     remaining: 0,
     minutes: 0,
+    maxEnergy: 185,
+    currentEnergy: 90,
     largeRefills: 0,
     smallRefills: 0,
+    defibrillators: 0,
+    banknotes: 0,
   });
-  assert.equal(calculateRecovery(90, -1), null);
+  const partial = calculateRequirementEnergy(220, 100, 0);
+  assert.equal(partial.remaining, 220);
+  assert.equal(partial.largeRefills, 2);
+  assert.equal(partial.smallRefills, 2);
+  assert.equal(partial.banknotes, 24);
+  assert.equal(calculateRequirementEnergy(90, -1, 0), null);
+  assert.equal(calculateRequirementEnergy(90, 0, 0), null);
   assert.equal(restoreTime(1440 + 120 + 6), "1 дн 2 ч 6 мин");
   assert.equal(restoreTime(0), "0 мин");
 });

@@ -1,0 +1,23 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="512"
+  height="512"
+  viewBox="0 0 128 128"
+  fill="none"
+>
+  <rect
+    x="7.5"
+    y="7.5"
+    width="113"
+    height="113"
+    rx="24"
+    fill="#191816"
+    stroke="#DF5A49"
+    stroke-opacity=".72"
+  />
+  <g transform="skewX(-10)" fill="#DF5A49">
+    <rect x="38" y="48" width="8" height="32" rx="1" />
+    <rect x="57" y="36" width="8" height="56" rx="1" />
+    <rect x="76" y="54" width="8" height="26" rx="1" />
+  </g>
+</svg>

@@ -29,7 +29,7 @@ export function createSessionApi({
     for (const controller of controllers) controller.abort();
     controllers.clear();
   }
-  function get(path) {
+  function get(path, { fresh = false } = {}) {
     if (!/^\/api\/[\w/?.=&%+-]+$/.test(path))
       return Promise.reject(new Error("Недопустимый API-запрос"));
     // Validate even a cache hit, so expired/cleared sessions cannot reuse it.
@@ -44,7 +44,7 @@ export function createSessionApi({
       return Promise.reject(error);
     }
     const cached = entries.get(path);
-    if (cached && (cached.pending || now() < cached.until))
+    if (!fresh && cached && (cached.pending || now() < cached.until))
       return cached.promise;
     const requestGeneration = generation;
     const entry = { pending: true };
@@ -92,7 +92,7 @@ export function createSessionApi({
   return { get, clear };
 }
 let sessionApi;
-export function getSessionJson(path, { signal } = {}) {
+export function getSessionJson(path, { signal, fresh = false } = {}) {
   if (!sessionApi) {
     sessionApi = createSessionApi({ authorize: authorizeRequest });
     subscribeSession(() => {
@@ -105,7 +105,7 @@ export function getSessionJson(path, { signal } = {}) {
   }
   if (signal?.aborted)
     return Promise.reject(new DOMException("Aborted", "AbortError"));
-  const promise = sessionApi.get(path);
+  const promise = sessionApi.get(path, { fresh });
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
     const abort = () => reject(new DOMException("Aborted", "AbortError"));

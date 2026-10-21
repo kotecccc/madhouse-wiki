@@ -5,6 +5,7 @@ export const floorById = indexById(kb.floors);
 export const departmentById = indexById(kb.departments);
 export const bossById = indexById(kb.bosses);
 export const businessById = indexById(kb.businesses);
+export const stashSetById = indexById(kb.stashSets || []);
 export function getRequirementDepartment(requirement) {
   if (requirement.targetDepartmentId)
     return departmentById[requirement.targetDepartmentId] || null;
