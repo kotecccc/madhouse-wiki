@@ -63,10 +63,11 @@ export function Icon({ type, size, className = "" }) {
         </g>
       </>
     ),
-    bug: (
+    warning: (
       <>
-        <path d="M12 7.5a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 1 1-5 0v-5A2.5 2.5 0 0 1 12 7.5Z" />
-        <path d="M12 9.5v8M9.5 11h-4M18.5 11h-4M9.5 14h-4M18.5 14h-4M10 8.5 7 5.5M14 8.5l3-3M10 17.5 7 20.5M14 17.5l3 3M10.5 7l-1-2.5M13.5 7l1-2.5" />
+        <path d="M10.3 4.3a2 2 0 0 1 3.4 0l8 13.6a1.6 1.6 0 0 1-1.4 2.4H3.7a1.6 1.6 0 0 1-1.4-2.4l8-13.6Z" />
+        <path d="M12 9v4.5" />
+        <circle cx="12" cy="17" r=".75" fill="currentColor" stroke="none" />
       </>
     ),
     department: (
