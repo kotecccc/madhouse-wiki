@@ -21,6 +21,12 @@
   );
 }
 
+.base-card--raid {
+  --card-padding: var(--space-16);
+  --card-title-size: 15px;
+  --card-description-size: 11px;
+}
+
 .base-card--floor-data {
   --card-padding: var(--space-12);
   border-bottom-color: var(--floor-card-border-bottom);

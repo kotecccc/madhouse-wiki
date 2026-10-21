@@ -6,6 +6,7 @@ import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
 import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection.jsx";
 import { RequirementCalculatorDialog } from "../../features/calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx";
 import { UpgradeDialog } from "../../features/businesses/UpgradeDialog/UpgradeDialog.jsx";
+import { RaidScheduleSection } from "../../features/raids/RaidScheduleSection/RaidScheduleSection.jsx";
 export function App() {
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
@@ -20,6 +21,7 @@ export function App() {
           onCalculator={setConditionDialog}
           onUpgradeSelect={setUpgradeDialog}
         />
+        <RaidScheduleSection />
       </main>
       <SiteFooter />
       <RequirementCalculatorDialog

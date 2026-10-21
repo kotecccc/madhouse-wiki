@@ -2,6 +2,12 @@ import "./Icon.css";
 export function Icon({ type }) {
   const paths = {
     chevron: <path d="m5 8.5 7 7 7-7" strokeWidth="1.5" />,
+    "external-link": (
+      <>
+        <path d="M14 4h6v6M20 4l-9 9" />
+        <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
+      </>
+    ),
     loot: (
       <>
         <path d="m8 3 2 5h4l2-5-4 1-4-1ZM9 8c-2 2-5 5-5 9 0 3 3 4 8 4s8-1 8-4c0-4-3-7-5-9M8 8h8" />

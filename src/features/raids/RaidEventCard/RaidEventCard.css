@@ -1,0 +1,38 @@
+.raid-event-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--card-content-gap);
+}
+
+.raid-event-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-16);
+  margin: 0;
+}
+
+.raid-event-field {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-8);
+}
+
+.raid-event-field dt {
+  color: var(--muted);
+  font: 9px var(--mono);
+}
+
+.raid-event-field dd {
+  min-width: 0;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .raid-event-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+  }
+}

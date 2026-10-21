@@ -69,7 +69,13 @@ if (service === "wiki") {
     );
 }
 writeFileSync(resolve(output, "static/release.json"), JSON.stringify(marker));
-function functionFiles(name, files, entry) {
+function functionFiles(
+  name,
+  files,
+  entry,
+  bundle = service === "connector",
+  maxDuration = 30,
+) {
   const dir = resolve(output, "functions", name + ".func");
   mkdirSync(dir, { recursive: true });
   for (const file of files) {
@@ -80,7 +86,7 @@ function functionFiles(name, files, entry) {
     resolve(dir, "package.json"),
     JSON.stringify({ type: "module" }),
   );
-  if (service === "connector")
+  if (bundle)
     buildSync({
       stdin: {
         contents: entry,
@@ -105,7 +111,7 @@ function functionFiles(name, files, entry) {
       handler: "index.mjs",
       launcherType: "Nodejs",
       shouldAddHelpers: false,
-      maxDuration: 30,
+      maxDuration,
     }),
   );
 }
@@ -170,6 +176,43 @@ if (service === "connector") {
     ],
     "export {default} from './api/[...path].js';",
   );
+  const raidsFiles = [
+    "api/raids.js",
+    "scripts/telegram/raid-api.mjs",
+    "scripts/telegram/raid-blob-store.mjs",
+    "scripts/telegram/raid-vercel-handler.mjs",
+  ];
+  functionFiles(
+    "api/raids",
+    raidsFiles,
+    "export {default} from './api/raids.js';",
+    true,
+  );
+  const raidsSyncFiles = [
+    "api/telegram/raids-sync.js",
+    "scripts/telegram/raid-sync-api.mjs",
+    "scripts/telegram/raid-synchronizer.mjs",
+    "scripts/telegram/raid-sync-lock.mjs",
+    "scripts/telegram/raid-session-store.mjs",
+    "scripts/telegram/raid-mtproto-client.mjs",
+    "scripts/telegram/raid-blob-store.mjs",
+    "scripts/telegram/raid-schedule-parser.mjs",
+    "scripts/telegram/raid-vercel-handler.mjs",
+    "node_modules/@mtcute/wasm/mtcute-simd.wasm",
+    "node_modules/@mtcute/wasm/mtcute.wasm",
+  ];
+  functionFiles(
+    "api/telegram/raids-sync",
+    raidsSyncFiles,
+    "export {default} from './api/telegram/raids-sync.js';",
+    true,
+    60,
+  );
+  routes.push({ src: "/api/raids", dest: "/api/raids" });
+  routes.push({
+    src: "/api/telegram/raids-sync",
+    dest: "/api/telegram/raids-sync",
+  });
   routes.push({ src: "/api/(.*)", dest: "/api" });
   routes.push({
     src: "/api-docs/?",
@@ -184,6 +227,24 @@ if (service === "connector") {
 }
 writeFileSync(
   resolve(output, "config.json"),
-  JSON.stringify({ version: 3, routes, overrides }, null, 2),
+  JSON.stringify(
+    {
+      version: 3,
+      routes,
+      overrides,
+      ...(service === "wiki"
+        ? {
+            crons: [
+              {
+                path: "/api/telegram/raids-sync",
+                schedule: "0 20 * * *",
+              },
+            ],
+          }
+        : {}),
+    },
+    null,
+    2,
+  ),
 );
 console.log("Vercel Build Output prepared", { service, sourceCommit });
