@@ -15,8 +15,8 @@ const clothingSlotLabels = new Map([
   [8, "Маска"],
   [9, "Питомец"],
 ]);
-export function readKnowledgeBase(root) {
-  const db = new DatabaseSync(resolve(root, "local-data/madhouse.sqlite"), {
+export function readKnowledgeBase(root, file = resolve(root, "local-data/madhouse.sqlite")) {
+  const db = new DatabaseSync(file, {
     readOnly: true,
   });
   try {

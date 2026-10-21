@@ -365,7 +365,6 @@ export function LoginControl() {
           ref={telegramRef}
           open={connectionOpen}
           error={error}
-          sessionStatus={session.status}
           autoConnect={autoConnect}
           onRetry={connect}
           onEmpty={() => {

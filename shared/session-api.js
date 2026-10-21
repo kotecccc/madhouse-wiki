@@ -29,7 +29,7 @@ export function createSessionApi({
     for (const controller of controllers) controller.abort();
     controllers.clear();
   }
-  function get(path, { fresh = false } = {}) {
+  function request(method, path, body, { fresh = false, signal } = {}) {
     if (!/^\/api\/[\w/?.=&%+-]+$/.test(path))
       return Promise.reject(new Error("Недопустимый API-запрос"));
     // Validate even a cache hit, so expired/cleared sessions cannot reuse it.
@@ -43,7 +43,7 @@ export function createSessionApi({
       clear();
       return Promise.reject(error);
     }
-    const cached = entries.get(path);
+    const cached = method === "GET" ? entries.get(path) : null;
     if (!fresh && cached && (cached.pending || now() < cached.until))
       return cached.promise;
     const requestGeneration = generation;
@@ -51,17 +51,26 @@ export function createSessionApi({
     const task = async () => {
       const wait = interval - (now() - lastStarted);
       if (wait > 0) await pause(wait);
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (generation !== requestGeneration)
         throw new Error("Сессия изменилась");
       const request = authorize({ url: path });
       const controller = new AbortController();
+      const forwardAbort = () => controller.abort();
+      signal?.addEventListener("abort", forwardAbort, { once: true });
       controllers.add(controller);
       const timeout = setTimeout(() => controller.abort(), 20000);
       lastStarted = now();
       try {
         const response = await fetcher(request.url, {
-          method: "GET",
-          headers: request.headers,
+          method,
+          headers: {
+            ...request.headers,
+            ...(body === undefined
+              ? {}
+              : { "Content-Type": "application/json" }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           cache: "no-store",
           signal: controller.signal,
         });
@@ -73,12 +82,13 @@ export function createSessionApi({
         return data;
       } finally {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", forwardAbort);
         controllers.delete(controller);
       }
     };
     entry.promise = tail.then(task);
     tail = entry.promise.catch(() => {});
-    entries.set(path, entry);
+    if (method === "GET") entries.set(path, entry);
     entry.promise.then(
       () => {
         entry.pending = false;
@@ -89,7 +99,11 @@ export function createSessionApi({
     );
     return entry.promise;
   }
-  return { get, clear };
+  return {
+    get: (path, options) => request("GET", path, undefined, options),
+    post: (path, body, options) => request("POST", path, body, options),
+    clear,
+  };
 }
 let sessionApi;
 export function getSessionJson(path, { signal, fresh = false } = {}) {
@@ -105,7 +119,30 @@ export function getSessionJson(path, { signal, fresh = false } = {}) {
   }
   if (signal?.aborted)
     return Promise.reject(new DOMException("Aborted", "AbortError"));
-  const promise = sessionApi.get(path, { fresh });
+  const promise = sessionApi.get(path, { fresh, signal });
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+export function postSessionJson(path, body, { signal } = {}) {
+  if (!sessionApi) {
+    sessionApi = createSessionApi({ authorize: authorizeRequest });
+    subscribeSession(() => {
+      if (readSession().status !== "ready") sessionApi.clear();
+    });
+  }
+  if (readSession().status !== "ready") {
+    sessionApi.clear();
+    return Promise.reject(new Error("Требуется вход"));
+  }
+  if (signal?.aborted)
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  const promise = sessionApi.post(path, body, { signal });
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
     const abort = () => reject(new DOMException("Aborted", "AbortError"));

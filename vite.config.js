@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { installCatalogueCapture } from "./scripts/catalogue/proxy-capture.mjs";
 import { raidsFixturePlugin } from "./scripts/raids-fixture-plugin.mjs";
+import { catalogueSyncPlugin } from "./scripts/catalogue/dev-sync-plugin.mjs";
 
 function redirectApiDocs(server) {
   server.middlewares.use((request, response, next) => {
@@ -22,6 +23,7 @@ export default defineConfig({
     react(),
     raidsFixturePlugin(fileURLToPath(new URL(".", import.meta.url))),
     authSessionPlugin(),
+    catalogueSyncPlugin(fileURLToPath(new URL(".", import.meta.url))),
     cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
     {
       name: "api-docs-entry",

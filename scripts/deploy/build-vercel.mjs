@@ -292,12 +292,41 @@ if (service === "connector") {
     "export {default} from './api/analytics-cleanup.js';",
     true,
   );
+  const catalogueFiles = [
+    "api/catalogue.js",
+    "scripts/catalogue/sync-api.mjs",
+    "scripts/catalogue/store.mjs",
+    "scripts/catalogue/query.mjs",
+    "scripts/catalogue/projection.mjs",
+    "scripts/catalogue/public-assets.mjs",
+    "scripts/catalogue/item-facts.mjs",
+    "scripts/catalogue/schema.sql",
+    "scripts/catalogue/reference-blob-store.mjs",
+    "scripts/telegram/raid-blob-etag.mjs",
+    "scripts/telegram/wiki-api-vercel-handler.mjs",
+  ];
+  functionFiles(
+    "api/catalogue",
+    catalogueFiles,
+    "export {default} from './api/catalogue.js';",
+    true,
+    60,
+  );
+  cpSync(
+    resolve(root, "scripts/catalogue/schema.sql"),
+    resolve(output, "functions/api/catalogue.func/schema.sql"),
+  );
+  packageSeed(
+    root,
+    resolve(output, "functions/api/catalogue.func/local-data/madhouse.sqlite"),
+  );
   routes.push({ src: "/api/feedback", dest: "/api/feedback" });
   routes.push({ src: "/api/analytics", dest: "/api/analytics" });
   routes.push({
     src: "/api/analytics-cleanup",
     dest: "/api/analytics-cleanup",
   });
+  routes.push({ src: "/api/catalogue", dest: "/api/catalogue" });
   routes.push({ src: "/api/raids", dest: "/api/raids" });
   routes.push({
     src: "/api/telegram/raids-sync",

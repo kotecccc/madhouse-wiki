@@ -1,4 +1,7 @@
-import { getSessionJson } from "../../../shared/session-api.js";
+import {
+  getSessionJson,
+  postSessionJson,
+} from "../../../shared/session-api.js";
 import { useEffect, useState } from "react";
 import { telegramContext } from "../../../shared/telegram-context.js";
 import { connectorOrigin } from "../../../connector/protocol.js";
@@ -8,6 +11,7 @@ import {
   readSession,
   subscribeSession,
 } from "../../../shared/auth-session.js";
+import { mergeKnowledgeBaseOverlay } from "../../model/knowledge-base.js";
 
 const hasTelegramConnector = !!connectorOrigin(
   import.meta.env.VITE_TELEGRAM_CONNECTOR_ORIGIN,
@@ -39,9 +43,25 @@ export function useFloorAvailability() {
       controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
+      const refreshModel = () => setAvailability((current) => ({ ...current }));
       const session = readSession();
       previousStatus = session.status;
       setAvailability({});
+      let catalogue = null;
+      try {
+        const response = await fetch("/api/catalogue", {
+          cache: "no-store",
+          signal,
+        });
+        if (response.ok) {
+          catalogue = await response.json();
+          mergeKnowledgeBaseOverlay(catalogue);
+          refreshModel();
+        }
+      } catch {
+        // The bundled SQLite catalogue remains usable when the runtime store is unavailable.
+      }
+      if (signal.aborted) return;
       if (session.status !== "ready") {
         setStatus(isTelegramRestorePending() ? "loading" : "idle");
         return;
@@ -61,6 +81,27 @@ export function useFloorAvailability() {
         }
         setAvailability(next);
         setStatus("ready");
+        if (signal.aborted) return;
+        const complete = new Set(catalogue?.completeFloors || []);
+        for (const floor of floors) {
+          if (signal.aborted) return;
+          if (floor.isAvailable !== true || complete.has(floor.code)) continue;
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              const imported = await postSessionJson(
+                "/api/catalogue",
+                { floorCode: floor.code },
+                { signal },
+              );
+              mergeKnowledgeBaseOverlay(imported);
+              refreshModel();
+              break;
+            } catch {
+              if (signal.aborted || attempt > 0) break;
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+            }
+          }
+        }
       } catch {
         if (!signal.aborted) {
           setAvailability({});

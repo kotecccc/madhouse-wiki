@@ -33,7 +33,6 @@ export function TelegramConnection({
   onEmpty,
   onRetry,
   error,
-  sessionStatus,
   autoConnect,
   onPending,
   onRestoreSettled,
@@ -44,6 +43,7 @@ export function TelegramConnection({
   const bridge = useRef(null),
     iframe = useRef(null),
     interactiveActive = useRef(false),
+    restoreAttempted = useRef(false),
     requestedFooterFor = useRef(null),
     callbacks = useRef({ onToken, onClose, onWarning });
   callbacks.current = {
@@ -56,6 +56,7 @@ export function TelegramConnection({
   };
   const request = useCallback(async (interactive) => {
     if (!bridge.current) throw new Error("connection_unavailable");
+    if (interactive) restoreAttempted.current = true;
     if (!interactive && interactiveActive.current) return { status: "pending" };
     let epoch;
     try {
@@ -136,7 +137,12 @@ export function TelegramConnection({
     [request],
   );
   useEffect(() => {
-    if (!autoConnect && !telegramContext().initData) return;
+    if (
+      restoreAttempted.current ||
+      (!autoConnect && !telegramContext().initData)
+    )
+      return;
+    restoreAttempted.current = true;
     const restore = async () => {
       try {
         const result = await request(false);
@@ -151,18 +157,7 @@ export function TelegramConnection({
       }
     };
     restore();
-    const focus = () => {
-      if (!document.hidden) restore();
-    };
-    window.addEventListener("focus", focus);
-    document.addEventListener("visibilitychange", focus);
-    const timer = setInterval(focus, 60000);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("focus", focus);
-      document.removeEventListener("visibilitychange", focus);
-    };
-  }, [autoConnect, sessionStatus, request]);
+  }, [autoConnect, request]);
   useEffect(
     () => () => bridge.current?.destroy({ preserveRemoteSession: true }),
     [],

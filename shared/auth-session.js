@@ -119,6 +119,7 @@ export function saveToken(value) {
   if (session.status === "expired")
     throw new Error("Срок действия этого JWT уже истёк.");
   const owner = telegramContext().userId || null;
+  if (volatileToken === session.token && volatileOwner === owner) return;
   volatileToken = session.token;
   volatileOwner = owner;
   try {

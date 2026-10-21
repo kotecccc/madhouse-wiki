@@ -6,6 +6,64 @@ export const departmentById = indexById(kb.departments);
 export const bossById = indexById(kb.bosses);
 export const businessById = indexById(kb.businesses);
 export const stashSetById = indexById(kb.stashSets || []);
+const workById = indexById(kb.works);
+const businessUpgradeById = indexById(kb.businessUpgrades);
+function mergeRecords(current, incoming, index) {
+  for (const record of incoming || []) {
+    if (!record?.id) continue;
+    const existing = index[record.id];
+    if (existing) Object.assign(existing, record);
+    else {
+      current.push(record);
+      index[record.id] = record;
+    }
+  }
+}
+export function mergeKnowledgeBaseOverlay(overlay) {
+  if (!overlay || overlay.schemaVersion !== kb.schemaVersion) return;
+  mergeRecords(kb.floors, overlay.floors, floorById);
+  mergeRecords(kb.departments, overlay.departments, departmentById);
+  mergeRecords(kb.works, overlay.works, workById);
+  mergeRecords(kb.bosses, overlay.bosses, bossById);
+  mergeRecords(kb.businesses, overlay.businesses, businessById);
+  mergeRecords(kb.stashSets, overlay.stashSets, stashSetById);
+  mergeRecords(
+    kb.businessUpgrades,
+    overlay.businessUpgrades,
+    businessUpgradeById,
+  );
+  for (const floor of kb.floors) {
+    floor.departmentIds = [
+      ...new Set([
+        ...(floor.departmentIds || []),
+        ...kb.departments
+          .filter((department) => department.floorId === floor.id)
+          .map((department) => department.id),
+      ]),
+    ];
+  }
+  orderedFloors.splice(
+    0,
+    orderedFloors.length,
+    ...kb.floors.sort(
+      (a, b) => floorOrder.indexOf(a.code) - floorOrder.indexOf(b.code),
+    ),
+  );
+  calcFloors.splice(
+    0,
+    calcFloors.length,
+    ...orderedFloors.filter((floor) =>
+      floor.departmentIds.some(
+        (id) => departmentById[id]?.energyCycle?.full != null,
+      ),
+    ),
+  );
+  bossFloors.splice(
+    0,
+    bossFloors.length,
+    ...new Set(kb.bosses.map((boss) => getBossFloorCode(boss))),
+  );
+}
 export function getRequirementDepartment(requirement) {
   if (requirement.targetDepartmentId)
     return departmentById[requirement.targetDepartmentId] || null;
