@@ -1,27 +1,34 @@
-const STATUS_MARKERS = [
-  ["✅", "completed"],
-  ["▶️", "active"],
-  ["▶", "active"],
-];
-
+const SOURCE_STATUS_MARKERS = ["✅", "▶️", "▶"];
 export const RAID_STATUS_INFO = {
   scheduled: { label: "Запланирован", color: "scheduled" },
   active: { label: "Идёт", color: "active" },
   completed: { label: "Завершён", color: "completed" },
-  unknown: { label: "Не распознан", color: "unknown" },
+  unknown: { label: "Статус не указан", color: "unknown" },
 };
 
-export function getRaidStatus(raid) {
+export function getRaidStatusMarker(raid) {
   const zone = String(raid?.zone || "").trimStart();
-  const marker = STATUS_MARKERS.find(([value]) => zone.startsWith(value))?.[0];
-  if (marker) return STATUS_MARKERS.find(([value]) => value === marker)[1];
+  return SOURCE_STATUS_MARKERS.find((marker) => zone.startsWith(marker)) || null;
+}
+
+export function hasUnknownRaidStatusMarker(raid) {
+  const zone = String(raid?.zone || "").trimStart();
+  return !getRaidStatusMarker(raid) && /^\p{Extended_Pictographic}/u.test(zone);
+}
+
+export function getRaidStatus(raid) {
+  const marker = getRaidStatusMarker(raid);
+  if (marker === "✅") return "completed";
+  if (marker === "▶️" || marker === "▶") return "active";
+
+  const zone = String(raid?.zone || "").trimStart();
   if (/^\p{Extended_Pictographic}/u.test(zone)) return "unknown";
   return "scheduled";
 }
 
 export function getRaidDisplayZone(raid) {
   const zone = String(raid?.zone || "").trim();
-  const marker = STATUS_MARKERS.find(([value]) => zone.startsWith(value))?.[0];
+  const marker = getRaidStatusMarker({ zone });
   return marker ? zone.slice(marker.length).trim() : zone;
 }
 

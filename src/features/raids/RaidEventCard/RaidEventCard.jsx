@@ -6,6 +6,8 @@ import { BossCardView } from "../../bosses/BossCard/BossCardView.jsx";
 import {
   getRaidDisplayZone,
   getRaidStatus,
+  getRaidStatusMarker,
+  hasUnknownRaidStatusMarker,
   RAID_STATUS_INFO,
 } from "../../../lib/raid-schedule.js";
 import "./RaidEventCard.css";
@@ -72,12 +74,37 @@ function RaidLeader({ leader }) {
   );
 }
 
-function RaidStatus({ status }) {
+function RaidStatus({ raid, status }) {
   const info = RAID_STATUS_INFO[status] || RAID_STATUS_INFO.unknown;
+  const marker = getRaidStatusMarker(raid);
+  const hasUnknownMarker = hasUnknownRaidStatusMarker(raid);
+  const label = marker
+    ? `${info.label} · ${marker}`
+    : hasUnknownMarker
+      ? "Маркер не распознан"
+      : info.label;
   return (
-    <span className={`raid-status raid-status--${info.color}`}>
+    <span
+      className={`raid-status raid-status--${info.color}`}
+      title={
+        marker
+          ? `Метка ${marker} из Telegram отображается как «${info.label.toLocaleLowerCase("ru-RU")}».`
+          : hasUnknownMarker
+            ? "В зоне есть нераспознанный маркер; состояние рейда не выводится."
+            : status === "scheduled"
+              ? "В Telegram нет маркера; рейд отображается как запланированный."
+              : "В Telegram нет маркера, по которому можно определить состояние рейда."
+      }
+      aria-label={
+        marker
+          ? `${info.label}. Маркер канала: ${marker}.`
+          : hasUnknownMarker
+            ? "Статус не распознан. Метка остаётся в поле зоны."
+            : info.label
+      }
+    >
       <span className="raid-status-dot" aria-hidden="true" />
-      <span>{info.label}</span>
+      <span>{label}</span>
     </span>
   );
 }
@@ -107,7 +134,7 @@ export function RaidEventCard({ raid, status: statusOverride }) {
       titleAs="h3"
       showInfo={false}
       showDropList={false}
-      action={<RaidStatus status={status} />}
+      action={<RaidStatus raid={raid} status={status} />}
       hasPortrait={Boolean(boss.image)}
     >
       <dl className="raid-event-fields">

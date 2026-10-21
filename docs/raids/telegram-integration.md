@@ -7,7 +7,13 @@ recent channel history at startup and every ten minutes to recover updates
 missed while disconnected. The public `/api/raids` endpoint returns parsed
 schedule fields and links to the source posts.
 
-The parser accepts posts titled `РЕЙДЫ — DD.MM.YYYY` when their rich-message table or tab/pipe-separated text has the columns `Зона`, `Время`, `Клан`, `Босс`, `Ведущий`, and `Длит.`. It retains the source wording, zone markers, duration values, and the post's `Время: ...` value, while normalizing cell whitespace for display. It does not map names to catalogue entities, infer meaning from symbols, or OCR images.
+The parser accepts posts titled `РЕЙДЫ — DD.MM.YYYY` when their rich-message table or tab/pipe-separated text has the columns `Зона`, `Время`, `Клан`, `Босс`, `Ведущий`, and `Длит.`. It retains the source wording, zone markers, duration values, and the post's `Время: ...` value, while normalizing cell whitespace for display. It does not map names to catalogue entities or OCR images.
+
+The UI displays ✅ as completed, ▶️/▶ as active, and no marker as scheduled.
+These meanings are inferred from observed posts; the channel has no published
+marker legend. Each status preserves its source marker and provides an accessible
+explanation. Unsupported pictographic markers remain in the zone field and receive
+an unknown status.
 
 ## Telegram session and worker
 
