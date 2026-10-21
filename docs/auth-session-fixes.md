@@ -1,0 +1,25 @@
+# Account-bound session fixes — 2026-10-21
+
+This candidate addresses the reported native/mobile `TG_RESTORE_INVALID_STATE`, account switching, cross-device restoration and five-digit phone-code input. Existing launch status documents are unrelated working drafts and are preserved.
+
+## Behavior and boundaries
+
+- In a Telegram Mini App, the Wiki game JWT is kept only in document memory and tagged with the current Telegram launch account; encrypted server storage is canonical. Legacy unbound JWTs are discarded when opened in Telegram. An account-bound JWT cannot be used without that identity; requests check binding before reading account data. Launch identity is captured before anchor navigation but refreshed from actual new launch data/SDK. Conflicting or malformed identity fails closed. Auto-connect preferences are account-specific.
+- Connector Telegram IndexedDB names are account-specific. An `InvalidStateError`, denied storage, quota failure or unsupported storage switches once to a fresh `MemoryStorage` client. It does not erase existing persistent keys or accept another account. This addresses the WebView storage failure path; actual phone login still requires the user's Telegram code/2FA and a device test.
+- The connector first tries an account-bound server game session before touching IndexedDB. The server validates HMAC-signed Wiki initData using `WIKI_INITDATA_KEY` (a derived WebApp verification key, not the bot token). Initial launch data must be at most five minutes old. It is exchanged for an encrypted, bounded 24-hour proof retained only in connector memory; raw launch data is not persisted on the server.
+- Private Vercel Blob stores only encrypted game JWT records. `ACCOUNT_SESSION_KEY` protects AES-256-GCM content with account-path additional authenticated data; paths use keyed HMACs rather than Telegram IDs. The SDK uses project OIDC credentials automatically. No public Blob URLs or storage credentials go to the browser.
+- Saving a JWT requires a server-issued revision ticket and an actual authenticated game `/api/me` response whose `telegramId` matches the signed Wiki account. Decoded JWT claims alone are not trusted as authentication. Personal profile response fields are not stored. Tokens are restored only until their actual game expiry, capped at 24 hours; no invented refresh endpoint or indefinite lifetime.
+- Consistent reads, conditional ETag writes, and logout tombstones stop a save started before logout resurrecting a session. Logout attempts local Telegram-key revocation even if server deletion fails and reports incomplete cleanup. Background restore/focus polling observes server logout without interrupting an interactive phone/QR flow. Existing independently issued game JWTs cannot be globally revoked through an undocumented game endpoint.
+- Full Telegram user sessions stay on the device, not in the server store. No session strings, phone numbers, login codes, 2FA passwords or player profiles are persisted in the new server store or catalogue. On storage-denied devices, after the game JWT expires and no persistent Telegram key remains, a new Telegram login may be required.
+- Phone code UI uses five numeric cells, ASCII-digit filtering, first-cell one-time-code autofill, full-code paste from any cell, focus advance, arrows and Backspace. The parent rejects submission unless the code contains exactly five digits. Browser checks use an isolated local demo and dummy codes, not a real Telegram authorization attempt.
+
+## Verification so far
+
+- Full sequential Node suite: 79 tests passed, including six new server session tests and account-switch/storage-fallback regressions.
+- ESLint and catalogue validation pass. Generated `.vercel/output` bundles are excluded from source lint.
+- Connector and Wiki Vite builds pass; Vercel connector packaging bundles the private Blob SDK and its server dependencies. The packaged Node account-session handler imports and rejects an invalid identity with HTTP 401 without requiring credentials or exposing exceptions.
+- Local browser demo verified five empty cells, non-digit filtering, autofill/distribution, incomplete-code submit blocking, empty-cell Backspace/focus and full-code paste from a later cell. This is UI behavior evidence, not phone login proof.
+
+## Deployment gate
+
+The user explicitly approved private Blob provisioning and the production-only verification/encryption keys; the coordinator confirmed that provisioning and configuration are complete. Runtime values remain outside Git. The existing live code has not yet been replaced by this candidate; deployment acceptance is pending. Required server env names: `WIKI_INITDATA_KEY`, `ACCOUNT_SESSION_KEY`, and the attached private Blob `BLOB_STORE_ID`/project OIDC configuration. API and browser entrypoints must then be verified from the same pushed source. Positive storage and account restore must use real authorized Wiki launch identity; never forge a production identity with the verification key. Actual native/iOS cross-device game-account login remains a user/device acceptance check until observed.

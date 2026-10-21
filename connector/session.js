@@ -2,6 +2,7 @@ import { connectionFailure } from "./diagnostics.js";
 
 export function createConnection({
   createClient,
+  createMemoryClient,
   errorTypes,
   exchange,
   onState = () => {},
@@ -16,11 +17,17 @@ export function createConnection({
     account = null,
     qrExpires = 0,
     cleanup = null;
+  let memoryOnly = false,
+    storageIdentity = null;
   const authOperations = new Set();
   const state = (value) => onState(value);
   async function getClient() {
     if (!client) {
-      clientPromise ??= Promise.resolve().then(() => createClient(storage));
+      clientPromise ??= Promise.resolve().then(() =>
+        (memoryOnly ? createMemoryClient : createClient)(
+          storage + (storageIdentity ? "-" + storageIdentity : ""),
+        ),
+      );
       client = await clientPromise;
     }
     return client;
@@ -28,6 +35,12 @@ export function createConnection({
   async function restore(expectedUserId) {
     const started = generation;
     if (cleanup) await cleanup;
+    if (expectedUserId && storageIdentity !== expectedUserId) {
+      if (client) await client.destroy();
+      client = null;
+      clientPromise = null;
+      storageIdentity = expectedUserId;
+    }
     let stage = "CLIENT";
     try {
       const current = await getClient();
@@ -58,6 +71,31 @@ export function createConnection({
         account = null;
         state({ stage: "consent" });
         return false;
+      }
+      if (
+        !memoryOnly &&
+        createMemoryClient &&
+        ([
+          "InvalidStateError",
+          "SecurityError",
+          "QuotaExceededError",
+          "NotSupportedError",
+        ].includes(error?.name) ||
+          (typeof errorTypes?.MtUnsupportedError === "function" &&
+            error instanceof errorTypes.MtUnsupportedError))
+      ) {
+        // WKWebView can deny third-party IndexedDB. Retry once in memory; never
+        // erase a user's existing persistent Telegram key on a storage failure.
+        try {
+          await client?.destroy();
+        } catch {
+          /* unusable storage */
+        }
+        client = null;
+        clientPromise = null;
+        memoryOnly = true;
+        account = null;
+        return restore(expectedUserId);
       }
       // Raw Telegram errors may contain request information; do not retain them.
       throw connectionFailure(error, stage, errorTypes);

@@ -34,6 +34,7 @@ export function validRequest(data) {
         "action",
         "expectedUserId",
         "interactive",
+        "wikiInitData",
       ].includes(key),
     ) &&
     data.channel === CHANNEL &&
@@ -42,7 +43,10 @@ export function validRequest(data) {
     /^[a-f0-9-]{36}$/.test(data.id) &&
     ACTIONS.includes(data.action) &&
     (data.expectedUserId == null || /^\d{1,20}$/.test(data.expectedUserId)) &&
-    (data.interactive == null || typeof data.interactive === "boolean")
+    (data.interactive == null || typeof data.interactive === "boolean") &&
+    (data.wikiInitData == null ||
+      (typeof data.wikiInitData === "string" &&
+        data.wikiInitData.length <= 8192))
   );
 }
 

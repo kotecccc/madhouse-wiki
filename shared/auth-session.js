@@ -1,4 +1,8 @@
+import { telegramContext } from "./telegram-context.js";
 export const TOKEN_KEY = "madhouse.wiki.jwt";
+export const TOKEN_OWNER_KEY = "madhouse.wiki.jwt-owner";
+let volatileToken = null;
+let volatileOwner = null;
 const CHANGE_EVENT = "madhouse:auth-change";
 
 function decodePart(part) {
@@ -58,11 +62,37 @@ export function inspectToken(value, now = Date.now()) {
 export function readSession(now = Date.now()) {
   if (typeof window === "undefined")
     return { status: "empty", expiresAt: null };
-  let token;
-  try {
-    token = window.localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return { status: "unavailable", expiresAt: null };
+  const context = telegramContext();
+  const expected = context.userId;
+  let token, owner;
+  if (context.isTelegram) {
+    // The server is canonical for Mini App sessions. Never reuse a disk JWT
+    // before authenticating the current launch; keep this document's token only.
+    token = volatileToken;
+    owner = volatileOwner;
+    try {
+      window.localStorage.removeItem(TOKEN_KEY);
+      window.localStorage.removeItem(TOKEN_OWNER_KEY);
+    } catch {
+      /* denied storage is normal in some WebViews */
+    }
+  } else {
+    try {
+      token = window.localStorage.getItem(TOKEN_KEY);
+      owner = window.localStorage.getItem(TOKEN_OWNER_KEY);
+    } catch {
+      token = volatileToken;
+      owner = volatileOwner;
+    }
+  }
+  if (
+    token &&
+    ((owner && !expected) ||
+      (expected && owner !== expected) ||
+      (context.isTelegram && !expected))
+  ) {
+    clearToken();
+    return { status: "empty", expiresAt: null };
   }
   if (!token) return { status: "empty", expiresAt: null };
   try {
@@ -76,24 +106,41 @@ export function saveToken(value) {
   const session = inspectToken(value);
   if (session.status === "expired")
     throw new Error("Срок действия этого JWT уже истёк.");
+  const owner = telegramContext().userId || null;
+  volatileToken = session.token;
+  volatileOwner = owner;
   try {
-    window.localStorage.setItem(TOKEN_KEY, session.token);
+    if (telegramContext().isTelegram) {
+      window.localStorage.removeItem(TOKEN_KEY);
+      window.localStorage.removeItem(TOKEN_OWNER_KEY);
+    } else {
+      window.localStorage.setItem(TOKEN_KEY, session.token);
+      window.localStorage.removeItem(TOKEN_OWNER_KEY);
+    }
   } catch {
-    throw new Error("Браузер не разрешает локальное сохранение токена.");
+    // A WebView with blocked localStorage uses only this document's memory.
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 export function clearToken() {
+  volatileToken = null;
+  volatileOwner = null;
   try {
     window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(TOKEN_OWNER_KEY);
   } catch {
-    throw new Error("Браузер не разрешает удалить токен.");
+    /* An unavailable store cannot supply the active in-memory token. */
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 export function subscribeSession(listener) {
   const onStorage = (event) => {
-    if (event.key === TOKEN_KEY || event.key === null) listener();
+    if (
+      event.key === TOKEN_KEY ||
+      event.key === TOKEN_OWNER_KEY ||
+      event.key === null
+    )
+      listener();
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener(CHANGE_EVENT, listener);
@@ -114,8 +161,15 @@ export function authorizeRequest(request, origin = window.location.origin) {
         ? "JWT истёк. Обновите его через Login в Wiki."
         : "Добавьте действующий JWT через Login в Wiki.",
     );
-  const token = window.localStorage.getItem(TOKEN_KEY);
-  const inspected = inspectToken(token);
+  let token = volatileToken;
+  if (!telegramContext().isTelegram) {
+    try {
+      token = window.localStorage.getItem(TOKEN_KEY) || volatileToken;
+    } catch {
+      /* memory fallback */
+    }
+  }
+  const inspected = inspectToken(token || volatileToken);
   if (inspected.status !== "ready")
     throw new Error(
       "JWT больше не действует. Обновите его через Login в Wiki.",

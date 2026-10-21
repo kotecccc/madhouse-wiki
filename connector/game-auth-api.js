@@ -33,6 +33,7 @@ export function createConnectorApi({
   appParams,
   wikiOrigins,
   fetcher = fetch,
+  accountSessions,
 }) {
   return async (request) => {
     const url = new URL(request.url);
@@ -49,7 +50,7 @@ export function createConnectorApi({
       // Never configure production with keys approved only for local research.
       return json({ apiId: Number(apiId), apiHash, wikiOrigins });
     }
-    if (url.pathname !== "/api/game-session")
+    if (!["/api/game-session", "/api/account-session"].includes(url.pathname))
       return json({ error: "unknown_route" }, 404);
     if (request.method !== "POST")
       return json({ error: "method_not_allowed" }, 405);
@@ -58,6 +59,47 @@ export function createConnectorApi({
     let data;
     try {
       data = await limitedJson(request);
+      if (url.pathname === "/api/account-session") {
+        if (
+          !data ||
+          typeof data !== "object" ||
+          Array.isArray(data) ||
+          !Object.keys(data).every((key) =>
+            [
+              "wikiInitData",
+              "wikiProof",
+              "action",
+              "ticket",
+              "accessToken",
+            ].includes(key),
+          )
+        )
+          throw new Error();
+        if (!accountSessions)
+          return json({ error: "session_store_unavailable" }, 503);
+        try {
+          return json(await accountSessions(data));
+        } catch (error) {
+          const allowed = [
+            "invalid_wiki_identity",
+            "invalid_request",
+            "invalid_game_session",
+            "game_account_mismatch",
+            "session_changed",
+          ];
+          const code = allowed.includes(error?.message)
+            ? error.message
+            : "session_store_unavailable";
+          return json(
+            { error: code },
+            code === "session_store_unavailable"
+              ? 503
+              : code === "invalid_wiki_identity"
+                ? 401
+                : 409,
+          );
+        }
+      }
       if (
         !data ||
         Object.keys(data).length !== 1 ||

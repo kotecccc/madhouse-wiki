@@ -4,16 +4,16 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import {
   createConnectorBridge,
   CONNECTION_EPOCH_KEY,
-  telegramUserHint,
 } from "../../../../shared/telegram-connector.js";
+import {
+  telegramContext,
+  accountStorageKey,
+} from "../../../../shared/telegram-context.js";
 import { connectorOrigin } from "../../../../connector/protocol.js";
 import "./TelegramConnection.css";
 
 export const TELEGRAM_CONNECTOR_ORIGIN = connectorOrigin(
   import.meta.env.VITE_TELEGRAM_CONNECTOR_ORIGIN,
-);
-const EXPECTED_TELEGRAM_USER = telegramUserHint(
-  typeof window === "undefined" ? undefined : window,
 );
 
 export function TelegramConnection({
@@ -22,6 +22,7 @@ export function TelegramConnection({
   onClose,
   onToken,
   onWarning,
+  onEmpty,
   onRetry,
   error,
   sessionStatus,
@@ -29,19 +30,47 @@ export function TelegramConnection({
 }) {
   const bridge = useRef(null),
     iframe = useRef(null),
+    interactiveActive = useRef(false),
     callbacks = useRef({ onToken, onClose, onWarning });
-  callbacks.current = { onToken, onClose, onWarning };
+  callbacks.current = { onToken, onClose, onWarning, onEmpty };
   const request = useCallback(async (interactive) => {
     if (!bridge.current) throw new Error("connection_unavailable");
-    const epoch = window.localStorage.getItem(CONNECTION_EPOCH_KEY);
-    const result = await bridge.current.request("connect-game", {
-      expectedUserId: EXPECTED_TELEGRAM_USER,
-      interactive,
-    });
-    if (epoch !== window.localStorage.getItem(CONNECTION_EPOCH_KEY))
+    if (!interactive && interactiveActive.current) return { status: "pending" };
+    let epoch;
+    try {
+      epoch = window.localStorage.getItem(
+        accountStorageKey(CONNECTION_EPOCH_KEY),
+      );
+    } catch {
+      /* WebView storage may be disabled. */
+    }
+    const context = telegramContext();
+    if (context.isTelegram && !context.initData)
+      throw new Error("wiki_reopen_required");
+    if (interactive) interactiveActive.current = true;
+    let result;
+    try {
+      result = await bridge.current.request("connect-game", {
+        expectedUserId: context.userId,
+        wikiInitData: context.initData,
+        interactive,
+      });
+    } finally {
+      if (interactive) interactiveActive.current = false;
+    }
+    let currentEpoch;
+    try {
+      currentEpoch = window.localStorage.getItem(
+        accountStorageKey(CONNECTION_EPOCH_KEY),
+      );
+    } catch {
+      /* unavailable */
+    }
+    if (epoch !== currentEpoch || context.userId !== telegramContext().userId)
       throw new Error("cancelled");
     if (result.status === "connected")
       callbacks.current.onToken(result.accessToken);
+    else if (result.status === "login-required") callbacks.current.onEmpty?.();
     return result;
   }, []);
   const attach = useCallback((node) => {
@@ -62,19 +91,32 @@ export function TelegramConnection({
       connect: () => request(true),
       restore: () => request(false),
       cancel: () => bridge.current?.cancel(),
-      logout: () => bridge.current?.request("logout"),
+      logout: () =>
+        bridge.current?.request("logout", {
+          expectedUserId: telegramContext().userId,
+          wikiInitData: telegramContext().initData,
+        }),
     }),
     [request],
   );
   useEffect(() => {
-    if (
-      !autoConnect ||
-      !["empty", "expired", "invalid"].includes(sessionStatus)
-    )
-      return;
-    request(false).catch(() => {
-      /* Background restoration never opens a login prompt. */
-    });
+    if (!autoConnect && !telegramContext().initData) return;
+    const restore = () =>
+      request(false).catch(() => {
+        /* Never open a login prompt from background restoration. */
+      });
+    restore();
+    const focus = () => {
+      if (!document.hidden) restore();
+    };
+    window.addEventListener("focus", focus);
+    document.addEventListener("visibilitychange", focus);
+    const timer = setInterval(focus, 60000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", focus);
+      document.removeEventListener("visibilitychange", focus);
+    };
   }, [autoConnect, sessionStatus, request]);
   useEffect(() => () => bridge.current?.destroy(), []);
   if (!TELEGRAM_CONNECTOR_ORIGIN) return null;

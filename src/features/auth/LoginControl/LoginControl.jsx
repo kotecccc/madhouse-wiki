@@ -1,3 +1,7 @@
+import {
+  telegramContext,
+  accountStorageKey,
+} from "../../../../shared/telegram-context.js";
 import { getSessionJson } from "../../../../shared/session-api.js";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -24,7 +28,11 @@ import {
 
 function autoConnectionEnabled() {
   try {
-    return window.localStorage.getItem(AUTO_CONNECT_KEY) === "1";
+    const stored = window.localStorage.getItem(
+      accountStorageKey(AUTO_CONNECT_KEY),
+    );
+    const userId = telegramContext().userId;
+    return userId ? stored === "telegram:" + userId : stored === "1";
   } catch {
     return false;
   }
@@ -45,13 +53,14 @@ export function LoginControl() {
   useEffect(() => {
     const changed = (event) => {
       if (
-        event.key === CONNECTION_EPOCH_KEY ||
-        (event.key === AUTO_CONNECT_KEY && event.newValue !== "1")
+        event.key === accountStorageKey(CONNECTION_EPOCH_KEY) ||
+        (event.key === accountStorageKey(AUTO_CONNECT_KEY) &&
+          !autoConnectionEnabled())
       ) {
         setAutoConnect(false);
         telegramRef.current?.cancel();
-      } else if (event.key === AUTO_CONNECT_KEY)
-        setAutoConnect(event.newValue === "1");
+      } else if (event.key === accountStorageKey(AUTO_CONNECT_KEY))
+        setAutoConnect(autoConnectionEnabled());
     };
     window.addEventListener("storage", changed);
     return () => window.removeEventListener("storage", changed);
@@ -167,8 +176,11 @@ export function LoginControl() {
     try {
       setAutoConnect(false);
       try {
-        window.localStorage.setItem(CONNECTION_EPOCH_KEY, crypto.randomUUID());
-        window.localStorage.removeItem(AUTO_CONNECT_KEY);
+        window.localStorage.setItem(
+          accountStorageKey(CONNECTION_EPOCH_KEY),
+          crypto.randomUUID(),
+        );
+        window.localStorage.removeItem(accountStorageKey(AUTO_CONNECT_KEY));
       } catch {
         /* No secret is stored here. */
       }
@@ -179,13 +191,13 @@ export function LoginControl() {
         const result = await telegramRef.current.logout();
         if (!result?.remoteRevoked || !result?.localCleared)
           setError(
-            "Игровой вход удалён. Отключение Telegram-сессии не подтверждено полностью — проверьте Telegram → Устройства.",
+            "Локальный вход удалён. Полный выход на сервере или отзыв Telegram-сессии не подтверждён. Повторите попытку и проверьте Telegram → Устройства.",
           );
       }
     } catch (error) {
       setError(
         TELEGRAM_CONNECTOR_ORIGIN
-          ? "Не удалось подтвердить отзыв Telegram-сессии. Проверьте Telegram → Устройства."
+          ? "Не удалось подтвердить полный выход. Повторите попытку и проверьте Telegram → Устройства."
           : error.message,
       );
     }
@@ -195,7 +207,11 @@ export function LoginControl() {
     setConnectionOpen(true);
     telegramRef.current.connect().catch((error) => {
       if (error?.message !== "cancelled")
-        setError("Не удалось завершить подключение. Повторите попытку.");
+        setError(
+          error?.message === "wiki_reopen_required"
+            ? "Закройте и откройте Wiki заново через меню бота Telegram."
+            : "Не удалось завершить подключение. Повторите попытку.",
+        );
     });
   };
   return (
@@ -324,6 +340,10 @@ export function LoginControl() {
           sessionStatus={session.status}
           autoConnect={autoConnect}
           onRetry={connect}
+          onEmpty={() => {
+            if (readSession().status !== "empty") clearToken();
+            setSession(readSession());
+          }}
           onWarning={() =>
             setError(
               "Не удалось подтвердить отключение Telegram-сессии. Проверьте Telegram → Устройства.",
@@ -333,7 +353,12 @@ export function LoginControl() {
           onToken={(value) => {
             saveToken(value);
             try {
-              window.localStorage.setItem(AUTO_CONNECT_KEY, "1");
+              window.localStorage.setItem(
+                accountStorageKey(AUTO_CONNECT_KEY),
+                telegramContext().userId
+                  ? "telegram:" + telegramContext().userId
+                  : "1",
+              );
             } catch {
               /* JWT storage is checked separately. */
             }

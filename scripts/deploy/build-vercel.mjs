@@ -1,3 +1,4 @@
+import { buildSync } from "esbuild";
 import {
   cpSync,
   mkdirSync,
@@ -79,7 +80,24 @@ function functionFiles(name, files, entry) {
     resolve(dir, "package.json"),
     JSON.stringify({ type: "module" }),
   );
-  writeFileSync(resolve(dir, "index.mjs"), entry);
+  if (service === "connector")
+    buildSync({
+      stdin: {
+        contents: entry,
+        resolveDir: dir,
+        sourcefile: "connector-entry.mjs",
+      },
+      outfile: resolve(dir, "index.mjs"),
+      bundle: true,
+      platform: "node",
+      banner: {
+        js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
+      },
+      format: "esm",
+      target: "node24",
+      nodePaths: [resolve(root, "node_modules")],
+    });
+  else writeFileSync(resolve(dir, "index.mjs"), entry);
   writeFileSync(
     resolve(dir, ".vc-config.json"),
     JSON.stringify({
@@ -122,10 +140,13 @@ if (service === "connector") {
     "scripts/deploy/vercel-connector-handler.mjs",
     "connector/game-auth-api.js",
     "connector/worker.js",
+    "connector/account-session.js",
+    "connector/blob-session-store.js",
   ];
   for (const [name, endpoint] of [
     ["api/config", "/api/config"],
     ["api/game-session", "/api/game-session"],
+    ["api/account-session", "/api/account-session"],
     ["api/unknown", "/api/unknown"],
   ]) {
     functionFiles(

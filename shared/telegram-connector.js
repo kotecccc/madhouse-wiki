@@ -152,7 +152,10 @@ export function createConnectorBridge({
     finish(new Error("cancelled"));
   }
   return {
-    request(action, { expectedUserId, interactive = false } = {}) {
+    request(
+      action,
+      { expectedUserId, wikiInitData, interactive = false } = {},
+    ) {
       if (!["status", "connect-game", "logout"].includes(action))
         return Promise.reject(new Error("invalid_action"));
       if (
@@ -173,6 +176,7 @@ export function createConnectorBridge({
         interactive,
       };
       if (expectedUserId) message.expectedUserId = String(expectedUserId);
+      if (wikiInitData) message.wikiInitData = wikiInitData;
       const entry = { message, generation, sent: false };
       entry.promise = new Promise((resolve, reject) => {
         entry.resolve = resolve;

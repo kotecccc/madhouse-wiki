@@ -1,3 +1,5 @@
+import { createAccountSessions } from "../../connector/account-session.js";
+import { createBlobSessionStore } from "../../connector/blob-session-store.js";
 import { createConnectorApi } from "../../connector/game-auth-api.js";
 import { connectorHeaders } from "../../connector/worker.js";
 
@@ -17,6 +19,12 @@ export function createVercelConnectorHandler({
     appParams,
     wikiOrigins: [wikiOrigin],
     fetcher,
+    accountSessions: createAccountSessions({
+      store: createBlobSessionStore(),
+      verificationKey: process.env.WIKI_INITDATA_KEY,
+      encryptionKey: process.env.ACCOUNT_SESSION_KEY,
+      fetcher,
+    }),
   });
   return async (request, response) => {
     let result;

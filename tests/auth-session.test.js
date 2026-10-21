@@ -99,3 +99,70 @@ test("one persisted token is reused for same-origin API requests, expiry and log
     else globalThis.window = previous;
   }
 });
+
+test("Telegram account switch clears the old JWT before any API request, including legacy unbound tokens", async () => {
+  const previous = globalThis.window;
+  const values = new Map();
+  const target = new EventTarget();
+  const launch = (id) =>
+    "#tgWebAppData=" +
+    encodeURIComponent(new URLSearchParams({ user: JSON.stringify({ id }) }));
+  globalThis.window = {
+    localStorage: {
+      getItem: (k) => values.get(k) ?? null,
+      setItem: (k, v) => values.set(k, v),
+      removeItem: (k) => values.delete(k),
+    },
+    location: { origin: "https://wiki.example", hash: launch(42) },
+    dispatchEvent: target.dispatchEvent.bind(target),
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+  };
+  try {
+    const value = jwt({ exp: Date.now() / 1000 + 600 });
+    values.set(TOKEN_KEY, value);
+    assert.equal(readSession().status, "empty");
+    saveToken(value);
+    assert.equal(readSession().status, "ready");
+    window.location.hash = launch(99);
+    assert.throws(() => authorizeRequest({ url: "/api/me" }));
+    assert.equal(readSession().status, "empty");
+    assert.equal(values.has(TOKEN_KEY), false);
+  } finally {
+    globalThis.window = previous;
+  }
+});
+
+test("WebViews without localStorage can use a document-local JWT and still isolate Telegram accounts", () => {
+  const previous = globalThis.window;
+  const target = new EventTarget();
+  globalThis.window = {
+    localStorage: {
+      getItem() {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem() {
+        throw new DOMException("denied", "SecurityError");
+      },
+      removeItem() {
+        throw new DOMException("denied", "SecurityError");
+      },
+    },
+    location: {
+      origin: "https://wiki.example",
+      hash: "#tgWebAppData=" + encodeURIComponent('user={"id":42}'),
+    },
+    dispatchEvent: target.dispatchEvent.bind(target),
+  };
+  try {
+    saveToken(jwt({ exp: Date.now() / 1000 + 600 }));
+    assert.equal(readSession().status, "ready");
+    assert.ok(authorizeRequest({ url: "/api/me" }).headers.Authorization);
+    window.location.hash =
+      "#tgWebAppData=" + encodeURIComponent('user={"id":99}');
+    assert.equal(readSession().status, "empty");
+    clearToken();
+  } finally {
+    globalThis.window = previous;
+  }
+});

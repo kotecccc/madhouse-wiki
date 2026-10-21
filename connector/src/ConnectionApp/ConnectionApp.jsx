@@ -1,3 +1,4 @@
+import { OtpCodeInput } from "../OtpCodeInput/OtpCodeInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../src/components/ui/Button/Button.jsx";
 import { BaseCard } from "../../../src/components/ui/BaseCard/BaseCard.jsx";
@@ -16,13 +17,20 @@ const messages = {
   telegram_unavailable: "Не удалось соединиться с Telegram.",
   game_auth_rejected: "Игра не приняла вход. Попробуйте подключиться заново.",
   game_unavailable: "Игра сейчас недоступна.",
+  invalid_wiki_identity: "Откройте Wiki заново через меню бота Telegram.",
+  game_account_mismatch:
+    "Войдите в тот же Telegram-аккаунт, в котором открыта Wiki.",
+  session_store_unavailable:
+    "Синхронизация входа временно недоступна. Повторите попытку.",
+  session_changed: "Сеанс изменился. Повторите подключение.",
   try_later: "Слишком много запросов. Попробуйте позже.",
 };
 
 export function ConnectionApp() {
   const connection = useRef(null),
     currentRequest = useRef(null),
-    loginAbort = useRef(null);
+    loginAbort = useRef(null),
+    identityProof = useRef(null);
   const [config, setConfig] = useState(null),
     [stage, setStage] = useState("loading");
   const [error, setError] = useState(""),
@@ -84,6 +92,55 @@ export function ConnectionApp() {
     },
     [fail, reply],
   );
+  const accountSession = useCallback(async (request, action, extra = {}) => {
+    if (!request?.data.wikiInitData) return null;
+    const response = await fetch("/api/account-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...(identityProof.current?.launch === request.data.wikiInitData
+          ? { wikiProof: identityProof.current.proof }
+          : { wikiInitData: request.data.wikiInitData }),
+        action,
+        ...extra,
+      }),
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+      signal: AbortSignal.timeout(20000),
+    });
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(data.error || "session_store_unavailable");
+    if (typeof data.wikiProof === "string")
+      identityProof.current = {
+        launch: request.data.wikiInitData,
+        proof: data.wikiProof,
+      };
+    return data;
+  }, []);
+  const disconnect = useCallback(
+    async (request) => {
+      // A storage/network failure must not prevent revocation of the local key.
+      const [local, shared] = await Promise.allSettled([
+        connection.current.logout(),
+        accountSession(request, "logout"),
+      ]);
+      const result =
+        local.status === "fulfilled"
+          ? local.value
+          : {
+              status: "disconnected",
+              remoteRevoked: false,
+              localCleared: false,
+            };
+      return {
+        ...result,
+        remoteRevoked: result.remoteRevoked && shared.status === "fulfilled",
+      };
+    },
+    [accountSession],
+  );
   const complete = useCallback(
     async (request) => {
       if (!request || currentRequest.current !== request) {
@@ -95,9 +152,35 @@ export function ConnectionApp() {
       setPhone("");
       setQr("");
       phoneHash.current = null;
+      // Restore the signed account's server session BEFORE touching browser IDB.
+      const shared = await accountSession(request, "restore");
+      if (currentRequest.current !== request) return;
+      if (shared?.status === "connected") {
+        request.freshLogin = false;
+        reply(request, {
+          status: "connected",
+          accessToken: shared.accessToken,
+        });
+        return;
+      }
+      if (shared?.revoked && !request.data.interactive) {
+        reply(request, { status: "login-required" });
+        return;
+      }
       const result = await connection.current.gameLogin(
         request.data.expectedUserId,
       );
+      if (currentRequest.current !== request) return;
+      if (result.status === "connected" && shared) {
+        await accountSession(request, "save", {
+          ticket: shared.ticket,
+          accessToken: result.accessToken,
+        });
+        if (currentRequest.current !== request) {
+          await accountSession(request, "logout");
+          return;
+        }
+      }
       if (result.status === "connected") {
         request.freshLogin = false;
         reply(request, result);
@@ -105,7 +188,7 @@ export function ConnectionApp() {
         reply(request, { status: "login-required" }, "interaction-required");
       else reply(request, { status: "login-required" });
     },
-    [reply],
+    [reply, accountSession],
   );
   useEffect(() => {
     let stopped = false,
@@ -117,6 +200,7 @@ export function ConnectionApp() {
         const settings = await response.json();
         const {
           TelegramClient,
+          MemoryStorage,
           MtTimeoutError,
           MtSecurityError,
           MtUnsupportedError,
@@ -135,6 +219,19 @@ export function ConnectionApp() {
                 deviceModel: "Madhouse Wiki",
                 appVersion: "1.0.0",
                 systemVersion: "Browser",
+              },
+            }),
+          createMemoryClient: () =>
+            new TelegramClient({
+              apiId: settings.apiId,
+              apiHash: settings.apiHash,
+              storage: new MemoryStorage(),
+              logLevel: 0,
+              disableUpdates: true,
+              initConnectionOptions: {
+                deviceModel: "Madhouse Wiki",
+                appVersion: "1.1.0",
+                systemVersion: "WebView",
               },
             }),
           exchange: async (initData) => {
@@ -174,8 +271,7 @@ export function ConnectionApp() {
             phoneHash.current = null;
             passwordWaiter.current = null;
             if (cancelled?.freshLogin)
-              conn
-                .logout()
+              disconnect(cancelled)
                 .then((result) =>
                   window.parent.postMessage(
                     {
@@ -194,7 +290,9 @@ export function ConnectionApp() {
           currentRequest.current = request;
           if (event.data.action === "logout") {
             loginAbort.current?.abort();
-            run(async () => reply(request, await conn.logout()));
+            run(async () => {
+              reply(request, await disconnect(request));
+            });
           } else if (event.data.action === "status") {
             run(async () =>
               reply(request, {
@@ -236,7 +334,7 @@ export function ConnectionApp() {
       loginAbort.current?.abort();
       connection.current?.cancel();
     };
-  }, [complete, reply, run]);
+  }, [complete, reply, run, accountSession, disconnect]);
 
   const startQr = async () => {
     const request = currentRequest.current;
@@ -340,9 +438,11 @@ export function ConnectionApp() {
           </p>
           <p className="connection-explanation">
             Это полноценная Telegram-сессия с техническим доступом к аккаунту.
-            Она хранится только в этом браузере, отдельно от Wiki. Отозвать её
-            можно через Telegram → Настройки → Устройства или кнопкой «Выйти» в
-            Wiki.
+            Она хранится на этом устройстве, если клиент разрешает локальное
+            хранилище. Игровая сессия шифруется на сервере и восстанавливается
+            на других устройствах этого же Telegram-аккаунта до истечения JWT.
+            Полная Telegram-сессия на сервер не отправляется. Отозвать её можно
+            через Telegram → Настройки → Устройства или кнопкой «Выйти» в Wiki.
           </p>
           {stage === "wrong-account" ? (
             <Button
@@ -414,6 +514,7 @@ export function ConnectionApp() {
           className="connection-form"
           onSubmit={(event) => {
             event.preventDefault();
+            if (!/^[0-9]{5}$/.test(code)) return;
             const request = currentRequest.current,
               value = code;
             setCode("");
@@ -426,17 +527,12 @@ export function ConnectionApp() {
           }}
         >
           <p>Введите код из сообщения Telegram.</p>
-          <label>
-            Код Telegram
-            <input
-              inputMode="numeric"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              autoComplete="one-time-code"
-              required
-            />
-          </label>
-          <Button variant="primary" type="submit" disabled={busy}>
+          <OtpCodeInput value={code} onChange={setCode} disabled={busy} />
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={busy || !/^[0-9]{5}$/.test(code)}
+          >
             Подтвердить вход
           </Button>
         </form>

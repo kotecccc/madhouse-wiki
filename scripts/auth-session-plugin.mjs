@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-const source = () =>
-  readFileSync(new URL("../shared/auth-session.js", import.meta.url), "utf8");
+const source = (name = "auth-session.js") =>
+  readFileSync(new URL("../shared/" + name, import.meta.url), "utf8");
 export function authSessionPlugin() {
   let connector = null;
   return {
@@ -10,10 +10,12 @@ export function authSessionPlugin() {
     },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
-        if (request.url?.split("?")[0] !== "/auth-session.js") return next();
+        const name = request.url?.split("?")[0]?.slice(1);
+        if (!["auth-session.js", "telegram-context.js"].includes(name))
+          return next();
         response.setHeader("Content-Type", "application/javascript");
         response.setHeader("Cache-Control", "no-store");
-        response.end(source());
+        response.end(source(name));
       });
     },
     generateBundle() {
@@ -22,11 +24,12 @@ export function authSessionPlugin() {
         fileName: "connection-config.json",
         source: JSON.stringify({ origin: connector, protocolVersion: 1 }),
       });
-      this.emitFile({
-        type: "asset",
-        fileName: "auth-session.js",
-        source: source(),
-      });
+      for (const name of ["auth-session.js", "telegram-context.js"])
+        this.emitFile({
+          type: "asset",
+          fileName: name,
+          source: source(name),
+        });
     },
   };
 }

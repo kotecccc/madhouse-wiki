@@ -414,3 +414,51 @@ test("auth relay has one fixed POST destination, strips old credentials, returns
   ]);
   assert.match(response.headers.get("cache-control"), /no-store/);
 });
+
+test("WebView IndexedDB InvalidStateError falls back once to an independent memory client", async () => {
+  let persistent = 0,
+    memory = 0;
+  const conn = createConnection({
+    createClient: () => {
+      persistent++;
+      return client({
+        getMe: async () => {
+          throw new DOMException("private-storage-detail", "InvalidStateError");
+        },
+      });
+    },
+    createMemoryClient: () => {
+      memory++;
+      return client({
+        getMe: async () => {
+          throw { text: "AUTH_KEY_UNREGISTERED" };
+        },
+      });
+    },
+    exchange: () =>
+      assert.fail("unauthenticated memory client must not request game auth"),
+  });
+  assert.deepEqual(await conn.gameLogin("42"), { status: "login-required" });
+  assert.equal(persistent, 1);
+  assert.equal(memory, 1);
+  await conn.restore("42");
+  assert.equal(memory, 1);
+});
+
+test("account-specific Telegram stores never restore the previous account after switching", async () => {
+  const names = [];
+  const conn = createConnection({
+    createClient: (name) => {
+      names.push(name);
+      return client({
+        getMe: async () => ({ id: name.endsWith("-99") ? 99 : 42 }),
+      });
+    },
+    exchange: async () => "token",
+  });
+  await conn.gameLogin("42");
+  await conn.gameLogin("99");
+  assert.equal(names.length, 2);
+  assert.ok(names[0].endsWith("-42"));
+  assert.ok(names[1].endsWith("-99"));
+});

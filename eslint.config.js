@@ -2,7 +2,9 @@ import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 export default [
-  { ignores: ["dist/**", "connector/dist/**", "node_modules/**"] },
+  {
+    ignores: ["dist/**", "connector/dist/**", ".vercel/**", "node_modules/**"],
+  },
   js.configs.recommended,
   {
     files: ["**/*.{js,jsx,mjs}"],
