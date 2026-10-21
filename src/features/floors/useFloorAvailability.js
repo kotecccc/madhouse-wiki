@@ -2,7 +2,7 @@ import {
   getSessionJson,
   postSessionJson,
 } from "../../../shared/session-api.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { telegramContext } from "../../../shared/telegram-context.js";
 import { connectorOrigin } from "../../../connector/protocol.js";
 import {
@@ -36,6 +36,7 @@ export function useFloorAvailability() {
       : "idle",
   );
   const [requestId, setRequestId] = useState(0);
+  const attemptedFloors = useRef(new Set());
   useEffect(() => {
     let controller;
     let previousStatus = readSession().status;
@@ -48,6 +49,7 @@ export function useFloorAvailability() {
       previousStatus = session.status;
       setAvailability({});
       let catalogue = null;
+      let importedAny = false;
       try {
         const response = await fetch("/api/catalogue", {
           cache: "no-store",
@@ -85,17 +87,32 @@ export function useFloorAvailability() {
         const complete = new Set(catalogue?.completeFloors || []);
         for (const floor of floors) {
           if (signal.aborted) return;
-          if (floor.isAvailable !== true || complete.has(floor.code)) continue;
+          if (
+            floor.isAvailable !== true ||
+            complete.has(floor.code) ||
+            attemptedFloors.current.has(floor.code)
+          )
+            continue;
+          attemptedFloors.current.add(floor.code);
           try {
-            const imported = await postSessionJson(
+            await postSessionJson(
               "/api/catalogue",
               { floorCode: floor.code },
               { signal },
             );
-            mergeKnowledgeBaseOverlay(imported);
-            refreshModel();
+            importedAny = true;
           } catch {
-            // Keep access rendering and retry incomplete definitions on the next authenticated load.
+            // Retry only after a new login or an explicit user retry.
+          }
+        }
+        if (importedAny && !signal.aborted) {
+          const response = await fetch("/api/catalogue", {
+            cache: "no-store",
+            signal,
+          });
+          if (response.ok) {
+            mergeKnowledgeBaseOverlay(await response.json());
+            refreshModel();
           }
         }
       } catch {
@@ -106,13 +123,19 @@ export function useFloorAvailability() {
       }
     };
     load();
-    const unsubscribe = subscribeSession(load);
+    const unsubscribe = subscribeSession(() => {
+      attemptedFloors.current.clear();
+      load();
+    });
     const restoreSettled = () => {
       if (readSession().status !== "ready") load();
     };
     window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
     const timer = setInterval(() => {
-      if (previousStatus !== readSession().status) load();
+      if (previousStatus !== readSession().status) {
+        attemptedFloors.current.clear();
+        load();
+      }
     }, 1000);
     return () => {
       controller?.abort();
@@ -121,5 +144,12 @@ export function useFloorAvailability() {
       clearInterval(timer);
     };
   }, [requestId]);
-  return { availability, status, retry: () => setRequestId((id) => id + 1) };
+  return {
+    availability,
+    status,
+    retry: () => {
+      attemptedFloors.current.clear();
+      setRequestId((id) => id + 1);
+    },
+  };
 }

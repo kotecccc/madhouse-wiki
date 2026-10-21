@@ -9,15 +9,19 @@ import { FloorGroup } from "../FloorGroup/FloorGroup.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
-import { useFloorAvailability } from "../useFloorAvailability.js";
 import { useDepartmentAvailability } from "../useDepartmentAvailability.js";
 import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
-export function FloorsSection({ onCalculator, onUpgradeSelect }) {
-  const { availability, status, retry } = useFloorAvailability();
+export function FloorsSection({
+  availability,
+  status,
+  retry,
+  onCalculator,
+  onUpgradeSelect,
+}) {
   const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
   const departmentRefs = useRef({});

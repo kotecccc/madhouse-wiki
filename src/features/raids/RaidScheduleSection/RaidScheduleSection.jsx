@@ -5,13 +5,11 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import { RaidArchive } from "../RaidArchive/RaidArchive.jsx";
-import { useFloorAvailability } from "../../floors/useFloorAvailability.js";
 import "./RaidScheduleSection.css";
 
 const REFRESH_INTERVAL = 10 * 1000;
 
-export function RaidScheduleSection() {
-  const { availability } = useFloorAvailability();
+export function RaidScheduleSection({ availability }) {
   const [state, setState] = useState({
     status: "loading",
     posts: [],

@@ -16,7 +16,11 @@
   }
 
   .app-content--floors > .app-screen--raids,
-  .app-content--raids > .app-screen--floors {
+  .app-content--floors > .app-screen--energy,
+  .app-content--raids > .app-screen--floors,
+  .app-content--raids > .app-screen--energy,
+  .app-content--energy > .app-screen--floors,
+  .app-content--energy > .app-screen--raids {
     display: none;
   }
 }

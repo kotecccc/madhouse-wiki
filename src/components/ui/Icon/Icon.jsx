@@ -87,6 +87,7 @@ export function Icon({ type, size, className = "" }) {
         </g>
       </>
     ),
+    energy: <path d="m13 2-9 12h7l-1 8 10-13h-7l1-7Z" />,
     combat: (
       <>
         <g transform="translate(.5 .6) rotate(-35 12 12)" strokeWidth="1.7">

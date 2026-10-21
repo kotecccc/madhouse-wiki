@@ -1,0 +1,102 @@
+.energy-table-section {
+  padding-top: var(--space-40);
+  padding-bottom: var(--space-40);
+}
+
+.energy-table-card {
+  --card-padding: var(--space-24);
+  --card-content-gap: var(--space-20);
+  display: grid;
+  gap: var(--card-content-gap);
+}
+
+.energy-table-heading {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.energy-table-heading .title--h2 {
+  margin: 0;
+}
+
+.energy-table-subtitle,
+.energy-table-note,
+.energy-table-provenance {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.energy-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+  scrollbar-gutter: stable;
+}
+
+.energy-table-scroll:focus-visible {
+  outline: 2px solid var(--red-bright);
+  outline-offset: 3px;
+}
+
+.energy-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--paper-bright);
+  text-align: center;
+}
+
+.energy-table th,
+.energy-table td {
+  padding: var(--space-12) var(--space-16);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.energy-table thead th {
+  min-width: 112px;
+  background: var(--panel);
+  font-weight: 650;
+}
+
+.energy-table thead th:first-child,
+.energy-table tbody th {
+  min-width: 88px;
+  font-weight: 650;
+}
+
+.energy-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.energy-table tr > *:last-child {
+  border-right: 0;
+}
+
+.energy-table-note {
+  font-weight: 600;
+}
+
+.energy-table-provenance {
+  font-size: 0.9em;
+}
+
+@media (max-width: 650px) {
+  .energy-table-section {
+    padding-top: var(--space-24);
+    padding-bottom: var(--space-24);
+  }
+
+  .energy-table-card {
+    --card-padding: var(--space-16);
+    --card-content-gap: var(--space-16);
+  }
+
+  .energy-table th,
+  .energy-table td {
+    padding: var(--space-12);
+  }
+}

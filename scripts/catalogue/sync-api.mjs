@@ -184,9 +184,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
         if (!downloaded?.mutable)
           await storeBlob.upload(database, downloaded?.etag ?? null);
         stage = "read_model";
-        const kb = readKnowledgeBase(root, database);
         return json({
-          ...publicData(kb),
           floorCode: code,
           complete: pending.length === 0 && pendingIds.length === 0,
           pendingCount: pending.length + pendingIds.length,
