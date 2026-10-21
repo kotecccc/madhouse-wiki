@@ -5,6 +5,11 @@
   stroke-linejoin: round;
 }
 
+.ui-icon--filled {
+  fill: currentColor;
+  stroke: none;
+}
+
 .ui-icon--small {
   width: 14px;
   height: 14px;

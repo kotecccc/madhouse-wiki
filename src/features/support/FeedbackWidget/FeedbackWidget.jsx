@@ -137,7 +137,8 @@ export function FeedbackWidget({ screen = "floors", onOpenPrivacy }) {
       <Button
         variant="primary"
         className="feedback-floating-button"
-        icon="warning"
+        icon="bug"
+        iconSize="medium"
         onClick={openDialog}
         aria-label="Оставить обратную связь"
         title="Обратная связь"

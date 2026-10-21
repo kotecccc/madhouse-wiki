@@ -1,21 +1,39 @@
 .feedback-floating-button {
   position: fixed;
   z-index: 24;
-  right: max(14px, env(safe-area-inset-right, 0px));
+  right: 0;
   bottom: max(18px, env(safe-area-inset-bottom, 0px));
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 56px;
+  min-width: 56px;
+  height: 56px;
+  min-height: 56px;
   padding: 0;
-  border: 1px solid rgba(255, 241, 221, 0.26);
-  border-radius: 50%;
+  border: 1px solid rgba(233, 222, 197, 0.14);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
   gap: 0;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  color: var(--red-bright);
+  background: rgba(17, 16, 15, 0.3);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+}
+
+.feedback-floating-button.button-primary:hover {
+  background: rgba(17, 16, 15, 0.38);
 }
 
 .feedback-floating-button .button-label {
   display: none;
+}
+
+.feedback-floating-button > .ui-icon {
+  transition: transform var(--control-transition-duration)
+    var(--control-transition-easing);
+}
+
+.feedback-floating-button:hover > .ui-icon {
+  transform: rotate(180deg);
 }
 
 .feedback-modal .shared-modal-content {
@@ -115,7 +133,7 @@
 
 @media (max-width: 650px) {
   .feedback-floating-button {
-    right: max(14px, env(safe-area-inset-right, 0px));
+    right: 0;
     bottom: calc(86px + env(safe-area-inset-bottom, 0px));
   }
 }
