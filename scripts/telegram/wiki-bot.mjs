@@ -9,6 +9,18 @@ const MAX_MESSAGE_LENGTH = 4096;
 const INLINE_ANSWER_TIMEOUT_MS = 5000;
 const RAID_FEED_TIMEOUT_MS = 1500;
 const RAID_FEED_CACHE_MS = 10_000;
+const ENERGY_TABLE_ROWS = [
+  ["D-1", 688, 105, 66, 5, 330, "~4,8 дня"],
+  ["E-1", 712, 145, 50, 15, 750, "~14,8 дня"],
+  ["F-1", 876, 185, 47.5, 20, 950, "~24,3 дня"],
+  ["G-1", 199, 185, 10.8, 15, 162, "~4,2 дня"],
+  ["H-1", 434, 205, 21.2, 20, 424, "~12 дня"],
+  ["I-1", 313, 260, 12, 25, 300, "~10,8 дня"],
+  ["J-1", 319, 360, 8.9, 25, 222, "~11,1 дня"],
+  ["K-1", 599, 400, 15, 30, 450, "~25 дня"],
+  ["L-1", 2104, 440, 47.8, 6, 287, "~17,5 дня"],
+  ["M-1", 852, 440, 19.4, 35, 678, "~41,4 дня"],
+];
 const PRIVATE_HEADERS = {
   "Cache-Control": "private, no-store, max-age=0",
   "CDN-Cache-Control": "no-store",
@@ -399,6 +411,47 @@ function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
   });
 }
 
+function describeEnergyTable(siteUrl) {
+  const tableRows = ENERGY_TABLE_ROWS.map(
+    ([code, energy, limit, coupons, runs, total, duration]) => {
+      const replenishments = [
+        formatNumber(coupons),
+        " × ",
+        formatNumber(runs),
+        " = ",
+        formatNumber(total),
+      ].join("");
+      return [
+        code.padEnd(5),
+        formatNumber(energy).padStart(7),
+        " ⚡  ",
+        formatNumber(limit).padStart(4),
+        " ⚡  ",
+        replenishments.padEnd(20),
+        "  ",
+        duration,
+      ].join("");
+    },
+  );
+  const lines = [
+    "<b>⚡ Энергия работ</b>",
+    "<i>⚡ — энергия на проходку; лимит — из исходной таблицы</i>",
+    `<pre>Код   Проходка   Лимит   Купюры × раз = всего   Время\n${tableRows.join("\n")}</pre>`,
+    "",
+    "<i>Снимок публикации от 15.10.2026. Строк A–C и N+ в ней нет. " +
+      "Состав проходки не подтверждён для всех корпусов. Время — без учёта " +
+      "энергии за повышение уровня.</i>",
+  ];
+  return inlineArticle({
+    id: "energy-table-snapshot",
+    title: "⚡ Энергия · таблица проходок",
+    description: "D-1—M-1 · купюры и примерное время",
+    message: fitHtmlLines(lines),
+    siteUrl,
+    shareQuery: "энергия",
+  });
+}
+
 function safeTelegramUrl(value) {
   try {
     const url = new URL(value);
@@ -648,6 +701,7 @@ function getEnergyResults(knowledgeBase, query, siteUrl) {
     return floor ? [describeEnergyFloor(floor, knowledgeBase, siteUrl)] : [];
   }
   return [
+    describeEnergyTable(siteUrl),
     describeOpeningEnergy(knowledgeBase, siteUrl),
     ...knowledgeBase.floors.map((floor) =>
       describeEnergyFloor(floor, knowledgeBase, siteUrl),
@@ -833,6 +887,9 @@ export function createWikiBotApi({
     return {
       inline_keyboard: [
         ...floorRows,
+        ...(isEnergy
+          ? [[{ text: "↩ Таблица энергии", callback_data: "menu:energy" }]]
+          : []),
         [{ text: "↩ Главное меню", callback_data: "menu:home" }],
       ],
     };
@@ -893,7 +950,22 @@ export function createWikiBotApi({
     if (callback.data === "menu:energy") {
       await sendMessage(
         chatId,
-        "<b>⚡ Энергия работ</b>\nВыберите этаж, чтобы посмотреть расход энергии за полный цикл и расчёты для условий открытия.",
+        describeEnergyTable(siteUrl).input_message_content.message_text,
+        screenMarkup(null, [
+          [
+            {
+              text: "📚 Энергия по этажам",
+              callback_data: "menu:energyfloors",
+            },
+          ],
+        ]),
+      );
+      return;
+    }
+    if (callback.data === "menu:energyfloors") {
+      await sendMessage(
+        chatId,
+        "<b>⚡ Энергия по этажам</b>\nВыберите этаж для данных из каталога.",
         floorPicker("energy"),
       );
       return;
@@ -1008,8 +1080,17 @@ export function createWikiBotApi({
         chatId,
         command === "/floors"
           ? "<b>🏢 Этажи и отделения</b>\nВыберите этаж, чтобы посмотреть условия открытия."
-          : "<b>⚡ Энергия работ</b>\nЭнергия указана за полный цикл работ. Выберите этаж.",
-        floorPicker(command === "/floors" ? "floors" : "energy"),
+          : describeEnergyTable(siteUrl).input_message_content.message_text,
+        command === "/floors"
+          ? floorPicker("floors")
+          : screenMarkup(null, [
+              [
+                {
+                  text: "📚 Энергия по этажам",
+                  callback_data: "menu:energyfloors",
+                },
+              ],
+            ]),
       );
       return;
     }

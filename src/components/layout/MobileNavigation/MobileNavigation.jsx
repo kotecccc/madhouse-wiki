@@ -5,7 +5,6 @@ import "./MobileNavigation.css";
 
 const screens = [
   { id: "floors", label: "Этажи", icon: "floor" },
-  { id: "energy", label: "Энергия", icon: "energy" },
   { id: "raids", label: "Рейды", icon: "combat" },
 ];
 

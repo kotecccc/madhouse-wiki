@@ -11,7 +11,6 @@ import { TelegramLaunchScreen } from "../../features/telegram/TelegramLaunchScre
 import { MobileNavigation } from "../../components/layout/MobileNavigation/MobileNavigation.jsx";
 import { AnalyticsExperience } from "../../features/analytics/AnalyticsExperience/AnalyticsExperience.jsx";
 import { FeedbackWidget } from "../../features/support/FeedbackWidget/FeedbackWidget.jsx";
-import { EnergyTable } from "../../features/energy/EnergyTable/EnergyTable.jsx";
 import { trackProductEvent } from "../../features/analytics/analytics-client.js";
 import { useFloorAvailability } from "../../features/floors/useFloorAvailability.js";
 export function App() {
@@ -21,18 +20,14 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState(() => {
     if (typeof window === "undefined") return "floors";
     const screen = window.location.hash.slice(1);
-    return ["floors", "raids", "energy"].includes(screen)
-      ? screen
-      : "floors";
+    return ["floors", "raids"].includes(screen) ? screen : "floors";
   });
   const [privacySettingsOpen, setPrivacySettingsOpen] = useState(false);
 
   useEffect(() => {
     const syncScreen = () => {
       const screen = window.location.hash.slice(1);
-      setActiveScreen(
-        ["floors", "raids", "energy"].includes(screen) ? screen : "floors",
-      );
+      setActiveScreen(["floors", "raids"].includes(screen) ? screen : "floors");
     };
     window.addEventListener("hashchange", syncScreen);
     return () => window.removeEventListener("hashchange", syncScreen);
@@ -41,12 +36,7 @@ export function App() {
   useEffect(() => {
     trackProductEvent("screen_view", {
       section: activeScreen,
-      feature:
-        activeScreen === "raids"
-          ? "raid_schedule"
-          : activeScreen === "energy"
-            ? "energy_table"
-            : "floor_catalogue",
+      feature: activeScreen === "raids" ? "raid_schedule" : "floor_catalogue",
     });
   }, [activeScreen]);
 
@@ -71,9 +61,6 @@ export function App() {
         </div>
         <div id="screen-raids" className="app-screen app-screen--raids">
           <RaidScheduleSection availability={floorAvailability.availability} />
-        </div>
-        <div id="screen-energy" className="app-screen app-screen--energy">
-          <EnergyTable />
         </div>
       </main>
       <SiteFooter onPrivacySettings={() => setPrivacySettingsOpen(true)} />

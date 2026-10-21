@@ -9,7 +9,7 @@
     left: 50%;
     bottom: calc(var(--space-16) + env(safe-area-inset-bottom, 0px));
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-4);
     width: min(320px, calc(100% - 2 * var(--page-gutter)));
     transform: translateX(-50%);
