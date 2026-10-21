@@ -822,14 +822,17 @@ export function createWikiBotApi({
 
   function floorPicker(mode) {
     const isEnergy = mode === "energy";
+    const floorButtons = knowledgeBase.floors.map((floor) => ({
+      text: `-${floor.code}-`,
+      callback_data: `${isEnergy ? "energyfloor" : "floor"}:${floor.code}`,
+    }));
+    const floorRows = [];
+    for (let index = 0; index < floorButtons.length; index += 8) {
+      floorRows.push(floorButtons.slice(index, index + 8));
+    }
     return {
       inline_keyboard: [
-        ...knowledgeBase.floors.map((floor) => [
-          {
-            text: `${isEnergy ? "⚡" : "🏢"} Этаж ${floor.code}`,
-            callback_data: `${isEnergy ? "energyfloor" : "floor"}:${floor.code}`,
-          },
-        ]),
+        ...floorRows,
         [{ text: "↩ Главное меню", callback_data: "menu:home" }],
       ],
     };
