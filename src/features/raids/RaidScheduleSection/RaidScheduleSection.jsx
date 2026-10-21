@@ -178,6 +178,16 @@ export function RaidScheduleSection() {
             const timeMarkers = getRaidMarkers(raids);
             const content = (
               <>
+                <div className="raid-day-context">
+                  <time className="raid-day-date" dateTime={post.raidDate}>
+                    {post.raidDateLabel}
+                  </time>
+                  {post.timeZone && (
+                    <span className="raid-day-timezone">
+                      Время: {post.timeZone}
+                    </span>
+                  )}
+                </div>
                 <div className="raid-day-scale">
                   <div className="raid-time-axis" aria-hidden="true">
                     {timeScale.ticks.map((minutes, tickIndex) => (
