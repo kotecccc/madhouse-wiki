@@ -1,6 +1,22 @@
 # Telegram bot and game connection — Track C
 
-Updated: 2026-10-20. Bot created, linked to the published website, and native Telegram Desktop catalogue rendering verified; fresh upstream game authentication rejected (HTTP 401).
+Updated: 2026-10-21. Vercel migration launch settings verified. The older observations below are historical and are superseded where noted here.
+
+## Current Vercel migration checkpoint
+
+- Canonical Wiki: https://madhouse-wiki.vercel.app/.
+- Isolated Telegram connector: https://madhouse-connect.vercel.app/.
+- Both production release markers identify GitHub source `dbafdfe48a3136781acd3550275ed4793c43e7c4`; deployment HTTP proof belongs to Track B/coordinator.
+- Browser UI smoke: catalogue renders and the Wiki login opens the isolated connector consent with phone/QR buttons. Initial embedded load was blank; after a reload the full form rendered. No production game authentication or new Telegram session is claimed from this smoke.
+- Bot API identity independently checked as `MadhouseWikiBot` before mutations. `setChatMenuButton` succeeded, and `getChatMenuButton` verified `web_app`, `Открыть Wiki`, and exact canonical Wiki URL. Description and short description URLs were replaced and independently read back with the canonical Vercel link. Token values were never printed or stored in Git.
+- BotFather `/setdomain` for `@MadhouseWikiBot` received `madhouse-wiki.vercel.app`; visible response: `Success! Domain updated.` This is a Login Widget domain, not a source of game credentials.
+- BotFather → Bot Settings → Configure Mini App reports `Mini App is currently disabled for Madhouse Wiki @MadhouseWikiBot.` No Main Mini App was enabled or created during migration.
+- BotFather `/listapps` for `@MadhouseWikiBot` reports `Hmm. This bot has no web apps.` No named Web App URL remains to migrate.
+- Safe consent screenshot: `/Users/mac/.codex/visualizations/2026/10/20/01a15ae4-3b7e-70c1-8c6c-b32ebf877c97/wiki-vercel-telegram-consent.png`, outside Git. No QR, code, token or player profile appears.
+- Local automatic connection and lifecycle proof now exist; see `docs/auth-connection-research.md`. Historical 401 observations below do not establish the current implementation status: single-use launch data explains why a fresh launch must be exchanged exactly once. Fresh user login and game-profile verification on Vercel remain pending. Native Desktop, Telegram Web and phone authentication are separate verification scopes.
+- User expressly authorized public browser use of only Frontend Punks API_ID/API_HASH. User Telegram sessions stay in browser IndexedDB on the isolated connector origin; no session migration from localhost or Sites was performed.
+
+## Historical Sites and initial research observations
 
 ## Verified bot
 

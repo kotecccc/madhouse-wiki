@@ -38,13 +38,27 @@ function autoConnectionEnabled() {
   }
 }
 
+function shouldRestoreTelegramSession() {
+  return (
+    !!TELEGRAM_CONNECTOR_ORIGIN &&
+    (!!telegramContext().initData || autoConnectionEnabled())
+  );
+}
+
 export function LoginControl() {
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
+  const [loginMethod, setLoginMethod] = useState("choose");
   const [token, setToken] = useState("");
+  const [tokenHelpDevice, setTokenHelpDevice] = useState("computer");
   const [error, setError] = useState("");
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [autoConnect, setAutoConnect] = useState(autoConnectionEnabled);
+  const [restoring, setRestoring] = useState(() => {
+    const current = readSession();
+    return current.status === "ready" || shouldRestoreTelegramSession();
+  });
+  const [pendingLogin, setPendingLogin] = useState(false);
   const telegramRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const controlRef = useRef(null);
@@ -91,13 +105,15 @@ export function LoginControl() {
       const signal = controller.signal;
       if (readSession().status !== "ready") {
         setProfile(null);
+        if (!shouldRestoreTelegramSession()) setRestoring(false);
         return;
       }
+      setRestoring(true);
       try {
         const data = await getSessionJson("/api/me", { signal });
         const text = (value) =>
           typeof value === "string" ? value.trim().slice(0, 80) : "";
-        if (!signal.aborted)
+        if (!signal.aborted) {
           setProfile({
             name:
               text(data.nickname) ||
@@ -132,8 +148,11 @@ export function LoginControl() {
               ["Доллары", data.wallet?.dollar, "banknote"],
             ].filter(([, value]) => Number.isFinite(value)),
           });
+          setRestoring(false);
+        }
       } catch {
         // A failed or cancelled profile request must not expose credentials.
+        if (!signal.aborted) setRestoring(false);
       }
     };
     load();
@@ -167,10 +186,11 @@ export function LoginControl() {
     setToken("");
     setError("");
     setConnectionOpen(false);
+    setLoginMethod("choose");
   };
   const label = formatExpiry(session);
   const activeProfile = authenticated
-    ? profile || { name: "Профиль", username: "" }
+    ? profile || (!restoring ? { name: "Профиль", username: "" } : null)
     : null;
   const logout = async () => {
     try {
@@ -204,8 +224,10 @@ export function LoginControl() {
   };
   const connect = () => {
     setError("");
+    setOpen(false);
     setConnectionOpen(true);
     telegramRef.current.connect().catch((error) => {
+      setRestoring(false);
       if (error?.message !== "cancelled")
         setError(
           error?.message === "wiki_reopen_required"
@@ -225,9 +247,12 @@ export function LoginControl() {
           }
           aria-expanded={authenticated ? open : undefined}
           aria-controls={authenticated && open ? "profile-session" : undefined}
+          aria-busy={!authenticated && restoring}
           onClick={() => {
-            if (!authenticated && TELEGRAM_CONNECTOR_ORIGIN) {
-              connect();
+            if (!authenticated) {
+              setError("");
+              setLoginMethod(TELEGRAM_CONNECTOR_ORIGIN ? "choose" : "token");
+              setOpen(true);
               return;
             }
             if (authenticated && !open) refreshProfileRef.current();
@@ -272,6 +297,13 @@ export function LoginControl() {
                 <Icon type="chevron" />
               </span>
             </>
+          ) : restoring ? (
+            <>
+              <span className="login-loading-indicator" aria-hidden="true" />
+              <span>Проверяем вход…</span>
+            </>
+          ) : pendingLogin ? (
+            "Продолжить вход"
           ) : (
             "Войти"
           )}
@@ -343,13 +375,26 @@ export function LoginControl() {
           onEmpty={() => {
             if (readSession().status !== "empty") clearToken();
             setSession(readSession());
+            setPendingLogin(false);
+            setRestoring(false);
           }}
+          onPending={() => {
+            setPendingLogin(true);
+            setRestoring(false);
+          }}
+          onRestoreSettled={() => setRestoring(false)}
           onWarning={() =>
             setError(
               "Не удалось подтвердить отключение Telegram-сессии. Проверьте Telegram → Устройства.",
             )
           }
-          onClose={() => setConnectionOpen(false)}
+          onClose={close}
+          onBack={() => {
+            setConnectionOpen(false);
+            setLoginMethod("choose");
+            setError("");
+            setOpen(true);
+          }}
           onToken={(value) => {
             saveToken(value);
             try {
@@ -363,19 +408,88 @@ export function LoginControl() {
               /* JWT storage is checked separately. */
             }
             setAutoConnect(true);
+            setPendingLogin(false);
             setSession(readSession());
             close();
           }}
         />
       )}
-      {open && !authenticated && !TELEGRAM_CONNECTOR_ORIGIN && (
-        <Modal title="Вход" titleId="login-title" width={400} onClose={close}>
+      {open &&
+        !authenticated &&
+        TELEGRAM_CONNECTOR_ORIGIN &&
+        loginMethod === "choose" && (
+        <Modal
+          title="Вход в Wiki"
+          titleId="login-title"
+          width={420}
+          compact
+          dense
+          onClose={close}
+          footer={
+            <div className="login-modal-footer">
+              <Button variant="primary" onClick={connect}>
+                {pendingLogin
+                  ? "Продолжить вход"
+                  : "Войти через Telegram"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setLoginMethod("token")}
+              >
+                Войти по AccessToken
+              </Button>
+            </div>
+          }
+        >
+          <section
+            className="login-methods"
+            aria-describedby="login-methods-copy"
+          >
+            <p id="login-methods-copy">
+              Выберите способ входа в игровой аккаунт.
+            </p>
+          </section>
+        </Modal>
+      )}
+      {open && !authenticated && loginMethod === "token" && (
+        <Modal
+          title="Вход по AccessToken"
+          titleId="login-token-title"
+          width={400}
+          compact
+          dense
+          onClose={close}
+          footer={
+            <div
+              className={`login-modal-footer${
+                TELEGRAM_CONNECTOR_ORIGIN ? "" : " login-modal-footer--single"
+              }`}
+            >
+              {TELEGRAM_CONNECTOR_ORIGIN && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setError("");
+                    setLoginMethod("choose");
+                  }}
+                >
+                  Назад
+                </Button>
+              )}
+              <Button variant="primary" type="submit" form="login-token-form">
+                {TELEGRAM_CONNECTOR_ORIGIN ? "Продолжить" : "Войти"}
+              </Button>
+            </div>
+          }
+        >
           <form
+            id="login-token-form"
             className="login-form"
             onSubmit={(event) => {
               event.preventDefault();
               try {
                 saveToken(token);
+                setPendingLogin(false);
                 setSession(readSession());
                 close();
               } catch (error) {
@@ -383,6 +497,86 @@ export function LoginControl() {
               }
             }}
           >
+            <BaseCard
+              as="details"
+              variant="token-help"
+              className="login-token-help"
+              aria-label="Инструкция по получению AccessToken"
+            >
+              <summary className="card-title">Где взять AccessToken?</summary>
+              <div
+                className="login-token-device-switch"
+                role="group"
+                aria-label="Выберите устройство"
+              >
+                <Button
+                  variant="toggle"
+                  aria-pressed={tokenHelpDevice === "computer"}
+                  onClick={() => setTokenHelpDevice("computer")}
+                >
+                  Компьютер
+                </Button>
+                <Button
+                  variant="toggle"
+                  aria-pressed={tokenHelpDevice === "phone"}
+                  onClick={() => setTokenHelpDevice("phone")}
+                >
+                  Телефон
+                </Button>
+              </div>
+              <div className="login-token-help-content">
+                {tokenHelpDevice === "computer" ? (
+                  <section aria-label="Инструкция для компьютера">
+                    <ol>
+                      <li>
+                        Откройте Telegram Web на сайте{" "}
+                        <a
+                          href="https://web.telegram.org"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          web.telegram.org
+                        </a>
+                        , найдите чат с игрой и запустите её.
+                      </li>
+                      <li>
+                        Откройте инструменты разработчика: <kbd>F12</kbd> →{" "}
+                        <span>Application</span> (в Firefox — <span>Storage</span>)
+                        → <span>Local Storage</span> →{" "}
+                        <code>https://cargohustle.online</code>.
+                      </li>
+                      <li>
+                        Скопируйте значение <code>cargo_access_token</code> и
+                        вставьте его в поле ниже. Если доступен только{" "}
+                        <code>cargo_auth_session</code>, найдите внутри его
+                        значения JWT и скопируйте только эту строку. Весь JSON
+                        в поле не вставляйте.
+                      </li>
+                    </ol>
+                  </section>
+                ) : (
+                  <section aria-label="Инструкция для телефона">
+                    <p className="login-token-phone-copy">
+                      <strong>По номеру:</strong> выберите вход по номеру,
+                      укажите номер с кодом страны и введите код, который пришлёт
+                      Telegram. Если включена двухэтапная защита, понадобится и
+                      пароль Telegram.
+                    </p>
+                    <p className="login-token-phone-copy">
+                      <strong>По QR:</strong> на другом устройстве, где Telegram
+                      уже открыт, перейдите в «Настройки → Устройства →
+                      Подключить устройство» и отсканируйте показанный код.
+                    </p>
+                    <p className="login-token-phone-copy">
+                      После отправки номера незавершённый вход сохраняется на
+                      устройстве до 10 минут, если доступно локальное
+                      хранилище. Тогда можно закрыть Mini App и продолжить после
+                      повторного открытия Wiki в том же аккаунте Telegram.
+                    </p>
+                  </section>
+                )}
+              </div>
+            </BaseCard>
             {session.status !== "empty" && <p>{label}</p>}
             <input
               className="login-token-field"
@@ -398,15 +592,10 @@ export function LoginControl() {
               autoCapitalize="off"
               spellCheck={false}
               required
-              placeholder="Вставьте JWT"
-              aria-label="Токен для входа"
+              placeholder="Вставьте JWT AccessToken"
+              aria-label="Игровой JWT AccessToken"
             />
             {error && <p role="alert">{error}</p>}
-            <div className="login-actions">
-              <Button variant="primary" type="submit">
-                Войти
-              </Button>
-            </div>
           </form>
         </Modal>
       )}

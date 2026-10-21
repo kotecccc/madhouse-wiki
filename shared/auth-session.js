@@ -4,6 +4,18 @@ export const TOKEN_OWNER_KEY = "madhouse.wiki.jwt-owner";
 let volatileToken = null;
 let volatileOwner = null;
 const CHANGE_EVENT = "madhouse:auth-change";
+let authRestoreSettled = false;
+export const AUTH_RESTORE_SETTLED_EVENT = "madhouse:auth-restore-settled";
+
+export function hasAuthRestoreSettled() {
+  return authRestoreSettled;
+}
+
+export function signalAuthRestoreSettled() {
+  authRestoreSettled = true;
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event(AUTH_RESTORE_SETTLED_EVENT));
+}
 
 function decodePart(part) {
   const base64 = part.replaceAll("-", "+").replaceAll("_", "/");

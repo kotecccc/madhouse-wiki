@@ -43,6 +43,15 @@
   --card-background: var(--bg-deep);
 }
 
+.base-card--token-help {
+  --card-padding: var(--space-12) var(--space-12) var(--space-8);
+  --card-border: rgba(212, 196, 163, 0.22);
+  --card-radius: 5px;
+  --card-background: var(--panel);
+  --card-title-size: 12px;
+  --card-description-size: 11px;
+}
+
 .base-card--modal {
   --card-padding: 0;
   --modal-content-padding: var(--space-24);

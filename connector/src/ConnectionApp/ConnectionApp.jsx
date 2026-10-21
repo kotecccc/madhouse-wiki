@@ -1,9 +1,11 @@
 import { OtpCodeInput } from "../OtpCodeInput/OtpCodeInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../src/components/ui/Button/Button.jsx";
-import { BaseCard } from "../../../src/components/ui/BaseCard/BaseCard.jsx";
-import { CardTitle } from "../../../src/components/ui/CardTitle/CardTitle.jsx";
-import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
+import {
+  CHANNEL,
+  VERSION,
+  createMessageGate,
+} from "../../protocol.js";
 import { createConnection } from "../../session.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
@@ -25,17 +27,93 @@ const messages = {
   session_changed: "Сеанс изменился. Повторите подключение.",
   try_later: "Слишком много запросов. Попробуйте позже.",
 };
+const PENDING_LOGIN_PREFIX = "madhouse-wiki.pending-telegram-login:";
+const PENDING_LOGIN_TTL = 10 * 60 * 1000;
+
+function pendingLoginKey(expectedUserId) {
+  const id = String(expectedUserId || "");
+  return /^\d{1,20}$/.test(id) ? PENDING_LOGIN_PREFIX + id : null;
+}
+
+function readPendingLogin(expectedUserId) {
+  const key = pendingLoginKey(expectedUserId);
+  if (!key) return null;
+  try {
+    const pending = JSON.parse(window.localStorage.getItem(key) || "null");
+    const valid =
+      pending &&
+      pending.userId === String(expectedUserId) &&
+      typeof pending.phone === "string" &&
+      /^\+[1-9]\d{6,14}$/.test(pending.phone) &&
+      typeof pending.phoneCodeHash === "string" &&
+      pending.phoneCodeHash.length > 0 &&
+      pending.phoneCodeHash.length <= 1024 &&
+      ["code", "password"].includes(pending.stage) &&
+      Number.isFinite(pending.expiresAt) &&
+      pending.expiresAt > Date.now() &&
+      pending.expiresAt <= Date.now() + PENDING_LOGIN_TTL + 60000;
+    if (valid) return pending;
+    window.localStorage.removeItem(key);
+  } catch {
+    /* Storage may be blocked in some WebViews. */
+  }
+  return null;
+}
+
+function savePendingLogin(expectedUserId, { phone, phoneCodeHash, stage }) {
+  const key = pendingLoginKey(expectedUserId);
+  if (!key) return false;
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        userId: String(expectedUserId),
+        phone,
+        phoneCodeHash,
+        stage,
+        expiresAt: Date.now() + PENDING_LOGIN_TTL,
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearPendingLogin(expectedUserId) {
+  const key = pendingLoginKey(expectedUserId);
+  if (!key) return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* An unavailable store cannot supply the pending challenge. */
+  }
+}
+
+function normalizePhone(value) {
+  const phone = String(value || "")
+    .trim()
+    .replace(/[\s().-]/g, "");
+  if (!/^\+[1-9]\d{6,14}$/.test(phone))
+    throw new Error("PHONE_NUMBER_INVALID");
+  return phone;
+}
 
 export function ConnectionApp() {
   const connection = useRef(null),
     currentRequest = useRef(null),
     loginAbort = useRef(null),
-    identityProof = useRef(null);
+    identityProof = useRef(null),
+    appRef = useRef(null),
+    formRef = useRef(null),
+    uiActionHandler = useRef(() => {});
   const [config, setConfig] = useState(null),
     [stage, setStage] = useState("loading");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [qr, setQr] = useState("");
+  const [hostedControls, setHostedControls] = useState(false),
+    [uiRevision, setUiRevision] = useState(0);
   const [phone, setPhone] = useState(""),
     [code, setCode] = useState(""),
     [password, setPassword] = useState("");
@@ -71,16 +149,22 @@ export function ConnectionApp() {
       try {
         await operation();
       } catch (error) {
+        const errorCode = error?.text || error?.message;
         if (
           error?.name !== "AbortError" &&
           error?.message !== "cancelled" &&
           currentRequest.current === request
         ) {
           fail(error);
-          if (
-            !["PHONE_CODE_INVALID", "PASSWORD_HASH_INVALID"].includes(
-              error?.text,
-            )
+          if (errorCode === "PHONE_CODE_EXPIRED") {
+            clearPendingLogin(request?.data.expectedUserId);
+            phoneHash.current = null;
+            setCode("");
+            setStage("phone");
+          } else if (errorCode === "PHONE_NUMBER_INVALID") {
+            setStage("phone");
+          } else if (
+            !["PHONE_CODE_INVALID", "PASSWORD_HASH_INVALID"].includes(errorCode)
           ) {
             setStage("retry");
             reply(request, { status: "failed" });
@@ -126,6 +210,7 @@ export function ConnectionApp() {
         connection.current.logout(),
         accountSession(request, "logout"),
       ]);
+      clearPendingLogin(request?.data.expectedUserId);
       const result =
         local.status === "fulfilled"
           ? local.value
@@ -144,18 +229,22 @@ export function ConnectionApp() {
   const complete = useCallback(
     async (request) => {
       if (!request || currentRequest.current !== request) {
-        if (request?.freshLogin) await connection.current.logout();
+        if (request?.freshLogin) {
+          clearPendingLogin(request.data.expectedUserId);
+          await connection.current.logout();
+        }
         return;
       }
-      setCode("");
-      setPassword("");
-      setPhone("");
-      setQr("");
-      phoneHash.current = null;
       // Restore the signed account's server session BEFORE touching browser IDB.
       const shared = await accountSession(request, "restore");
       if (currentRequest.current !== request) return;
       if (shared?.status === "connected") {
+        clearPendingLogin(request.data.expectedUserId);
+        setCode("");
+        setPassword("");
+        setPhone("");
+        setQr("");
+        phoneHash.current = null;
         request.freshLogin = false;
         reply(request, {
           status: "connected",
@@ -164,7 +253,11 @@ export function ConnectionApp() {
         return;
       }
       if (shared?.revoked && !request.data.interactive) {
-        reply(request, { status: "login-required" });
+        reply(request, {
+          status: readPendingLogin(request.data.expectedUserId)
+            ? "pending"
+            : "login-required",
+        });
         return;
       }
       const result = await connection.current.gameLogin(
@@ -182,11 +275,34 @@ export function ConnectionApp() {
         }
       }
       if (result.status === "connected") {
+        clearPendingLogin(request.data.expectedUserId);
+        setCode("");
+        setPassword("");
+        setPhone("");
+        setQr("");
+        phoneHash.current = null;
         request.freshLogin = false;
         reply(request, result);
-      } else if (request.data.interactive)
-        reply(request, { status: "login-required" }, "interaction-required");
-      else reply(request, { status: "login-required" });
+      } else {
+        const pending = readPendingLogin(request.data.expectedUserId);
+        if (pending) {
+          setPhone(pending.phone);
+          setCode("");
+          setPassword("");
+          setQr("");
+          phoneHash.current = pending.phoneCodeHash;
+          request.freshLogin = true;
+          if (request.data.interactive) {
+            setStage(pending.stage);
+            return;
+          }
+          reply(request, { status: "pending" });
+          return;
+        }
+        if (request.data.interactive)
+          reply(request, { status: "login-required" }, "interaction-required");
+        else reply(request, { status: "login-required" });
+      }
     },
     [reply, accountSession],
   );
@@ -258,9 +374,23 @@ export function ConnectionApp() {
         });
         const listener = (event) => {
           if (!accept(event)) return;
+          if (event.data.action === "ui-action") {
+            const active = currentRequest.current;
+            if (
+              !active ||
+              active.origin !== event.origin ||
+              active.data.id !== event.data.requestId ||
+              !active.data.interactive
+            )
+              return;
+            if (event.data.command === "enable-footer") {
+              setHostedControls(true);
+              setUiRevision((revision) => revision + 1);
+            } else uiActionHandler.current(event.data.command);
+            return;
+          }
           const request = { origin: event.origin, data: event.data };
           if (event.data.action === "cancel") {
-            const cancelled = currentRequest.current;
             currentRequest.current = null;
             loginAbort.current?.abort();
             conn.cancel();
@@ -270,26 +400,18 @@ export function ConnectionApp() {
             setQr("");
             phoneHash.current = null;
             passwordWaiter.current = null;
-            if (cancelled?.freshLogin)
-              disconnect(cancelled)
-                .then((result) =>
-                  window.parent.postMessage(
-                    {
-                      channel: CHANNEL,
-                      version: VERSION,
-                      id: event.data.id,
-                      kind: "result",
-                      ...result,
-                    },
-                    event.origin,
-                  ),
-                )
-                .catch(() => {});
+            setHostedControls(false);
             return;
           }
           currentRequest.current = request;
+          setHostedControls(
+            event.data.action === "connect-game" &&
+              event.data.interactive === true,
+          );
+          setUiRevision((revision) => revision + 1);
           if (event.data.action === "logout") {
             loginAbort.current?.abort();
+            clearPendingLogin(request.data.expectedUserId);
             run(async () => {
               reply(request, await disconnect(request));
             });
@@ -420,75 +542,195 @@ export function ConnectionApp() {
     setStage("consent");
     throw new Error("try_later");
   };
+  uiActionHandler.current = (command) => {
+    const request = currentRequest.current;
+    if (!request?.data.interactive) return;
+    if (command === "choose-phone") {
+      setError("");
+      setPhone("");
+      setStage("phone");
+      return;
+    }
+    if (command === "choose-qr") {
+      setError("");
+      run(startQr);
+      return;
+    }
+    if (command === "submit") {
+      formRef.current?.requestSubmit();
+      return;
+    }
+    if (command === "logout") {
+      run(async () => {
+        const result = await connection.current.logout();
+        if (!result.remoteRevoked || !result.localCleared)
+          setError(
+            "Не удалось подтвердить полное отключение. Проверьте Telegram → Настройки → Устройства и завершите сессию Madhouse Wiki.",
+          );
+        else setStage("consent");
+      });
+      return;
+    }
+    if (command !== "back") return;
+    if (stage === "phone" || stage === "retry") {
+      setError("");
+      setStage("consent");
+    } else if (stage === "code") {
+      clearPendingLogin(request.data.expectedUserId);
+      phoneHash.current = null;
+      setCode("");
+      setError("");
+      setStage("phone");
+    } else if (stage === "password") {
+      if (passwordWaiter.current) {
+        loginAbort.current?.abort();
+        passwordWaiter.current = null;
+        setQr("");
+        setError("");
+        setStage("consent");
+      } else {
+        clearPendingLogin(request.data.expectedUserId);
+        phoneHash.current = null;
+        setCode("");
+        setPassword("");
+        setError("");
+        setStage("phone");
+      }
+    } else if (stage === "qr") {
+      loginAbort.current?.abort();
+      setQr("");
+      setError("");
+      setStage("consent");
+    }
+  };
   const interactive = !!currentRequest.current?.data.interactive;
+  const normalizedPhone = phone.trim().replace(/[\s().-]/g, "");
+  const canSubmit =
+    (stage === "phone" && /^\+[1-9]\d{6,14}$/.test(normalizedPhone)) ||
+    (stage === "code" && /^[0-9]{5}$/.test(code)) ||
+    (stage === "password" && password.length > 0);
+  useEffect(() => {
+    const request = currentRequest.current;
+    const node = appRef.current;
+    if (!interactive || !request || !node) return;
+    const publishUiState = () => {
+      window.parent.postMessage(
+        {
+          channel: CHANNEL,
+          version: VERSION,
+          kind: "ui-state",
+          requestId: request.data.id,
+          stage,
+          busy,
+          canSubmit,
+          height: Math.max(1, Math.min(2000, Math.ceil(node.scrollHeight))),
+          hostedControls,
+        },
+        request.origin,
+      );
+    };
+    publishUiState();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(publishUiState);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    interactive,
+    stage,
+    busy,
+    canSubmit,
+    hostedControls,
+    uiRevision,
+    qr,
+    phone,
+    code,
+    password,
+    error,
+  ]);
   return (
-    <main className="connection-app">
+    <main
+      ref={appRef}
+      className="connection-app"
+      data-hosted-controls={hostedControls || undefined}
+    >
       {stage === "loading" && <p role="status">Подготавливаем подключение…</p>}
       {stage === "waiting" && <p>Откройте подключение из Madhouse Wiki.</p>}
       {interactive && ["consent", "wrong-account"].includes(stage) && (
-        <BaseCard className="connection-consent">
-          <CardTitle as="h2">
-            {stage === "wrong-account"
-              ? "Подключён другой аккаунт"
-              : "Подключить Telegram"}
-          </CardTitle>
-          <p className="connection-explanation">
-            Один раз войдите в Telegram. Затем Wiki сможет сама получать свежий
-            вход в Madhouse, без копирования токенов.
-          </p>
-          <p className="connection-explanation">
-            Это полноценная Telegram-сессия с техническим доступом к аккаунту.
-            Она хранится на этом устройстве, если клиент разрешает локальное
-            хранилище. Игровая сессия шифруется на сервере и восстанавливается
-            на других устройствах этого же Telegram-аккаунта до истечения JWT.
-            Полная Telegram-сессия на сервер не отправляется. Отозвать её можно
-            через Telegram → Настройки → Устройства или кнопкой «Выйти» в Wiki.
-          </p>
+        <section className="connection-consent">
+          {stage === "wrong-account" && (
+            <h2 className="connection-step-title">Подключён другой аккаунт</h2>
+          )}
+          <div className="connection-explanation">
+            <p>
+              <strong>По номеру.</strong> Telegram пришлёт код для входа; если
+              включена двухэтапная защита, затем понадобится пароль Telegram.
+            </p>
+            <p>
+              <strong>По QR.</strong> Отсканируйте код другим устройством через
+              «Настройки → Устройства → Подключить устройство».
+            </p>
+            <p>
+              После авторизации Wiki сможет сама восстанавливать игровую
+              сессию, без ручного копирования токенов.
+            </p>
+          </div>
           {stage === "wrong-account" ? (
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  const result = await connection.current.logout();
-                  if (!result.remoteRevoked || !result.localCleared)
-                    setError(
-                      "Не удалось подтвердить полное отключение. Проверьте Telegram → Настройки → Устройства и завершите сессию Madhouse Wiki.",
-                    );
-                })
-              }
-            >
-              Отключить этот аккаунт
-            </Button>
-          ) : (
-            <div className="connection-buttons">
-              <Button
-                variant="primary"
-                disabled={busy}
-                onClick={() => setStage("phone")}
-              >
-                Войти по номеру
-              </Button>
+            !hostedControls && (
               <Button
                 variant="secondary"
                 disabled={busy}
-                onClick={() => run(startQr)}
+                onClick={() => uiActionHandler.current("logout")}
               >
-                Войти по QR
+                Отключить этот аккаунт
               </Button>
-            </div>
+            )
+          ) : (
+            !hostedControls && (
+              <div className="connection-buttons">
+                <Button
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => uiActionHandler.current("choose-phone")}
+                >
+                  Войти по номеру
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => uiActionHandler.current("choose-qr")}
+                >
+                  Войти по QR
+                </Button>
+              </div>
+            )
           )}
-        </BaseCard>
+        </section>
       )}
       {interactive && stage === "phone" && (
         <form
+          ref={formRef}
           className="connection-form"
           onSubmit={(event) => {
             event.preventDefault();
             const request = currentRequest.current;
             request.freshLogin = true;
             run(async () => {
-              phoneHash.current = await connection.current.phoneCode(phone);
+              const normalizedPhone = normalizePhone(phone);
+              setPhone(normalizedPhone);
+              phoneHash.current = await connection.current.phoneCode(
+                normalizedPhone,
+              );
+              if (phoneHash.current) {
+                const stored = savePendingLogin(request.data.expectedUserId, {
+                  phone: normalizedPhone,
+                  phoneCodeHash: phoneHash.current,
+                  stage: "code",
+                });
+                if (!stored)
+                  setError(
+                    "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
+                  );
+              }
               if (!phoneHash.current) await complete(request);
             });
           }}
@@ -500,17 +742,21 @@ export function ConnectionApp() {
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
               autoComplete="tel"
-              placeholder="+375…"
+              inputMode="tel"
+              placeholder="Введите номер (с кодом)"
               required
             />
           </label>
-          <Button variant="primary" type="submit" disabled={busy}>
-            Получить код
-          </Button>
+          {!hostedControls && (
+            <Button variant="primary" type="submit" disabled={busy}>
+              Получить код
+            </Button>
+          )}
         </form>
       )}
       {interactive && stage === "code" && (
         <form
+          ref={formRef}
           className="connection-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -519,26 +765,43 @@ export function ConnectionApp() {
               value = code;
             setCode("");
             run(async () => {
-              if (
-                await connection.current.signIn(phone, phoneHash.current, value)
-              )
+              if (await connection.current.signIn(phone, phoneHash.current, value)) {
+                clearPendingLogin(request.data.expectedUserId);
+                phoneHash.current = null;
                 await complete(request);
+              } else {
+                const stored = savePendingLogin(request.data.expectedUserId, {
+                  phone,
+                  phoneCodeHash: phoneHash.current,
+                  stage: "password",
+                });
+                if (!stored)
+                  setError(
+                    "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
+                  );
+              }
             });
           }}
         >
-          <p>Введите код из сообщения Telegram.</p>
+          <div className="connection-step-intro">
+            <h2 className="connection-step-title">Код Telegram</h2>
+            <p>Введите код из сообщения Telegram.</p>
+          </div>
           <OtpCodeInput value={code} onChange={setCode} disabled={busy} />
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={busy || !/^[0-9]{5}$/.test(code)}
-          >
-            Подтвердить вход
-          </Button>
+          {!hostedControls && (
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={busy || !/^[0-9]{5}$/.test(code)}
+            >
+              Подтвердить вход
+            </Button>
+          )}
         </form>
       )}
       {interactive && stage === "password" && (
         <form
+          ref={formRef}
           className="connection-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -551,10 +814,16 @@ export function ConnectionApp() {
             } else
               run(async () => {
                 await connection.current.password(value);
+                clearPendingLogin(request.data.expectedUserId);
+                phoneHash.current = null;
                 await complete(request);
               });
           }}
         >
+          <div className="connection-step-intro">
+            <h2 className="connection-step-title">Двухэтапная защита</h2>
+            <p>Введите пароль Telegram.</p>
+          </div>
           <label>
             Пароль двухэтапной аутентификации
             <input
@@ -565,18 +834,26 @@ export function ConnectionApp() {
               required
             />
           </label>
-          <Button variant="primary" type="submit">
-            Подтвердить
-          </Button>
+          {!hostedControls && (
+            <Button variant="primary" type="submit">
+              Подтвердить
+            </Button>
+          )}
         </form>
       )}
       {interactive && stage === "qr" && qr && (
-        <div className="connection-qr">
-          <p>Telegram → Настройки → Устройства → Подключить устройство</p>
-          <img src={qr} alt="QR для входа в Telegram" />
-        </div>
+        <section className="connection-step-panel">
+          <div className="connection-qr">
+            <p>Telegram → Настройки → Устройства → Подключить устройство</p>
+            <img src={qr} alt="QR для входа в Telegram" />
+            <p role="status">Ожидаем подтверждение в Telegram…</p>
+          </div>
+        </section>
       )}
-      {(busy || stage === "connected") && <p role="status">Подключаемся…</p>}
+      {busy && stage !== "qr" && <p role="status">Подключаемся…</p>}
+      {stage === "connected" && (
+        <p role="status">Завершаем вход в игровую сессию…</p>
+      )}
       {error && (
         <p className="connection-error" role="alert">
           {error}

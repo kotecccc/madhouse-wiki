@@ -1,6 +1,34 @@
 export const CHANNEL = "madhouse-wiki-connection";
 export const VERSION = 1;
-export const ACTIONS = ["status", "connect-game", "logout", "cancel"];
+export const ACTIONS = [
+  "status",
+  "connect-game",
+  "logout",
+  "cancel",
+  "ui-action",
+];
+export const UI_COMMANDS = [
+  "enable-footer",
+  "choose-phone",
+  "choose-qr",
+  "back",
+  "submit",
+  "logout",
+];
+export const UI_STAGES = [
+  "loading",
+  "waiting",
+  "consent",
+  "wrong-account",
+  "phone",
+  "code",
+  "password",
+  "qr",
+  "busy",
+  "connected",
+  "retry",
+  "unavailable",
+];
 
 export function connectorOrigin(value) {
   try {
@@ -35,6 +63,8 @@ export function validRequest(data) {
         "expectedUserId",
         "interactive",
         "wikiInitData",
+        "requestId",
+        "command",
       ].includes(key),
     ) &&
     data.channel === CHANNEL &&
@@ -46,7 +76,14 @@ export function validRequest(data) {
     (data.interactive == null || typeof data.interactive === "boolean") &&
     (data.wikiInitData == null ||
       (typeof data.wikiInitData === "string" &&
-        data.wikiInitData.length <= 8192))
+        data.wikiInitData.length <= 8192)) &&
+    (data.action === "ui-action"
+      ? /^[a-f0-9-]{36}$/.test(data.requestId || "") &&
+        UI_COMMANDS.includes(data.command) &&
+        data.expectedUserId == null &&
+        data.interactive == null &&
+        data.wikiInitData == null
+      : data.requestId == null && data.command == null)
   );
 }
 

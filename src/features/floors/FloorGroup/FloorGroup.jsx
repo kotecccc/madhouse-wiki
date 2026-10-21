@@ -7,6 +7,11 @@ import { Title } from "../../../components/ui/Title/Title.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
 
+const departmentCodeOrder = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
+
 export function FloorGroup({
   floor,
   hideOpeningConditions = false,
@@ -20,7 +25,10 @@ export function FloorGroup({
 }) {
   const works = floor.departmentIds
     .map((id) => departmentById[id])
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((left, right) =>
+      departmentCodeOrder.compare(String(left.code), String(right.code)),
+    );
   const openingConditions = hideOpeningConditions
     ? []
     : floor.openingConditions ||

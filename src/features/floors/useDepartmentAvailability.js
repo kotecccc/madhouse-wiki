@@ -1,5 +1,5 @@
 import { getSessionJson } from "../../../shared/session-api.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readSession, subscribeSession } from "../../../shared/auth-session.js";
 
 export function departmentAccess(response) {
@@ -17,12 +17,19 @@ export function departmentAccess(response) {
 }
 
 // Access belongs to the signed-in session and is never written to the catalogue.
-export function useDepartmentAvailability(code, floorStatus, floorAvailable) {
+export function useDepartmentAvailability(
+  code,
+  floorStatus,
+  floorAvailable,
+  isLastAvailableFloor,
+) {
   const [state, setState] = useState({});
   const [revision, setRevision] = useState(0);
+  const cache = useRef(new Map());
   useEffect(
     () =>
       subscribeSession(() => {
+        cache.current.clear();
         setState({});
         setRevision((value) => value + 1);
       }),
@@ -36,9 +43,15 @@ export function useDepartmentAvailability(code, floorStatus, floorAvailable) {
       !code ||
       floorStatus !== "ready" ||
       floorAvailable !== true ||
+      isLastAvailableFloor !== true ||
       readSession().status !== "ready"
     )
       return () => controller.abort();
+    const cached = cache.current.get(code);
+    if (cached) {
+      setState(cached);
+      return () => controller.abort();
+    }
     setState({ code, status: "loading" });
     const load = async () => {
       try {
@@ -46,18 +59,21 @@ export function useDepartmentAvailability(code, floorStatus, floorAvailable) {
           `/api/floors/${encodeURIComponent(code)}/info`,
           { signal },
         );
-        if (!signal.aborted)
-          setState({
+        if (!signal.aborted) {
+          const result = {
             code,
             status: "ready",
             availability: departmentAccess(body),
-          });
+          };
+          cache.current.set(code, result);
+          setState(result);
+        }
       } catch {
         if (!signal.aborted) setState({ code, status: "error" });
       }
     };
     load();
     return () => controller.abort();
-  }, [code, floorStatus, floorAvailable, revision]);
+  }, [code, floorStatus, floorAvailable, isLastAvailableFloor, revision]);
   return state.code === code ? state : {};
 }

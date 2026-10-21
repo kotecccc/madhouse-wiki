@@ -1,11 +1,36 @@
 .telegram-connection-frame {
   display: block;
   width: 100%;
-  height: min(560px, 70dvh);
+  height: 120px;
+  max-height: min(560px, 66dvh);
   border: 0;
+  background: transparent;
   color-scheme: dark;
 }
 .telegram-connection-retry {
+  min-width: 0;
+}
+.telegram-connection-footer {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-12);
+  width: 100%;
+}
+.telegram-connection-footer--consent {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-8);
+}
+.telegram-connection-footer--qr {
+  grid-template-columns: 1fr;
+}
+.telegram-connection-footer > .button {
+  width: 100%;
+  min-height: 44px;
+}
+
+@media (max-width: 420px) {
+  .telegram-connection-footer,
+  .telegram-connection-footer--consent {
+    grid-template-columns: 1fr;
+  }
 }

@@ -1,4 +1,10 @@
-import { CHANNEL, VERSION, connectorOrigin } from "../connector/protocol.js";
+import {
+  CHANNEL,
+  UI_COMMANDS,
+  UI_STAGES,
+  VERSION,
+  connectorOrigin,
+} from "../connector/protocol.js";
 
 export const AUTO_CONNECT_KEY = "madhouse.wiki.telegram-connected";
 export const CONNECTION_EPOCH_KEY = "madhouse.wiki.connection-generation";
@@ -25,6 +31,7 @@ export function createConnectorBridge({
   listen,
   unlisten,
   onInteraction = () => {},
+  onUiState = () => {},
   onRevocationFailure = () => {},
   randomId = () => crypto.randomUUID(),
   timeout = 300000,
@@ -33,7 +40,8 @@ export function createConnectorBridge({
   if (!origin) throw new Error("invalid_connector_origin");
   let ready = false,
     pending = null,
-    generation = 0;
+    generation = 0,
+    activeUiRequestId = null;
   const cancelled = new Set();
   const send = (data) => source()?.postMessage(data, origin);
   const finish = (error, result) => {
@@ -70,6 +78,41 @@ export function createConnectorBridge({
     ) {
       ready = true;
       transmit();
+      return;
+    }
+    if (
+      data.kind === "ui-state" &&
+      activeUiRequestId &&
+      data.requestId === activeUiRequestId &&
+      Object.keys(data).every((key) =>
+        [
+          "channel",
+          "version",
+          "kind",
+          "requestId",
+          "stage",
+          "busy",
+          "canSubmit",
+          "height",
+          "hostedControls",
+        ].includes(key),
+      ) &&
+      UI_STAGES.includes(data.stage) &&
+      typeof data.busy === "boolean" &&
+      typeof data.canSubmit === "boolean" &&
+      Number.isInteger(data.height) &&
+      data.height >= 1 &&
+      data.height <= 2000 &&
+      typeof data.hostedControls === "boolean"
+    ) {
+      onUiState({
+        requestId: data.requestId,
+        stage: data.stage,
+        busy: data.busy,
+        canSubmit: data.canSubmit,
+        height: data.height,
+        hostedControls: data.hostedControls,
+      });
       return;
     }
     if (
@@ -111,7 +154,13 @@ export function createConnectorBridge({
     }
     if (
       data.kind !== "result" ||
-      !["connected", "disconnected", "login-required", "failed"].includes(
+      ![
+        "connected",
+        "disconnected",
+        "login-required",
+        "pending",
+        "failed",
+      ].includes(
         data.status,
       )
     )
@@ -127,6 +176,12 @@ export function createConnectorBridge({
       !data.accessToken
     )
       return;
+    if (
+      data.status === "pending" &&
+      (pending.message.action !== "connect-game" || data.accessToken)
+    )
+      return;
+    if (data.accessToken && data.status !== "connected") return;
     if (pending.message.action !== "connect-game" && data.accessToken) return;
     if (data.status === "failed") finish(new Error("connection_failed"));
     else
@@ -149,6 +204,7 @@ export function createConnectorBridge({
   function cancel() {
     generation++;
     sendCancel();
+    activeUiRequestId = null;
     finish(new Error("cancelled"));
   }
   return {
@@ -175,6 +231,8 @@ export function createConnectorBridge({
         action,
         interactive,
       };
+      activeUiRequestId =
+        action === "connect-game" && interactive ? message.id : null;
       if (expectedUserId) message.expectedUserId = String(expectedUserId);
       if (wikiInitData) message.wikiInitData = wikiInitData;
       const entry = { message, generation, sent: false };
@@ -195,9 +253,29 @@ export function createConnectorBridge({
       transmit();
       return entry.promise;
     },
+    uiAction(command, requestId) {
+      if (
+        !UI_COMMANDS.includes(command) ||
+        !/^[a-f0-9-]{36}$/.test(requestId || "") ||
+        requestId !== activeUiRequestId
+      )
+        return false;
+      send({
+        channel: CHANNEL,
+        version: VERSION,
+        id: randomId(),
+        action: "ui-action",
+        requestId,
+        command,
+      });
+      return true;
+    },
     cancel,
-    destroy() {
-      cancel();
+    destroy({ preserveRemoteSession = false } = {}) {
+      if (preserveRemoteSession) {
+        generation++;
+        finish(new Error("cancelled"));
+      } else cancel();
       unlisten(receive);
     },
   };

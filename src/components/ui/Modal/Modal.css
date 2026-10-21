@@ -18,12 +18,17 @@
   gap: var(--space-16);
   min-height: 0;
   padding: var(--modal-content-padding);
+  background: var(--bg-deep);
   overflow: auto;
   overscroll-behavior: contain;
 }
 
 .shared-modal-content--deep {
   background: var(--bg-deep);
+}
+
+.shared-modal-content--unscrollable {
+  overflow: hidden;
 }
 
 .shared-modal-heading {
@@ -60,10 +65,46 @@
   font-size: 20px;
 }
 
+.shared-modal--compact .shared-modal-heading {
+  padding-bottom: var(--space-8);
+  border-bottom: 0;
+}
+
+.shared-modal--compact .shared-modal-content,
+.shared-modal--compact .shared-modal-content--deep {
+  padding-top: var(--space-8);
+  padding-bottom: var(--space-16);
+  background: transparent;
+}
+
+.shared-modal--compact .shared-modal-footer {
+  border-top-color: var(--line);
+}
+
+.shared-modal--dense {
+  --modal-content-padding: var(--space-16);
+}
+
+.shared-modal--dense .shared-modal-content {
+  gap: var(--space-12);
+}
+
+.shared-modal--dense .shared-modal-title {
+  font-size: 18px;
+}
+
+.shared-modal--dense.shared-modal--compact .shared-modal-heading {
+  padding: var(--space-16);
+  padding-bottom: var(--space-8);
+}
+
+.shared-modal--dense.shared-modal--compact .shared-modal-content {
+  padding-top: var(--space-8);
+  padding-bottom: var(--space-12);
+}
+
 @media (max-width: 650px) {
   .shared-modal {
-    --card-border: transparent;
-    --card-radius: 0;
     --modal-content-padding: var(--space-12);
     inset: 0;
     width: 100vw;
@@ -72,12 +113,33 @@
     margin: 0;
   }
 
+  .shared-modal:not(.shared-modal--compact) {
+    --card-border: transparent;
+    --card-radius: 0;
+  }
+
   .shared-modal-title {
     font-size: 17px;
+  }
+
+  .shared-modal--dense .shared-modal-title {
+    font-size: 16px;
   }
 
   .shared-modal-close {
     width: 44px;
     min-height: 44px;
+  }
+
+  .shared-modal--compact {
+    --modal-content-padding: var(--space-16);
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: min(var(--dialog-width), calc(100vw - var(--space-32)));
+    height: auto;
+    max-height: calc(100dvh - var(--space-32));
+    margin: 0;
+    transform: translate(-50%, -50%);
   }
 }

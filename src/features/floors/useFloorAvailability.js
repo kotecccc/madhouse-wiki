@@ -1,12 +1,35 @@
 import { getSessionJson } from "../../../shared/session-api.js";
 import { useEffect, useState } from "react";
-import { readSession, subscribeSession } from "../../../shared/auth-session.js";
+import { telegramContext } from "../../../shared/telegram-context.js";
+import { connectorOrigin } from "../../../connector/protocol.js";
+import {
+  AUTH_RESTORE_SETTLED_EVENT,
+  hasAuthRestoreSettled,
+  readSession,
+  subscribeSession,
+} from "../../../shared/auth-session.js";
+
+const hasTelegramConnector = !!connectorOrigin(
+  import.meta.env.VITE_TELEGRAM_CONNECTOR_ORIGIN,
+);
+
+function isTelegramRestorePending() {
+  const context = telegramContext();
+  return (
+    hasTelegramConnector &&
+    context.isTelegram &&
+    !!context.initData &&
+    !hasAuthRestoreSettled()
+  );
+}
 
 // Account access is transient UI state, never part of the reference catalogue.
 export function useFloorAvailability() {
   const [availability, setAvailability] = useState({});
   const [status, setStatus] = useState(() =>
-    readSession().status === "ready" ? "loading" : "idle",
+    readSession().status === "ready" || isTelegramRestorePending()
+      ? "loading"
+      : "idle",
   );
   const [requestId, setRequestId] = useState(0);
   useEffect(() => {
@@ -20,7 +43,7 @@ export function useFloorAvailability() {
       previousStatus = session.status;
       setAvailability({});
       if (session.status !== "ready") {
-        setStatus("idle");
+        setStatus(isTelegramRestorePending() ? "loading" : "idle");
         return;
       }
       setStatus("loading");
@@ -47,12 +70,17 @@ export function useFloorAvailability() {
     };
     load();
     const unsubscribe = subscribeSession(load);
+    const restoreSettled = () => {
+      if (readSession().status !== "ready") load();
+    };
+    window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
     const timer = setInterval(() => {
       if (previousStatus !== readSession().status) load();
     }, 1000);
     return () => {
       controller?.abort();
       unsubscribe();
+      window.removeEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
       clearInterval(timer);
     };
   }, [requestId]);

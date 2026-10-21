@@ -1,9 +1,19 @@
 .connection-app {
+  box-sizing: border-box;
   min-width: 0;
-  padding: var(--space-16);
+  padding: var(--space-4);
   display: grid;
   gap: var(--space-16);
   font-family: var(--sans);
+}
+html.connector-document {
+  background: transparent;
+}
+body.connector-page {
+  background: transparent;
+}
+body.connector-page::before {
+  display: none;
 }
 .connection-app p,
 .connection-app h2 {
@@ -11,12 +21,35 @@
 }
 .connection-consent {
   display: grid;
-  gap: var(--card-content-gap);
+  gap: var(--space-16);
+}
+.connection-step-intro {
+  display: grid;
+  gap: var(--space-6);
+}
+.connection-step-intro > p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.connection-step-title {
+  color: var(--paper-bright);
+  font-size: 17px;
+  line-height: 1.25;
+}
+.connection-step-panel {
+  display: grid;
+  gap: var(--space-16);
 }
 .connection-explanation {
-  color: var(--card-description-color);
+  display: grid;
+  gap: var(--space-8);
+  color: var(--muted);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
+}
+.connection-explanation strong {
+  color: var(--paper-bright);
 }
 .connection-buttons {
   display: flex;
@@ -27,9 +60,26 @@
 .connection-form label {
   display: grid;
   gap: var(--space-12);
+  min-width: 0;
+  width: 100%;
+}
+.connection-form {
+  color: var(--paper-bright);
+  font-size: 12px;
+}
+.connection-form label {
+  color: var(--paper-bright);
+  line-height: 1.4;
+}
+.connection-form small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 .connection-form input {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   min-height: 44px;
   padding: var(--space-12);
@@ -41,6 +91,10 @@
 .connection-form input:focus-visible {
   outline: 2px solid var(--red-bright);
   outline-offset: 2px;
+}
+.connection-form input::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
 }
 .connection-qr {
   display: grid;

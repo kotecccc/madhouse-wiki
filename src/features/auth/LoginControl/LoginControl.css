@@ -18,18 +18,11 @@
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-24);
-}
-
-.login-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: var(--space-12);
 }
 
-.login-form p,
-.login-form small {
+.login-form > p,
+.login-form > small {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
@@ -42,7 +35,7 @@
 
 .login-token-field {
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--line);
   background: var(--bg);
@@ -53,11 +46,6 @@
 .login-token-field:focus-visible {
   outline: 2px solid var(--red-bright);
   outline-offset: 2px;
-}
-
-.login-actions > .button {
-  width: 100%;
-  min-height: 40px;
 }
 
 .profile-control.button {
@@ -229,4 +217,165 @@
 .profile-attributes small {
   color: var(--muted);
   font: 11px var(--sans);
+}
+
+.login-control > .button[aria-busy="true"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.login-loading-indicator {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--paper-bright);
+  border-radius: 50%;
+  animation: login-loading-spin 0.8s linear infinite;
+}
+
+@keyframes login-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.login-methods {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.login-methods p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.login-modal-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8);
+  width: 100%;
+}
+
+.login-modal-footer > .button {
+  width: 100%;
+  min-height: 40px;
+  padding-inline: var(--space-12);
+}
+
+.login-modal-footer--single {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 650px) {
+  .login-modal-footer {
+    grid-template-columns: 1fr;
+  }
+}
+
+.login-token-help {
+  display: grid;
+  gap: var(--space-12);
+  overflow: hidden;
+}
+
+.login-token-help > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  list-style: none;
+  cursor: pointer;
+}
+
+.login-token-help > summary::-webkit-details-marker {
+  display: none;
+}
+
+.login-token-help > summary::after {
+  content: "";
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-4);
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.18s ease;
+}
+
+.login-token-help[open] > summary::after {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.login-token-help > summary:focus-visible {
+  outline: 2px solid var(--red-bright);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.login-token-device-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+.login-token-help-content,
+.login-token-help-content section {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.login-token-help-content {
+  margin-top: var(--space-8);
+}
+
+.login-token-help-content section {
+  gap: var(--space-8);
+}
+
+.login-token-phone-copy {
+  margin: 0;
+  color: var(--card-description-color);
+  font-size: var(--card-description-size);
+  line-height: 1.55;
+}
+
+.login-token-phone-copy strong {
+  color: var(--card-title-color);
+}
+
+.login-token-help-content ol {
+  display: grid;
+  gap: var(--space-12);
+  margin: 0;
+  padding-left: var(--space-20);
+  color: var(--card-description-color);
+  font-size: var(--card-description-size);
+  line-height: 1.6;
+}
+
+.login-token-help-content li {
+  padding-left: var(--space-4);
+}
+
+.login-token-help-content a {
+  color: var(--red-bright);
+  overflow-wrap: anywhere;
+}
+
+.login-token-help-content code,
+.login-token-help-content kbd {
+  color: var(--paper-bright);
+  font: 12px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .login-modal-footer {
+    grid-template-columns: 1fr;
+  }
 }

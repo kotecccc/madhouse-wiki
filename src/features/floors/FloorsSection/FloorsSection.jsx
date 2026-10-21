@@ -11,21 +11,41 @@ import { Title } from "../../../components/ui/Title/Title.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
 import { useFloorAvailability } from "../useFloorAvailability.js";
 import { useDepartmentAvailability } from "../useDepartmentAvailability.js";
+import {
+  readSession,
+  subscribeSession,
+} from "../../../../shared/auth-session.js";
 export function FloorsSection({ onCalculator, onUpgradeSelect }) {
   const { availability, status, retry } = useFloorAvailability();
-  const [selectedFloorId, setSelectedFloorId] = useState(
-    orderedFloors[0]?.id || null,
-  );
+  const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
   const departmentRefs = useRef({});
-  const selectedFloor = orderedFloors.find(
-    (floor) => floor.id === selectedFloorId,
-  );
+  const lastAvailableFloorCode = [...orderedFloors]
+    .reverse()
+    .find((floor) => availability[floor.code] === true)?.code;
+  const defaultFloor =
+    status === "ready" && readSession().status === "ready"
+      ? orderedFloors.find((floor) => floor.code === lastAvailableFloorCode) ||
+        orderedFloors[0]
+      : orderedFloors[0];
+  const selectedFloor =
+    orderedFloors.find((floor) => floor.id === selectedFloorId) || defaultFloor;
+
+  useEffect(() => {
+    let previousStatus = readSession().status;
+    return subscribeSession(() => {
+      const nextStatus = readSession().status;
+      if (previousStatus !== "ready" && nextStatus === "ready")
+        setSelectedFloorId(null);
+      previousStatus = nextStatus;
+    });
+  }, []);
 
   const departmentState = useDepartmentAvailability(
     selectedFloor?.code,
     status,
     availability[selectedFloor?.code],
+    selectedFloor?.code === lastAvailableFloorCode,
   );
   const departmentAvailability =
     availability[selectedFloor?.code] === false
@@ -35,7 +55,9 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
             false,
           ]),
         )
-      : departmentState.availability;
+      : selectedFloor?.code === lastAvailableFloorCode
+        ? departmentState.availability
+        : {};
 
   const renderFloor = (floor) => (
     <FloorGroup
@@ -106,9 +128,9 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
               <Button
                 key={floor.id}
                 variant="secondary"
-                className={`floor-selector-tile${floor.id === selectedFloorId ? " is-active" : ""}`}
+                className={`floor-selector-tile${floor.id === selectedFloor?.id ? " is-active" : ""}`}
                 aria-label={`Этаж ${floor.code}${availability[floor.code] === false ? " — заблокирован в игре" : ""}`}
-                aria-pressed={floor.id === selectedFloorId}
+                aria-pressed={floor.id === selectedFloor?.id}
                 onClick={() => setSelectedFloorId(floor.id)}
               >
                 <span className="floor-selector-code">
@@ -124,7 +146,7 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
           </div>
 
           {departmentState.status === "loading" && (
-            <p className="department-access-status" role="status">
+            <p className="department-access-status sr-only" role="status">
               Загружаем доступность отделений…
             </p>
           )}

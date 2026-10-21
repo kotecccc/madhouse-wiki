@@ -1,3 +1,4 @@
+import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -11,7 +12,6 @@ import {
   getBusinessUpgradeTotals,
   findItemBosses,
 } from "../../../lib/business-upgrades.js";
-import { BossPortrait } from "../../bosses/BossPortrait/BossPortrait.jsx";
 import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
 import { fmt } from "../../../lib/format.js";
 import "./BusinessRequirementDialog.css";
@@ -60,7 +60,12 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
               className="business-requirements-source"
               key={boss.id}
             >
-              <BossPortrait src={boss.image} alt={boss.name} />
+              <ImageCard
+                src={boss.image}
+                alt={boss.name}
+                size={58}
+                imageSize="100%"
+              />
               <div className="business-requirements-copy">
                 <CardTitle>{boss.name}</CardTitle>
                 <CardDescription>
@@ -103,12 +108,6 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
         </ul>
         {!bosses.length && (
           <CardDescription>Предметы пока не указаны.</CardDescription>
-        )}
-        {upgrade && (
-          <p className="business-requirements-provenance">
-            Всего с 1-го по {level}-й уровень. Источник: данные пользователя,
-            20.10.2026.
-          </p>
         )}
         {disagreements.map((total) => (
           <p className="business-requirements-provenance" key={total.itemName}>

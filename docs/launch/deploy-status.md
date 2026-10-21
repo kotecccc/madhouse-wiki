@@ -71,3 +71,72 @@ Production release sequence: publish this non-secret metadata with the approved 
 Publish and verify the connector before activating it in Wiki. Wiki's clean release build must explicitly use `VITE_TELEGRAM_CONNECTOR_ORIGIN=https://madhouse-connect.damir-tarasov2016.chatgpt.site` and pack with `MADHOUSE_REQUIRE_TELEGRAM_CONNECTOR=1`. The built config is checked for HTTPS/non-loopback origin; the ignored local proof `.env.local` must not enter the release checkout. Main Wiki hosting identity remains unchanged. Both services' release markers must identify the same reviewed GitHub source baseline and protocol version 1.
 
 Hosted auth, native Telegram and phone behavior still require actual verification after publication. Earlier local auth limitations are historical: the auth owner subsequently demonstrated the official local browser MTProto/WebView/auth flow, automatic renewal and `/api/me` 200. Local proof does not establish hosted success.
+
+### Public isolated connector and Wiki deployment verified
+
+GitHub source baseline for both services: `dc9d2ae65dc338b39308cf110f876eed34500fac` (runtime source unchanged from reviewed candidate `f625e9759d45b0de07fed97ea1152a9b3a62b396`). Both builds used clean cloned checkouts and `npm ci` from the lockfile, without the ignored development `.env.local`. Actual public origins:
+
+- Wiki: https://madhouse-wiki.damir-tarasov2016.chatgpt.site
+- Isolated connector: https://madhouse-connect.damir-tarasov2016.chatgpt.site
+
+Connector version 1 deployed successfully with environment revision 1:
+
+- Deployment: `appgdep_6ad7d39316a48191b3733ca3a6ec8e0a`
+- Saved version: `appgprj_6ad7d2c207c881918d41a93a70483788~appgver_64d05ab589788191bdffc879744cb269`
+- Sites provider source commit: `5a6426b0189568c6b75b603497635145e8c41c20`
+- Public marker GitHub source commit: `dc9d2ae65dc338b39308cf110f876eed34500fac`
+- The only source-tree difference between provider commit and GitHub source is root `.openai/hosting.json`, which selects the separate connector identity. The provider identity was chosen before building; the source helper committed/pushed that unchanged state and packaged its artifact.
+- Worker SHA256: `f73946902b926e36462b574575985ad368beb8d726d0c2db366171c65545b817`
+- Saved archive content hash: `e4e1127bc89edf27ff6a4cff8abe5444dc9a7011692c3be8b0d9b10ad2cb30ed`
+
+Wiki version 5 deployed after the connector passed public checks:
+
+- Deployment: `appgdep_6ad7d3d02b288191b3e30d88e0c1677c`
+- Saved version: `appgprj_6ad7c0c53f048191aed8251007907fe3~appgver_b207073e313081919b0b2fa8fcaf310c`
+- Sites provider commit and public marker GitHub source commit both equal `dc9d2ae65dc338b39308cf110f876eed34500fac`.
+- Worker SHA256: `1ff1feabdfd37be75641bd56ffe91eb685baae0f535143576fc1b1c7f0035e8f`
+- Saved archive content hash: `2611be12570515de336c2436009bdb9fcaf16cc97683a81fac43902854d41770`
+- `/release.json` and `/connection-config.json` both identify the actual connector HTTPS origin and protocol version 1. The build explicitly enabled that origin and required the production connector guard.
+
+Public connector checks: root/release marker/both WASM assets return 200, WASM MIME is `application/wasm`, and CSP is present on API/static/error responses. Runtime config returns 200; boolean-only checks confirmed both parameters exactly match the two user-approved application parameters and the only response fields are apiId/apiHash/wikiOrigins. Neither parameter value was logged or saved into source/artifacts. The emitted Worker files were checked against the actual approved app hash and do not contain it. A malformed auth POST with an untrusted Origin returns 403; a malformed body from the connector Origin returns 400. API responses prohibit caching.
+
+Public Wiki checks: marker/config match the GitHub source and actual connector origin; root, API docs, shared auth script and new JS/CSS assets return 200. Missing-session `/api/me` and encoded dollar-floor GET return 401. The auth owner independently confirmed the public Chrome Wiki UI and embedded isolated consent form. At this checkpoint the user handoff for real production Telegram login is pending: no successful hosted game auth, native reconnect or phone completion is claimed by these static/config/guard checks. Those require the auth owner's separate end-to-end evidence.
+
+## Vercel migration preparation — 2026-10-21
+
+The user requested moving both services from Sites to Vercel for regional accessibility. Coordinator owns the authorized Vercel browser/project operations; this track prepared deployment source without browser, Git index or push changes. Published migration source checkpoint: `dbafdfe48a3136781acd3550275ed4793c43e7c4`.
+
+Both projects use the same repository root. Root `vercel.json` now declares `framework: null` and `buildCommand: npm run build:vercel`; leave the output-directory override disabled so Vercel consumes `.vercel/output` using Build Output API v3. Node 24 is required. The build refuses missing/unknown `MADHOUSE_SERVICE`, missing source SHA, missing/local/invalid production origins and identical Wiki/connector origins. On Vercel it takes source SHA from `VERCEL_GIT_COMMIT_SHA`; local packaging verification may explicitly supply `MADHOUSE_RELEASE_SHA`.
+
+Required project configuration:
+
+- Wiki: `MADHOUSE_SERVICE=wiki`, `VITE_TELEGRAM_CONNECTOR_ORIGIN=<actual connector HTTPS origin>`.
+- Connector: `MADHOUSE_SERVICE=connector`, `CONNECTOR_WIKI_ORIGIN=<actual Wiki HTTPS origin>`, `CONNECTOR_PUBLIC_ORIGIN=<actual connector HTTPS origin>`; runtime-only approved `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`. Never use VITE variables for these two parameters.
+- Both production URLs must be publicly accessible without Vercel deployment authentication. Exact origins must come from the actual provisioned projects, not guessed names.
+
+Wiki packaging restores the published reference-only SQLite in a clean checkout and copies only its generated public Vite model/static assets. Its single Node API function reuses the existing read-only forwarding code and ships the OpenAPI documentation file at its expected relative path. It exposes no connector config or auth POST handler.
+
+Connector packaging reuses `createConnectorApi` and `connectorHeaders` without changing auth behavior. Three bounded Node handlers cover config, game-session and unknown API requests. The adapter accepts streamed Node bodies and parsed Vercel bodies, enforces the existing 16KB bound, uses fixed build-time canonical origins, and forwards neither previous Bearer nor cookies to the game auth call. CSP/security headers apply to static/API/error responses; explicit API routing and response headers prohibit private caching. Static assets have separate cache rules and both WASM files have explicit `application/wasm` overrides. No COOP/COEP or new session storage was added.
+
+Verification of the prepared source: nine focused proxy/Node-adapter tests passed, changed-file lint and diff checks passed. Tests cover runtime config/origin/CSP/no-store, raw and parsed POST equivalence, no previous Bearer/cookies, wrong origin/query/method/body/unknown routes and oversized input. Negative build probes rejected absent/invalid role, loopback HTTP origin and shared origin before building. Separate isolated Wiki and connector builds passed (110 and 813 modules); their packaged Node entrypoints imported successfully, returning Wiki missing-session 401/no-store and unconfigured connector 503/no-store+CSP. Local test origins were reserved example domains; this is packaging evidence, not live Vercel proof.
+
+Remaining deployment acceptance: confirm actual Vercel domains and source SHA in both release markers, explicit main connection config, static JS/CSS/WASM types, API no-store/CSP and config boolean-only checks. In particular, verify `/api/me` and encoded dollar-floor routing on the deployed Wiki: the Build Output rewrite must preserve the original API request URL. Real public login/native/phone proof remains with the auth owner and is not inferred from adapter tests or successful builds. Existing Sites publications were not modified by this preparation.
+
+### Vercel production migration — public HTTP verified
+
+Actual public production origins, verified anonymously with curl:
+
+- Wiki: https://madhouse-wiki.vercel.app
+- Isolated connector: https://madhouse-connect.vercel.app
+
+Both public release markers report source `dbafdfe48a3136781acd3550275ed4793c43e7c4` and provider Vercel. Wiki `/connection-config.json` and marker select the actual connector origin with protocol version 1. Connector marker identifies both actual canonical origins and protocol version 1. Runtime config boolean-only comparison confirms the exact two approved application parameters, with only apiId/apiHash/wikiOrigins fields and an exact single allowed Wiki origin. No parameter values were included in output or evidence files.
+
+Coordinator's authorized Vercel UI reported main deployment `dpl_3btzeyvUScHXN9hf969we2TY6Uos` and connector deployment `dpl_6VkY5hw3KBYR8aGgna5YUjX6L2JL`, both from the migration source checkpoint. The initial main import was ready but staged: the production alias returned Vercel `DEPLOYMENT_NOT_FOUND` until coordinator explicitly promoted it. After promotion, the canonical Wiki URL passed all public checks. This was an alias/deployment state issue; no source fix was made.
+
+Wiki production results: root, compiled JS/CSS, shared auth script, API-docs index and read-only OpenAPI return 200 with correct content types; `/api-docs` redirects 302 to index. `/api/me` and `/api/floors/%24/info` return 401 without a session; a deliberately invalid Bearer reaches upstream and returns real 401 without transport-error headers. POST `/api/me` returns 405 with Allow GET. API responses retain private/no-store and CDN no-store. The actual deployed rewrite preserves the original API URL, resolving the preparation-stage routing uncertainty.
+
+Connector production results: root, entry JS, dynamic mtcute JS chunk and both WASM assets return 200 with appropriate JS/CSS/WASM content types. `/api/config` returns 200 with the correct runtime configuration, checked through booleans only. Unknown API returns JSON 404; GET game-session returns 405; malformed POST from an untrusted Origin returns 403; malformed POST from its own canonical Origin returns 400. CSP/security headers are present on root, API config and unknown API errors; API cache headers prohibit storage. CSP frame ancestors list the actual new Wiki origin and Telegram Web. No X-Frame-Options, COOP or COEP header was observed.
+
+Auth owner initially observed a blank embedded frame, then recovered the complete consent/phone/QR UI after a normal reload. This was treated as a transient load/cache observation, not a source defect; no auth behavior was changed. Real Vercel account login, automatic renewal/reconnect and target-client/phone results require the auth owner's separate evidence and are not claimed by HTTP checks.
+
+Coordinator confirmed the main Vercel project is connected to the GitHub repository. Subsequent Git pushes may therefore trigger Vercel deployment, unlike the earlier manual Sites pipeline. Evidence documentation remains a local draft until coordinator releases the publication hold; do not push documentation mid bot setup or auth verification. The existing Sites publications were not deleted or modified by this migration work. Bot URL migration is handled by the auth owner separately.

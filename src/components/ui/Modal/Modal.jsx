@@ -12,6 +12,9 @@ export function Modal({
   width,
   footer,
   contentBackground,
+  contentScrollable = true,
+  compact = false,
+  dense = false,
   visible = true,
 }) {
   const id = titleId || "modal-title";
@@ -20,7 +23,7 @@ export function Modal({
       modal
       visible={visible}
       surface="modal"
-      className={`shared-modal ${className}`.trim()}
+      className={`shared-modal${compact ? " shared-modal--compact" : ""}${dense ? " shared-modal--dense" : ""} ${className}`.trim()}
       aria-labelledby={id}
       onClose={onClose}
       style={
@@ -48,7 +51,7 @@ export function Modal({
       <div
         className={`shared-modal-content${
           contentBackground === "deep" ? " shared-modal-content--deep" : ""
-        }`}
+        }${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
       >
         {children}
       </div>

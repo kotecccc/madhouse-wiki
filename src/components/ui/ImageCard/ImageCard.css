@@ -5,6 +5,8 @@
   min-width: var(--image-card-size, 64px);
   height: var(--image-card-size, 64px);
   min-height: var(--image-card-size, 64px);
+  aspect-ratio: 1;
+  flex: 0 0 var(--image-card-size, 64px);
   place-items: center;
   color: #e0cea6;
   font: 14px var(--mono);
