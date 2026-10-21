@@ -4,3 +4,9 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+.ui-icon--small {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}

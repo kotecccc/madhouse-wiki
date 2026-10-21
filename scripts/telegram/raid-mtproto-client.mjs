@@ -49,6 +49,8 @@ async function wasmBinary() {
 export async function createRaidTelegramClient({
   apiId = process.env.TELEGRAM_API_ID,
   apiHash = process.env.TELEGRAM_API_HASH,
+  disableUpdates = true,
+  updates,
 } = {}) {
   const parsedApiId = Number(apiId);
   if (
@@ -67,12 +69,12 @@ export async function createRaidTelegramClient({
     transport: new TcpTransport(),
     platform: serverPlatform,
     logLevel: 0,
-    disableUpdates: true,
+    disableUpdates,
     initConnectionOptions: {
       deviceModel: "Madhouse Wiki raid importer",
       appVersion: "1.0.0",
       systemVersion: `Node.js/${process.version}`,
     },
   });
-  return new TelegramClient({ client: baseClient, disableUpdates: true });
+  return new TelegramClient({ client: baseClient, disableUpdates, updates });
 }

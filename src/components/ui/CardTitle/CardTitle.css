@@ -3,6 +3,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
+  padding-right: var(--card-title-end-space, 0);
   color: var(--card-title-color);
   font-family: var(--sans);
   font-size: var(--card-title-size);

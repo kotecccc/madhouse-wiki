@@ -9,6 +9,7 @@
     "build:connector": "vite build --config connector/vite.config.mjs",
     "build": "vite build",
     "build:hosted": "node scripts/catalogue/restore-seed.mjs && vite build",
+    "start:raids-worker": "node --env-file-if-exists=.env.local scripts/telegram/raid-live-worker.mjs",
     "catalogue:package": "node scripts/catalogue/package-seed.mjs",
     "preview": "vite preview",
     "lint": "eslint .",

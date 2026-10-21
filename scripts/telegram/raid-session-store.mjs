@@ -1,5 +1,6 @@
 import { webcrypto } from "node:crypto";
 import { get, put } from "@vercel/blob";
+import { strongBlobEtag } from "./raid-blob-etag.mjs";
 
 const BLOB_PATH = "madhouse-raids/telegram-session.enc.json";
 const MAX_BLOB_SIZE = 16 * 1024;
@@ -83,7 +84,7 @@ export function createRaidSessionStore({
       throw new Error("raid_session_store_unavailable");
     return {
       value: await new Response(result.stream).text(),
-      etag: result.blob.etag,
+      etag: strongBlobEtag(result.blob.etag),
     };
   }
 

@@ -1,11 +1,17 @@
 import "./Icon.css";
-export function Icon({ type }) {
+export function Icon({ type, size, className = "" }) {
   const paths = {
     chevron: <path d="m5 8.5 7 7 7-7" strokeWidth="1.5" />,
     "external-link": (
       <>
         <path d="M14 4h6v6M20 4l-9 9" />
         <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
+      </>
+    ),
+    copy: (
+      <>
+        <rect x="8" y="8" width="12" height="13" rx="1.5" />
+        <path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2" />
       </>
     ),
     loot: (
@@ -151,7 +157,9 @@ export function Icon({ type }) {
   };
   return (
     <svg
-      className="ui-icon"
+      className={["ui-icon", size && `ui-icon--${size}`, className]
+        .filter(Boolean)
+        .join(" ")}
       viewBox="0 0 24 24"
       strokeWidth={
         ["floor", "coin", "pill", "banknote"].includes(type) ? 1.75 : undefined
