@@ -30,6 +30,14 @@ Set these production environment variables on the Wiki Vercel project:
 
 The Wiki Vercel project already has a private Blob store connected through Vercel OIDC. The raid functions use that connection via `BLOB_STORE_ID`; they do not need a `BLOB_READ_WRITE_TOKEN`.
 
+The separate `madhouse-connect` project's Production `WIKI_INITDATA_KEY` must
+correspond to this same bot. It is the hex HMAC-SHA256 of the bot token with
+`WebAppData` as the HMAC key; only that derived verification key belongs in the
+connector, never the full bot token. The Production key was updated for
+`@madhouse_wiki_bot` during the consolidated release on 2026-10-21. The existing
+`ACCOUNT_SESSION_KEY` and encrypted account records were preserved. A new
+connector deployment is required to use the updated environment.
+
 For local Bot API setup, keep the Telegram token, webhook secret, and the two origins in `~/.config/madhouse-wiki/madhouse-wiki-bot.env` with file mode `0600`. Profile, commands, and the private menu button can be configured before deployment without registering a broken webhook:
 
 ```sh
