@@ -25,6 +25,12 @@
   --card-padding: var(--space-16);
   --card-title-size: 15px;
   --card-description-size: 11px;
+  --card-title-end-space: 112px;
+}
+
+.base-card--boss {
+  --card-title-size: 12px;
+  --card-description-size: 9px;
 }
 
 .base-card--floor-data {
@@ -58,4 +64,18 @@
   --card-border: rgba(212, 196, 163, 0.2);
   --card-radius: 6px;
   --card-background: var(--panel);
+}
+
+@media (max-width: 650px) {
+  .base-card--boss {
+    --card-title-size: 10px;
+    --card-description-size: 8px;
+  }
+
+  .base-card--raid {
+    --card-padding: var(--space-12);
+    --card-title-size: 12px;
+    --card-description-size: 10px;
+    --card-title-end-space: 98px;
+  }
 }

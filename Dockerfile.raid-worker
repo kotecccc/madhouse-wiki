@@ -1,0 +1,18 @@
+FROM node:24-slim
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY scripts/telegram/raid-blob-store.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-blob-etag.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-history-sync.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-live-worker.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-mtproto-client.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-schedule-parser.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-session-store.mjs ./scripts/telegram/
+COPY scripts/telegram/raid-sync-lock.mjs ./scripts/telegram/
+
+CMD ["node", "scripts/telegram/raid-live-worker.mjs"]

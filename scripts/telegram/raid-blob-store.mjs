@@ -1,4 +1,5 @@
 import { get, put } from "@vercel/blob";
+import { strongBlobEtag } from "./raid-blob-etag.mjs";
 
 const BLOB_PATH = "madhouse-raids/schedule.json";
 const MAX_BLOB_SIZE = 1024 * 1024;
@@ -27,11 +28,16 @@ function sortRecords(posts) {
   });
 }
 
-export function createRaidBlobStore({ getBlob = get, putBlob = put } = {}) {
+export function createRaidBlobStore({
+  getBlob = get,
+  putBlob = put,
+  abortSignal,
+} = {}) {
   async function readEnvelope() {
     const result = await getBlob(BLOB_PATH, {
       access: "private",
       useCache: false,
+      ...(abortSignal ? { abortSignal } : {}),
     });
     if (!result) return { envelope: defaultEnvelope(), etag: null };
     if (result.statusCode !== 200 || result.blob.size > MAX_BLOB_SIZE)
@@ -39,7 +45,7 @@ export function createRaidBlobStore({ getBlob = get, putBlob = put } = {}) {
     const parsed = JSON.parse(await new Response(result.stream).text());
     if (parsed?.schemaVersion !== 1 || !Array.isArray(parsed.posts))
       throw new Error("raid_store_unavailable");
-    return { envelope: parsed, etag: result.blob.etag };
+    return { envelope: parsed, etag: strongBlobEtag(result.blob.etag) };
   }
 
   async function writeEnvelope(envelope, etag) {
@@ -50,6 +56,7 @@ export function createRaidBlobStore({ getBlob = get, putBlob = put } = {}) {
       allowOverwrite: etag !== null,
       ...(etag ? { ifMatch: etag } : {}),
       cacheControlMaxAge: 60,
+      ...(abortSignal ? { abortSignal } : {}),
     });
   }
 

@@ -180,6 +180,7 @@ if (service === "connector") {
     "api/raids.js",
     "scripts/telegram/raid-api.mjs",
     "scripts/telegram/raid-blob-store.mjs",
+    "scripts/telegram/raid-blob-etag.mjs",
     "scripts/telegram/raid-vercel-handler.mjs",
   ];
   functionFiles(
@@ -192,6 +193,8 @@ if (service === "connector") {
     "api/telegram/raids-sync.js",
     "scripts/telegram/raid-sync-api.mjs",
     "scripts/telegram/raid-synchronizer.mjs",
+    "scripts/telegram/raid-history-sync.mjs",
+    "scripts/telegram/raid-blob-etag.mjs",
     "scripts/telegram/raid-sync-lock.mjs",
     "scripts/telegram/raid-session-store.mjs",
     "scripts/telegram/raid-mtproto-client.mjs",
@@ -250,16 +253,6 @@ writeFileSync(
       version: 3,
       routes,
       overrides,
-      ...(service === "wiki"
-        ? {
-            crons: [
-              {
-                path: "/api/telegram/raids-sync",
-                schedule: "0 20 * * *",
-              },
-            ],
-          }
-        : {}),
     },
     null,
     2,

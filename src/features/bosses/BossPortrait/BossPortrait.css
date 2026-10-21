@@ -2,8 +2,8 @@
   display: block;
   align-self: start;
   box-sizing: border-box;
-  width: 58px;
-  max-width: 58px;
+  width: var(--boss-portrait-width, 58px);
+  max-width: var(--boss-portrait-width, 58px);
   min-width: 0;
   height: auto;
   min-height: 0;
