@@ -2,9 +2,9 @@ import { createRaidBlobStore } from "./raid-blob-store.mjs";
 
 const MAX_PUBLIC_POSTS = 30;
 const PUBLIC_HEADERS = {
-  "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=300",
-  "CDN-Cache-Control": "public, max-age=60",
-  "Vercel-CDN-Cache-Control": "public, max-age=60",
+  "Cache-Control": "public, no-store, max-age=0",
+  "CDN-Cache-Control": "no-store",
+  "Vercel-CDN-Cache-Control": "no-store",
   "Content-Type": "application/json; charset=utf-8",
   "X-Content-Type-Options": "nosniff",
 };

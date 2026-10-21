@@ -7,32 +7,164 @@
 
 .requirement-calculator-card .title--h2 {
   margin: 0;
+  max-width: calc(100% - 32px);
   color: #e4d7b9;
-  font-size: 24px;
+  font-size: 21px;
+  line-height: 1.25;
 }
 
-.requirement-calculator-condition {
+.requirement-calculator-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
   margin: 0;
-  color: #c8b895;
-  font-size: 13px;
+}
+
+.requirement-calculator-total-label {
+  color: var(--card-description-color);
+  font-size: 12px;
+}
+
+.requirement-calculator-total-value {
+  color: var(--card-title-color);
+  font: 600 22px/1.2 var(--mono);
+  white-space: nowrap;
+}
+
+.requirement-calculator-profile {
+  margin: 0;
+  color: var(--card-title-color);
+  font: 12px/1.5 var(--sans);
 }
 
 .requirement-calculator-result {
   display: grid;
-  gap: var(--space-6);
-  color: #d7c8a6;
-  font: 11px/1.55 var(--mono);
+  gap: var(--space-12);
+  color: var(--card-title-color);
+  font: 12px/1.45 var(--sans);
 }
 
 .requirement-calculator-result p {
   margin: 0;
 }
 
-.requirement-calculator-note {
-  margin: 0;
-  color: #8e8576;
+.requirement-calculator-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.requirement-calculator-recovery-amount,
+.requirement-calculator-recovery-time {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.requirement-calculator-recovery-amount > span {
+  color: var(--card-description-color);
+}
+
+.requirement-calculator-recovery-amount strong {
+  font: 600 14px/1.3 var(--mono);
+}
+
+.requirement-calculator-recovery-time {
+  color: var(--card-description-color);
+  white-space: nowrap;
+}
+
+.requirement-calculator-recovery-time > span:first-child {
+  font-size: 16px;
+}
+
+.requirement-calculator-enough-energy {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.requirement-calculator-refills {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+}
+
+.requirement-calculator-refill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.requirement-calculator-defibrillator-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.requirement-calculator-defibrillator-icon > path:last-child {
+  fill: currentColor;
+  stroke: none;
+}
+
+.requirement-calculator-defibrillator-icon--small {
+  color: var(--green);
+}
+
+.requirement-calculator-defibrillator-icon--large {
+  color: var(--red-bright);
+}
+
+.requirement-calculator-refill-copy {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.requirement-calculator-refill-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.requirement-calculator-refill-copy small {
+  color: var(--card-description-color);
   font-size: 10px;
-  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.requirement-calculator-refill-count {
+  margin-left: auto;
+  font: 600 13px/1 var(--mono);
+  white-space: nowrap;
+}
+
+.requirement-calculator-banknotes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--line);
+}
+
+.requirement-calculator-banknote-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--paper);
+}
+
+.requirement-calculator-banknotes strong {
+  font: 600 14px/1 var(--mono);
+}
+
+.requirement-calculator-banknotes span {
+  color: var(--card-description-color);
 }
 
 .requirement-calculator-close {
@@ -49,5 +181,24 @@
 @media (max-width: 650px) {
   .requirement-calculator-card {
     padding: var(--space-20) var(--space-16);
+  }
+
+  .requirement-calculator-card .title--h2 {
+    font-size: 18px;
+  }
+
+  .requirement-calculator-total-value {
+    font-size: 19px;
+  }
+
+  .requirement-calculator-recovery {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .requirement-calculator-refills {
+    grid-template-columns: 1fr;
+    gap: var(--space-8);
   }
 }

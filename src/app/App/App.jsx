@@ -7,6 +7,7 @@ import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection
 import { RequirementCalculatorDialog } from "../../features/calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx";
 import { UpgradeDialog } from "../../features/businesses/UpgradeDialog/UpgradeDialog.jsx";
 import { RaidScheduleSection } from "../../features/raids/RaidScheduleSection/RaidScheduleSection.jsx";
+import { TelegramLaunchScreen } from "../../features/telegram/TelegramLaunchScreen/TelegramLaunchScreen.jsx";
 export function App() {
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
@@ -34,6 +35,7 @@ export function App() {
           onClose={() => setUpgradeDialog(null)}
         />
       )}
+      <TelegramLaunchScreen />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import {
   bossById,
+  departmentById,
   getBusinessUpgrade,
   getDepartmentBosses,
 } from "../../../model/knowledge-base.js";
@@ -73,6 +74,11 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
                     ? `Уровень ${fmt(boss.requiredLevel)}–${fmt(boss.rewardUntilLevel)}`
                     : "Дроп босса"}
                 </CardDescription>
+                <CardDescription>
+                  {departmentById[boss.departmentId]?.code
+                    ? "Отделение " + departmentById[boss.departmentId].code
+                    : "Отделение не указано"}
+                </CardDescription>
               </div>
               <div className="business-requirements-drops">
                 {(boss.dropItems || []).map((item) => (
@@ -80,12 +86,6 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
                     className="business-requirements-item"
                     key={item.entityId}
                   >
-                    <BusinessItemTile
-                      itemId={item.entityId}
-                      name={item.name}
-                      size={44}
-                      imageSize={40}
-                    />
                     <span
                       className="business-requirements-count"
                       aria-label={
@@ -100,6 +100,12 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
                         ? "—"
                         : fmt(item.requiredAmount)}
                     </span>
+                    <BusinessItemTile
+                      itemId={item.entityId}
+                      name={item.name}
+                      size={44}
+                      imageSize={40}
+                    />
                   </div>
                 ))}
               </div>

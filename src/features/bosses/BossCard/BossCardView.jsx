@@ -15,50 +15,72 @@ export function BossCardView({
   boss,
   as = "article",
   variant,
+  titleAs = "strong",
   className = "",
+  showInfo = true,
+  showDropList = true,
+  action,
+  children,
+  hasPortrait = Boolean(boss?.image),
 }) {
   const [showDrops, setShowDrops] = useState(false);
   const [portraitHeight, setPortraitHeight] = useState(92);
+  const cardVariant = variant || "boss";
   const drops = sortBossDrops(boss.possibleDrops || []);
-  const cardClass = `boss-card-view ${className}`.trim();
+  const cardClass = [
+    "boss-card-view",
+    `boss-card-view--${cardVariant}`,
+    !hasPortrait && "boss-card-view--no-portrait",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <BaseCard
       as={as}
-      variant={variant}
+      variant={cardVariant}
       className={cardClass}
       style={{ "--boss-portrait-height": `${portraitHeight}px` }}
     >
-      <BossPortrait
-        src={boss.image}
-        alt={boss.name || ""}
-        onHeight={setPortraitHeight}
-      />
+      {hasPortrait && (
+        <BossPortrait
+          src={boss.image}
+          alt={boss.name || ""}
+          onHeight={setPortraitHeight}
+        />
+      )}
       <div className="boss-card-main">
-        <CardTitle>{boss.name}</CardTitle>
-        <CardDescription>
-          {boss.requiredLevel != null && boss.rewardUntilLevel != null
-            ? `Уровень ${fmt(boss.requiredLevel)}–${fmt(boss.rewardUntilLevel)}`
-            : boss.requiredLevel != null
-              ? `Уровень от ${fmt(boss.requiredLevel)}`
-              : "Уровень не указан"}
-        </CardDescription>
-        {boss.dropItems?.length ? (
-          <BossDropItems items={boss.dropItems} />
-        ) : (
-          <CardDescription>Добыча не указана</CardDescription>
+        <CardTitle as={titleAs}>{boss.name}</CardTitle>
+        {showInfo && (
+          <CardDescription>
+            {boss.requiredLevel != null && boss.rewardUntilLevel != null
+              ? `Уровень ${fmt(boss.requiredLevel)}–${fmt(boss.rewardUntilLevel)}`
+              : boss.requiredLevel != null
+                ? `Уровень от ${fmt(boss.requiredLevel)}`
+                : "Уровень не указан"}
+          </CardDescription>
         )}
+        {children}
+        {showDropList &&
+          (boss.dropItems?.length ? (
+            <BossDropItems items={boss.dropItems} />
+          ) : (
+            <CardDescription>Добыча не указана</CardDescription>
+          ))}
       </div>
-      <Button
-        variant="card-action"
-        icon="loot"
-        aria-label={`Весь дроп: ${boss.name}`}
-        title="Весь дроп"
-        className="boss-all-drops-button"
-        aria-haspopup="dialog"
-        onClick={() => setShowDrops(true)}
-      >
-        Весь дроп
-      </Button>
+      {action ?? (
+        <Button
+          variant="card-action"
+          icon="loot"
+          aria-label={`Весь дроп: ${boss.name}`}
+          title="Весь дроп"
+          className="boss-all-drops-button"
+          aria-haspopup="dialog"
+          onClick={() => setShowDrops(true)}
+        >
+          Весь дроп
+        </Button>
+      )}
       {showDrops && (
         <Modal
           title={`Дроп: ${boss.name}`}
