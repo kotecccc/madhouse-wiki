@@ -53,9 +53,18 @@ function downloadReport(report) {
     ["Событие", "Количество"],
     ...report.byEvent.map((item) => [item.name, item.count]),
     [],
-    ["Псевдоним", "Действия", "Первое событие", "Последнее событие"],
+    [
+      "Псевдоним",
+      "Telegram ID",
+      "Username",
+      "Действия",
+      "Первое событие",
+      "Последнее событие",
+    ],
     ...report.visitors.map((item) => [
       item.visitor,
+      item.telegramId,
+      item.username ? `@${item.username}` : "",
       item.events,
       item.firstSeen,
       item.lastSeen,
@@ -168,13 +177,16 @@ export function AnalyticsExperience({ settingsOpen, onClose }) {
           aria-labelledby="analytics-consent-title"
         >
           <strong id="analytics-consent-title">
-            Разрешить анонимную статистику?
+            Разрешить статистику использования?
           </strong>
           <p>
-            Она помогает понять, какие разделы Wiki полезны. Будут записываться
-            только типы действий, разделы и псевдонимный идентификатор. Без
-            текста, скриншотов, имени, Telegram ID, прогресса или токенов. Срок
-            хранения — 90 дней. Подробности — в настройках приватности.
+            Она помогает понять, кто использует Wiki и какие разделы полезны.
+            Для Telegram Mini App сохраняются действия, Telegram ID и username
+            (если он задан); эти сведения видны только администратору. В обычном
+            браузере используется случайный псевдоним. Текст обращений,
+            скриншоты, имя профиля, игровой прогресс и токены в статистику не
+            входят. Срок хранения — 90 дней. Подробности — в настройках
+            приватности.
           </p>
           <div className="analytics-consent-actions">
             <Button
@@ -201,17 +213,20 @@ export function AnalyticsExperience({ settingsOpen, onClose }) {
         <section className="analytics-privacy-copy">
           <h3>Что собирается</h3>
           <p>
-            Только выбранные типы действий (например, открытие этажа), раздел и
-            безопасный код объекта. Если вы согласились, случайный браузерный ID
-            или HMAC-псевдоним от Telegram ID используется для подсчёта
-            уникальных посетителей и удаления ваших записей.
+            После согласия записываются выбранные типы действий (например,
+            открытие этажа), раздел, безопасный код объекта и время. Для
+            Telegram Mini App отдельно хранятся проверенные Telegram ID и
+            username (если он задан), чтобы администратор мог сопоставить
+            использование с посетителем. Для браузера вне Telegram используется
+            случайный псевдоним. В закрытой статистике эти данные доступны
+            только администратору и удаляются через 90 дней.
           </p>
           <p>
-            Содержание обращений, изображения, имя, username, сырой Telegram ID,
-            токены, initData и данные игрового аккаунта в аналитику не попадают.
-            Wiki не сохраняет IP-адреса или user-agent в собственном хранилище
-            аналитики. Данные событий лежат в приватном Vercel Blob до 90 дней,
-            затем ежедневно очищаются.
+            Содержание обращений, изображения, имя профиля, сырая initData,
+            токены, JWT и данные игрового аккаунта в аналитику не попадают. Wiki
+            не сохраняет IP-адреса или user-agent в аналитическом хранилище.
+            Данные событий и Telegram ID/username лежат в приватном Vercel Blob;
+            их можно отключить и удалить здесь.
           </p>
           <p>
             При отправке обратной связи её текст и выбранный скриншот вместе с
@@ -229,7 +244,10 @@ export function AnalyticsExperience({ settingsOpen, onClose }) {
           </Button>
         </div>
         <div className="analytics-delete-row">
-          <p>Удаление очистит ранее записанные события для этого псевдонима.</p>
+          <p>
+            Удаление очистит ранее записанные события и Telegram ID/username,
+            связанные с этим посетителем.
+          </p>
           <Button
             variant="secondary"
             disabled={deleteState.status === "loading" || !hasVisitorIdentity}
@@ -255,8 +273,9 @@ export function AnalyticsExperience({ settingsOpen, onClose }) {
           >
             <h3 id="analytics-admin-title">Статистика администратора</h3>
             <p>
-              Доступ проверяется сервером по подписи Telegram. Пользовательские
-              ID и профили в отчёт не включаются.
+              Доступ проверяется сервером по подписи Telegram. В отчёте будут
+              Telegram ID и username пользователей, разрешивших сбор; посетители
+              обычного браузера останутся под случайными псевдонимами.
             </p>
             <Button
               variant="secondary"
@@ -333,12 +352,14 @@ function AnalyticsReport({ report }) {
           </tbody>
         </table>
       </div>
-      <h4>Посетители по псевдониму</h4>
+      <h4>Посетители</h4>
       <div className="analytics-table-scroll">
         <table>
           <thead>
             <tr>
               <th>Псевдоним</th>
+              <th>Telegram ID</th>
+              <th>Username</th>
               <th>События</th>
               <th>Первый визит</th>
               <th>Последний визит</th>
@@ -348,6 +369,8 @@ function AnalyticsReport({ report }) {
             {report.visitors.map((item) => (
               <tr key={item.visitor}>
                 <td>{item.visitor}</td>
+                <td>{item.telegramId || "—"}</td>
+                <td>{item.username ? `@${item.username}` : "—"}</td>
                 <td>{item.events}</td>
                 <td>{new Date(item.firstSeen).toLocaleDateString("ru-RU")}</td>
                 <td>{new Date(item.lastSeen).toLocaleDateString("ru-RU")}</td>

@@ -1,6 +1,7 @@
 import { telegramContext } from "../../../shared/telegram-context.js";
 
-const CONSENT_KEY = "madhouse.wiki.analytics.consent.v1";
+const CONSENT_KEY = "madhouse.wiki.analytics.consent.v2";
+const PREVIOUS_CONSENT_KEY = "madhouse.wiki.analytics.consent.v1";
 const VISITOR_KEY = "madhouse.wiki.analytics.visitor.v1";
 const MAX_BATCH = 25;
 const EVENT_NAMES = new Set([
@@ -51,8 +52,13 @@ function storage() {
 }
 
 export function getAnalyticsConsent() {
-  const value = storage()?.getItem(CONSENT_KEY);
-  return value === "accepted" || value === "rejected" ? value : null;
+  const currentStorage = storage();
+  const value = currentStorage?.getItem(CONSENT_KEY);
+  if (value === "accepted" || value === "rejected") return value;
+  // Keep a previous refusal, but ask again before the expanded identity data.
+  return currentStorage?.getItem(PREVIOUS_CONSENT_KEY) === "rejected"
+    ? "rejected"
+    : null;
 }
 
 export function setAnalyticsConsent(value) {

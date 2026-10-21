@@ -18,7 +18,11 @@ const now = new Date("2026-10-21T12:00:00.000Z");
 function signedInitData(id) {
   const params = new URLSearchParams({
     auth_date: String(Math.floor(now.getTime() / 1000)),
-    user: JSON.stringify({ id, first_name: "Тест" }),
+    user: JSON.stringify({
+      id,
+      first_name: "Тест",
+      username: `wiki_${id}`,
+    }),
   });
   const check = [...params.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -88,15 +92,18 @@ function makeBlobClient() {
   };
 }
 
-test("analytics accepts only allowlisted batched events and protects reports with Telegram identity", async () => {
-  const calls = { append: [], deleted: [] };
+test("analytics accepts only allowlisted events, records consented Telegram identity and protects reports", async () => {
+  const calls = { append: [], deleted: [], report: [] };
   const store = {
     append: async (...args) => calls.append.push(args),
     deleteVisitor: async (key) => {
       calls.deleted.push(key);
       return 2;
     },
-    report: async () => ({ events: 1, visitors: [] }),
+    report: async (options) => {
+      calls.report.push(options);
+      return { events: 1, visitors: [] };
+    },
   };
   const api = createWikiAnalyticsApi({
     botToken: token,
@@ -123,6 +130,10 @@ test("analytics accepts only allowlisted batched events and protects reports wit
     calls.append[0][0],
     deriveVisitorKey(token, { kind: "telegram", id: "55" }),
   );
+  assert.deepEqual(calls.append[0][2], {
+    telegramId: "55",
+    username: "wiki_55",
+  });
   assert.equal(
     (
       await api(
@@ -158,6 +169,21 @@ test("analytics accepts only allowlisted batched events and protects reports wit
       .status,
     200,
   );
+  assert.deepEqual(calls.report[0], {
+    excludeVisitorKey: deriveVisitorKey(token, {
+      kind: "telegram",
+      id: adminId,
+    }),
+  });
+  const adminEvents = await api(
+    request({
+      action: "events",
+      initData: signedInitData(99),
+      events: [{ event: "app_open", section: "floors" }],
+    }),
+  );
+  assert.deepEqual(await adminEvents.json(), { accepted: 0 });
+  assert.equal(calls.append.length, 1);
   const deleted = await api(
     request({ action: "delete-self", initData: signedInitData(55) }),
   );
@@ -165,36 +191,56 @@ test("analytics accepts only allowlisted batched events and protects reports wit
   assert.equal(calls.deleted[0], calls.append[0][0]);
 });
 
-test("private Blob store batches events, reports pseudonyms, deletes user data and expires old files", async () => {
+test("private Blob store batches events, reports Telegram identity, filters admin events, deletes data and expires old files", async () => {
   const blobClient = makeBlobClient();
   let current = new Date("2026-07-01T12:00:00.000Z");
   const store = createWikiAnalyticsStore({ blobClient, now: () => current });
   const visitor = deriveVisitorKey(token, {
-    kind: "web",
-    id: "550e8400-e29b-41d4-a716-446655440000",
+    kind: "telegram",
+    id: "55",
   });
-  await store.append(visitor, [
-    { event: "app_open", section: "floors", feature: "floor_catalogue" },
-    {
-      event: "floor_select",
-      section: "floors",
-      feature: "floor_catalogue",
-      subject: "A",
-    },
-  ]);
+  await store.append(
+    visitor,
+    [
+      { event: "app_open", section: "floors", feature: "floor_catalogue" },
+      {
+        event: "floor_select",
+        section: "floors",
+        feature: "floor_catalogue",
+        subject: "A",
+      },
+    ],
+    { telegramId: "55", username: "wiki_55", displayName: "Не сохранять" },
+  );
   current = new Date("2026-07-02T12:00:00.000Z");
   await store.append(visitor, [
     { event: "app_open", section: "floors", feature: "floor_catalogue" },
   ]);
-  const report = await store.report();
+  const adminVisitor = deriveVisitorKey(token, {
+    kind: "telegram",
+    id: "99",
+  });
+  await store.append(adminVisitor, [{ event: "app_open", section: "floors" }], {
+    telegramId: "99",
+    username: "admin_99",
+  });
+  const report = await store.report({ excludeVisitorKey: adminVisitor });
   assert.equal(report.events, 3);
   assert.equal(report.visits, 2);
   assert.equal(report.uniqueVisitors, 1);
   assert.deepEqual(report.bySubject, [{ name: "floor_catalogue/A", count: 1 }]);
   assert.equal(report.daily.length, 2);
   assert.match(report.visitors[0].visitor, /^user-[a-f0-9]{8}$/u);
+  assert.equal(report.visitors[0].telegramId, "55");
+  assert.equal(report.visitors[0].username, "wiki_55");
+  assert.equal(JSON.stringify(blobClient.files).includes("displayName"), false);
+  assert.equal(
+    JSON.stringify(blobClient.files).includes("Не сохранять"),
+    false,
+  );
   assert.equal(JSON.stringify(report).includes(visitor), false);
   assert.equal(await store.deleteVisitor(visitor), 3);
+  assert.equal(await store.deleteVisitor(adminVisitor), 1);
   assert.equal(blobClient.files.size, 0);
 
   await store.append(visitor, [{ event: "app_open", section: "floors" }]);
@@ -203,6 +249,34 @@ test("private Blob store batches events, reports pseudonyms, deletes user data a
     deleted: 1,
     truncated: false,
   });
+});
+
+test("analytics persists only consented verified Telegram identifiers, never initData or profile names", async () => {
+  const blobClient = makeBlobClient();
+  const store = createWikiAnalyticsStore({ blobClient, now: () => now });
+  const api = createWikiAnalyticsApi({
+    botToken: token,
+    adminTelegramId: adminId,
+    store,
+    now: () => now,
+  });
+  const initData = signedInitData(55);
+  const response = await api(
+    request({
+      action: "events",
+      initData,
+      events: [{ event: "app_open", section: "floors" }],
+    }),
+  );
+  assert.equal(response.status, 202);
+  const stored = JSON.stringify(
+    [...blobClient.files.values()].map((entry) => JSON.parse(entry.content)),
+  );
+  assert.match(stored, /"telegramId":"55"/u);
+  assert.match(stored, /"username":"wiki_55"/u);
+  assert.equal(stored.includes(initData), false);
+  assert.equal(stored.includes("first_name"), false);
+  assert.equal(stored.includes("Тест"), false);
 });
 
 test("analytics cleanup requires the configured Vercel Cron bearer secret", async () => {

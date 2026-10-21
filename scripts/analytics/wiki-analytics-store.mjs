@@ -70,6 +70,12 @@ function parseRecordList(value) {
     if (
       !event ||
       !/^[a-f0-9]{64}$/u.test(event.visitorKey || "") ||
+      (event.telegramId != null &&
+        (typeof event.telegramId !== "string" ||
+          !/^\d{1,16}$/u.test(event.telegramId))) ||
+      (event.username != null &&
+        (typeof event.username !== "string" ||
+          !/^[A-Za-z0-9_]{5,32}$/u.test(event.username))) ||
       !VALID_EVENTS.has(event.event) ||
       typeof event.createdAt !== "string" ||
       !Number.isFinite(Date.parse(event.createdAt)) ||
@@ -85,6 +91,8 @@ function parseRecordList(value) {
         ...(event.section ? { section: event.section } : {}),
         ...(event.feature ? { feature: event.feature } : {}),
         ...(event.subject ? { subject: event.subject } : {}),
+        ...(event.telegramId ? { telegramId: event.telegramId } : {}),
+        ...(event.username ? { username: event.username } : {}),
         createdAt: event.createdAt,
       },
     ];
@@ -168,15 +176,27 @@ export function createWikiAnalyticsStore({
     return events;
   }
 
-  async function append(visitorKey, events) {
+  async function append(visitorKey, events, identity = null) {
     const timestamp = now();
     const day = dateString(timestamp.getTime());
+    const telegramId =
+      typeof identity?.telegramId === "string" &&
+      /^\d{1,16}$/u.test(identity.telegramId)
+        ? identity.telegramId
+        : undefined;
+    const username =
+      typeof identity?.username === "string" &&
+      /^[A-Za-z0-9_]{5,32}$/u.test(identity.username)
+        ? identity.username
+        : undefined;
     const normalized = events.map((event) => ({
       visitorKey,
       event: event.event,
       section: event.section,
       feature: event.feature,
       subject: event.subject,
+      ...(telegramId ? { telegramId } : {}),
+      ...(username ? { username } : {}),
       createdAt: timestamp.toISOString(),
     }));
     const pathname = `${EVENT_PREFIX}${day}/${randomUUID()}.json`;
@@ -193,7 +213,7 @@ export function createWikiAnalyticsStore({
     );
   }
 
-  async function report() {
+  async function report({ excludeVisitorKey } = {}) {
     const current = now();
     const cutoff = current.getTime() - REPORT_DAYS * 24 * 60 * 60 * 1000;
     const startDay = dateString(cutoff);
@@ -221,7 +241,11 @@ export function createWikiAnalyticsStore({
       .map(({ event }) => event)
       .filter((event) => {
         const timestamp = Date.parse(event.createdAt);
-        return timestamp >= cutoff && timestamp <= current.getTime();
+        return (
+          timestamp >= cutoff &&
+          timestamp <= current.getTime() &&
+          event.visitorKey !== excludeVisitorKey
+        );
       });
     const visitors = new Map();
     const daily = new Map();
@@ -255,6 +279,8 @@ export function createWikiAnalyticsStore({
         lastSeen: event.createdAt,
         eventCounts: new Map(),
       };
+      if (event.telegramId) visitor.telegramId = event.telegramId;
+      if (event.username) visitor.username = event.username;
       visitor.events += 1;
       if (event.createdAt < visitor.firstSeen)
         visitor.firstSeen = event.createdAt;
@@ -270,6 +296,8 @@ export function createWikiAnalyticsStore({
     const visitorRows = [...visitors.entries()]
       .map(([key, visitor]) => ({
         visitor: makeAlias(key),
+        ...(visitor.telegramId ? { telegramId: visitor.telegramId } : {}),
+        ...(visitor.username ? { username: visitor.username } : {}),
         events: visitor.events,
         firstSeen: visitor.firstSeen,
         lastSeen: visitor.lastSeen,

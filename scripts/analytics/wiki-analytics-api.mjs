@@ -131,8 +131,18 @@ export function createWikiAnalyticsApi({
       const events = body.events.map(normalizeEvent);
       if (events.some((event) => !event))
         return json(400, { error: "invalid_event" });
+      if (context.isAdmin) return json(202, { accepted: 0 });
       try {
-        await store.append(context.visitorKey, events);
+        await store.append(
+          context.visitorKey,
+          events,
+          context.telegramUser
+            ? {
+                telegramId: context.telegramUser.id,
+                username: context.telegramUser.username,
+              }
+            : null,
+        );
         return json(202, { accepted: events.length });
       } catch {
         return json(503, { error: "analytics_unavailable" });
@@ -144,7 +154,15 @@ export function createWikiAnalyticsApi({
       if (context.error) return context.error;
       if (!context.isAdmin) return json(403, { error: "forbidden" });
       try {
-        return json(200, await store.report());
+        return json(
+          200,
+          await store.report({
+            excludeVisitorKey: deriveVisitorKey(botToken, {
+              kind: "telegram",
+              id: adminTelegramId,
+            }),
+          }),
+        );
       } catch {
         return json(503, { error: "analytics_report_unavailable" });
       }
