@@ -1,0 +1,13 @@
+**
+!package.json
+!package-lock.json
+!scripts/
+!scripts/telegram/
+!scripts/telegram/raid-blob-store.mjs
+!scripts/telegram/raid-blob-etag.mjs
+!scripts/telegram/raid-history-sync.mjs
+!scripts/telegram/raid-live-worker.mjs
+!scripts/telegram/raid-mtproto-client.mjs
+!scripts/telegram/raid-schedule-parser.mjs
+!scripts/telegram/raid-session-store.mjs
+!scripts/telegram/raid-sync-lock.mjs

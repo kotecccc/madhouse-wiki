@@ -6,6 +6,7 @@ export function Button({
   className = "",
   children,
   icon,
+  iconSize,
   ...props
 }) {
   const classes = [
@@ -19,7 +20,7 @@ export function Button({
     <button type={type} className={classes || undefined} {...props}>
       {icon ? (
         <>
-          <Icon type={icon} />
+          <Icon type={icon} size={iconSize} />
           <span className="button-label">{children}</span>
         </>
       ) : (
