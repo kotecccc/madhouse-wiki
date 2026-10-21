@@ -10,6 +10,7 @@ import {
 import { resolve, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { connectorHeaders } from "../../connector/worker.js";
+import { packageSeed } from "../catalogue/package-seed.mjs";
 import { productionConnectorConfig } from "./connector-release-config.mjs";
 
 const service = process.env.MADHOUSE_SERVICE;
@@ -238,12 +239,18 @@ if (service === "connector") {
     "scripts/catalogue/query.mjs",
     "scripts/catalogue/public-assets.mjs",
     "scripts/catalogue/item-facts.mjs",
-    "local-data/madhouse.sqlite",
   ];
   functionFiles(
     "api/telegram/bot-webhook",
     wikiBotFiles,
     "export {default} from './api/telegram/bot-webhook.js';",
+  );
+  packageSeed(
+    root,
+    resolve(
+      output,
+      "functions/api/telegram/bot-webhook.func/local-data/madhouse.sqlite",
+    ),
   );
   routes.push({ src: "/api/raids", dest: "/api/raids" });
   routes.push({
