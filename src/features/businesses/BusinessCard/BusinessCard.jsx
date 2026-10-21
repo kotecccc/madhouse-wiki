@@ -5,6 +5,7 @@ import { CardDescription } from "../../../components/ui/CardDescription/CardDesc
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 
 export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
   return (
@@ -32,7 +33,14 @@ export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
         className="business-upgrade-open"
         disabled={!upgrade}
         aria-label={`Требования по предметам для бизнеса «${business.title}»`}
-        onClick={() => onUpgradeSelect({ business, upgrade })}
+        onClick={() => {
+          trackProductEvent("business_upgrades_open", {
+            section: "businesses",
+            feature: "business_upgrades",
+            subject: business.id,
+          });
+          onUpgradeSelect({ business, upgrade });
+        }}
       >
         <span>Уровни</span>
       </Button>

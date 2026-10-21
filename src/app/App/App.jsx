@@ -9,12 +9,18 @@ import { UpgradeDialog } from "../../features/businesses/UpgradeDialog/UpgradeDi
 import { RaidScheduleSection } from "../../features/raids/RaidScheduleSection/RaidScheduleSection.jsx";
 import { TelegramLaunchScreen } from "../../features/telegram/TelegramLaunchScreen/TelegramLaunchScreen.jsx";
 import { MobileNavigation } from "../../components/layout/MobileNavigation/MobileNavigation.jsx";
+import { AnalyticsExperience } from "../../features/analytics/AnalyticsExperience/AnalyticsExperience.jsx";
+import { FeedbackWidget } from "../../features/support/FeedbackWidget/FeedbackWidget.jsx";
+import { trackProductEvent } from "../../features/analytics/analytics-client.js";
 export function App() {
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
   const [activeScreen, setActiveScreen] = useState(() =>
-    window.location.hash === "#raids" ? "raids" : "floors",
+    typeof window !== "undefined" && window.location.hash === "#raids"
+      ? "raids"
+      : "floors",
   );
+  const [privacySettingsOpen, setPrivacySettingsOpen] = useState(false);
 
   useEffect(() => {
     const syncScreen = () =>
@@ -22,6 +28,13 @@ export function App() {
     window.addEventListener("hashchange", syncScreen);
     return () => window.removeEventListener("hashchange", syncScreen);
   }, []);
+
+  useEffect(() => {
+    trackProductEvent("screen_view", {
+      section: activeScreen,
+      feature: activeScreen === "raids" ? "raid_schedule" : "floor_catalogue",
+    });
+  }, [activeScreen]);
 
   function changeScreen(screen) {
     setActiveScreen(screen);
@@ -45,7 +58,7 @@ export function App() {
           <RaidScheduleSection />
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter onPrivacySettings={() => setPrivacySettingsOpen(true)} />
       <MobileNavigation
         activeScreen={activeScreen}
         onScreenChange={changeScreen}
@@ -61,6 +74,14 @@ export function App() {
         />
       )}
       <TelegramLaunchScreen />
+      <AnalyticsExperience
+        settingsOpen={privacySettingsOpen}
+        onClose={() => setPrivacySettingsOpen(false)}
+      />
+      <FeedbackWidget
+        screen={activeScreen}
+        onOpenPrivacy={() => setPrivacySettingsOpen(true)}
+      />
     </div>
   );
 }

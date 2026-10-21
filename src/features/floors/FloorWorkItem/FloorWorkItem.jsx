@@ -14,6 +14,7 @@ import { UpgradeTable } from "../../businesses/UpgradeTable/UpgradeTable.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 export function FloorWorkItem({
   work,
   onCalculator,
@@ -39,7 +40,18 @@ export function FloorWorkItem({
         registerDepartment?.(work.id, node?.querySelector("details"))
       }
     >
-      <details className="floor-work-disclosure" open={focused || undefined}>
+      <details
+        className="floor-work-disclosure"
+        open={focused || undefined}
+        onToggle={(event) => {
+          if (event.currentTarget.open)
+            trackProductEvent("department_open", {
+              section: "floors",
+              feature: "work_details",
+              subject: work.code,
+            });
+        }}
+      >
         <summary className="floor-work-summary">
           <ImageCard
             className="image-card--work"

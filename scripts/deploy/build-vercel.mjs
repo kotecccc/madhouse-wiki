@@ -252,6 +252,52 @@ if (service === "connector") {
       "functions/api/telegram/bot-webhook.func/local-data/madhouse.sqlite",
     ),
   );
+  const feedbackFiles = [
+    "api/feedback.js",
+    "scripts/telegram/feedback-api.mjs",
+    "scripts/telegram/telegram-init-data.mjs",
+    "scripts/telegram/wiki-api-vercel-handler.mjs",
+  ];
+  functionFiles(
+    "api/feedback",
+    feedbackFiles,
+    "export {default} from './api/feedback.js';",
+    true,
+  );
+  const analyticsFiles = [
+    "api/analytics.js",
+    "scripts/analytics/wiki-analytics-api.mjs",
+    "scripts/analytics/wiki-analytics-store.mjs",
+    "scripts/telegram/telegram-init-data.mjs",
+    "scripts/telegram/wiki-api-vercel-handler.mjs",
+    "scripts/telegram/raid-blob-etag.mjs",
+  ];
+  functionFiles(
+    "api/analytics",
+    analyticsFiles,
+    "export {default} from './api/analytics.js';",
+    true,
+  );
+  const cleanupFiles = [
+    "api/analytics-cleanup.js",
+    "scripts/analytics/wiki-analytics-api.mjs",
+    "scripts/analytics/wiki-analytics-store.mjs",
+    "scripts/telegram/telegram-init-data.mjs",
+    "scripts/telegram/wiki-api-vercel-handler.mjs",
+    "scripts/telegram/raid-blob-etag.mjs",
+  ];
+  functionFiles(
+    "api/analytics-cleanup",
+    cleanupFiles,
+    "export {default} from './api/analytics-cleanup.js';",
+    true,
+  );
+  routes.push({ src: "/api/feedback", dest: "/api/feedback" });
+  routes.push({ src: "/api/analytics", dest: "/api/analytics" });
+  routes.push({
+    src: "/api/analytics-cleanup",
+    dest: "/api/analytics-cleanup",
+  });
   routes.push({ src: "/api/raids", dest: "/api/raids" });
   routes.push({
     src: "/api/telegram/raids-sync",
@@ -280,6 +326,11 @@ writeFileSync(
       version: 3,
       routes,
       overrides,
+      ...(service === "wiki"
+        ? {
+            crons: [{ path: "/api/analytics-cleanup", schedule: "17 4 * * *" }],
+          }
+        : {}),
     },
     null,
     2,

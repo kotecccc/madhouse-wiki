@@ -15,6 +15,7 @@ import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 export function FloorsSection({ onCalculator, onUpgradeSelect }) {
   const { availability, status, retry } = useFloorAvailability();
   const [selectedFloorId, setSelectedFloorId] = useState(null);
@@ -129,7 +130,14 @@ export function FloorsSection({ onCalculator, onUpgradeSelect }) {
                 className={`floor-selector-tile${floor.id === selectedFloor?.id ? " is-active" : ""}`}
                 aria-label={`Этаж ${floor.code}${availability[floor.code] === false ? " — заблокирован в игре" : ""}`}
                 aria-pressed={floor.id === selectedFloor?.id}
-                onClick={() => setSelectedFloorId(floor.id)}
+                onClick={() => {
+                  setSelectedFloorId(floor.id);
+                  trackProductEvent("floor_select", {
+                    section: "floors",
+                    feature: "floor_catalogue",
+                    subject: floor.code,
+                  });
+                }}
               >
                 <span className="floor-selector-code">
                   <span className="floor-selector-dash">–</span>

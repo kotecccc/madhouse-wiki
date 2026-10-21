@@ -6,6 +6,7 @@ import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 
 const departmentCodeOrder = new Intl.Collator("en", {
   numeric: true,
@@ -29,7 +30,8 @@ export function FloorGroup({
     .sort((left, right) =>
       departmentCodeOrder.compare(String(left.code), String(right.code)),
     );
-  const openingConditions = floor.openingConditions ||
+  const openingConditions =
+    floor.openingConditions ||
     (floor.code === "A" ? [] : works[0]?.openingConditions || []);
   const isFloorView = viewMode === "floors";
   const floorOpeningCard =
@@ -38,20 +40,28 @@ export function FloorGroup({
         key={`${floor.id}-${floorAvailable ?? "unknown"}`}
         className="floor-opening-disclosure floor-work-disclosure"
         open={floorAvailable === false}
+        onToggle={(event) => {
+          if (event.currentTarget.open)
+            trackProductEvent("floor_requirements_open", {
+              section: "floors",
+              feature: "floor_requirements",
+              subject: floor.code,
+            });
+        }}
       >
         <summary className="floor-work-summary floor-opening-summary">
           <CardTitle className="floor-opening-heading">
             <span>Условия открытия этажа </span>
-            <span className="floor-opening-code">
-              {floor.code}
-            </span>
+            <span className="floor-opening-code">{floor.code}</span>
           </CardTitle>
           <LockIndicator
             size={20}
             locked={floorAvailable !== true}
-            label={floorAvailable == null
-              ? `Условия открытия этажа ${floor.code}`
-              : `Этаж ${floor.code} ${floorAvailable ? "открыт" : "заблокирован"}`}
+            label={
+              floorAvailable == null
+                ? `Условия открытия этажа ${floor.code}`
+                : `Этаж ${floor.code} ${floorAvailable ? "открыт" : "заблокирован"}`
+            }
           />
         </summary>
         <div className="floor-work-expanded floor-opening-expanded">

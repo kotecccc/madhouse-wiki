@@ -9,6 +9,7 @@ import { fmt } from "../../../lib/format.js";
 import { sortBossDrops } from "../../../lib/boss-drop-order.js";
 import { BossDropItems } from "../BossDropItems/BossDropItems.jsx";
 import { BossPortrait } from "../BossPortrait/BossPortrait.jsx";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 import "./BossCardView.css";
 
 export function BossCardView({
@@ -77,7 +78,14 @@ export function BossCardView({
           title="Весь дроп"
           className="boss-all-drops-button"
           aria-haspopup="dialog"
-          onClick={() => setShowDrops(true)}
+          onClick={() => {
+            trackProductEvent("boss_details_open", {
+              section: "bosses",
+              feature: "boss_drops",
+              subject: boss.id,
+            });
+            setShowDrops(true);
+          }}
         >
           Весь дроп
         </Button>

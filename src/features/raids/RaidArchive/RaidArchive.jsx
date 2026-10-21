@@ -5,6 +5,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import "./RaidArchive.css";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 
 function ArchivePages({ cursor, floorAvailability }) {
   const [request, setRequest] = useState({ cursor });
@@ -116,7 +117,14 @@ export function RaidArchive({ cursor, floorAvailability = {} }) {
       as="details"
       variant="archive"
       className="raid-archive"
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+        if (event.currentTarget.open)
+          trackProductEvent("raid_archive_open", {
+            section: "raids",
+            feature: "raid_archive",
+          });
+      }}
     >
       <summary>
         <CardTitle as="span">Архив рейдов</CardTitle>

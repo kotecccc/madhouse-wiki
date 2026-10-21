@@ -9,6 +9,7 @@ export function Modal({
   titleId,
   onClose,
   children,
+  footer,
   className = "",
   width,
   contentScrollable = true,
@@ -45,12 +46,15 @@ export function Modal({
         <DialogCloseButton onClick={onClose} />
       </header>
       <div
-        className={`shared-modal-content shared-modal-content--${contentVariant}${
-          contentScrollable ? "" : " shared-modal-content--unscrollable"
-        }`}
+        className={`shared-modal-content${
+          contentVariant === "default"
+            ? ""
+            : ` shared-modal-content--${contentVariant}`
+        }${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
       >
         {children}
       </div>
+      {footer && <footer className="shared-modal-footer">{footer}</footer>}
     </Dialog>
   );
 }

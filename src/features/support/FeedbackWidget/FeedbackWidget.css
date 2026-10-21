@@ -1,0 +1,131 @@
+.feedback-floating-button {
+  position: fixed;
+  z-index: 24;
+  right: max(14px, env(safe-area-inset-right, 0px));
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 241, 221, 0.26);
+  border-radius: 50%;
+  gap: 0;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.feedback-floating-button .button-label {
+  display: none;
+}
+
+.feedback-modal .shared-modal-content {
+  gap: var(--space-16);
+}
+
+.feedback-form {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.feedback-field-label {
+  color: var(--paper-bright);
+  font-size: 12px;
+}
+
+.feedback-message {
+  width: 100%;
+  min-height: 128px;
+  resize: vertical;
+  padding: var(--space-12);
+  border: 1px solid var(--card-border);
+  border-radius: var(--control-radius);
+  background: var(--bg-deep);
+  color: var(--paper-bright);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.feedback-message:focus-visible,
+.feedback-form input:focus-visible {
+  outline: 2px solid var(--paper);
+  outline-offset: 2px;
+}
+
+.feedback-file-row {
+  display: grid;
+  gap: var(--space-8);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.feedback-file-row input {
+  max-width: 100%;
+  color: var(--muted);
+  font: inherit;
+}
+
+.feedback-selected-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  overflow-wrap: anywhere;
+  color: var(--paper-bright);
+}
+
+.feedback-privacy-note,
+.feedback-telegram-required p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.feedback-telegram-required {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+}
+
+.feedback-telegram-required a,
+.feedback-privacy-link {
+  color: var(--paper-bright);
+}
+
+.feedback-privacy-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.feedback-status {
+  margin: 0;
+  color: var(--paper-bright);
+  font-size: 12px;
+}
+
+.feedback-status--error {
+  color: var(--red-bright);
+}
+
+.feedback-status--sent {
+  color: var(--green);
+}
+
+.feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 650px) {
+  .feedback-floating-button {
+    right: max(14px, env(safe-area-inset-right, 0px));
+    bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  }
+}

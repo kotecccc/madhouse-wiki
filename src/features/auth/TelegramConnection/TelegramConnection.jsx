@@ -39,6 +39,8 @@ export function TelegramConnection({
   onRestoreSettled,
 }) {
   const [uiState, setUiState] = useState(null);
+  const viewportHeight =
+    typeof window === "undefined" ? 800 : window.innerHeight;
   const bridge = useRef(null),
     iframe = useRef(null),
     interactiveActive = useRef(false),
@@ -264,7 +266,7 @@ export function TelegramConnection({
         style={{
           height: `${Math.min(
             uiState?.height || 120,
-            Math.max(120, Math.floor(window.innerHeight * 0.66)),
+            Math.max(120, Math.floor(viewportHeight * 0.66)),
           )}px`,
         }}
       />

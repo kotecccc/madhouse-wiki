@@ -16,6 +16,7 @@ import { fmt } from "../../../lib/format.js";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { trackProductEvent } from "../../analytics/analytics-client.js";
 
 export function RequirementCard({
   requirement: r,
@@ -29,9 +30,7 @@ export function RequirementCard({
     ? departmentById[r.targetDepartmentId]
     : null;
   const business = r.targetBusinessId ? businessById[r.targetBusinessId] : null;
-  const stashSet = r.targetStashSetId
-    ? stashSetById[r.targetStashSetId]
-    : null;
+  const stashSet = r.targetStashSetId ? stashSetById[r.targetStashSetId] : null;
   const type = r.type;
   const targetDepartment = getRequirementDepartment(r);
   const label = r.label || "Условие не указано";
@@ -106,16 +105,20 @@ export function RequirementCard({
         <div className="requirement-card-visual">
           {energy != null ? (
             <>
-              <span className="requirement-work-total">
-                {fmt(energy)} ⚡
-              </span>
+              <span className="requirement-work-total">{fmt(energy)} ⚡</span>
               <Button
                 variant="card-action"
                 icon="calc"
                 type="button"
-                aria-label={'Рассчитать энергию для условия «' + label + '»'}
+                aria-label={"Рассчитать энергию для условия «" + label + "»"}
                 title="Рассчитать энергию"
-                onClick={() => onCalculator({ requirement: r, energy })}
+                onClick={() => {
+                  trackProductEvent("calculator_open", {
+                    section: "floors",
+                    feature: "energy_calculator",
+                  });
+                  onCalculator({ requirement: r, energy });
+                }}
               >
                 Калькулятор
               </Button>
@@ -125,7 +128,14 @@ export function RequirementCard({
               variant="card-action"
               icon="levels"
               title="Что собирать?"
-              onClick={() => setShowRequirements(true)}
+              onClick={() => {
+                trackProductEvent("business_requirements_open", {
+                  section: "businesses",
+                  feature: "business_requirements",
+                  subject: business?.id,
+                });
+                setShowRequirements(true);
+              }}
             >
               Что собирать?
             </Button>

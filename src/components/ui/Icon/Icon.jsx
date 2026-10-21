@@ -14,6 +14,12 @@ export function Icon({ type, size, className = "" }) {
         <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
       </>
     ),
+    message: (
+      <>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5.5 4v-4.1A2.5 2.5 0 0 1 4 13.5v-8Z" />
+        <path d="M8 8h8M8 11.5h5" />
+      </>
+    ),
     copy: (
       <>
         <rect x="8" y="8" width="12" height="13" rx="1.5" />

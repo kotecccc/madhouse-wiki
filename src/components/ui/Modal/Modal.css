@@ -33,11 +33,22 @@
   background: var(--bg-deep);
 }
 
+.shared-modal-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  padding: var(--modal-content-padding);
+  border-top: 1px solid var(--card-border);
+}
+
 .shared-modal-heading {
   position: relative;
   flex: 0 0 auto;
   padding: var(--modal-content-padding);
-  padding-right: calc(var(--modal-content-padding) + var(--space-32) + var(--space-12));
+  padding-right: calc(
+    var(--modal-content-padding) + var(--space-32) + var(--space-12)
+  );
 }
 
 .shared-modal-heading > .dialog-close-button {
