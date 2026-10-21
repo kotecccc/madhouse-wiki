@@ -5,6 +5,9 @@ const PRIVATE_HEADERS = {
   "Content-Type": "text/plain; charset=utf-8",
   "X-Content-Type-Options": "nosniff",
 };
+const MAX_WEBHOOK_BODY_BYTES = 96 * 1024;
+
+class PayloadTooLargeError extends Error {}
 
 function headerValue(headers, name) {
   const value = headers?.[name] ?? headers?.[name.toLowerCase()];
@@ -12,12 +15,40 @@ function headerValue(headers, name) {
   return typeof value === "string" ? value : "";
 }
 
-function requestBody(request) {
-  const body = request.body;
-  if (body == null) return undefined;
-  if (typeof body === "string") return body;
-  if (Buffer.isBuffer(body)) return body.toString("utf8");
-  return JSON.stringify(body);
+async function requestBody(request) {
+  let body;
+  try {
+    body = request.body;
+  } catch {
+    body = undefined;
+  }
+
+  if (body != null) {
+    const serialized =
+      typeof body === "string"
+        ? body
+        : Buffer.isBuffer(body) || body instanceof Uint8Array
+          ? Buffer.from(body).toString("utf8")
+          : JSON.stringify(body);
+    if (typeof serialized === "string") {
+      if (Buffer.byteLength(serialized, "utf8") > MAX_WEBHOOK_BODY_BYTES) {
+        throw new PayloadTooLargeError();
+      }
+      return serialized;
+    }
+  }
+
+  if (typeof request?.[Symbol.asyncIterator] !== "function") return undefined;
+
+  const chunks = [];
+  let size = 0;
+  for await (const part of request) {
+    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+    size += chunk.byteLength;
+    if (size > MAX_WEBHOOK_BODY_BYTES) throw new PayloadTooLargeError();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 export function createWikiBotVercelHandler(api) {
@@ -33,7 +64,7 @@ export function createWikiBotVercelHandler(api) {
       const contentType = headerValue(request.headers, "content-type");
       if (contentType) headers.set("content-type", contentType);
 
-      const body = requestBody(request);
+      const body = await requestBody(request);
       result = await api(
         new Request(
           new URL(
@@ -47,11 +78,16 @@ export function createWikiBotVercelHandler(api) {
           },
         ),
       );
-    } catch {
-      result = new Response("bot_api_unavailable", {
-        status: 503,
-        headers: PRIVATE_HEADERS,
-      });
+    } catch (error) {
+      result = new Response(
+        error instanceof PayloadTooLargeError
+          ? "payload_too_large"
+          : "bot_api_unavailable",
+        {
+          status: error instanceof PayloadTooLargeError ? 413 : 503,
+          headers: PRIVATE_HEADERS,
+        },
+      );
     }
 
     response.statusCode = result.status;
