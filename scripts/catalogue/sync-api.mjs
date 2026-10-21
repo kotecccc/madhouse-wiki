@@ -58,6 +58,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
 
   async function getCatalogue() {
     let downloaded;
+    let stage = "read_store";
     try {
       downloaded = await storeBlob.download();
       if (!downloaded)
@@ -72,8 +73,11 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
           businessUpgrades: [],
           completeFloors: [],
         });
+      stage = "read_model";
       const kb = readKnowledgeBase(process.cwd(), downloaded.file);
+      stage = "open_database";
       const db = new DatabaseSync(downloaded.file, { readOnly: true });
+      stage = "read_completeness";
       const completeFloors = db
         .prepare(
           "SELECT f.code FROM entities f WHERE f.kind='floor' AND EXISTS(SELECT 1 FROM captures c WHERE c.path='/api/floors/'||f.code||'/info' AND c.status=200 AND c.entity_count>0) AND NOT EXISTS(SELECT 1 FROM route_discovery r LEFT JOIN captures c ON c.path=CASE WHEN r.kind='work' THEN '/api/works/open?workId='||r.id ELSE '/api/'||CASE WHEN r.kind='boss' THEN 'bosses' ELSE 'businesses' END||'/'||r.id END WHERE r.floor_code=f.code AND (coalesce(c.status,0)<>200 OR coalesce(c.entity_count,0)=0))",
@@ -83,7 +87,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
       db.close();
       return json({ ...publicData(kb), completeFloors });
     } catch {
-      return json({ error: "catalogue_unavailable" }, 503);
+      return json({ error: "catalogue_unavailable", stage }, 503);
     } finally {
       if (downloaded?.directory)
         await rm(downloaded.directory, { recursive: true, force: true });

@@ -21,6 +21,7 @@ const EVENT_NAMES = new Set([
 const SECTIONS = new Set([
   "floors",
   "raids",
+  "energy",
   "businesses",
   "bosses",
   "feedback",
@@ -32,6 +33,7 @@ const FEATURES = new Set([
   "business_upgrades",
   "business_requirements",
   "energy_calculator",
+  "energy_table",
   "boss_drops",
   "raid_schedule",
   "raid_archive",
