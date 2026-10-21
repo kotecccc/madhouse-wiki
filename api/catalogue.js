@@ -3,7 +3,7 @@ import { createWikiApiVercelHandler } from "../scripts/telegram/wiki-api-vercel-
 import { createReferenceBlobStore } from "../scripts/catalogue/reference-blob-store.mjs";
 import { createCatalogueSyncApi } from "../scripts/catalogue/sync-api.mjs";
 
-const root = fileURLToPath(new URL(".", import.meta.url));
+const root = fileURLToPath(new URL("../", import.meta.url));
 export default createWikiApiVercelHandler(
   createCatalogueSyncApi({ root, storeBlob: createReferenceBlobStore() }),
 );
