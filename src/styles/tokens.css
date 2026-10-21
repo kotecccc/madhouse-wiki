@@ -31,8 +31,12 @@
   --bg-deep: #11100f;
   --panel: #22201d;
   --card-background: rgba(55, 50, 42, 0.24);
+  --image-card-surface: #1d1c19;
   --card-border: rgba(212, 196, 163, 0.13);
   --card-radius: 4px;
+  --control-radius: var(--card-radius);
+  --control-transition-duration: 0.2s;
+  --control-transition-easing: ease;
   --card-padding: var(--space-12);
   --card-content-gap: var(--space-6);
   --card-line-height: 1.4;
@@ -49,6 +53,12 @@
   --red: #b63e34;
   --red-bright: #df5a49;
   --green: #a3a77f;
+  --status-scheduled: #aaa69d;
+  --status-active: #80b8ed;
+  --status-completed: #73c993;
+  --navigation-glass: rgba(34, 32, 29, 0.82);
+  --navigation-glass-border: rgba(233, 222, 197, 0.24);
+  --navigation-selected: rgba(233, 222, 197, 0.12);
   --mono: "DM Mono", monospace;
   --sans: "Manrope", Arial, sans-serif;
   font-family: var(--sans);

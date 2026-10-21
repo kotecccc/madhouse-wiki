@@ -31,7 +31,7 @@
 }
 
 .floor-work-disclosure:not(.floor-opening-disclosure) > .floor-work-summary {
-  padding-right: 24px;
+  padding-right: var(--space-12);
   column-gap: var(--space-24);
 }
 
@@ -147,7 +147,7 @@
     padding: var(--space-12);
   }
   .floor-work-disclosure:not(.floor-opening-disclosure) > .floor-work-summary {
-    padding-right: 16px;
+    padding-right: var(--space-12);
     column-gap: var(--space-16);
   }
   .floor-work-expanded {

@@ -1,0 +1,35 @@
+.number-stepper {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.number-stepper > .field-label {
+  margin: 0;
+}
+
+.number-stepper-controls {
+  display: grid;
+  grid-template-columns: var(--space-32) var(--space-48) var(--space-32);
+  gap: var(--space-4);
+}
+
+.number-stepper-controls > .button,
+.number-stepper-controls > .input-control {
+  width: 100%;
+  height: var(--space-32);
+  min-height: var(--space-32);
+  padding: 0;
+  text-align: center;
+}
+
+.number-stepper-controls > .button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}
+
+.number-stepper-range {
+  color: var(--card-description-color);
+  font-size: 10px;
+  text-align: center;
+}

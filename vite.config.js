@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { installCatalogueCapture } from "./scripts/catalogue/proxy-capture.mjs";
+import { raidsFixturePlugin } from "./scripts/raids-fixture-plugin.mjs";
 
 function redirectApiDocs(server) {
   server.middlewares.use((request, response, next) => {
@@ -19,6 +20,7 @@ function redirectApiDocs(server) {
 export default defineConfig({
   plugins: [
     react(),
+    raidsFixturePlugin(fileURLToPath(new URL(".", import.meta.url))),
     authSessionPlugin(),
     cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
     {

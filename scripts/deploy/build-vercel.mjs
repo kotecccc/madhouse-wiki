@@ -198,6 +198,7 @@ if (service === "connector") {
   const raidsFiles = [
     "api/raids.js",
     "scripts/telegram/raid-api.mjs",
+    "scripts/telegram/raid-feed-page.mjs",
     "scripts/telegram/raid-blob-store.mjs",
     "scripts/telegram/raid-blob-etag.mjs",
     "scripts/telegram/raid-vercel-handler.mjs",

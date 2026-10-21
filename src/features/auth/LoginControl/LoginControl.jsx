@@ -15,6 +15,8 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { Input } from "../../../components/ui/Input/Input.jsx";
+import { TokenBookmarklet } from "./TokenBookmarklet.jsx";
 import "./LoginControl.css";
 import { profileAvatarUrl } from "../profile.js";
 import {
@@ -412,19 +414,16 @@ export function LoginControl() {
         !authenticated &&
         TELEGRAM_CONNECTOR_ORIGIN &&
         loginMethod === "choose" && (
-        <Modal
-          title="Вход в Wiki"
-          titleId="login-title"
-          width={420}
-          compact
-          dense
-          onClose={close}
-          footer={
-            <div className="login-modal-footer">
+          <Modal
+            title="Вход в Madhouse Wiki"
+            description="Выберите способ входа в игровой аккаунт."
+            titleId="login-title"
+            width={420}
+            onClose={close}
+          >
+            <div className="login-modal-actions">
               <Button variant="primary" onClick={connect}>
-                {pendingLogin
-                  ? "Продолжить вход"
-                  : "Войти через Telegram"}
+                {pendingLogin ? "Продолжить вход" : "Войти через Telegram"}
               </Button>
               <Button
                 variant="secondary"
@@ -433,48 +432,14 @@ export function LoginControl() {
                 Войти по AccessToken
               </Button>
             </div>
-          }
-        >
-          <section
-            className="login-methods"
-            aria-describedby="login-methods-copy"
-          >
-            <p id="login-methods-copy">
-              Выберите способ входа в игровой аккаунт.
-            </p>
-          </section>
-        </Modal>
-      )}
+          </Modal>
+        )}
       {open && !authenticated && loginMethod === "token" && (
         <Modal
           title="Вход по AccessToken"
           titleId="login-token-title"
           width={400}
-          compact
-          dense
           onClose={close}
-          footer={
-            <div
-              className={`login-modal-footer${
-                TELEGRAM_CONNECTOR_ORIGIN ? "" : " login-modal-footer--single"
-              }`}
-            >
-              {TELEGRAM_CONNECTOR_ORIGIN && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setError("");
-                    setLoginMethod("choose");
-                  }}
-                >
-                  Назад
-                </Button>
-              )}
-              <Button variant="primary" type="submit" form="login-token-form">
-                {TELEGRAM_CONNECTOR_ORIGIN ? "Продолжить" : "Войти"}
-              </Button>
-            </div>
-          }
         >
           <form
             id="login-token-form"
@@ -512,10 +477,17 @@ export function LoginControl() {
                 </Button>
                 <Button
                   variant="toggle"
-                  aria-pressed={tokenHelpDevice === "phone"}
-                  onClick={() => setTokenHelpDevice("phone")}
+                  aria-pressed={tokenHelpDevice === "android"}
+                  onClick={() => setTokenHelpDevice("android")}
                 >
-                  Телефон
+                  Android
+                </Button>
+                <Button
+                  variant="toggle"
+                  aria-pressed={tokenHelpDevice === "iphone"}
+                  onClick={() => setTokenHelpDevice("iphone")}
+                >
+                  iPhone
                 </Button>
               </div>
               <div className="login-token-help-content">
@@ -535,44 +507,123 @@ export function LoginControl() {
                       </li>
                       <li>
                         Откройте инструменты разработчика: <kbd>F12</kbd> →{" "}
-                        <span>Application</span> (в Firefox — <span>Storage</span>)
-                        → <span>Local Storage</span> →{" "}
+                        <span>Application</span> (в Firefox —{" "}
+                        <span>Storage</span>) → <span>Local Storage</span> →{" "}
                         <code>https://cargohustle.online</code>.
                       </li>
                       <li>
                         Скопируйте значение <code>cargo_access_token</code> и
                         вставьте его в поле ниже. Если доступен только{" "}
                         <code>cargo_auth_session</code>, найдите внутри его
-                        значения JWT и скопируйте только эту строку. Весь JSON
-                        в поле не вставляйте.
+                        значения JWT и скопируйте только эту строку. Весь JSON в
+                        поле не вставляйте.
                       </li>
                     </ol>
                   </section>
+                ) : tokenHelpDevice === "android" ? (
+                  <section aria-label="Инструкция для Android">
+                    <p className="login-token-phone-copy">
+                      <strong>Android — закладка-помощник.</strong> Используйте
+                      Firefox или Chrome. В Яндекс Браузере этот способ не
+                      работает.
+                    </p>
+                    <ol>
+                      <li>
+                        Один раз настройте закладку: добавьте в закладки
+                        браузера любой сайт, откройте у закладки «Изменить» и
+                        замените адрес кодом закладки-помощника. Задайте
+                        короткое имя <code>wiki</code>.
+                        <TokenBookmarklet />
+                      </li>
+                      <li>
+                        Откройте в браузере{" "}
+                        <a
+                          href="https://web.telegram.org"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          web.telegram.org
+                        </a>{" "}
+                        и перейдите в чат, из которого запускаете игру.
+                        Саму игру пока не запускайте.
+                      </li>
+                      <li>
+                        Вызовите закладку: нажмите адресную строку, наберите{" "}
+                        <code>wiki</code> и выберите закладку в подсказках.
+                        Когда она попросит открыть игру, запустите её —
+                        вкладка сама перейдёт на страницу игры.
+                      </li>
+                      <li>
+                        Сразу, не дожидаясь загрузки игры, вызовите закладку
+                        тем же способом ещё раз. В появившемся окне скопируйте
+                        токен, вернитесь сюда и вставьте его в поле ниже.
+                      </li>
+                    </ol>
+                    <p className="login-token-phone-copy">
+                      После настройки закладки выполняйте шаги без пауз.
+                      Если не получилось, начните заново со второго шага.
+                    </p>
+                  </section>
                 ) : (
-                  <section aria-label="Инструкция для телефона">
+                  <section aria-label="Инструкция для iPhone">
                     <p className="login-token-phone-copy">
-                      <strong>По номеру:</strong> выберите вход по номеру,
-                      укажите номер с кодом страны и введите код, который пришлёт
-                      Telegram. Если включена двухэтапная защита, понадобится и
-                      пароль Telegram.
+                      <strong>Подготовьте Safari один раз.</strong> Установите
+                      бесплатное расширение Web Inspector из App Store. В Safari
+                      нажмите кнопку слева от адреса сайта → «Управлять
+                      расширениями» → включите Web Inspector и разрешите ему
+                      доступ к сайтам. Если Telegram на телефоне работает только
+                      через VPN, включите VPN.
                     </p>
                     <p className="login-token-phone-copy">
-                      <strong>По QR:</strong> на другом устройстве, где Telegram
-                      уже открыт, перейдите в «Настройки → Устройства →
-                      Подключить устройство» и отсканируйте показанный код.
+                      Перед переходом в Telegram скопируйте код помощника. Он
+                      понадобится в консоли Safari на двух шагах.
+                      <TokenBookmarklet />
                     </p>
                     <p className="login-token-phone-copy">
-                      После отправки номера незавершённый вход сохраняется на
-                      устройстве до 10 минут, если доступно локальное
-                      хранилище. Тогда можно закрыть Mini App и продолжить после
-                      повторного открытия Wiki в том же аккаунте Telegram.
+                      <strong>Получите токен.</strong> Обычно эти шаги нужно
+                      повторять примерно раз в сутки.
+                    </p>
+                    <ol>
+                      <li>
+                        В Safari откройте{" "}
+                        <a
+                          href="https://web.telegram.org/k/"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          web.telegram.org/k/
+                        </a>
+                        , войдите в Telegram и откройте чат с игрой. Пока не
+                        нажимайте «Играть».
+                      </li>
+                      <li>
+                        Нажмите кнопку слева от адреса → Web Inspector. В нижней
+                        панели выберите вкладку Console. Вставьте скопированный
+                        код помощника и нажмите Enter.
+                      </li>
+                      <li>
+                        Вернитесь в чат и нажмите «Играть». Когда Safari
+                        перейдёт на страницу игры, сразу снова откройте Web
+                        Inspector → Console, вставьте тот же код и нажмите
+                        Enter. Не ждите полной загрузки игры.
+                      </li>
+                      <li>
+                        Когда появится окно с токеном, скопируйте его целиком,
+                        вернитесь в Wiki и вставьте в поле AccessToken ниже.
+                      </li>
+                    </ol>
+                    <p className="login-token-phone-copy">
+                      Если появилось «Игра не пустила (401…)», истекло время:
+                      начните сначала, код уже скопирован. Если написано «Эта
+                      игра открыта слишком давно», закройте игру и откройте её
+                      снова из Telegram.
                     </p>
                   </section>
                 )}
               </div>
             </BaseCard>
             {session.status !== "empty" && <p>{label}</p>}
-            <input
+            <Input
               className="login-token-field"
               id="login-jwt"
               type="password"
@@ -590,6 +641,26 @@ export function LoginControl() {
               aria-label="Игровой JWT AccessToken"
             />
             {error && <p role="alert">{error}</p>}
+            <div
+              className={`login-modal-actions${
+                TELEGRAM_CONNECTOR_ORIGIN ? "" : " login-modal-actions--single"
+              }`}
+            >
+              {TELEGRAM_CONNECTOR_ORIGIN && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setError("");
+                    setLoginMethod("choose");
+                  }}
+                >
+                  Назад
+                </Button>
+              )}
+              <Button variant="primary" type="submit">
+                {TELEGRAM_CONNECTOR_ORIGIN ? "Продолжить" : "Войти"}
+              </Button>
+            </div>
           </form>
         </Modal>
       )}

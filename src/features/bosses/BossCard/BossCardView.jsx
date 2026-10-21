@@ -16,12 +16,13 @@ export function BossCardView({
   as = "article",
   variant,
   titleAs = "strong",
+  title = boss.name,
   className = "",
   showInfo = true,
   showDropList = true,
   action,
   children,
-  hasPortrait = Boolean(boss?.image),
+  hasPortrait = true,
 }) {
   const [showDrops, setShowDrops] = useState(false);
   const [portraitHeight, setPortraitHeight] = useState(92);
@@ -50,7 +51,7 @@ export function BossCardView({
         />
       )}
       <div className="boss-card-main">
-        <CardTitle as={titleAs}>{boss.name}</CardTitle>
+        <CardTitle as={titleAs}>{title}</CardTitle>
         {showInfo && (
           <CardDescription>
             {boss.requiredLevel != null && boss.rewardUntilLevel != null
@@ -86,8 +87,8 @@ export function BossCardView({
           title={`Дроп: ${boss.name}`}
           titleId={`boss-drops-title-${boss.id}`}
           width="560px"
-          contentBackground="deep"
           className="boss-drops-dialog"
+          contentVariant="inset"
           onClose={() => setShowDrops(false)}
         >
           <>

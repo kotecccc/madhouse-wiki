@@ -1,4 +1,5 @@
 import { createRaidBlobStore } from "./raid-blob-store.mjs";
+import { parseRaidPageQuery, raidFeedPage } from "./raid-feed-page.mjs";
 
 const MAX_PUBLIC_POSTS = 30;
 const PUBLIC_HEADERS = {
@@ -37,12 +38,25 @@ function publicPost(post) {
 export function createRaidApi({ store = createRaidBlobStore() } = {}) {
   return async function handleRaidRequest(request) {
     const url = new URL(request.url);
-    if (url.search || url.hash) return json(400, { error: "invalid_request" });
     if (url.pathname !== "/api/raids") return json(404, { error: "not_found" });
     if (request.method !== "GET")
       return json(405, { error: "method_not_allowed" });
+    let pageQuery;
     try {
-      const posts = await store.readRecent(MAX_PUBLIC_POSTS);
+      pageQuery = parseRaidPageQuery(url);
+    } catch {
+      return json(400, { error: "invalid_request" });
+    }
+    try {
+      const posts = await store.readRecent(pageQuery ? 180 : MAX_PUBLIC_POSTS);
+      if (pageQuery) {
+        const page = raidFeedPage(posts, pageQuery);
+        return json(
+          200,
+          { ...page, posts: page.posts.map(publicPost) },
+          PUBLIC_HEADERS,
+        );
+      }
       return json(200, { posts: posts.map(publicPost) }, PUBLIC_HEADERS);
     } catch {
       return json(503, { error: "raid_schedule_unavailable" });

@@ -11,7 +11,7 @@
   position: absolute;
   left: 50%;
   bottom: 0;
-  width: 100vw;
+  width: calc(100% + 2 * var(--page-gutter));
   border-bottom: 1px solid var(--line);
   content: "";
   pointer-events: none;

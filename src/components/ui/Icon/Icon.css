@@ -10,3 +10,9 @@
   height: 14px;
   flex: 0 0 14px;
 }
+
+.ui-icon--medium {
+  width: var(--space-20);
+  height: var(--space-20);
+  flex: 0 0 var(--space-20);
+}

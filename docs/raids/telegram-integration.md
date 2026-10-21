@@ -44,3 +44,32 @@ To rotate the stored session, run the setup script with `--replace`, then revoke
 - `GET /api/telegram/raids-sync` is a protected recovery endpoint and requires `Authorization: Bearer $CRON_SECRET`. New Vercel builds do not schedule it as a Cron job; the existing Production deployment retains its old daily schedule until a replacement is released.
 
 If no session or private Blob is configured, the sync returns a generic unavailable response; it does not expose Telegram errors or credentials.
+
+## Local schedule fixture
+
+For UI development, a public Production `/api/raids` response is saved separately
+from the catalogue in the ignored `artifacts/development/raids-production.json`.
+The adjacent `raids-production-source.json` records its source and capture time.
+Run `npm run dev:raids` to serve this fixed response from the Vite development
+server. If port 4174 is occupied, use `npm run dev:raids -- --port 4176`.
+
+This opt-in middleware is development-only; it does not bundle fixtures or change
+Production API behavior. Without the opt-in, normal development routing is retained.
+To refresh the fixture, save a new public response and update its provenance file.
+
+## Optional feed pagination
+
+`GET /api/raids` retains the legacy `{ posts }` response (up to 30 schedules).
+The Wiki requests `GET /api/raids?limit=1` for its current schedule. Paginated
+responses contain `{ posts, nextCursor }`; `limit` accepts 1–10 and the next page
+uses `before=<nextCursor>`. The cursor is based on source date and message ID so
+removing a boundary post does not break pagination. Paginated reads expose at
+most the 180 schedules retained by the existing store. The Blob still holds one
+bounded JSON envelope; pagination limits the response sent to the browser, not
+internal Blob reads.
+
+Archive requests begin only when its disclosure is opened. The client requests
+three schedules per page and loads more when the end approaches the viewport;
+a “Загрузить ещё” button also supports keyboard/manual use. Closing the archive
+unmounts its content and aborts pending fetches. Reopening starts from its first
+page. The development fixture uses the same query validation and paging helper.
