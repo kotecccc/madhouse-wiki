@@ -16,7 +16,7 @@ For the new bot:
 1. Create `Madhouse Wiki` with username `madhouse_wiki_bot`.
 2. Use `/setinline` and set the placeholder to `Этажи, энергия, рейды`.
 3. In `/mybots` → `Madhouse Wiki` → `Bot Settings` → `Configure Mini App`, set the Main Mini App URL to `https://madhouse-wiki.vercel.app/`. This adds the profile's `Launch app` button. The setup command also configures the private-chat menu button.
-4. In `Configure Mini App` → `Configure Splash Screen`, upload [`public/madhouse-wiki-splash.svg`](../../public/madhouse-wiki-splash.svg) and set the light and dark loading backgrounds to `#191816`. This is Telegram's native loading placeholder; the React launch screen appears after the Mini App loads and calls `Telegram.WebApp.ready()`.
+4. In `Configure Mini App` → `Configure Splash Screen`, upload [`public/madhouse-wiki-splash.svg`](../../public/madhouse-wiki-splash.svg) (512×512) and set the light and dark loading backgrounds to `#191816`. This is Telegram's native loading placeholder; the React launch screen appears after the Mini App loads and calls `Telegram.WebApp.ready()`.
 5. Optionally add a profile photo and Mini App preview media from the existing Wiki screens.
 
 ## Server configuration
