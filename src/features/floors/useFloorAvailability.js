@@ -86,20 +86,16 @@ export function useFloorAvailability() {
         for (const floor of floors) {
           if (signal.aborted) return;
           if (floor.isAvailable !== true || complete.has(floor.code)) continue;
-          for (let attempt = 0; attempt < 2; attempt += 1) {
-            try {
-              const imported = await postSessionJson(
-                "/api/catalogue",
-                { floorCode: floor.code },
-                { signal },
-              );
-              mergeKnowledgeBaseOverlay(imported);
-              refreshModel();
-              break;
-            } catch {
-              if (signal.aborted || attempt > 0) break;
-              await new Promise((resolve) => setTimeout(resolve, 1500));
-            }
+          try {
+            const imported = await postSessionJson(
+              "/api/catalogue",
+              { floorCode: floor.code },
+              { signal },
+            );
+            mergeKnowledgeBaseOverlay(imported);
+            refreshModel();
+          } catch {
+            // Keep access rendering and retry incomplete definitions on the next authenticated load.
           }
         }
       } catch {

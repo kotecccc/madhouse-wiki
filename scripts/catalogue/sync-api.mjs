@@ -106,9 +106,11 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
     )
       return json({ error: "invalid_request" }, 400);
     const code = body.floorCode;
+    let stage = "verify_floor";
     try {
       if (!(await authorizedFloor(code, authorization)))
         return json({ error: "floor_unavailable" }, 403);
+      stage = "read_store";
       const downloaded = await storeBlob.download();
       const directory = downloaded?.mutable
         ? null
@@ -122,6 +124,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
         if (downloaded)
           await rm(downloaded.directory, { recursive: true, force: true });
       }
+      stage = "open_database";
       const store = new CatalogueStore(root, database);
       let lastRequestAt = Date.now();
       let stopped = false;
@@ -135,6 +138,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
         const wait = 1100 - (Date.now() - lastRequestAt);
         if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
         lastRequestAt = Date.now();
+        stage = "fetch_game_definition";
         const result = await fetchJson(
           path,
           authorization,
@@ -146,6 +150,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
       };
       try {
         await requestRoute(`/api/floors/${code}/info`);
+        stage = "load_floor_routes";
         const routes = store.db
           .prepare(
             "SELECT kind,id FROM route_discovery WHERE floor_code=? ORDER BY kind,id",
@@ -175,8 +180,10 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
           .all(code);
         store.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
         store.db.close();
+        stage = "persist_catalogue";
         if (!downloaded?.mutable)
           await storeBlob.upload(database, downloaded?.etag ?? null);
+        stage = "read_model";
         const kb = readKnowledgeBase(root, database);
         return json({
           ...publicData(kb),
@@ -193,7 +200,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
         if (directory) await rm(directory, { recursive: true, force: true });
       }
     } catch {
-      return json({ error: "catalogue_sync_unavailable" }, 503);
+      return json({ error: "catalogue_sync_unavailable", stage }, 503);
     }
   }
 
