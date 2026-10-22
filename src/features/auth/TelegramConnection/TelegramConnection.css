@@ -25,7 +25,7 @@
 }
 .telegram-connection-actions > .button {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--touch-target-size);
 }
 
 @media (max-width: 420px) {

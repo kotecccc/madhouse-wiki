@@ -8,13 +8,7 @@
     max(var(--space-24), env(safe-area-inset-right))
     max(var(--space-24), env(safe-area-inset-bottom))
     max(var(--space-24), env(safe-area-inset-left));
-  background:
-    radial-gradient(
-      ellipse at 50% 42%,
-      rgba(182, 62, 52, 0.12),
-      transparent 48%
-    ),
-    #191816;
+  background: var(--surface-page);
   opacity: 1;
   transition: opacity 280ms ease;
 }
@@ -39,11 +33,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-6);
+  gap: var(--space-8);
   transform: skew(-10deg);
-  border: 1px solid rgba(223, 90, 73, 0.7);
-  background: rgba(182, 62, 52, 0.08);
-  box-shadow: 0 0 52px rgba(182, 62, 52, 0.14);
+  border: 1px solid var(--red-bright);
+  background: var(--red);
 }
 
 .telegram-launch-mark span {
@@ -66,24 +59,24 @@
 
 .telegram-launch-title {
   color: var(--paper-bright);
-  font: 500 12px var(--mono);
+  font: var(--font-weight-medium) var(--font-size-xs) var(--mono);
   letter-spacing: 0.15em;
 }
 
 .telegram-launch-title b {
   color: var(--red-bright);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .telegram-launch-caption {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
 }
 
 .telegram-launch-indicator {
   display: flex;
-  gap: var(--space-6);
+  gap: var(--space-8);
   margin-top: var(--space-4);
 }
 

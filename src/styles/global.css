@@ -8,6 +8,12 @@ html {
   scrollbar-gutter: stable;
 }
 
+@media (max-width: 650px) {
+  html:has(.site-shell) {
+    scrollbar-gutter: auto;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -62,9 +68,11 @@ input {
 
 button:focus-visible,
 a:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--red-bright);
-  outline-offset: 4px;
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--focus-color, var(--red-bright));
+  outline-offset: 2px;
 }
 
 .sr-only {
@@ -89,9 +97,9 @@ p {
 h2 {
   margin: var(--space-16) 0 0;
   color: var(--paper-bright);
-  font-size: clamp(35px, 4vw, 51px);
-  line-height: 1.08;
-  letter-spacing: -0.055em;
+  font-size: var(--font-size-3xl);
+  line-height: var(--line-height-tight);
+  letter-spacing: -0.035em;
 }
 @media (prefers-reduced-motion: reduce) {
   *,

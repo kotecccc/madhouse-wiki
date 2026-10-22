@@ -103,6 +103,16 @@ export function useDepartmentAvailability(
             status: "ready",
             availability: departmentAccess(body),
             departments: departmentDetails(body),
+            businessLevels: (Array.isArray(body?.businesses)
+              ? body.businesses
+              : []
+            )
+              .filter(
+                (business) =>
+                  Number.isFinite(business?.id) &&
+                  Number.isFinite(business?.level),
+              )
+              .map(({ id, level }) => ({ id, level })),
           };
           cache.current.set(code, result);
           setState(result);

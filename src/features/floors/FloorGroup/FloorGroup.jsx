@@ -1,3 +1,4 @@
+import { EditableValue } from "../../../components/ui/CardEditing/EditableValue.jsx";
 import "./FloorGroup.css";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { FloorWorkItem } from "../FloorWorkItem/FloorWorkItem.jsx";
@@ -7,6 +8,8 @@ import { Title } from "../../../components/ui/Title/Title.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
+import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
+import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
 
 const departmentCodeOrder = new Intl.Collator("en", {
   numeric: true,
@@ -50,9 +53,11 @@ export function FloorGroup({
         }}
       >
         <summary className="floor-work-summary floor-opening-summary">
-          <CardTitle className="floor-opening-heading">
+          <CardTitle editKey="opening-title" className="floor-opening-heading">
             <span>Условия открытия этажа </span>
-            <span className="floor-opening-code">{floor.code}</span>
+            <EditableValue editKey="code" className="floor-opening-code">
+              {floor.code}
+            </EditableValue>
           </CardTitle>
           <LockIndicator
             size={20}
@@ -79,8 +84,12 @@ export function FloorGroup({
         </div>
       </details>
     ) : openingConditions.length > 0 ? (
-      <BaseCard variant="floor-data" className="floor-opening-card">
-        <Title as="h4" className="floor-opening-title">
+      <BaseCard
+        editKey="opening-card"
+        variant="floor-data"
+        className="floor-opening-card"
+      >
+        <Title as="h4" editKey="opening-title" className="floor-opening-title">
           Условия открытия
         </Title>
         <div className="floor-opening-rows">
@@ -98,34 +107,42 @@ export function FloorGroup({
       </BaseCard>
     ) : null;
   return (
-    <article className="floor-group" key={floor.id}>
-      {!isFloorView && (
-        <Title as="h3" className="floor-heading">
-          Этаж {floor.code}
-        </Title>
-      )}
-      {floorOpeningCard}
-      {works.length === 0 && (
-        <p>Описания отделов этого этажа пока отсутствуют в справочнике.</p>
-      )}
-      <ul className="floor-work-list">
-        {works.map((work) => (
-          <FloorWorkItem
-            key={work.id}
-            work={work}
-            locked={departmentAvailability?.[work.code] === false}
-            onCalculator={onCalculator}
-            onUpgradeSelect={onUpgradeSelect}
-            onRequirementSelect={onRequirementSelect}
-            focused={focusedDepartmentId === work.id}
-            registerDepartment={registerDepartment}
-            suppressRequirements={
-              departmentAvailability?.[work.code] === true ||
-              (isFloorView && work.id === works[0]?.id)
-            }
-          />
-        ))}
-      </ul>
-    </article>
+    <CardEditScope scope={`floor:${floor.id}`}>
+      <EditableLayout
+        as="article"
+        editKey="layout"
+        stack
+        className="floor-group"
+        key={floor.id}
+      >
+        {!isFloorView && (
+          <Title as="h3" editKey="heading" className="floor-heading">
+            Этаж {floor.code}
+          </Title>
+        )}
+        {floorOpeningCard}
+        {works.length === 0 && (
+          <p>Описания отделов этого этажа пока отсутствуют в справочнике.</p>
+        )}
+        <ul className="floor-work-list">
+          {works.map((work) => (
+            <FloorWorkItem
+              key={work.id}
+              work={work}
+              locked={departmentAvailability?.[work.code] === false}
+              onCalculator={onCalculator}
+              onUpgradeSelect={onUpgradeSelect}
+              onRequirementSelect={onRequirementSelect}
+              focused={focusedDepartmentId === work.id}
+              registerDepartment={registerDepartment}
+              suppressRequirements={
+                departmentAvailability?.[work.code] === true ||
+                (isFloorView && work.id === works[0]?.id)
+              }
+            />
+          ))}
+        </ul>
+      </EditableLayout>
+    </CardEditScope>
   );
 }

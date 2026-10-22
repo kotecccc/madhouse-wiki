@@ -1,36 +1,20 @@
 .base-card {
+  min-width: 0;
   padding: var(--card-padding);
   border: 1px solid var(--card-border);
   border-radius: var(--card-radius);
   background: var(--card-background);
+  --card-title-size: var(--font-size-md);
+  --card-description-size: var(--font-size-sm);
 }
 
-.base-card {
-  --card-title-size: 12px;
-  --card-description-size: 9px;
-}
-
+/* Variants keep the shared shape and typography while tuning surface or role-specific spacing. */
 .base-card--upgrade-level {
-  --card-padding: var(--space-12);
-  --card-border: rgba(212, 196, 163, 0.19);
-  --card-radius: 5px;
-  --card-background: linear-gradient(
-    145deg,
-    rgba(72, 64, 49, 0.45),
-    rgba(27, 26, 24, 0.82)
-  );
+  --card-background: var(--surface-raised);
 }
 
 .base-card--raid {
-  --card-padding: var(--space-12);
-  --card-title-size: 12px;
-  --card-description-size: 9px;
   --card-title-end-space: 0px;
-}
-
-.base-card--boss {
-  --card-title-size: 12px;
-  --card-description-size: 9px;
 }
 
 .base-card--floor-data {
@@ -40,55 +24,81 @@
 
 .base-card--image {
   --card-padding: 0;
-  --card-border: rgba(212, 196, 163, 0.15);
-  --card-radius: 4px;
   --card-background: var(--image-card-surface);
 }
 
 .base-card--popover {
-  --card-background: var(--bg-deep);
-}
-
-.base-card--archive {
-  --card-padding: var(--space-16);
+  --card-background: var(--surface-inset);
 }
 
 .base-card--glass-nav {
-  --card-background: var(--navigation-glass);
+  --card-background: var(--navigation-glass-fallback);
   --card-border: var(--navigation-glass-border);
+  --card-padding: var(--navigation-glass-padding);
   --card-radius: var(--space-32);
-  --card-padding: var(--space-6);
+  border-color: var(--navigation-glass-border);
+  background: var(--navigation-glass-fallback);
+  box-shadow:
+    var(--navigation-glass-shadow), var(--navigation-glass-inset-highlight);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .base-card--glass-nav {
+    background: var(--navigation-glass-fallback);
+    -webkit-backdrop-filter: blur(var(--navigation-glass-blur))
+      saturate(var(--navigation-glass-saturation));
+    backdrop-filter: blur(var(--navigation-glass-blur))
+      saturate(var(--navigation-glass-saturation));
+    box-shadow:
+      var(--navigation-glass-shadow), var(--navigation-glass-inset-highlight);
+  }
 }
 
 .base-card--token-help {
-  --card-padding: var(--space-12);
-  --card-border: rgba(212, 196, 163, 0.22);
-  --card-radius: 5px;
-  --card-background: var(--panel);
-  --card-title-size: 12px;
-  --card-description-size: 11px;
+  --card-background: var(--surface-raised);
+  --card-border: var(--border-strong);
 }
 
 .base-card--modal {
   --modal-content-padding: var(--space-16);
-  --modal-border: rgba(212, 196, 163, 0.2);
-  --modal-radius: 6px;
+  --modal-border: var(--card-border);
+  --modal-radius: var(--radius-card);
   padding: 0;
-  border-color: var(--modal-border);
-  border-radius: var(--modal-radius);
-  background: var(--panel);
+  background: var(--surface-raised);
 }
 
-@media (max-width: 650px) {
-  .base-card--boss {
-    --card-title-size: 10px;
-    --card-description-size: 8px;
-  }
+.base-card--padding-4 {
+  --card-padding: var(--space-4);
+}
 
-  .base-card--raid {
-    --card-padding: var(--space-12);
-    --card-title-size: 10px;
-    --card-description-size: 8px;
-    --card-title-end-space: 0px;
-  }
+.base-card--padding-8 {
+  --card-padding: var(--space-8);
+}
+
+.base-card--padding-12 {
+  --card-padding: var(--space-12);
+}
+
+.base-card--padding-16 {
+  --card-padding: var(--space-16);
+}
+
+.base-card--padding-24 {
+  --card-padding: var(--space-24);
+}
+
+.base-card--padding-32 {
+  --card-padding: var(--space-32);
+}
+
+.base-card--padding-40 {
+  --card-padding: var(--space-40);
+}
+
+.base-card--padding-48 {
+  --card-padding: var(--space-48);
+}
+
+.base-card--padding-64 {
+  --card-padding: var(--space-64);
 }

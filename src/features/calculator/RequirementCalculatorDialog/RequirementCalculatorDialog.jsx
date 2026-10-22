@@ -1,5 +1,13 @@
+import { Divider } from "../../../components/ui/Divider/Divider.jsx";
+import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
+import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
+import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
+import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import "./RequirementCalculatorDialog.css";
-import { calculateRequirementEnergy } from "../../../lib/energy.js";
+import {
+  calculateCycleEnergy,
+  calculateRequirementEnergy,
+} from "../../../lib/energy.js";
 import { useEffect, useState } from "react";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { NumberField } from "../../../components/ui/NumberField/NumberField.jsx";
@@ -12,13 +20,6 @@ import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
-
-function formatCountWord(value) {
-  const lastTwo = value % 100;
-  if (lastTwo >= 11 && lastTwo <= 14) return "раз";
-  const last = value % 10;
-  return last === 2 || last === 3 || last === 4 ? "раза" : "раз";
-}
 
 function DefibrillatorIcon({ variant }) {
   return (
@@ -34,7 +35,11 @@ function DefibrillatorIcon({ variant }) {
   );
 }
 
-export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
+export function RequirementCalculatorDialog({
+  conditionDialog,
+  onClose,
+  countControl,
+}) {
   const [energyLimit, setEnergyLimit] = useState("");
   const [profileEnergy, setProfileEnergy] = useState(null);
   const [profileStatus, setProfileStatus] = useState("idle");
@@ -93,7 +98,17 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
   }, [conditionDialog]);
 
   if (!conditionDialog) return null;
-  const requirementCalc = conditionDialog.energy;
+  const countValue =
+    countControl && countControl.value !== ""
+      ? Number(countControl.value)
+      : null;
+  const countResult =
+    countControl && countValue !== null
+      ? calculateCycleEnergy(countControl.unitEnergy, countValue)
+      : null;
+  const requirementCalc = countControl
+    ? (countResult?.total ?? null)
+    : conditionDialog.energy;
   const requirement = conditionDialog.requirement;
   const targetWork = requirement?.targetDepartmentId
     ? departmentById[requirement.targetDepartmentId]?.work
@@ -104,14 +119,7 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
     .replace(/^выполнить\s+/i, "")
     .replace(/\s+\d+\s+раз(?:а)?$/i, "")
     .trim();
-  const requirementCount = Number(requirement?.required);
-  const hasRequirementCount =
-    requirement?.required != null && Number.isFinite(requirementCount);
-  const calculatorTitle = `Калькулятор энергии для «${conditionName}»${
-    hasRequirementCount
-      ? ` — ${fmt(requirementCount)} ${formatCountWord(requirementCount)}`
-      : ""
-  }`;
+  const calculatorTitle = `Калькулятор энергии для «${conditionName}»`;
   const manualEnergy = energyLimit === "" ? null : Number(energyLimit);
   const maxEnergy =
     profileEnergy?.maxEnergy ??
@@ -130,6 +138,8 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
       title={calculatorTitle}
       titleId="requirement-calc-title"
       width={620}
+      showCloseButton={false}
+      contentVariant="inset"
       onClose={onClose}
     >
       <form
@@ -139,31 +149,72 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
           onClose();
         }}
       >
-        {requirementCalc != null && (
-          <BaseCard variant="floor-data" className="requirement-calculator-total">
-            <span className="requirement-calculator-total-label">
-              Необходимо энергии
-            </span>
-            <strong className="requirement-calculator-total-value">
-              {fmtEnergy(requirementCalc)} <span aria-hidden="true">⚡</span>
-            </strong>
+        {countControl && (
+          <NumberStepper
+            id="work-calculator-count"
+            label="Количество выполнений"
+            hideLabel
+            compact
+            min={1}
+            max={Number.MAX_SAFE_INTEGER}
+            value={Number(countControl.value)}
+            onChange={(value) => countControl.onChange(String(value))}
+            decrementLabel="Уменьшить количество выполнений"
+            incrementLabel="Увеличить количество выполнений"
+            rangeLabel="Количество полных выполнений работы"
+          />
+        )}
+        {(requirementCalc != null || profileStatus === "loading") && (
+          <BaseCard
+            variant="floor-data"
+            className="requirement-calculator-energy-summary"
+          >
+            {requirementCalc != null && (
+              <div className="requirement-calculator-total">
+                <CardDescription size="sm">Необходимо энергии</CardDescription>
+                <CardTitle size="sm" as="span">
+                  <span className="requirement-calculator-energy-value">
+                    {fmtEnergy(requirementCalc)}{" "}
+                    <Icon type="energy" size="text" />
+                  </span>
+                </CardTitle>
+              </div>
+            )}
+            {profileStatus === "loading" && (
+              <div className="requirement-calculator-total" role="status">
+                <CardDescription size="sm">
+                  Загружаю запас энергии из профиля…
+                </CardDescription>
+              </div>
+            )}
+            {requirementCalc > 0 && profileEnergy && (
+              <div className="requirement-calculator-progress">
+                <ProgressBar
+                  value={profileEnergy.currentEnergy}
+                  max={requirementCalc}
+                  segments={countResult?.count}
+                  label="Запас энергии для выполнения"
+                  valueText={`Есть ${fmt(profileEnergy.currentEnergy)} энергии, не хватает ${fmt(Math.max(0, requirementCalc - profileEnergy.currentEnergy))}`}
+                />
+                <CardDescription
+                  size="2xs"
+                  className="requirement-calculator-progress-caption"
+                >
+                  Есть {fmt(profileEnergy.currentEnergy)} · Не хватает{" "}
+                  {fmt(
+                    Math.max(0, requirementCalc - profileEnergy.currentEnergy),
+                  )}
+                </CardDescription>
+              </div>
+            )}
           </BaseCard>
         )}
-        {profileStatus === "loading" ? (
-          <BaseCard variant="floor-data" className="requirement-calculator-profile" role="status">
-            Загружаю запас энергии из профиля…
-          </BaseCard>
-        ) : profileEnergy ? (
-          <BaseCard variant="floor-data" className="requirement-calculator-profile">
-            Текущий запас: {fmt(profileEnergy.currentEnergy)} из{" "}
-            {fmt(profileEnergy.maxEnergy)} ⚡
-          </BaseCard>
-        ) : (
+        {!profileEnergy && profileStatus !== "loading" && (
           <div className="requirement-calculator-energy-field">
             <NumberField
               id="requirement-energy-limit"
               label="Максимальный лимит энергии"
-              suffix="⚡"
+              suffix={<Icon type="energy" size="text" />}
               suffixClassName="requirement-calculator-energy-suffix"
               min="1"
               placeholder="Введите лимит энергии"
@@ -173,45 +224,50 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
           </div>
         )}
         {(requirementCalc == null || energyPlan) && (
-          <div
-            className="requirement-calculator-result"
-            aria-live="polite"
-          >
+          <div className="requirement-calculator-result" aria-live="polite">
             {requirementCalc == null ? (
-              <p>
+              <CardDescription size="sm">
                 Для этого условия в подключённых источниках не указана
                 подтверждённая стоимость энергии.
-              </p>
+              </CardDescription>
             ) : (
               <>
-                <BaseCard variant="floor-data" className="requirement-calculator-option">
-                  <span className="requirement-calculator-option-icon" aria-hidden="true">⏱</span>
-                  <h3>Вариант 1: ждать энергию</h3>
-                  {energyPlan.remaining > 0 ? (
-                    <div className="requirement-calculator-recovery">
-                      <span>
-                        Восстановить{" "}
-                        <strong>{fmtEnergy(energyPlan.remaining)} ⚡</strong>
-                      </span>
-                      <strong className="requirement-calculator-recovery-time">
-                        {restoreTime(energyPlan.minutes)}
-                      </strong>
-                    </div>
-                  ) : (
-                    <p className="requirement-calculator-enough-energy">
-                      Текущего запаса энергии хватит.
-                    </p>
-                  )}
+                <BaseCard
+                  variant="floor-data"
+                  className="requirement-calculator-option"
+                >
+                  <div className="requirement-calculator-option-heading">
+                    <CardTitle as="h3" size="sm">
+                      Вариант 1: ждать энергию
+                    </CardTitle>
+                    <Icon
+                      type="timer"
+                      size="medium"
+                      className="requirement-calculator-option-icon"
+                    />
+                  </div>
+                  <Divider fullWidth />
+                  <div className="requirement-calculator-banknotes">
+                    <CardDescription size="sm">Итого</CardDescription>
+                    <CardTitle as="span" size="sm">
+                      {restoreTime(energyPlan.minutes)}
+                    </CardTitle>
+                  </div>
                 </BaseCard>
                 <BaseCard
                   variant="floor-data"
                   className="requirement-calculator-option requirement-calculator-option--purchase"
                 >
-                  <Icon
-                    type="banknote"
-                    className="requirement-calculator-option-icon"
-                  />
-                  <h3>Вариант 2: купить дефибрилляторы</h3>
+                  <div className="requirement-calculator-option-heading">
+                    <CardTitle as="h3" size="sm">
+                      Вариант 2: купить дефибрилляторы
+                    </CardTitle>
+                    <Icon
+                      type="banknote"
+                      className="requirement-calculator-option-icon"
+                    />
+                  </div>
+                  <Divider fullWidth />
                   <div
                     className="requirement-calculator-refills"
                     aria-label="Дефибрилляторы для восстановления энергии"
@@ -219,29 +275,50 @@ export function RequirementCalculatorDialog({ conditionDialog, onClose }) {
                     <div className="requirement-calculator-refill">
                       <DefibrillatorIcon variant="small" />
                       <span className="requirement-calculator-refill-copy">
-                        <strong>Малый</strong>
-                        <small>10% лимита</small>
+                        <CardTitle size="sm">Малый</CardTitle>
+                        <CardDescription size="2xs">10% лимита</CardDescription>
                       </span>
-                      <strong className="requirement-calculator-refill-count">
+                      <CardTitle
+                        as="span"
+                        size="sm"
+                        className="requirement-calculator-refill-count"
+                      >
                         ×{fmt(energyPlan.smallRefills)}
-                      </strong>
+                      </CardTitle>
                     </div>
                     <div className="requirement-calculator-refill">
                       <DefibrillatorIcon variant="large" />
                       <span className="requirement-calculator-refill-copy">
-                        <strong>Большой</strong>
-                        <small>100% лимита</small>
+                        <CardTitle size="sm">Большой</CardTitle>
+                        <CardDescription size="2xs">
+                          100% лимита
+                        </CardDescription>
                       </span>
-                      <strong className="requirement-calculator-refill-count">
+                      <CardTitle
+                        as="span"
+                        size="sm"
+                        className="requirement-calculator-refill-count"
+                      >
                         ×{fmt(energyPlan.largeRefills)}
-                      </strong>
+                      </CardTitle>
                     </div>
                   </div>
+                  <Divider fullWidth />
                   <div className="requirement-calculator-banknotes">
-                    <span>Итого</span>
-                    <span className="requirement-calculator-banknotes-value">
-                      <strong>{fmt(energyPlan.banknotes)}</strong> купюр
-                    </span>
+                    <CardDescription size="sm">Итого</CardDescription>
+                    <CardDescription
+                      size="sm"
+                      className="requirement-calculator-banknotes-value"
+                    >
+                      <CardTitle
+                        as="span"
+                        size="sm"
+                        className="requirement-calculator-inline"
+                      >
+                        {fmt(energyPlan.banknotes)}
+                      </CardTitle>{" "}
+                      купюр
+                    </CardDescription>
                   </div>
                 </BaseCard>
               </>

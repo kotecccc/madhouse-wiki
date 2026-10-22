@@ -1,5 +1,4 @@
 import "./ContentSection.css";
-import "./ContentSection.css";
 
 export function ContentSection({ className = "", ...props }) {
   return (

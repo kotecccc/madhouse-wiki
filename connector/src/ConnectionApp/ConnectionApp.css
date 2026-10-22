@@ -25,17 +25,17 @@ body.connector-page::before {
 }
 .connection-step-intro {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-8);
 }
 .connection-step-intro > p {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
 }
 .connection-step-title {
   color: var(--paper-bright);
-  font-size: 17px;
-  line-height: 1.25;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-tight);
 }
 .connection-step-panel {
   display: grid;
@@ -45,8 +45,8 @@ body.connector-page::before {
   display: grid;
   gap: var(--space-8);
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
 }
 .connection-explanation strong {
   color: var(--paper-bright);
@@ -65,23 +65,23 @@ body.connector-page::before {
 }
 .connection-form {
   color: var(--paper-bright);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .connection-form label {
   color: var(--paper-bright);
-  line-height: 1.4;
+  line-height: var(--line-height-normal);
 }
 .connection-form small {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
 }
 .connection-form input {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  min-height: 44px;
+  min-height: var(--touch-target-size);
   padding: var(--space-12);
   background: var(--bg);
   color: var(--paper-bright);
@@ -100,7 +100,7 @@ body.connector-page::before {
   display: grid;
   justify-items: center;
   gap: var(--space-16);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-align: center;
 }
 .connection-qr img {
@@ -110,5 +110,5 @@ body.connector-page::before {
 }
 .connection-error {
   color: var(--red-bright);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }

@@ -122,7 +122,7 @@ export function getBossGroups(floorCode) {
   )) {
     const department = departmentById[boss.departmentId];
     const label = department
-      ? department.code + (department.name ? " · " + department.name : "")
+      ? department.code + (department.name ? " • " + department.name : "")
       : "Отделение не указано";
     (groups[label] ||= []).push(boss);
   }

@@ -1,0 +1,16 @@
+.variant-export,
+.variant-export-field {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.variant-export-field {
+  gap: var(--space-4);
+}
+
+.variant-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}

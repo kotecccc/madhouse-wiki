@@ -1,3 +1,5 @@
+import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
+import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
 import "./BusinessCard.css";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -8,42 +10,64 @@ import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
 
 export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
+  const fields = [
+    { id: "name", label: "Название бизнеса", value: business.title },
+    { id: "income", label: "Доход", value: "Доход не указан" },
+  ];
   return (
-    <BaseCard variant="floor-data" as="li" className="floor-business-card">
-      <ImageCard
-        className="floor-business-icon"
-        size="var(--business-image-size)"
-        imageSize="var(--business-image-content-size)"
-        label={`Бизнес: ${business.title}`}
+    <CardEditScope scope={`business:${business.id}`}>
+      <BaseCard
+        editKey="card"
+        variant="floor-data"
+        as="li"
+        className="floor-business-card"
       >
-        <Icon type="business" />
-      </ImageCard>
-      <div className="floor-business-copy">
-        <CardTitle className="floor-work-business-name">
-          {business.title}
-        </CardTitle>
-        <CardDescription as="small" className="floor-business-income">
-          Доход не указан
-        </CardDescription>
-      </div>
-      <Button
-        variant="card-action"
-        icon="levels"
-        title="Уровни бизнеса"
-        className="business-upgrade-open"
-        disabled={!upgrade}
-        aria-label={`Требования по предметам для бизнеса «${business.title}»`}
-        onClick={() => {
-          trackProductEvent("business_upgrades_open", {
-            section: "businesses",
-            feature: "business_upgrades",
-            subject: business.id,
-          });
-          onUpgradeSelect({ business, upgrade });
-        }}
-      >
-        <span>Уровни</span>
-      </Button>
-    </BaseCard>
+        <ImageCard
+          editKey="image"
+          className="floor-business-icon"
+          size="var(--business-image-size)"
+          imageSize="var(--business-image-content-size)"
+          label={`Бизнес: ${business.title}`}
+        >
+          <Icon type="business" />
+        </ImageCard>
+        <EditableLayout editKey="copy-layout" className="floor-business-copy">
+          <CardTitle
+            composition={{ fields, defaultFields: ["name"] }}
+            editKey="title"
+            className="floor-work-business-name"
+          >
+            {business.title}
+          </CardTitle>
+          <CardDescription
+            composition={{ fields, defaultFields: ["income"] }}
+            editKey="income"
+            as="small"
+            className="floor-business-income"
+          >
+            Доход не указан
+          </CardDescription>
+        </EditableLayout>
+        <Button
+          editKey="action"
+          variant="card-action"
+          icon="levels"
+          title="Уровни бизнеса"
+          className="business-upgrade-open"
+          disabled={!upgrade}
+          aria-label={`Требования по предметам для бизнеса «${business.title}»`}
+          onClick={() => {
+            trackProductEvent("business_upgrades_open", {
+              section: "businesses",
+              feature: "business_upgrades",
+              subject: business.id,
+            });
+            onUpgradeSelect({ business, upgrade });
+          }}
+        >
+          Уровни
+        </Button>
+      </BaseCard>
+    </CardEditScope>
   );
 }

@@ -1,0 +1,22 @@
+.entity-editor,
+.entity-editor-field {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-8);
+}
+
+.entity-editor-inline,
+.entity-editor-token {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.entity-editor-inline {
+  flex-wrap: wrap;
+}
+
+.entity-editor-token {
+  justify-content: space-between;
+}

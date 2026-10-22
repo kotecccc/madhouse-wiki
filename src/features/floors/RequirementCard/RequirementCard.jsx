@@ -1,3 +1,4 @@
+import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
 import "./RequirementCard.css";
 import { useState } from "react";
 import { BusinessRequirementDialog } from "../../businesses/BusinessRequirementDialog/BusinessRequirementDialog.jsx";
@@ -14,9 +15,11 @@ import {
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
-import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
+import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
+import { EditableValue } from "../../../components/ui/CardEditing/EditableValue.jsx";
 
 export function RequirementCard({
   requirement: r,
@@ -32,6 +35,13 @@ export function RequirementCard({
   const business = r.targetBusinessId ? businessById[r.targetBusinessId] : null;
   const stashSet = r.targetStashSetId ? stashSetById[r.targetStashSetId] : null;
   const type = r.type;
+  const targetId =
+    r.targetBossId ??
+    r.targetDepartmentId ??
+    r.targetBusinessId ??
+    r.targetStashSetId ??
+    "none";
+  const requirementScope = `requirement:${work?.id ?? "unknown"}:${type || "unknown"}:${targetId}:${r.requiredLevel ?? r.required ?? "none"}`;
   const targetDepartment = getRequirementDepartment(r);
   const label = r.label || "Условие не указано";
   const img =
@@ -87,9 +97,20 @@ export function RequirementCard({
           : type === "business_level"
             ? work?.code || targetDepartment?.code || ""
             : label;
+  const fields = [
+    { id: "label", label: "Условие", value: label },
+    { id: "location", label: "Расположение", value: location },
+    { id: "amount", label: "Количество / уровень", value: amount },
+    {
+      id: "energy",
+      label: "Энергия",
+      value: energy == null ? "" : `Энергия ${fmt(energy)}`,
+    },
+  ];
   const content = (
     <>
       <ImageCard
+        editKey="image"
         src={img}
         alt={img ? iconAlt : ""}
         size="var(--requirement-image-size)"
@@ -97,16 +118,31 @@ export function RequirementCard({
       >
         {!img && <Icon type={iconType} />}
       </ImageCard>
-      <div className="requirement-card-copy">
-        <CardTitle>{label}</CardTitle>
-        <CardDescription as="small">{location}</CardDescription>
-      </div>
+      <EditableLayout editKey="copy-layout" className="requirement-card-copy">
+        <CardTitle
+          composition={{ fields, defaultFields: ["label"] }}
+          editKey="title"
+        >
+          {label}
+        </CardTitle>
+        <CardDescription
+          composition={{ fields, defaultFields: ["location"] }}
+          as="small"
+          editKey="description"
+        >
+          {location}
+        </CardDescription>
+      </EditableLayout>
       {type !== "department_open" && type !== "stash_medallion" && (
         <div className="requirement-card-visual">
           {energy != null ? (
             <>
-              <span className="requirement-work-total">{fmt(energy)} ⚡</span>
+              <span className="requirement-work-total">
+                <EditableValue editKey="energy">{fmt(energy)}</EditableValue>{" "}
+                <Icon type="energy" size="small" />
+              </span>
               <Button
+                editKey="action"
                 variant="card-action"
                 icon="calc"
                 type="button"
@@ -125,6 +161,7 @@ export function RequirementCard({
             </>
           ) : type === "business_level" ? (
             <Button
+              editKey="action"
               variant="card-action"
               icon="levels"
               title="Что собирать?"
@@ -151,7 +188,7 @@ export function RequirementCard({
                   : "Требуемое количество: " + amount
               }
             >
-              {amount}
+              <EditableValue editKey="amount">{amount}</EditableValue>
             </span>
           )}
         </div>
@@ -166,22 +203,27 @@ export function RequirementCard({
     </>
   );
 
-  return embedded ? (
-    <div
-      className={
-        "requirement-card requirement-card--embedded requirement-card-" +
-        (type || "unknown")
-      }
-    >
-      {content}
-    </div>
-  ) : (
-    <BaseCard
-      variant="floor-data"
-      as="li"
-      className={"requirement-card requirement-card-" + (type || "unknown")}
-    >
-      {content}
-    </BaseCard>
+  return (
+    <CardEditScope scope={requirementScope}>
+      {embedded ? (
+        <div
+          className={
+            "requirement-card requirement-card--embedded requirement-card-" +
+            (type || "unknown")
+          }
+        >
+          {content}
+        </div>
+      ) : (
+        <BaseCard
+          editKey="card"
+          variant="floor-data"
+          as="li"
+          className={"requirement-card requirement-card-" + (type || "unknown")}
+        >
+          {content}
+        </BaseCard>
+      )}
+    </CardEditScope>
   );
 }

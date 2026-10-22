@@ -10,7 +10,10 @@ export function LockIndicator({
   return (
     <span
       className={`lock-indicator ${className}`.trim()}
-      style={{ "--lock-indicator-size": typeof size === "number" ? `${size}px` : size }}
+      style={{
+        "--lock-indicator-size":
+          typeof size === "number" ? "var(--space-12)" : size,
+      }}
       role="img"
       aria-label={label}
       title={label}

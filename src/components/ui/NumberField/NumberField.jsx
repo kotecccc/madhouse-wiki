@@ -7,6 +7,8 @@ export function NumberField({
   hint,
   suffix,
   suffixClassName = "",
+  spacing = "normal",
+  size = "md",
   ...props
 }) {
   return (
@@ -14,13 +16,17 @@ export function NumberField({
       <FieldLabel htmlFor={id} hint={hint}>
         {label}
       </FieldLabel>
-      <div className="input-wrap">
+      <div
+        className={`input-wrap${spacing === "none" ? " input-wrap--none" : ""}`}
+      >
         <Input
           id={id}
           type="number"
           min="0"
           step="1"
           inputMode="numeric"
+          className="input-control--with-suffix"
+          size={size}
           {...props}
         />
         <span className={`input-suffix ${suffixClassName}`}>{suffix}</span>

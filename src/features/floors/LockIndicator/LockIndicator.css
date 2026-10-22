@@ -5,7 +5,7 @@
   height: var(--lock-indicator-size, 1em);
   align-items: center;
   justify-content: center;
-  color: var(--muted-gold, #c3ad82);
+  color: var(--muted-gold, var(--text-secondary));
   vertical-align: -0.08em;
 }
 

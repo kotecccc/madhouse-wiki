@@ -8,7 +8,7 @@
 }
 
 .floor-business-card {
-  grid-template-columns: var(--business-image-size) minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
   align-items: center;
 }
 
@@ -29,6 +29,6 @@
 }
 
 .floor-business-card {
-  --card-title-size: 12px;
-  --card-description-size: 9px;
+  --card-title-size: var(--font-size-xs);
+  --card-description-size: var(--font-size-2xs);
 }

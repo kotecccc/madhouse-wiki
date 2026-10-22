@@ -15,7 +15,7 @@
   align-items: center;
   justify-content: center;
   color: var(--paper-bright);
-  font: 15px var(--mono);
+  font: var(--font-size-md) var(--mono);
   white-space: nowrap;
 }
 
@@ -24,20 +24,20 @@
   align-items: center;
   justify-content: center;
   color: var(--paper-bright);
-  font: 15px var(--mono);
+  font: var(--font-size-md) var(--mono);
   white-space: nowrap;
 }
 
 .requirement-amount--level {
-  color: #cdbb96;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 650px) {
   .requirement-work-total {
-    font-size: 11px;
+    font-size: var(--font-size-xs);
   }
   .requirement-amount {
-    font-size: 11px;
+    font-size: var(--font-size-xs);
   }
   .requirement-card-visual {
     grid-column: 3;
@@ -55,41 +55,32 @@
 }
 
 .requirement-card {
-  grid-template-columns: var(--content-image-size) minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
   align-items: center;
 }
 
 @media (max-width: 650px) {
   .requirement-card {
-    grid-template-columns: var(--content-image-size) minmax(0, 1fr) auto;
+    grid-template-columns: max-content minmax(0, 1fr) auto;
     gap: var(--card-content-gap);
   }
   .requirement-card--embedded {
-    grid-template-columns: var(--content-image-size) minmax(0, 1fr) auto;
+    grid-template-columns: max-content minmax(0, 1fr) auto;
   }
 }
 
 .requirement-card {
-  --card-title-size: 12px;
-  --card-description-size: 9px;
+  --card-title-size: var(--font-size-xs);
+  --card-description-size: var(--font-size-2xs);
 }
 
 .requirement-card--embedded {
-  grid-template-columns: var(--content-image-size) minmax(0, 1fr) auto;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
 }
 
-.floor-opening-rows > .requirement-card--embedded + .requirement-card--embedded {
+.floor-opening-rows
+  > .requirement-card--embedded
+  + .requirement-card--embedded {
   padding-top: var(--space-8);
-  border-top: 1px solid rgba(212, 196, 163, 0.13);
+  border-top: 1px solid var(--line);
 }
-
-.requirement-card--embedded .image-card {
-  width: var(--requirement-image-size);
-  min-width: var(--requirement-image-size);
-  height: var(--requirement-image-size);
-}
-

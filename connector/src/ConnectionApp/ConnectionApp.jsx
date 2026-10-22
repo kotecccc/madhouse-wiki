@@ -1,11 +1,7 @@
 import { OtpCodeInput } from "../OtpCodeInput/OtpCodeInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../src/components/ui/Button/Button.jsx";
-import {
-  CHANNEL,
-  VERSION,
-  createMessageGate,
-} from "../../protocol.js";
+import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { createConnection } from "../../session.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
@@ -94,8 +90,7 @@ function normalizePhone(value) {
   const phone = String(value || "")
     .trim()
     .replace(/[\s().-]/g, "");
-  if (!/^\+[1-9]\d{6,14}$/.test(phone))
-    throw new Error("PHONE_NUMBER_INVALID");
+  if (!/^\+[1-9]\d{6,14}$/.test(phone)) throw new Error("PHONE_NUMBER_INVALID");
   return phone;
 }
 
@@ -670,40 +665,38 @@ export function ConnectionApp() {
               «Настройки → Устройства → Подключить устройство».
             </p>
             <p>
-              После авторизации Wiki сможет сама восстанавливать игровую
-              сессию, без ручного копирования токенов.
+              После авторизации Wiki сможет сама восстанавливать игровую сессию,
+              без ручного копирования токенов.
             </p>
           </div>
-          {stage === "wrong-account" ? (
-            !hostedControls && (
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => uiActionHandler.current("logout")}
-              >
-                Отключить этот аккаунт
-              </Button>
-            )
-          ) : (
-            !hostedControls && (
-              <div className="connection-buttons">
-                <Button
-                  variant="primary"
-                  disabled={busy}
-                  onClick={() => uiActionHandler.current("choose-phone")}
-                >
-                  Войти по номеру
-                </Button>
+          {stage === "wrong-account"
+            ? !hostedControls && (
                 <Button
                   variant="secondary"
                   disabled={busy}
-                  onClick={() => uiActionHandler.current("choose-qr")}
+                  onClick={() => uiActionHandler.current("logout")}
                 >
-                  Войти по QR
+                  Отключить этот аккаунт
                 </Button>
-              </div>
-            )
-          )}
+              )
+            : !hostedControls && (
+                <div className="connection-buttons">
+                  <Button
+                    variant="primary"
+                    disabled={busy}
+                    onClick={() => uiActionHandler.current("choose-phone")}
+                  >
+                    Войти по номеру
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => uiActionHandler.current("choose-qr")}
+                  >
+                    Войти по QR
+                  </Button>
+                </div>
+              )}
         </section>
       )}
       {interactive && stage === "phone" && (
@@ -717,9 +710,8 @@ export function ConnectionApp() {
             run(async () => {
               const normalizedPhone = normalizePhone(phone);
               setPhone(normalizedPhone);
-              phoneHash.current = await connection.current.phoneCode(
-                normalizedPhone,
-              );
+              phoneHash.current =
+                await connection.current.phoneCode(normalizedPhone);
               if (phoneHash.current) {
                 const stored = savePendingLogin(request.data.expectedUserId, {
                   phone: normalizedPhone,
@@ -765,7 +757,9 @@ export function ConnectionApp() {
               value = code;
             setCode("");
             run(async () => {
-              if (await connection.current.signIn(phone, phoneHash.current, value)) {
+              if (
+                await connection.current.signIn(phone, phoneHash.current, value)
+              ) {
                 clearPendingLogin(request.data.expectedUserId);
                 phoneHash.current = null;
                 await complete(request);

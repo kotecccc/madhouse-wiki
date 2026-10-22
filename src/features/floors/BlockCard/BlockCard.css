@@ -1,0 +1,36 @@
+.block-card-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  cursor: pointer;
+  list-style: none;
+}
+
+.block-card-summary::-webkit-details-marker {
+  display: none;
+}
+
+.block-card-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-4);
+}
+
+.block-card-sections,
+.block-card-section,
+.block-card-list {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-12);
+}
+
+.block-card-sections {
+  margin-top: var(--space-16);
+}
+
+.block-card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

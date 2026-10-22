@@ -1,0 +1,25 @@
+.boss-editor-toolbar,
+.boss-editor-inline,
+.boss-editor-popup-heading,
+.boss-editor-token-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.boss-editor-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.boss-editor-popup-heading,
+.boss-editor-token-row {
+  justify-content: space-between;
+}
+
+.boss-editor-visibility {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}

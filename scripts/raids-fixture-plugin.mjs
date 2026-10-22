@@ -1,18 +1,21 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   parseRaidPageQuery,
   raidFeedPage,
 } from "./telegram/raid-feed-page.mjs";
 
-// Explicit development-only opt-in. Never bundles fixture data into the client.
+// Use an available local fixture for development. Never bundle it into the client.
+// MADHOUSE_RAIDS_FIXTURE=0 opts out; =1 requires the fixture to exist.
 export function raidsFixturePlugin(root) {
   return {
     name: "local-raids-fixture",
     apply: "serve",
     configureServer(server) {
-      if (process.env.MADHOUSE_RAIDS_FIXTURE !== "1") return;
+      if (process.env.MADHOUSE_RAIDS_FIXTURE === "0") return;
       const file = resolve(root, "artifacts/development/raids-production.json");
+      if (!existsSync(file) && process.env.MADHOUSE_RAIDS_FIXTURE !== "1")
+        return;
       const data = JSON.parse(readFileSync(file, "utf8"));
       if (!Array.isArray(data.posts))
         throw new Error("Invalid local raid fixture");

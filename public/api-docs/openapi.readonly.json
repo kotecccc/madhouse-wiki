@@ -97,9 +97,7 @@
       "get": {
         "summary": "Сводка моих достижений",
         "description": "Возвращает категории достижений, число открытых достижений и показатели очков текущего игрока. Для подробного списка одной категории используйте /api/achievements/{category}.",
-        "tags": [
-          "Достижения"
-        ],
+        "tags": ["Достижения"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -164,18 +162,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/bank/packages": {
       "get": {
         "summary": "Доступные пакеты в банке",
         "description": "Показывает предложения банка, категории и ограничения, связанные со звёздами. Состав выдачи может зависеть от текущего этапа игрока; метод используется для просмотра предложений.",
-        "tags": [
-          "Банк"
-        ],
+        "tags": ["Банк"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -269,18 +263,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/bosses/invitations": {
       "get": {
         "summary": "Приглашения в бои с боссами",
         "description": "Возвращает приглашения текущего игрока в бои с боссами. Параметры direction и status позволяют выбрать направление и состояние приглашений; просмотр приглашения не означает его принятие.",
-        "tags": [
-          "Боссы и бои с боссами"
-        ],
+        "tags": ["Боссы и бои с боссами"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -439,18 +429,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/bosses/statistics": {
       "get": {
         "summary": "Моя статистика по боссам",
         "description": "Возвращает статистику текущего игрока по боссам. Используйте её для просмотра результатов участия в боях и записей по отдельным боссам.",
-        "tags": [
-          "Боссы и бои с боссами"
-        ],
+        "tags": ["Боссы и бои с боссами"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -498,18 +484,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clans/me": {
       "get": {
         "summary": "Мой клан, членство, заявки и приглашения",
         "description": "Возвращает сведения о клане текущего игрока, его членстве, заявках, приглашениях и правилах. Если членства нет, соответствующие данные могут отсутствовать или быть пустыми.",
-        "tags": [
-          "Кланы"
-        ],
+        "tags": ["Кланы"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -815,18 +797,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clothing": {
       "get": {
         "summary": "Каталог одежды и состояние игрока",
         "description": "Показывает каталог одежды вместе с данными текущего игрока в этом разделе. Для списка предметов одной категории используйте /api/clothing/by-category/{id}.",
-        "tags": [
-          "Одежда"
-        ],
+        "tags": ["Одежда"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -3152,18 +3130,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clothing/by-category/{id}": {
       "get": {
         "summary": "Одежда выбранной категории",
         "description": "Возвращает предметы одежды одной категории и сведения игрока. id — идентификатор категории одежды; клиент использует категории от 1 до 9.",
-        "tags": [
-          "Одежда"
-        ],
+        "tags": ["Одежда"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -3720,18 +3694,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clothing/items/mutagens/available": {
       "get": {
         "summary": "Предметы одежды для работы с мутагенами",
         "description": "Показывает предметы одежды, доступные в разделе установки мутагенов. Используйте список для просмотра соответствующих предметов и доступных данных об установке.",
-        "tags": [
-          "Одежда"
-        ],
+        "tags": ["Одежда"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -3786,18 +3756,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clothing/items/mutagens/installed": {
       "get": {
         "summary": "Установленные на одежде мутагены",
         "description": "Возвращает предметы одежды с установленными мутагенами и их параметры. Если сервер возвращает стоимость установки или извлечения, она описывает доступное действие, а не выполненную операцию.",
-        "tags": [
-          "Одежда"
-        ],
+        "tags": ["Одежда"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -3913,18 +3879,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clothing/sets/{id}": {
       "get": {
         "summary": "Набор одежды",
         "description": "Возвращает сведения о выбранном наборе одежды. Передайте идентификатор набора из каталога одежды; он отличается от идентификатора отдельного предмета и категории.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Одежда"
-        ],
+        "tags": ["Одежда"],
         "x-evidence": "client-bundle",
         "responses": {
           "default": {
@@ -3961,9 +3923,7 @@
       "get": {
         "summary": "Сводка боёв между игроками",
         "description": "Показывает боевой рейтинг и энергию текущего игрока, список кандидатов, активный бой и боевые предметы. Позволяет просмотреть состояние боевого раздела без запуска боя и обновления кандидатов отдельным действием.",
-        "tags": [
-          "Бои между игроками"
-        ],
+        "tags": ["Бои между игроками"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -4183,18 +4143,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/daily-rewards/state": {
       "get": {
         "summary": "Состояние ежедневных наград",
         "description": "Показывает текущий день серии, список наград, доступность получения и время сброса. Используйте для просмотра серии и уже выполненного получения за день.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Ежедневные награды"
-        ],
+        "tags": ["Ежедневные награды"],
         "x-evidence": "client-bundle",
         "responses": {
           "default": {
@@ -4213,10 +4169,7 @@
                   "oneOf": [
                     {
                       "type": "object",
-                      "required": [
-                        "currentDay",
-                        "rewards"
-                      ],
+                      "required": ["currentDay", "rewards"],
                       "properties": {
                         "currentDay": {
                           "type": "integer",
@@ -4248,11 +4201,7 @@
                           "type": "array",
                           "items": {
                             "type": "object",
-                            "required": [
-                              "day",
-                              "kind",
-                              "amount"
-                            ],
+                            "required": ["day", "kind", "amount"],
                             "properties": {
                               "day": {
                                 "type": "integer",
@@ -4275,16 +4224,11 @@
                     },
                     {
                       "type": "object",
-                      "required": [
-                        "dailyReward"
-                      ],
+                      "required": ["dailyReward"],
                       "properties": {
                         "dailyReward": {
                           "type": "object",
-                          "required": [
-                            "currentDay",
-                            "rewards"
-                          ],
+                          "required": ["currentDay", "rewards"],
                           "properties": {
                             "currentDay": {
                               "type": "integer",
@@ -4316,11 +4260,7 @@
                               "type": "array",
                               "items": {
                                 "type": "object",
-                                "required": [
-                                  "day",
-                                  "kind",
-                                  "amount"
-                                ],
+                                "required": ["day", "kind", "amount"],
                                 "properties": {
                                   "day": {
                                     "type": "integer",
@@ -4358,9 +4298,7 @@
       "get": {
         "summary": "Правила и текущее состояние игры в кости",
         "description": "Возвращает стоимость старта, награды, прогрессию перебросов и данные активной игры. Также показывает кошелёк и прогресс текущего игрока в этом разделе.",
-        "tags": [
-          "Игра в кости"
-        ],
+        "tags": ["Игра в кости"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -4889,18 +4827,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/floors": {
       "get": {
         "summary": "Список этажей",
         "description": "Возвращает список этажей, используемый игровым клиентом. Найдите нужный этаж и используйте его код в запросах информации об этаже и рейтинга игроков.",
-        "tags": [
-          "Этажи"
-        ],
+        "tags": ["Этажи"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -5144,18 +5078,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/friends": {
       "get": {
         "summary": "Мои друзья",
         "description": "Возвращает страницу списка друзей текущего игрока. Для следующей страницы передайте nextCursor из ответа в параметр cursor; размер страницы задаётся limit.",
-        "tags": [
-          "Друзья"
-        ],
+        "tags": ["Друзья"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -5279,9 +5209,7 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ],
+        "x-observed-response-statuses": ["200"],
         "parameters": [
           {
             "name": "limit",
@@ -5313,9 +5241,7 @@
       "get": {
         "summary": "Входящие заявки в друзья",
         "description": "Показывает заявки, которые другие игроки отправили текущему аккаунту. Список поддерживает постраничную загрузку через limit и cursor.",
-        "tags": [
-          "Друзья"
-        ],
+        "tags": ["Друзья"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -5352,9 +5278,7 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ],
+        "x-observed-response-statuses": ["200"],
         "parameters": [
           {
             "name": "limit",
@@ -5386,9 +5310,7 @@
       "get": {
         "summary": "Исходящие заявки в друзья",
         "description": "Показывает заявки в друзья, отправленные текущим аккаунтом. Для продолжения списка используйте nextCursor предыдущей страницы.",
-        "tags": [
-          "Друзья"
-        ],
+        "tags": ["Друзья"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -5498,9 +5420,7 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ],
+        "x-observed-response-statuses": ["200"],
         "parameters": [
           {
             "name": "limit",
@@ -5532,9 +5452,7 @@
       "get": {
         "summary": "Мой профиль и состояние персонажа",
         "description": "Возвращает данные аккаунта, которому принадлежит токен: идентификаторы, имя, персонажа, энергию, кошелёк и характеристики. Используйте этот метод для проверки авторизации и получения собственного playerId для запросов с идентификатором игрока.",
-        "tags": [
-          "Мой профиль и сумка"
-        ],
+        "tags": ["Мой профиль и сумка"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -5871,18 +5789,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/me/bag": {
       "get": {
         "summary": "Содержимое моей сумки",
         "description": "Показывает бустеры, предметы активности, боевые предметы и активный эффект набора у текущего игрока. Подходит для просмотра имеющихся предметов и их состояния.",
-        "tags": [
-          "Мой профиль и сумка"
-        ],
+        "tags": ["Мой профиль и сумка"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -6015,18 +5929,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/mutagens/chests/state": {
       "get": {
         "summary": "Состояние сундуков мутагенов",
         "description": "Возвращает категории сундуков, их состояние и связанные сведения кошелька. Позволяет просмотреть текущие данные раздела сундуков.",
-        "tags": [
-          "Мутагены"
-        ],
+        "tags": ["Мутагены"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -6284,18 +6194,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/mutagens/exchange/state": {
       "get": {
         "summary": "Рецепты обмена мутагенов",
         "description": "Показывает доступные рецепты обмена выбранного типа мутагенов. Для type=W дополнительно включите параметр level и укажите уровень от 8 до 20; для других типов клиент его не отправляет.",
-        "tags": [
-          "Мутагены"
-        ],
+        "tags": ["Мутагены"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -6492,15 +6398,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": [
-                "I",
-                "A",
-                "F",
-                "X",
-                "S",
-                "Z",
-                "W"
-              ]
+              "enum": ["I", "A", "F", "X", "S", "Z", "W"]
             },
             "description": "Тип мутагена: I, A, F, X, S, Z или W. Выберите точное значение из списка.",
             "x-evidence": "client-request-validator"
@@ -6522,18 +6420,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/mutagens/state": {
       "get": {
         "summary": "Мутагены и рецепты выбранного типа",
         "description": "Возвращает мутагены, рецепты и связанные данные для типа type. Значение нужно выбрать из I, A, F, X, S, Z или W; это обозначения типов, используемые игровым клиентом.",
-        "tags": [
-          "Мутагены"
-        ],
+        "tags": ["Мутагены"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -6832,33 +6726,21 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": [
-                "I",
-                "A",
-                "F",
-                "X",
-                "S",
-                "Z",
-                "W"
-              ]
+              "enum": ["I", "A", "F", "X", "S", "Z", "W"]
             },
             "description": "Тип мутагена: I, A, F, X, S, Z или W. Выберите точное значение из списка.",
             "x-evidence": "client-request-validator"
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/notifications": {
       "get": {
         "summary": "Мои уведомления",
         "description": "Возвращает страницу уведомлений и счётчики непрочитанного. Можно выбрать категорию и запросить только непрочитанные записи. Для продолжения списка передайте nextCursor в cursor.",
-        "tags": [
-          "Уведомления"
-        ],
+        "tags": ["Уведомления"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -7304,27 +7186,20 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": [
-                "friends",
-                "system"
-              ]
+              "enum": ["friends", "system"]
             },
             "description": "Ключ категории уведомлений. Оставьте выключенным для просмотра всех категорий."
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/notifications/settings": {
       "get": {
         "summary": "Мои настройки уведомлений",
         "description": "Показывает текущие переключатели уведомлений. Объект options связывает ключи настроек с их булевыми значениями.",
-        "tags": [
-          "Уведомления"
-        ],
+        "tags": ["Уведомления"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -7385,18 +7260,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/ornaments/sets/{id}": {
       "get": {
         "summary": "Набор украшений",
         "description": "Возвращает сведения о выбранном наборе украшений. Передайте идентификатор набора из игровых данных раздела украшений.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Украшения"
-        ],
+        "tags": ["Украшения"],
         "x-evidence": "client-bundle",
         "responses": {
           "default": {
@@ -7433,9 +7304,7 @@
       "get": {
         "summary": "Зоны набора украшений",
         "description": "Возвращает зоны, связанные с указанным набором украшений. id в этом маршруте обозначает набор, а не идентификатор отдельной зоны.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Украшения"
-        ],
+        "tags": ["Украшения"],
         "x-evidence": "client-bundle",
         "responses": {
           "default": {
@@ -7472,9 +7341,7 @@
       "get": {
         "summary": "Украшения выбранной зоны",
         "description": "Показывает украшения в указанной зоне. Используйте идентификатор зоны из данных раздела украшений; идентификаторы зон, наборов и отдельных элементов относятся к разным сущностям.",
-        "tags": [
-          "Украшения"
-        ],
+        "tags": ["Украшения"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -7626,18 +7493,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/pets/{id}": {
       "get": {
         "summary": "Питомец и его состояние у игрока",
         "description": "Показывает сведения о выбранном питомце и данные текущего игрока в этом разделе. Передайте идентификатор питомца из игровых данных персонажа.",
-        "tags": [
-          "Питомцы"
-        ],
+        "tags": ["Питомцы"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8034,18 +7897,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/player-interactions/booster-gifts/incoming": {
       "get": {
         "summary": "Входящие подарки с бустерами",
         "description": "Возвращает подарки с бустерами, адресованные текущему игроку. Позволяет просмотреть записи подарков до выполнения отдельного действия получения.",
-        "tags": [
-          "Подарки и помощь"
-        ],
+        "tags": ["Подарки и помощь"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8078,18 +7937,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/player-interactions/booster-requests/incoming": {
       "get": {
         "summary": "Входящие просьбы о бустере",
         "description": "Показывает просьбы других игроков о помощи бустером, адресованные текущему аккаунту. limit ограничивает размер выдачи.",
-        "tags": [
-          "Подарки и помощь"
-        ],
+        "tags": ["Подарки и помощь"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8223,18 +8078,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/player-interactions/booster-requests/outgoing": {
       "get": {
         "summary": "Мои исходящие просьбы о бустере",
         "description": "Возвращает просьбы о помощи бустером, отправленные текущим игроком. Используйте для просмотра состояния своих обращений.",
-        "tags": [
-          "Подарки и помощь"
-        ],
+        "tags": ["Подарки и помощь"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8323,18 +8174,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/player-interactions/pill-gifts/today": {
       "get": {
         "summary": "Получатели моих подарков пилюль за сегодня",
         "description": "Показывает идентификаторы игроков, которым текущий аккаунт уже отправлял пилюли в текущем периоде, и время следующего сброса. Это сведения об отправках, а не список пилюль в кошельке.",
-        "tags": [
-          "Подарки и помощь"
-        ],
+        "tags": ["Подарки и помощь"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8371,18 +8218,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/player/customization/options": {
       "get": {
         "summary": "Варианты внешности персонажа",
         "description": "Возвращает идентификаторы доступных вариантов лица, причёски и цвета волос, их количество и значения по умолчанию. Эти идентификаторы описывают варианты внешности, а не идентификаторы игроков.",
-        "tags": [
-          "Внешность персонажа"
-        ],
+        "tags": ["Внешность персонажа"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8446,18 +8289,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/poker-game": {
       "get": {
         "summary": "Правила и текущее состояние покера",
         "description": "Показывает баланс фишек, параметры старта и покупки фишек, ограничения обменов и награды. В ответ также входят прогресс и активная игра текущего аккаунта.",
-        "tags": [
-          "Покер"
-        ],
+        "tags": ["Покер"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -8933,18 +8772,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/rooms": {
       "get": {
         "summary": "Каталог комнат и состояние игрока",
         "description": "Возвращает каталог комнат и сведения текущего игрока о них. Подходит для просмотра комнат и их параметров.",
-        "tags": [
-          "Комнаты"
-        ],
+        "tags": ["Комнаты"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -9334,18 +9169,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/stash/sets": {
       "get": {
         "summary": "Наборы, ингредиенты и запросы помощи",
         "description": "Показывает наборы и ингредиенты в разделе stash, а также предметы, по которым запрошена помощь. В ответе может присутствовать cdnBaseUrl для изображений и версия данных.",
-        "tags": [
-          "Наборы и ингредиенты"
-        ],
+        "tags": ["Наборы и ингредиенты"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -9671,18 +9502,14 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/weapons/{id}": {
       "get": {
         "summary": "Оружие и его состояние у игрока",
         "description": "Возвращает характеристики указанного оружия и связанные данные текущего игрока. id — идентификатор оружия, а не игрока или категории одежды.",
-        "tags": [
-          "Оружие"
-        ],
+        "tags": ["Оружие"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -10134,18 +9961,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/floors/{code}/leaderboard": {
       "get": {
         "summary": "Рейтинг игроков на этаже",
         "description": "Возвращает рейтинг для одного этажа. Передайте код этажа из списка /api/floors; состав и показатели участников смотрите в массиве players.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Этажи"
-        ],
+        "tags": ["Этажи"],
         "parameters": [
           {
             "name": "code",
@@ -10270,9 +10093,7 @@
       "get": {
         "summary": "Поиск игрока по ID или имени Telegram",
         "description": "Ищет игрока по числовому идентификатору или имени Telegram с префиксом @. Передайте значение в query без пробелов; поиск и отправка заявки в друзья — отдельные операции.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Друзья"
-        ],
+        "tags": ["Друзья"],
         "parameters": [
           {
             "name": "query",
@@ -10529,9 +10350,7 @@
       "get": {
         "summary": "Подсказки при поиске игроков",
         "description": "Возвращает варианты по началу имени. В prefix нужно не менее трёх символов без учёта начального @; limit ограничивает число результатов, cursor продолжает выдачу.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Друзья"
-        ],
+        "tags": ["Друзья"],
         "parameters": [
           {
             "name": "prefix",
@@ -10831,9 +10650,7 @@
       "get": {
         "summary": "Рейтинг кланов с пагинацией",
         "description": "Возвращает страницу рейтинга кланов. page начинается с 1, limit задаёт число записей на странице; клиент использует значения 1 и 30 по умолчанию.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Кланы"
-        ],
+        "tags": ["Кланы"],
         "parameters": [
           {
             "name": "page",
@@ -10885,9 +10702,7 @@
       "get": {
         "summary": "Поиск кланов",
         "description": "Ищет кланы по строке query длиной от 2 до 24 символов. Пробелы по краям строки клиент удаляет перед отправкой.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Кланы"
-        ],
+        "tags": ["Кланы"],
         "parameters": [
           {
             "name": "query",
@@ -10932,18 +10747,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "400"
-        ]
+        "x-observed-response-statuses": ["400"]
       }
     },
     "/api/clans/{clanId}/events": {
       "get": {
         "summary": "Журнал событий клана",
         "description": "Возвращает события указанного клана. day ограничивает выдачу выбранным днём, cursor продолжает список, limit задаёт размер страницы. Без day клиент запрашивает журнал без фильтра по дню.",
-        "tags": [
-          "Кланы"
-        ],
+        "tags": ["Кланы"],
         "parameters": [
           {
             "name": "clanId",
@@ -11313,18 +11124,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/bosses/battles/{battleId}": {
       "get": {
         "summary": "Состояние боя с боссом",
         "description": "Показывает уже существующий бой с боссом: статус, здоровье сторон, участников, урон, таймеры и сведения о награде. Передайте battleId именно боя с боссом, например из activeBattle в ответе метода босса.",
-        "tags": [
-          "Боссы и бои с боссами"
-        ],
+        "tags": ["Боссы и бои с боссами"],
         "parameters": [
           {
             "name": "battleId",
@@ -11922,18 +11729,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/players/{playerId}": {
       "get": {
         "summary": "Профиль выбранного игрока",
         "description": "Возвращает доступные текущему аккаунту сведения об игроке с указанным playerId. Идентификатор можно взять из своего профиля, списка друзей, поиска или рейтинга.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Профили игроков"
-        ],
+        "tags": ["Профили игроков"],
         "parameters": [
           {
             "name": "playerId",
@@ -11970,9 +11773,7 @@
       "get": {
         "summary": "Достижения выбранного игрока",
         "description": "Показывает доступные сведения о достижениях игрока по его playerId. Для собственной сводки с категориями и прогрессом используйте /api/achievements.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Профили игроков"
-        ],
+        "tags": ["Профили игроков"],
         "parameters": [
           {
             "name": "playerId",
@@ -12009,9 +11810,7 @@
       "get": {
         "summary": "Статистика выбранного игрока по боссам",
         "description": "Возвращает доступную текущему аккаунту статистику другого игрока по боссам. Для своей статистики используйте /api/bosses/statistics.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Профили игроков"
-        ],
+        "tags": ["Профили игроков"],
         "parameters": [
           {
             "name": "playerId",
@@ -12048,9 +11847,7 @@
       "get": {
         "summary": "Задания выбранного раздела",
         "description": "Возвращает задания раздела, его доступность и текущее задание игрока. Ответ помогает просмотреть условия и прогресс; получение награды выполняется отдельным действием, которого в этом Swagger нет.",
-        "tags": [
-          "Задания"
-        ],
+        "tags": ["Задания"],
         "parameters": [
           {
             "name": "section",
@@ -12186,18 +11983,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/stash/help-requests/{targetPlayerId}": {
       "get": {
         "summary": "Какие ингредиенты нужны выбранному игроку",
         "description": "Возвращает запросы помощи с ингредиентами для указанного игрока. targetPlayerId можно взять из списка друзей или профиля нужного игрока; просмотр списка не отправляет предметы.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Наборы и ингредиенты"
-        ],
+        "tags": ["Наборы и ингредиенты"],
         "parameters": [
           {
             "name": "targetPlayerId",
@@ -12234,9 +12027,7 @@
       "get": {
         "summary": "Состояние рассылки подарков пилюль",
         "description": "Возвращает сведения о ранее созданной рассылке подарков по её campaignId. Для этого запроса нужен существующий идентификатор рассылки, доступной текущему аккаунту.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Подарки и помощь"
-        ],
+        "tags": ["Подарки и помощь"],
         "parameters": [
           {
             "name": "campaignId",
@@ -12273,9 +12064,7 @@
       "get": {
         "summary": "Участники клана",
         "description": "Возвращает участников указанного клана. clanId можно взять из /api/clans/me, рейтинга или поиска кланов. Фактическая доступность сведений определяется сервером для текущего аккаунта.",
-        "tags": [
-          "Кланы"
-        ],
+        "tags": ["Кланы"],
         "parameters": [
           {
             "name": "clanId",
@@ -12387,18 +12176,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/clans/{clanId}/applications": {
       "get": {
         "summary": "Заявки на вступление в клан",
         "description": "Возвращает страницу заявок на вступление в указанный клан. Сервер может ограничивать просмотр в зависимости от членства и роли; используйте limit и cursor для загрузки списка.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Кланы"
-        ],
+        "tags": ["Кланы"],
         "parameters": [
           {
             "name": "clanId",
@@ -12826,9 +12611,7 @@
       "get": {
         "summary": "Состояние боя между игроками",
         "description": "Возвращает существующий бой между игроками: стороны, статус, ход, здоровье, таймеры и награду. Используйте идентификатор из боевого раздела /api/combat; идентификатор боя с боссом относится к другому методу.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Бои между игроками"
-        ],
+        "tags": ["Бои между игроками"],
         "parameters": [
           {
             "name": "battleId",
@@ -12947,18 +12730,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "404"
-        ]
+        "x-observed-response-statuses": ["404"]
       }
     },
     "/api/businesses/{businessId}": {
       "get": {
         "summary": "Бизнес и доступность действий для игрока",
         "description": "Показывает уровень бизнеса, доход и награды, параметры следующего улучшения и необходимые предметы. Также возвращает готовность к сбору, таймер и доступность действий для текущего игрока. businessId возьмите из businesses в сводке этажа.\n\nТочная структура успешного ответа для этого метода пока не подтверждена.",
-        "tags": [
-          "Бизнесы"
-        ],
+        "tags": ["Бизнесы"],
         "parameters": [
           {
             "name": "businessId",
@@ -13070,10 +12849,7 @@
                     "miniGame": {}
                   },
                   "additionalProperties": true,
-                  "required": [
-                    "id",
-                    "maxLevel"
-                  ]
+                  "required": ["id", "maxLevel"]
                 }
               }
             }
@@ -13095,9 +12871,7 @@
       "get": {
         "summary": "Босс и состояние текущего игрока",
         "description": "Возвращает характеристики босса, требования к уровню, возможные награды и предметы. Дополнительно показывает состояние текущего игрока относительно босса, активный бой и число побед, если эти данные доступны.",
-        "tags": [
-          "Боссы и бои с боссами"
-        ],
+        "tags": ["Боссы и бои с боссами"],
         "x-evidence": "network-and-client-bundle",
         "responses": {
           "200": {
@@ -13802,18 +13576,14 @@
           }
         ],
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/leaderboard/damage": {
       "get": {
         "summary": "Недельный рейтинг по урону",
         "description": "Возвращает участников рейтинга по нанесённому урону и границы текущей недели. weekStartUtc обозначает начало периода, resetAtUtc — время его сброса.",
-        "tags": [
-          "Рейтинги"
-        ],
+        "tags": ["Рейтинги"],
         "responses": {
           "200": {
             "description": "weekStartUtc, resetAtUtc и таблица entries.",
@@ -13882,18 +13652,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/leaderboard/achievements": {
       "get": {
         "summary": "Рейтинг по достижениям",
         "description": "Возвращает рейтинг игроков по показателям достижений. Место и показатели каждого участника находятся в списке entries.",
-        "tags": [
-          "Рейтинги"
-        ],
+        "tags": ["Рейтинги"],
         "responses": {
           "200": {
             "description": "Список участников рейтинга entries.",
@@ -13954,18 +13720,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/leaderboard/combat": {
       "get": {
         "summary": "Боевой рейтинг игроков",
         "description": "Возвращает рейтинг игроков в боевом разделе. Используйте записи entries для просмотра мест и боевых показателей участников.",
-        "tags": [
-          "Рейтинги"
-        ],
+        "tags": ["Рейтинги"],
         "responses": {
           "200": {
             "description": "Список участников рейтинга entries.",
@@ -14026,18 +13788,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/leaderboard/experience": {
       "get": {
         "summary": "Рейтинг по опыту",
         "description": "Возвращает рейтинг игроков по опыту. Показатели и место игрока представлены в записях entries.",
-        "tags": [
-          "Рейтинги"
-        ],
+        "tags": ["Рейтинги"],
         "responses": {
           "200": {
             "description": "Список участников рейтинга entries.",
@@ -14098,18 +13856,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/leaderboard/clans": {
       "get": {
         "summary": "Недельный рейтинг кланов",
         "description": "Показывает рейтинг кланов текущей недели, информацию о наградах и результаты предыдущей недели. Временные поля возвращаются в UTC.",
-        "tags": [
-          "Рейтинги"
-        ],
+        "tags": ["Рейтинги"],
         "responses": {
           "200": {
             "description": "weekStartUtc, resetAtUtc, entries, rewards и previousWeek.",
@@ -14255,18 +14009,14 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/floors/{code}/info": {
       "get": {
         "summary": "Сводка этажа и состояние игрока",
         "description": "Возвращает бизнесы и отделения выбранного этажа, показатели дохода, готовность к сбору и сведения о лидере этажа. В ответ также входят показатели текущего игрока и данные дани, если сервер их предоставляет.",
-        "tags": [
-          "Этажи"
-        ],
+        "tags": ["Этажи"],
         "parameters": [
           {
             "name": "code",
@@ -14639,17 +14389,13 @@
         },
         "x-evidence": "network-and-client-bundle",
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     },
     "/api/achievements/{category}": {
       "get": {
         "summary": "Мои достижения в категории",
-        "tags": [
-          "Достижения"
-        ],
+        "tags": ["Достижения"],
         "description": "Показывает достижения одной категории, условия, прогресс и состояние открытия. Выберите category из перечисленных значений или из ответа сводки достижений.",
         "x-evidence": "network-and-client-bundle",
         "parameters": [
@@ -14801,9 +14547,7 @@
           }
         },
         "x-response-evidence": "network-response-shape",
-        "x-observed-response-statuses": [
-          "200"
-        ]
+        "x-observed-response-statuses": ["200"]
       }
     }
   },

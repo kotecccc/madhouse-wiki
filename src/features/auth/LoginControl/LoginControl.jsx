@@ -14,6 +14,9 @@ import {
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
+import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
+import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
+import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { Input } from "../../../components/ui/Input/Input.jsx";
 import { TokenBookmarklet } from "./TokenBookmarklet.jsx";
@@ -206,69 +209,65 @@ export function LoginControl() {
   return (
     <>
       <div className="login-control" ref={controlRef}>
-        <Button
-          variant={activeProfile ? "secondary" : "primary"}
-          className={activeProfile ? "profile-control" : undefined}
-          aria-label={
-            activeProfile ? `Профиль: ${activeProfile.name}` : undefined
-          }
-          aria-expanded={authenticated ? open : undefined}
-          aria-controls={authenticated && open ? "profile-session" : undefined}
-          onClick={() => {
-            if (!authenticated) {
+        {activeProfile ? (
+          <BaseCard
+            as="button"
+            type="button"
+            padding="4"
+            className="profile-control"
+            aria-label={`Профиль: ${activeProfile.name}`}
+            aria-expanded={authenticated ? open : undefined}
+            aria-controls={
+              authenticated && open ? "profile-session" : undefined
+            }
+            onClick={() => {
+              if (authenticated && !open) refreshProfileRef.current();
+              setOpen((value) => !value);
+            }}
+          >
+            <ImageCard
+              as="span"
+              src={activeProfile.avatarUrl}
+              alt=""
+              size={32}
+              imageSize={32}
+              className="profile-avatar"
+            >
+              {activeProfile.name
+                .replace(/^\[[^\]]+\]\s*/, "")
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((part) => Array.from(part)[0])
+                .join("")
+                .toUpperCase()}
+            </ImageCard>
+            <span className="profile-copy">
+              <CardTitle as="span" size="xs" className="profile-name">
+                {activeProfile.name}
+              </CardTitle>
+              <CardDescription as="span" size="2xs" className="profile-status">
+                {activeProfile.username
+                  ? `@${activeProfile.username}`
+                  : "Профиль игрока"}
+              </CardDescription>
+            </span>
+            <span className="profile-chevron" aria-hidden="true">
+              <Icon type="chevron" size="small" />
+            </span>
+          </BaseCard>
+        ) : (
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => {
               setError("");
               setLoginMethod(TELEGRAM_CONNECTOR_ORIGIN ? "choose" : "token");
               setOpen(true);
-              return;
-            }
-            if (authenticated && !open) refreshProfileRef.current();
-            setOpen((value) => !value);
-          }}
-        >
-          {activeProfile ? (
-            <>
-              <span className="profile-avatar" aria-hidden="true">
-                {activeProfile.avatarUrl ? (
-                  <img
-                    src={activeProfile.avatarUrl}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                    onError={() =>
-                      setProfile((current) =>
-                        current?.avatarUrl === activeProfile.avatarUrl
-                          ? { ...current, avatarUrl: null }
-                          : current,
-                      )
-                    }
-                  />
-                ) : (
-                  activeProfile.name
-                    .replace(/^\[[^\]]+\]\s*/, "")
-                    .split(/\s+/)
-                    .slice(0, 2)
-                    .map((part) => Array.from(part)[0])
-                    .join("")
-                    .toUpperCase()
-                )}
-              </span>
-              <span className="profile-copy">
-                <span className="profile-name">{activeProfile.name}</span>
-                <span className="profile-status">
-                  {activeProfile.username
-                    ? `@${activeProfile.username}`
-                    : "Профиль игрока"}
-                </span>
-              </span>
-              <span className="profile-chevron" aria-hidden="true">
-                <Icon type="chevron" />
-              </span>
-            </>
-          ) : pendingLogin ? (
-            "Продолжить вход"
-          ) : (
-            "Войти"
-          )}
-        </Button>
+            }}
+          >
+            {pendingLogin ? "Продолжить вход" : "Войти"}
+          </Button>
+        )}
         {open && authenticated && (
           <BaseCard
             variant="popover"
@@ -309,7 +308,7 @@ export function LoginControl() {
               </>
             )}
             <p className="profile-session-expiry">
-              {label.split(" · ").map((line) => (
+              {label.split(" • ").map((line) => (
                 <span key={line}>{line}</span>
               ))}
             </p>

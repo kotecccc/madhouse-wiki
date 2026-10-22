@@ -6,6 +6,7 @@ import { CatalogueStore } from "./store.mjs";
 import { readKnowledgeBase } from "./query.mjs";
 
 const GAME_ORIGIN = "https://cargohustle.online";
+const BOSS_ID = /^[1-9][0-9]{0,8}$/;
 const FLOOR_CODES = /^[A-O$]$/;
 const privateHeaders = { "Cache-Control": "private, no-store, max-age=0" };
 const publicData = (kb) => ({
@@ -56,7 +57,10 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
     );
   }
 
-  async function getCatalogue() {
+  async function getCatalogue(request) {
+    const bossId = new URL(request.url).searchParams.get("bossId");
+    if (bossId !== null && !BOSS_ID.test(bossId))
+      return json({ error: "invalid_request" }, 400);
     let downloaded;
     let stage = "read_store";
     try {
@@ -75,6 +79,10 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
         });
       stage = "read_model";
       const kb = readKnowledgeBase(process.cwd(), downloaded.file);
+      if (bossId !== null) {
+        const boss = kb.bosses.find((boss) => String(boss.apiId) === bossId);
+        return boss ? json({ boss }) : json({ error: "boss_not_found" }, 404);
+      }
       stage = "open_database";
       const db = new DatabaseSync(downloaded.file, { readOnly: true });
       stage = "read_completeness";
@@ -206,9 +214,97 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
     }
   }
 
+  async function syncBoss(request, bossId) {
+    const authorization = safeAuthorization(request);
+    if (!authorization) return json({ error: "unauthorized" }, 401);
+    if (!BOSS_ID.test(String(bossId)))
+      return json({ error: "invalid_request" }, 400);
+    const id = String(bossId);
+    let downloaded;
+    let directory;
+    let store;
+    let stage = "read_store";
+    try {
+      downloaded = await storeBlob.download();
+      directory = downloaded?.mutable
+        ? null
+        : await mkdtemp(join(tmpdir(), "madhouse-boss-reference-"));
+      const database = downloaded?.mutable
+        ? downloaded.file
+        : join(directory, "madhouse.sqlite");
+      if (!downloaded?.mutable)
+        await copyFile(
+          downloaded?.file || join(root, "local-data/madhouse.sqlite"),
+          database,
+        );
+      stage = "open_database";
+      store = new CatalogueStore(root, database);
+      const findBoss = () =>
+        readKnowledgeBase(root, database).bosses.find(
+          (boss) => String(boss.apiId) === id,
+        );
+      let boss = findBoss();
+      if (!boss) return json({ error: "boss_not_found" }, 404);
+      if (boss.rewardPreviewCaptured) return json({ boss, cached: true });
+      stage = "fetch_boss_reference";
+      const result = await fetchJson(`/api/bosses/${id}`, authorization);
+      if (result.status !== 200)
+        return json(
+          {
+            error: "boss_reference_unavailable",
+            upstreamStatus: result.status,
+          },
+          [401, 403, 429].includes(result.status) ? result.status : 502,
+        );
+      if (!result.data || String(result.data.id) !== id)
+        return json({ error: "invalid_boss_reference" }, 502);
+      store.capture(`/api/bosses/${id}`, 200, result.data);
+      // Successful lookup, including an explicit missing preview, is durable.
+      // Do not repeat a game API request because all currencies happen to be null.
+      store.db
+        .prepare("INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)")
+        .run(`boss_reward_preview:v1:${id}`, "1");
+      store.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      boss = findBoss();
+      store.close();
+      store = null;
+      stage = "persist_catalogue";
+      if (!downloaded?.mutable)
+        await storeBlob.upload(database, downloaded?.etag ?? null);
+      return json({ boss, cached: false });
+    } catch {
+      return json({ error: "boss_reference_sync_unavailable", stage }, 503);
+    } finally {
+      store?.close();
+      if (directory) await rm(directory, { recursive: true, force: true });
+      if (downloaded?.directory)
+        await rm(downloaded.directory, { recursive: true, force: true });
+    }
+  }
+  // Serialize catalogue writers in this runtime so concurrent openings share the
+  // persistent completion check and cannot overwrite each other's local changes.
+  let writeTail = Promise.resolve();
   return async (request) => {
-    if (request.method === "GET") return getCatalogue();
-    if (request.method === "POST") return syncFloor(request);
+    if (request.method === "GET") return getCatalogue(request);
+    if (request.method === "POST") {
+      const task = writeTail.then(async () => {
+        let body;
+        try {
+          body = await request.clone().json();
+        } catch {
+          return json({ error: "invalid_request" }, 400);
+        }
+        if (
+          body &&
+          Object.keys(body).length === 1 &&
+          Object.hasOwn(body, "bossId")
+        )
+          return syncBoss(request, body.bossId);
+        return syncFloor(request);
+      });
+      writeTail = task.catch(() => {});
+      return task;
+    }
     return json({ error: "method_not_allowed" }, 405);
   };
 }

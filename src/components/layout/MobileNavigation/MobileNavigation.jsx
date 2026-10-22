@@ -4,8 +4,8 @@ import { Icon } from "../../ui/Icon/Icon.jsx";
 import "./MobileNavigation.css";
 
 const screens = [
-  { id: "overview", label: "Обзор", icon: "levels" },
   { id: "floors", label: "Этажи", icon: "floor" },
+  { id: "overview", label: "Главная", icon: "character" },
   { id: "raids", label: "Рейды", icon: "combat" },
 ];
 
@@ -32,7 +32,7 @@ export function MobileNavigation({
           aria-controls={`screen-${id}`}
           onClick={() => onScreenChange(id)}
         >
-          <Icon type={icon} size="medium" />
+          <Icon type={icon} size="large" />
           <span>{label}</span>
         </Button>
       ))}

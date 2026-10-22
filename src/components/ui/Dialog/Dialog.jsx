@@ -8,7 +8,18 @@ let restorePageScroll;
 function lockPageScroll() {
   const lock = Symbol();
   if (modalScrollLocks.size === 0) {
-    const elements = [document.documentElement, document.body];
+    const elements = [
+      document.documentElement,
+      document.body,
+      ...document.querySelectorAll("[data-page-scroll]"),
+    ];
+    const html = document.documentElement;
+    const clearMobileScrollbarGutter =
+      window.matchMedia("(max-width: 650px)").matches;
+    const scrollbarGutter = {
+      value: html.style.getPropertyValue("scrollbar-gutter"),
+      priority: html.style.getPropertyPriority("scrollbar-gutter"),
+    };
     const previous = elements.map((element) => ({
       element,
       overflow: element.style.getPropertyValue("overflow"),
@@ -17,11 +28,22 @@ function lockPageScroll() {
     elements.forEach((element) =>
       element.style.setProperty("overflow", "hidden"),
     );
+    if (clearMobileScrollbarGutter)
+      html.style.setProperty("scrollbar-gutter", "auto");
     restorePageScroll = () => {
       previous.forEach(({ element, overflow, priority }) => {
         if (overflow) element.style.setProperty("overflow", overflow, priority);
         else element.style.removeProperty("overflow");
       });
+      if (clearMobileScrollbarGutter) {
+        if (scrollbarGutter.value)
+          html.style.setProperty(
+            "scrollbar-gutter",
+            scrollbarGutter.value,
+            scrollbarGutter.priority,
+          );
+        else html.style.removeProperty("scrollbar-gutter");
+      }
     };
   }
   modalScrollLocks.add(lock);
@@ -50,10 +72,7 @@ export function Dialog({
     if (modal && !dialog.open) dialog.showModal();
     const unlockScroll = modal ? lockPageScroll() : undefined;
     const autofocus = dialog.querySelector("[autofocus]");
-    (
-      autofocus ||
-      (modal ? dialog : dialog.querySelector("button"))
-    )?.focus({
+    (autofocus || (modal ? dialog : dialog.querySelector("button")))?.focus({
       preventScroll: true,
     });
     return () => {

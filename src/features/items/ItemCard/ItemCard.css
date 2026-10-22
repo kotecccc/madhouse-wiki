@@ -11,7 +11,9 @@
   min-width: 0;
 }
 .item-card--with-stats {
-  grid-template-columns: var(--content-image-size) minmax(0, 1fr) fit-content(42%);
+  grid-template-columns: var(--content-image-size) minmax(0, 1fr) fit-content(
+      42%
+    );
 }
 .item-card-effects {
   display: grid;
@@ -26,7 +28,7 @@
   flex-wrap: wrap;
   gap: var(--space-4) var(--space-12);
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: var(--card-line-height);
 }
 .item-card-stats > div,
@@ -58,6 +60,6 @@
   }
   .item-card-stats,
   .item-card-prices {
-    font-size: 10px;
+    font-size: var(--font-size-2xs);
   }
 }

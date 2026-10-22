@@ -1,34 +1,3 @@
-.raid-event-summary {
-  align-self: start;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: var(--space-4);
-  row-gap: var(--space-4);
-}
-
-.raid-card .card-title {
-  padding-right: 100px;
-}
-
-.raid-card .boss-card-main {
-  width: calc(100% - 158px);
-}
-
-.raid-event-meta {
-  position: absolute;
-  top: var(--card-padding);
-  right: var(--card-padding);
-}
-
-.raid-event-statuses {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-4);
-  max-width: 100%;
-}
-
 .raid-leader-name {
   display: block;
   min-width: 0;
@@ -36,6 +5,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.raid-leader-group {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
 }
 
 .raid-leader-control {
@@ -47,88 +25,8 @@
   gap: var(--space-4);
 }
 
-.raid-leader-control > .raid-leader-copy {
-  flex: 0 0 auto;
-  width: 1em;
-  height: 1em;
-  min-height: 0;
-  padding: 0;
-  font-size: inherit;
-  line-height: 1;
-}
-
-.raid-leader-control > .raid-leader-copy > .ui-icon {
-  width: 1em;
-  height: 1em;
-  flex-basis: 1em;
-}
-
-.raid-status {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-4) var(--space-8);
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  font-size: 9px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.raid-status-dot {
-  width: var(--space-6);
-  height: var(--space-6);
-  flex: 0 0 var(--space-6);
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.raid-status--scheduled,
-.raid-status--unknown {
-  color: var(--status-scheduled);
-  background: color-mix(in srgb, var(--status-scheduled) 8%, transparent);
-}
-
-.raid-status--active {
-  color: var(--status-active);
-  background: color-mix(in srgb, var(--status-active) 10%, transparent);
-}
-
-.raid-status--active .raid-status-dot {
-  animation: raid-status-dot-flicker 1.2s ease-in-out infinite;
-}
-
-@keyframes raid-status-dot-flicker {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-.raid-status--completed {
-  color: var(--status-completed);
-  background: color-mix(in srgb, var(--status-completed) 10%, transparent);
-}
-
-.raid-status--locked {
-  color: var(--red-bright);
-  background: color-mix(in srgb, var(--red-bright) 10%, transparent);
-}
-
 @media (max-width: 650px) {
-  .raid-card .card-title {
-    padding-right: 76px;
-  }
   .raid-leader-control {
     max-width: 160px;
-  }
-  .raid-status {
-    font-size: 8px;
-  }
-  .raid-status--locked {
-    gap: 0;
-    padding-inline: var(--space-4);
-  }
-  .raid-status--locked > span:last-child {
-    display: none;
   }
 }

@@ -197,16 +197,20 @@ export function formatExpiry(session, now = Date.now()) {
   if (session.status === "empty") return "Токен не добавлен";
   if (session.status === "invalid") return "Токен повреждён — замените его";
   if (session.status === "unavailable") return "Локальное хранилище недоступно";
-  const date = (value) =>
-    new Date(value).toLocaleString("ru-RU", {
+  const date = (value) => {
+    const parts = new Intl.DateTimeFormat("ru-RU", {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-      second: "2-digit",
-      timeZoneName: "short",
-    });
+      hourCycle: "h23",
+    }).formatToParts(new Date(value));
+    const fields = Object.fromEntries(
+      parts.map(({ type, value }) => [type, value]),
+    );
+    return `${fields.hour}:${fields.minute} ${fields.day}.${fields.month}.${fields.year}`;
+  };
   if (session.status === "expired") return `Истёк ${date(session.expiresAt)}`;
   if (session.status === "pending")
     return `Начнёт действовать ${date(session.notBefore)}`;
@@ -220,5 +224,5 @@ export function formatExpiry(session, now = Date.now()) {
         : seconds >= 60
           ? `${Math.ceil(seconds / 60)} мин.`
           : `${seconds} сек.`;
-  return `Истекает ${date(session.expiresAt)} · осталось ${remaining}`;
+  return `Истекает ${date(session.expiresAt)} • Осталось ${remaining}`;
 }

@@ -1,16 +1,16 @@
 .ui-dialog {
-  width: min(var(--dialog-width, 520px), 100% - 28px);
+  width: min(var(--dialog-width, 520px), calc(100% - 2 * var(--space-16)));
   max-width: none;
-  color: #ddd0b3;
-  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.72);
+  color: var(--text-primary);
 }
+
 .ui-dialog:not(.base-card) {
   padding: 0;
-  border: 1px solid rgba(212, 196, 163, 0.28);
-  border-radius: var(--dialog-radius, 7px);
-  background: var(--dialog-background, #211f1c);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
 }
+
 .ui-dialog::backdrop {
-  background: rgba(7, 7, 7, var(--dialog-backdrop-opacity, 0.78));
-  backdrop-filter: blur(var(--dialog-backdrop-blur, 3px));
+  background: var(--bg-deep);
 }

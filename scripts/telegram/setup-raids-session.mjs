@@ -10,7 +10,9 @@ if (!replace && (await store.exists()))
 function readHiddenPassword() {
   const input = process.stdin;
   if (!input.isTTY || typeof input.setRawMode !== "function")
-    throw new Error("Two-step verification requires a private interactive terminal.");
+    throw new Error(
+      "Two-step verification requires a private interactive terminal.",
+    );
   input.setEncoding("utf8");
   input.setRawMode(true);
   input.resume();

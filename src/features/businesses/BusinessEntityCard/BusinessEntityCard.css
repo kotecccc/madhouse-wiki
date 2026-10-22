@@ -1,0 +1,67 @@
+.business-entity-card {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.business-entity-card__copy {
+  display: grid;
+  grid-column: 2;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.business-entity-card__image {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.business-entity-card__action {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.business-entity-card__title,
+.business-entity-card__description {
+  min-width: 0;
+}
+
+.business-entity-card__requirements {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.business-entity-card__requirement {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.business-entity-card--upgrade .business-entity-card__copy {
+  grid-row: span 2;
+}
+
+@media (max-width: 40rem) {
+  .business-entity-card {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+
+  .business-entity-card__copy {
+    grid-column: 2;
+  }
+
+  .business-entity-card__action {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+}

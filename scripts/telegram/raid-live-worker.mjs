@@ -4,7 +4,10 @@ import { createRaidBlobStore } from "./raid-blob-store.mjs";
 import { reconcileRaidHistory } from "./raid-history-sync.mjs";
 import { createRaidSyncLock } from "./raid-sync-lock.mjs";
 import { createRaidTelegramClient } from "./raid-mtproto-client.mjs";
-import { parseRaidChannelPost, raidSourceChannelUsername } from "./raid-schedule-parser.mjs";
+import {
+  parseRaidChannelPost,
+  raidSourceChannelUsername,
+} from "./raid-schedule-parser.mjs";
 import { createRaidSessionStore } from "./raid-session-store.mjs";
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
@@ -25,7 +28,9 @@ function withTimeout(promise, timeoutMs, errorCode) {
 function toIso(value) {
   if (value == null) return new Date().toISOString();
   const date = value instanceof Date ? value : new Date(Number(value) * 1000);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+  return Number.isFinite(date.getTime())
+    ? date.toISOString()
+    : new Date().toISOString();
 }
 
 function isRaidSourceChannel(channel) {

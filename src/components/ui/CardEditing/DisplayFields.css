@@ -1,0 +1,28 @@
+.display-field-reward {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.display-fields {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.display-field-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.display-field-lines {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: start;
+  gap: var(--space-4);
+  max-width: 100%;
+  vertical-align: middle;
+}

@@ -1,0 +1,37 @@
+.work-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  min-width: 0;
+}
+
+.work-card-heading,
+.work-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.work-card-copy {
+  display: grid;
+  gap: var(--space-4);
+  flex: 1;
+  min-width: 0;
+}
+
+.work-card-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.work-card-energy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  white-space: nowrap;
+}
+
+.work-card-footer {
+  flex: 0 0 auto;
+}

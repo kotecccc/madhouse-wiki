@@ -1,0 +1,12 @@
+.ui-divider {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--card-border);
+  grid-column: 1 / -1;
+}
+
+.ui-divider--full-width {
+  width: auto;
+  margin-inline: calc(-1 * var(--card-padding));
+}

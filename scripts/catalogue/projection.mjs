@@ -161,6 +161,8 @@ export const projections = {
     maxFightDurationSeconds: scalar,
     maxParticipants: scalar,
     surrenderDollarCost: scalar,
+    // Boss reward preview only; never retain wallet balances or player state.
+    rewardPreview: { gold: scalar, pills: scalar, dollar: scalar },
     possibleDrops: [
       {
         ...identity,

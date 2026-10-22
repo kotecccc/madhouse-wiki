@@ -10,9 +10,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
+  gap: var(--space-4);
   transform: skew(-10deg);
-  border: 1px solid rgba(223, 90, 73, 0.65);
+  border: 1px solid var(--red-bright);
 }
 .brand-mark span {
   display: block;
@@ -27,17 +27,17 @@
   height: 9px;
 }
 .brand-name {
-  font: 500 12px var(--mono);
+  font: var(--font-weight-medium) var(--font-size-xs) var(--mono);
   letter-spacing: 0.15em;
   color: var(--paper-bright);
 }
 .brand-name b {
   color: var(--red-bright);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 @media (max-width: 650px) {
   .brand-name {
-    font-size: 10px;
+    font-size: var(--font-size-2xs);
   }
   .brand-mark {
     width: 24px;

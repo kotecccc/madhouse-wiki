@@ -11,7 +11,9 @@ export function TokenBookmarklet() {
       await navigator.clipboard.writeText(tokenBookmarklet);
       setCopyState("Код скопирован");
     } catch {
-      setCopyState("Не удалось скопировать код. Проверьте доступ к буферу обмена и повторите.");
+      setCopyState(
+        "Не удалось скопировать код. Проверьте доступ к буферу обмена и повторите.",
+      );
     }
   }
 
@@ -20,7 +22,11 @@ export function TokenBookmarklet() {
       <Button variant="secondary" onClick={copyCode}>
         Скопировать код закладки
       </Button>
-      {copyState && <p className="token-bookmarklet-status" role="status">{copyState}</p>}
+      {copyState && (
+        <p className="token-bookmarklet-status" role="status">
+          {copyState}
+        </p>
+      )}
     </div>
   );
 }

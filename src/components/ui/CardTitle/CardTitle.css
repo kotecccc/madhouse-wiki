@@ -8,10 +8,46 @@
   font-family: var(--sans);
   font-size: var(--card-title-size);
   font-style: normal;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.012em;
   line-height: var(--card-line-height);
   text-overflow: ellipsis;
   white-space: nowrap;
-  word-spacing: 0.07em;
+  word-spacing: 0.04em;
+}
+
+.card-title.card-title--2xs {
+  font-size: var(--font-size-2xs);
+}
+
+.card-title.card-title--xs {
+  font-size: var(--font-size-xs);
+}
+
+.card-title.card-title--sm {
+  font-size: var(--font-size-sm);
+}
+
+.card-title.card-title--md {
+  font-size: var(--font-size-md);
+}
+
+.card-title.card-title--lg {
+  font-size: var(--font-size-lg);
+}
+
+.card-title.card-title--xl {
+  font-size: var(--font-size-xl);
+}
+
+.card-title.card-title--2xl {
+  font-size: var(--font-size-2xl);
+}
+
+.card-title.card-title--3xl {
+  font-size: var(--font-size-3xl);
+}
+
+.card-title.card-title--display {
+  font-size: var(--font-size-display);
 }

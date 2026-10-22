@@ -1,9 +1,9 @@
 .eyebrow {
   display: flex;
   align-items: center;
-  gap: var(--space-10);
-  font: 9px var(--mono);
-  color: #aaa18f;
+  gap: var(--space-8);
+  font: var(--font-size-2xs) var(--mono);
+  color: var(--text-muted);
   letter-spacing: 0.16em;
 }
 
@@ -24,8 +24,8 @@
 .section-heading > p {
   max-width: 375px;
   margin: 0 0 var(--space-4);
-  color: #958e82;
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
   line-height: 1.85;
 }
 
@@ -39,17 +39,17 @@
 
 .boss-tools input,
 .boss-tools select {
-  min-height: 42px;
+  min-height: var(--control-height-md);
   padding: 0 var(--space-12);
-  border: 1px solid rgba(212, 196, 163, 0.2);
-  border-radius: 0;
-  background: #201e1a;
+  border: 1px solid var(--card-border);
+  border-radius: var(--control-radius);
+  background: var(--surface-raised);
   color: var(--paper-bright);
-  font: 11px var(--sans);
+  font: var(--font-size-xs) var(--sans);
 }
 
 .boss-tools input::placeholder {
-  color: #777064;
+  color: var(--text-muted);
 }
 
 .boss-tools input:focus,
@@ -59,8 +59,8 @@
 }
 
 .boss-count {
-  color: #8f887c;
-  font: 9px var(--mono);
+  color: var(--text-muted);
+  font: var(--font-size-2xs) var(--mono);
 }
 
 .boss-count {
@@ -74,7 +74,7 @@
 }
 @media (max-width: 650px) {
   .eyebrow {
-    font-size: 8px;
+    font-size: var(--font-size-2xs);
   }
   .section-heading {
     display: block;
@@ -82,10 +82,10 @@
   }
   .section-heading > p {
     margin-top: var(--space-16);
-    font-size: 11px;
+    font-size: var(--font-size-xs);
   }
   .section-heading .title--h2 {
-    font-size: 36px;
+    font-size: var(--font-size-3xl);
   }
   .boss-tools {
     grid-template-columns: 1fr auto;
@@ -100,12 +100,12 @@
 }
 
 .bosses-section {
-  padding-top: var(--space-56);
+  padding-top: var(--space-48);
 }
 
 .bosses-section .section-heading {
   align-items: center;
-  margin-bottom: var(--space-20);
+  margin-bottom: var(--space-24);
 }
 
 .boss-view-toggle {
@@ -113,8 +113,8 @@
   grid-template-columns: auto auto;
   align-items: center;
   gap: var(--space-4) var(--space-8);
-  color: #9a9181;
-  font-size: 10px;
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
 }
 
 .boss-view-toggle input {
@@ -124,8 +124,8 @@
 
 .boss-view-toggle small {
   grid-column: 2;
-  color: #6f695f;
-  font-size: 8px;
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
 }
 
 .boss-tools {
@@ -139,12 +139,12 @@
 .floor-page-button {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
   border: 1px solid var(--line);
-  background: #201e1a;
+  background: var(--surface-raised);
   color: var(--paper-bright);
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   cursor: pointer;
 }
 
@@ -161,13 +161,13 @@
 .boss-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-20);
+  gap: var(--space-24);
 }
 
 .boss-group > .title--h3 {
-  margin: 0 0 var(--space-10);
-  color: #bdb096;
-  font: 600 14px/1.3 var(--sans);
+  margin: 0 0 var(--space-8);
+  color: var(--text-secondary);
+  font: var(--font-weight-semibold) var(--font-size-sm)/1.3 var(--sans);
   letter-spacing: 0.01em;
 }
 
@@ -187,13 +187,13 @@
     gap: var(--space-12);
   }
   .bosses-section .section-heading .title--h2 {
-    font-size: 28px;
+    font-size: var(--font-size-2xl);
   }
   .boss-view-toggle {
-    font-size: 8px;
+    font-size: var(--font-size-2xs);
   }
   .boss-view-toggle small {
-    font-size: 7px;
+    font-size: var(--font-size-2xs);
   }
   .boss-group-cards {
     grid-template-columns: 1fr;

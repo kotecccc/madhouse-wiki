@@ -185,7 +185,7 @@ export function FeedbackWidget({ screen = "floors" }) {
               onChange={(event) => selectFile(event.target.files?.[0])}
               disabled={status.state === "loading" || status.state === "sent"}
             />
-            <small>JPEG, PNG или WebP · до 2 МБ</small>
+            <small>JPEG, PNG или WebP • до 2 МБ</small>
             {file && (
               <div className="feedback-selected-file">
                 <span>{file.name}</span>

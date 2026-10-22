@@ -1,0 +1,17 @@
+.display-field-picker {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.display-field-picker-row,
+.display-field-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.display-field-picker-row {
+  justify-content: space-between;
+}

@@ -126,9 +126,9 @@ export function createRaidBlobStore({
       return replaceRecords(records);
     },
     async remove(sourceMessageId, removedAt = new Date().toISOString()) {
-      return (await replaceRecords([
-        removalRecord(sourceMessageId, removedAt),
-      ])) > 0;
+      return (
+        (await replaceRecords([removalRecord(sourceMessageId, removedAt)])) > 0
+      );
     },
     removeMany(records) {
       return replaceRecords(

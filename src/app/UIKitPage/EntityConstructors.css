@@ -1,0 +1,72 @@
+.ui-kit-entity-list {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.ui-kit-entity-card {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.ui-kit-entity-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-16);
+}
+
+.ui-kit-entity-controls {
+  display: grid;
+  align-content: start;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.ui-kit-entity-field {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ui-kit-entity-control-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  min-width: 0;
+  padding: var(--space-8);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-control);
+}
+
+.ui-kit-entity-control-group legend {
+  padding: 0 var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.ui-kit-entity-preview {
+  display: grid;
+  align-content: start;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.ui-kit-entity-preview > .floor-group {
+  min-width: 0;
+}
+
+.ui-kit-entity-preview .floor-work-list {
+  padding-left: 0;
+}
+
+.ui-kit-business-preview {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .ui-kit-entity-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

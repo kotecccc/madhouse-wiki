@@ -10,17 +10,17 @@
   align-items: baseline;
   gap: var(--space-8) var(--space-12);
   color: var(--card-description-color);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .raid-archive-date time {
   color: var(--card-title-color);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .raid-event-list {
   display: grid;
-  gap: var(--space-12);
+  gap: var(--space-8);
   margin: 0;
   padding: 0;
   list-style: none;

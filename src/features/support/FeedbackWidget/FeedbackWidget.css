@@ -3,35 +3,24 @@
   z-index: 24;
   right: 0;
   bottom: max(18px, env(safe-area-inset-bottom, 0px));
-  width: 48px;
-  min-width: 48px;
-  height: 48px;
-  min-height: 48px;
+  width: var(--control-height-lg);
+  min-width: var(--control-height-lg);
+  height: var(--control-height-lg);
+  min-height: var(--control-height-lg);
   padding: 0;
-  border: 1px solid rgba(233, 222, 197, 0.14);
-  border-right: 0;
-  border-radius: 12px 0 0 12px;
   gap: 0;
-  color: var(--paper-bright);
-  background: rgba(17, 16, 15, 0.3);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
   transition:
     width var(--control-transition-duration) var(--control-transition-easing),
     min-width var(--control-transition-duration)
       var(--control-transition-easing),
     transform var(--control-transition-duration)
-      var(--control-transition-easing),
-    background var(--control-transition-duration)
       var(--control-transition-easing);
 }
 
-.feedback-floating-button.button-primary:hover,
-.feedback-floating-button.button-primary:focus-visible {
+.feedback-floating-button:hover,
+.feedback-floating-button:focus-visible {
   width: 162px;
   min-width: 162px;
-  background: rgba(17, 16, 15, 0.38);
 }
 
 .feedback-floating-button .button-label {
@@ -40,7 +29,6 @@
   margin-left: 0;
   overflow: hidden;
   opacity: 0;
-  font-size: 11px;
   white-space: nowrap;
   transition:
     width var(--control-transition-duration) var(--control-transition-easing),
@@ -52,7 +40,7 @@
 .feedback-floating-button:hover .button-label,
 .feedback-floating-button:focus-visible .button-label {
   width: 120px;
-  margin-left: 8px;
+  margin-left: var(--space-8);
   opacity: 1;
 }
 
@@ -60,14 +48,6 @@
   width: 18px;
   height: 18px;
   flex-basis: 18px;
-  color: var(--red-bright);
-  transition: transform var(--control-transition-duration)
-    var(--control-transition-easing);
-}
-
-.feedback-floating-button:hover > .ui-icon,
-.feedback-floating-button:focus-visible > .ui-icon {
-  transform: rotate(180deg);
 }
 
 .feedback-modal .shared-modal-content {
@@ -81,7 +61,7 @@
 
 .feedback-field-label {
   color: var(--paper-bright);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .feedback-message {
@@ -107,7 +87,7 @@
   display: grid;
   gap: var(--space-8);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .feedback-file-row input {
@@ -128,14 +108,14 @@
 .feedback-privacy-note {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.55;
 }
 
 .feedback-status {
   margin: 0;
   color: var(--paper-bright);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .feedback-status--error {

@@ -13,11 +13,10 @@
     gap: var(--space-4);
     width: min(320px, calc(100% - 2 * var(--page-gutter)));
     transform: translateX(-50%);
-    backdrop-filter: blur(24px) saturate(140%);
-    -webkit-backdrop-filter: blur(24px) saturate(140%);
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 rgba(233, 222, 197, 0.08);
+  }
+
+  .mobile-navigation > .button-nav-tab {
+    width: 100%;
   }
 
   .mobile-navigation--authenticated {

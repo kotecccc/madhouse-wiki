@@ -1,0 +1,34 @@
+.ui-progress-bar {
+  display: flex;
+  width: 100%;
+  gap: var(--space-4);
+}
+
+.ui-progress-bar-segment {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  height: var(--space-8);
+  appearance: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  accent-color: var(--icon-energy);
+}
+
+.ui-progress-bar-segment::-webkit-progress-bar {
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+}
+
+.ui-progress-bar-segment::-webkit-progress-value {
+  border-radius: var(--radius-pill);
+  background: var(--icon-energy);
+}
+
+.ui-progress-bar-segment::-moz-progress-bar {
+  border-radius: var(--radius-pill);
+  background: var(--icon-energy);
+}

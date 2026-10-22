@@ -6,9 +6,13 @@ import { NumberField } from "../../../components/ui/NumberField/NumberField.jsx"
 import { SelectField } from "../../../components/ui/SelectField/SelectField.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { useState } from "react";
-import { calcFloors, getDepartmentWorks } from "../../../model/knowledge-base.js";
+import {
+  calcFloors,
+  getDepartmentWorks,
+} from "../../../model/knowledge-base.js";
 import { fmt, fmtEnergy } from "../../../lib/format.js";
 import { Title } from "../../../components/ui/Title/Title.jsx";
+import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 export function EnergyCalculator() {
   const [calcFloor, setCalcFloor] = useState(calcFloors[0]?.code || "A");
   const [calcWork, setCalcWork] = useState("");
@@ -37,7 +41,9 @@ export function EnergyCalculator() {
         <div className="calc-card-head">
           <div>
             <MonoLabel>РАСЧЁТ ПОЛНОГО ЦИКЛА</MonoLabel>
-            <Title as="h2" id="calc-title">Энергия на работёнку</Title>
+            <Title as="h2" id="calc-title">
+              Энергия на работёнку
+            </Title>
           </div>
         </div>
         <SelectField
@@ -85,14 +91,23 @@ export function EnergyCalculator() {
         <BaseCard className="calc-result" aria-live="polite">
           <span>ИТОГО</span>
           <strong>
-            {calcResult ? fmtEnergy(calcResult.total) : "—"} <small>⚡</small>
+            {calcResult ? fmtEnergy(calcResult.total) : "—"}{" "}
+            <Icon type="energy" size="small" />
           </strong>
           <p>
-            {calcResult
-              ? `${fmt(calcResult.cost)} ⚡ за полный цикл × ${fmt(calcResult.count)} циклов`
-              : currentCost == null
-                ? "Для этой работёнки пока нет цены полного цикла"
-                : `${fmt(currentCost)} ⚡ за полный цикл`}
+            {calcResult ? (
+              <>
+                {fmt(calcResult.cost)} <Icon type="energy" size="small" /> за
+                полный цикл × {fmt(calcResult.count)} циклов
+              </>
+            ) : currentCost == null ? (
+              "Для этой работёнки пока нет цены полного цикла"
+            ) : (
+              <>
+                {fmt(currentCost)} <Icon type="energy" size="small" /> за полный
+                цикл
+              </>
+            )}
           </p>
         </BaseCard>
       </BaseCard>

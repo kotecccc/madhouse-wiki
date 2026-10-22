@@ -8,7 +8,9 @@ export const RAID_STATUS_INFO = {
 
 export function getRaidStatusMarker(raid) {
   const zone = String(raid?.zone || "").trimStart();
-  return SOURCE_STATUS_MARKERS.find((marker) => zone.startsWith(marker)) || null;
+  return (
+    SOURCE_STATUS_MARKERS.find((marker) => zone.startsWith(marker)) || null
+  );
 }
 
 export function hasUnknownRaidStatusMarker(raid) {
@@ -43,7 +45,11 @@ export function raidTimeMinutes(value) {
 
 export function sortRaidsByTime(raids) {
   return [...(Array.isArray(raids) ? raids : [])].sort((left, right) => {
-    const timeOrder = raidTimeMinutes(left?.time) - raidTimeMinutes(right?.time);
-    return timeOrder || String(left?.time || "").localeCompare(String(right?.time || ""));
+    const timeOrder =
+      raidTimeMinutes(left?.time) - raidTimeMinutes(right?.time);
+    return (
+      timeOrder ||
+      String(left?.time || "").localeCompare(String(right?.time || ""))
+    );
   });
 }

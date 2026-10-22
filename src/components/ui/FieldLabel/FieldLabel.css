@@ -1,15 +1,20 @@
 .field-label {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
+  gap: var(--space-8);
   margin: 0 0 var(--space-8);
-  color: #b3aa98;
-  font-size: var(--field-label-size, 10px);
-}
-
-.field-label span {
-  color: var(--red-bright);
+  color: var(--text-secondary);
+  font-family: var(--sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-normal);
 }
 
 .field-hint {
-  font: 10px var(--mono);
+  flex: 0 1 auto;
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
 }

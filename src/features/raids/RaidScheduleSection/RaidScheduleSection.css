@@ -1,6 +1,7 @@
 .raid-schedule-section {
   border-top: 1px solid var(--line);
   padding-top: var(--space-24);
+  padding-inline: 0;
 }
 
 .app-screen--floors .floors-section {
@@ -20,7 +21,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-8) var(--space-20);
+  gap: var(--space-8) var(--space-24);
   min-width: 0;
 }
 
@@ -34,7 +35,7 @@
   gap: var(--space-8);
   padding-inline: var(--space-12);
   color: var(--card-description-color);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   text-decoration: none;
   white-space: nowrap;
 }
@@ -59,13 +60,13 @@
 .raid-post-list {
   display: grid;
   min-width: 0;
-  gap: var(--space-24);
+  gap: var(--space-12);
 }
 
 @media (max-width: 650px) {
   .raid-schedule-section {
     border-top: 0;
-    padding-top: var(--space-8);
+    padding: 0;
   }
   .raid-section-heading {
     display: grid;

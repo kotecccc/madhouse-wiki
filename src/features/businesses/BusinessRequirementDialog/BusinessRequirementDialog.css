@@ -15,7 +15,7 @@
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   min-width: 0;
 }
 
@@ -30,39 +30,39 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-8);
   min-width: 0;
 }
 
 .business-requirements-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   white-space: nowrap;
 }
 
 .business-requirements-count {
   color: var(--paper-bright);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1;
 }
 
 .business-requirements-provenance {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   line-height: 1.6;
 }
 
 @media (max-width: 600px) {
   .business-requirements-source {
     grid-template-columns: 58px minmax(0, 1fr) auto;
-    gap: 8px;
+    gap: var(--space-8);
   }
 
   .business-requirements-drops {
     max-width: 96px;
-    gap: 4px;
+    gap: var(--space-4);
   }
 }

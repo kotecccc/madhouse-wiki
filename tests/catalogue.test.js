@@ -108,12 +108,16 @@ test("bag activity-item names are projected without inventory quantities and joi
     });
     assert.equal(
       store.db
-        .prepare("SELECT count(*) AS n FROM entities WHERE kind='activity_item'")
+        .prepare(
+          "SELECT count(*) AS n FROM entities WHERE kind='activity_item'",
+        )
         .get().n,
       1,
     );
 
-    const boss = readKnowledgeBase(root).bosses.find((item) => item.apiId === "1");
+    const boss = readKnowledgeBase(root).bosses.find(
+      (item) => item.apiId === "1",
+    );
     assert.deepEqual(
       boss.dropItems.map((item) => item.name),
       ["Ключ исповедальни", "Предмет бизнеса №999"],
@@ -493,5 +497,30 @@ test("an accessible floor omitting unlock definitions does not erase previously 
         .get().to_kind,
       "boss",
     );
+  });
+});
+
+test("boss reward preview retains currency definitions without account state and reaches the UI model", () => {
+  withStore((store) => {
+    store.capture("/api/bosses/49", 200, {
+      id: 49,
+      nameRu: "Босс",
+      rewardPreview: {
+        gold: 1500,
+        pills: 2,
+        dollar: 0,
+        exp: 100,
+        wallet: { gold: 999 },
+        playerId: 10,
+      },
+      wallet: { gold: 999 },
+      claimed: true,
+    });
+    const boss = readKnowledgeBase(store.root, store.file).bosses.find(
+      (item) => String(item.apiId) === "49",
+    );
+    assert.deepEqual(boss.rewardPreview, { gold: 1500, pills: 2, dollar: 0 });
+    assert.equal(boss.wallet, undefined);
+    assert.equal(boss.claimed, undefined);
   });
 });

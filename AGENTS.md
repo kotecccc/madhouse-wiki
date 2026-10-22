@@ -1,8 +1,28 @@
 # Madhouse Wiki UI rules
 
+## Visual testing requires an explicit request
+
+- Do not perform any visual testing or visual verification unless the user explicitly requests it. A request to change the UI, a supplied screenshot, or a browser comment does not authorize visual testing.
+- Without that explicit request, do not open or control a browser for verification, take or inspect verification screenshots, run visual regression tests, or inspect rendered layout, geometry, computed styles, or responsive states through browser tools or automation.
+- This restriction applies to the main agent and all subagents. Do not delegate visual testing or substitute another tool to bypass it.
+- Source inspection and nonvisual checks such as linting, type checking, unit tests, and builds remain allowed. Requirements to run checks do not authorize visual testing.
+
+## Mandatory UI Kit only policy
+
+This rule applies to the entire project, including the Wiki, `/ui`, Telegram connector, responsive states, and future changes. It takes precedence over older styling exceptions below.
+
+- Custom component appearance is strictly forbidden. All typography, colors, surfaces, borders, radii, shadows, spacing, and control/media sizes must use the existing UI Kit components, supported variants, and design tokens.
+- Never use arbitrary values such as `15px`, `11px`, `0.9375rem`, literal colors, or ad hoc `calc()` expressions to tune a particular component. This includes CSS, inline React styles, style props, media queries, and JavaScript that computes appearance.
+- Never create a token or a shared variant merely to disguise a one-off component override. If the existing kit cannot express a requested appearance, use the nearest supported kit choice and explain the limitation. A design-system extension requires an explicit user request.
+- Feature and page styles may only compose layout using existing spacing tokens and structural CSS (grid/flex placement, responsive columns, overflow and positioning). They must not redefine the appearance of a shared child component, including through descendant selectors, CSS custom properties, or `!important`.
+- Visual definitions belong to reusable UI Kit components and `src/styles/tokens.css`. Feature-specific skins and exceptions are forbidden, including the former floor disclosure exception.
+- Use only the existing font-size scale. Never shrink images or compute font/icon sizes to force a text block into a fixed height; adjust layout and select supported UI Kit sizes instead.
+- Preserve accessibility and intrinsic image geometry. Zero/reset values, percentages, intrinsic sizing, breakpoints, and structural layout bounds are not permission to add visual overrides.
+- Before completion run `npm run lint:ui` and the relevant build/lint checks. Fix violations instead of adding exclusions or weakening the check.
+
 ## Design tokens
 
-Use the shared tokens in `src/styles/tokens.css` and `src/components/ui/BaseCard.css` for every independent card:
+Use the shared tokens in `src/styles/tokens.css` and `src/components/ui/BaseCard/BaseCard.css` for every independent card:
 
 - `--card-background` for the surface
 - `--card-border` for its border
@@ -13,9 +33,9 @@ Use the shared tokens in `src/styles/tokens.css` and `src/components/ui/BaseCard
 - `--card-title-color` and `--card-title-size` for titles
 - `--card-description-color` and `--card-description-size` for supporting descriptions
 
-`BaseCard` in `src/components/ui/BaseCard.jsx` is the reusable React surface. Use its `.base-card` class for each independent card. Put visual variants in the shared token/variant rules in `src/styles/tokens.css` and `src/components/ui/BaseCard.css`; do not add one-off borders, radii, backgrounds, or padding to individual card selectors.
+`BaseCard` in `src/components/ui/BaseCard/BaseCard.jsx` is the reusable React surface. Use its `.base-card` class for each independent card. Put visual variants in the shared token/variant rules in `src/styles/tokens.css` and `src/components/ui/BaseCard/BaseCard.css`; do not add one-off borders, radii, backgrounds, or padding to individual card selectors.
 
-The large outside shells of expandable work blocks (`.floor-work-disclosure`) are intentionally exempt. Their internal independent requirement, business, upgrade, and boss cards use the shared card surface. Floor group containers are layout columns, not cards.
+The outside shells of expandable work blocks (`.floor-work-disclosure`) follow the same UI Kit policy. Their internal independent requirement, business, upgrade, and boss cards use the shared card surface. Floor group containers are layout columns, not cards.
 
 ## Component styles
 
@@ -23,7 +43,7 @@ Keep styles beside the component that owns them: `Component.jsx` imports its own
 
 Only `src/styles/tokens.css` (design tokens) and `src/styles/global.css` (reset, document background, base typography, accessibility utilities, and reduced motion) are global entrypoint imports. Shared visual behavior belongs to reusable UI components and their colocated styles, including `BaseCard.css`, `CardText.css`, `Button.css`, `FieldLabel.css`, and `Dialog.css`. Composition-only wrappers reuse their child component's styling instead of creating empty stylesheets.
 
-Parent components own layout; child components own their appearance. Pass variants or custom properties through the shared UI API instead of styling child internals from a parent stylesheet. Floor content cards use the shared `floor-data` BaseCard variant to preserve their existing spacing without ancestor list overrides.
+Parent components own layout; child components own their appearance. Use only existing supported variants through the shared UI API; arbitrary custom property overrides and styling child internals are forbidden. Floor content cards use the shared `floor-data` BaseCard variant to preserve their existing spacing without ancestor list overrides.
 
 ## Content roles and behavior
 

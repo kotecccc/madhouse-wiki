@@ -7,11 +7,11 @@
 .login-connection-error {
   max-width: 280px;
   color: var(--red-bright);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .login-control > .button:not(.profile-control) {
-  min-height: 36px;
+  min-height: var(--control-height-md);
   padding-inline: var(--space-16);
 }
 
@@ -25,7 +25,7 @@
 .login-form > small {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
 }
 
@@ -37,32 +37,18 @@
   min-height: 40px;
 }
 
-.profile-control.button {
-  gap: var(--space-12);
-  min-height: 48px;
-  padding: var(--space-6) var(--space-12);
+.profile-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
   text-align: left;
   max-width: 280px;
-}
-
-.profile-avatar {
-  --profile-avatar-size: 34px;
-  position: relative;
-  display: grid;
-  place-items: center;
-  flex: 0 0 var(--profile-avatar-size);
-  width: var(--profile-avatar-size);
-  height: var(--profile-avatar-size);
-  color: var(--paper-bright);
-  background: var(--red);
-  border-radius: 50%;
-  overflow: hidden;
-  font: 11px var(--mono);
+  cursor: pointer;
 }
 
 .profile-copy {
   display: grid;
-  gap: var(--space-4);
+  gap: 0;
   min-width: 0;
 }
 
@@ -73,29 +59,11 @@
   text-overflow: ellipsis;
 }
 
-.profile-name {
-  font-size: 12px;
-}
-
-.profile-status {
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--muted);
-}
-
 .profile-chevron {
   display: grid;
   place-items: center;
-  flex: 0 0 20px;
-  width: 20px;
-  height: 20px;
-  color: var(--muted);
+  flex: 0 0 auto;
   transition: transform 0.18s ease;
-}
-
-.profile-chevron .ui-icon {
-  width: 100%;
-  height: 100%;
 }
 
 .profile-control[aria-expanded="true"] .profile-chevron {
@@ -107,10 +75,8 @@
     margin-left: auto;
   }
 
-  .profile-control.button {
+  .profile-control {
     max-width: min(200px, 48vw);
-    gap: var(--space-6);
-    padding-inline: var(--space-8);
   }
 }
 
@@ -126,7 +92,6 @@
   width: min(240px, calc(100vw - var(--space-32)));
   display: grid;
   gap: var(--card-content-gap);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
 }
 
 .profile-session p {
@@ -134,29 +99,13 @@
 }
 
 .profile-session-expiry {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
   color: var(--muted);
 }
 
 .profile-session-expiry span {
   display: block;
-}
-
-.profile-avatar img {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: var(--profile-avatar-size);
-  height: var(--profile-avatar-size);
-  object-fit: cover;
-  object-position: center;
-}
-.profile-name {
-  line-height: 1.3;
-}
-.profile-status {
-  line-height: 1.3;
 }
 
 .profile-stats {
@@ -171,9 +120,9 @@
 .profile-stats dt {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-8);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   margin-bottom: var(--space-4);
 }
 .profile-stats dt .ui-icon {
@@ -184,7 +133,7 @@
 .profile-stats dd {
   margin: 0;
   color: var(--paper-bright);
-  font: 12px var(--mono);
+  font: var(--font-size-xs) var(--mono);
   overflow-wrap: anywhere;
 }
 
@@ -196,16 +145,16 @@
 .profile-attributes dt {
   margin-bottom: var(--space-4);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .profile-attributes dd {
   margin: 0;
   color: var(--paper-bright);
-  font: 13px var(--mono);
+  font: var(--font-size-sm) var(--mono);
 }
 .profile-attributes small {
   color: var(--muted);
-  font: 11px var(--sans);
+  font: var(--font-size-xs) var(--sans);
 }
 
 .login-modal-actions {
@@ -217,7 +166,7 @@
 
 .login-modal-actions > .button {
   width: 100%;
-  min-height: 40px;
+  min-height: var(--control-height-md);
   padding-inline: var(--space-12);
 }
 
@@ -239,7 +188,7 @@
 .login-token-help > summary {
   display: flex;
   align-items: center;
-  min-height: var(--space-20);
+  min-height: var(--space-24);
   justify-content: space-between;
   gap: var(--space-12);
   list-style: none;
@@ -270,18 +219,14 @@
 .login-token-help > summary:focus-visible {
   outline: 2px solid var(--red-bright);
   outline-offset: 4px;
-  border-radius: 2px;
+  border-radius: var(--control-radius);
 }
 
 .login-token-device-switch {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-6);
+  gap: var(--space-8);
   margin-top: var(--space-12);
-}
-
-.login-token-device-switch .button-toggle[aria-pressed="true"] {
-  box-shadow: none;
 }
 
 .login-token-help-content,
@@ -313,7 +258,7 @@
   display: grid;
   gap: var(--space-12);
   margin: 0;
-  padding-left: var(--space-20);
+  padding-left: var(--space-24);
   color: var(--card-description-color);
   font-size: var(--card-description-size);
   line-height: 1.6;
@@ -331,7 +276,7 @@
 .login-token-help-content code,
 .login-token-help-content kbd {
   color: var(--paper-bright);
-  font: 12px var(--mono);
+  font: var(--font-size-xs) var(--mono);
   overflow-wrap: anywhere;
 }
 

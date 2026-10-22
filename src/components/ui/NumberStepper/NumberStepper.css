@@ -1,5 +1,9 @@
 .number-stepper {
   display: grid;
+  gap: var(--space-8);
+}
+
+.number-stepper--compact {
   gap: var(--space-4);
 }
 
@@ -9,27 +13,28 @@
 
 .number-stepper-controls {
   display: grid;
-  grid-template-columns: var(--space-32) var(--space-48) var(--space-32);
-  gap: var(--space-4);
+  grid-template-columns: var(--control-height-md) minmax(72px, 1fr) var(
+      --control-height-md
+    );
+  gap: var(--space-8);
 }
 
 .number-stepper-controls > .button,
 .number-stepper-controls > .input-control {
   width: 100%;
-  height: var(--space-32);
-  min-height: var(--space-32);
-  padding: 0;
-  text-align: center;
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
+  padding-inline: var(--space-8);
 }
 
 .number-stepper-controls > .button:disabled {
-  opacity: 0.4;
-  cursor: default;
-  transform: none;
+  opacity: 0.48;
 }
 
 .number-stepper-range {
-  color: var(--card-description-color);
-  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
   text-align: center;
 }

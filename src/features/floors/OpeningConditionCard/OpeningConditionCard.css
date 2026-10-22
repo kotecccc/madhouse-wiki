@@ -1,0 +1,66 @@
+.opening-condition-card {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.opening-condition-card-copy,
+.opening-condition-card-values {
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.opening-condition-card-values {
+  justify-items: end;
+}
+
+.opening-condition-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--layout-gap-item);
+}
+
+.opening-condition-card--compact {
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+}
+
+.opening-condition-card--compact .opening-condition-card-actions {
+  grid-column: 2 / -1;
+}
+
+.opening-condition-card--progress {
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+}
+
+.opening-condition-card--progress .opening-condition-card-values {
+  grid-column: 2;
+  justify-items: start;
+}
+
+.opening-condition-card--progress .opening-condition-card-actions {
+  grid-column: 2 / -1;
+}
+
+@media (max-width: 650px) {
+  .opening-condition-card,
+  .opening-condition-card--compact,
+  .opening-condition-card--progress {
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .opening-condition-card-values {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .opening-condition-card-actions,
+  .opening-condition-card--compact .opening-condition-card-actions,
+  .opening-condition-card--progress .opening-condition-card-actions {
+    grid-column: 2;
+  }
+}

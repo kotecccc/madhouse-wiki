@@ -36,7 +36,7 @@ export function BossesSection({ compact = false }) {
           ←
         </Button>
         <span className="boss-count" aria-live="polite">
-          {floorCode === "unknown" ? "Этаж не указан" : `Этаж ${floorCode}`} ·{" "}
+          {floorCode === "unknown" ? "Этаж не указан" : `Этаж ${floorCode}`} •{" "}
           {bossFloors.length ? floorPage + 1 : 0} / {bossFloors.length}
         </span>
         <Button

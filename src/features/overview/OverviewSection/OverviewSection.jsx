@@ -5,13 +5,28 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
+import { Pill } from "../../../components/ui/Pill/Pill.jsx";
+import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
+import { BusinessItemTile } from "../../businesses/BusinessItemTile/BusinessItemTile.jsx";
+import {
+  getBusinessUpgradeTotals,
+  findItemBosses,
+} from "../../../lib/business-upgrades.js";
+import { calculateRequirementEnergy } from "../../../lib/energy.js";
 import {
   getRaidStatus,
   RAID_STATUS_INFO,
   sortRaidsByTime,
 } from "../../../lib/raid-schedule.js";
-import { orderedFloors } from "../../../model/knowledge-base.js";
-import { fmt } from "../../../lib/format.js";
+import {
+  businessById,
+  bossById,
+  departmentById,
+  getBusinessUpgrade,
+  orderedFloors,
+} from "../../../model/knowledge-base.js";
+import { fmt, fmtEnergy, restoreTime } from "../../../lib/format.js";
 import "./OverviewSection.css";
 
 const numberFormat = new Intl.NumberFormat("ru-RU");
@@ -50,67 +65,330 @@ function findBoss(id) {
   );
 }
 
-function requirementProgress(requirement) {
-  if (
-    Number.isFinite(requirement?.current) &&
-    Number.isFinite(requirement?.required)
-  ) {
-    const label =
-      requirement.type === "business_level" ? "Уровень" : "Прогресс";
-    const unit = requirement.type === "business_level" ? " ур." : "";
-    return `${label}: ${numberFormat.format(requirement.current)} / ${numberFormat.format(requirement.required)}${unit}`;
-  }
-  if (requirement?.type === "department_open")
-    return "Отделение должно быть открыто";
-  return "Текущий прогресс не передан игрой";
+function displayRequirements(apiRequirements, catalogueRequirements) {
+  const catalogue = Array.isArray(catalogueRequirements)
+    ? catalogueRequirements
+    : [];
+  if (!Array.isArray(apiRequirements) || !apiRequirements.length)
+    return catalogue;
+
+  return apiRequirements.map((requirement, index) => {
+    const reference =
+      requirement.businessId ??
+      requirement.bossId ??
+      requirement.workId ??
+      requirement.medallionId;
+    const match =
+      catalogue.find((candidate) => {
+        if (candidate.type !== requirement.type) return false;
+        const candidateReference =
+          candidate.businessId ??
+          candidate.bossId ??
+          candidate.workId ??
+          candidate.medallionId;
+        return (
+          reference != null &&
+          candidateReference != null &&
+          String(reference).replace(/^.*:/, "") ===
+            String(candidateReference).replace(/^.*:/, "")
+        );
+      }) ||
+      catalogue.find((candidate) => candidate.type === requirement.type) ||
+      catalogue[index];
+    const merged = { ...match, ...requirement };
+    const business = findBusiness(merged.targetBusinessId ?? merged.businessId);
+    const boss = findBoss(merged.targetBossId ?? merged.bossId);
+    const work = findWork(merged.targetDepartmentId ?? merged.workId);
+
+    return {
+      ...merged,
+      openingConditionLabel: match?.label ?? requirement.label ?? "",
+      targetBusinessId: merged.targetBusinessId ?? business?.id ?? null,
+      targetBossId: merged.targetBossId ?? boss?.id ?? null,
+      targetDepartmentId:
+        merged.targetDepartmentId ?? work?.departmentId ?? null,
+      targetStashSetId: merged.targetStashSetId ?? merged.medallionId ?? null,
+    };
+  });
 }
 
-function StatusPill({ state, label }) {
-  const labels = {
-    complete: "Выполнено",
-    incomplete: "Осталось",
-    unknown: "Нет данных",
-  };
+function findBusiness(id) {
+  if (id == null) return null;
+  const reference = String(id).replace(/^business:/, "");
   return (
-    <span className={`overview-status overview-status--${state}`}>
-      <span className="overview-status-dot" aria-hidden="true" />
-      {label || labels[state]}
-    </span>
+    businessById[id] ||
+    knowledgeBase.businesses.find(
+      (business) =>
+        String(business.apiId ?? "") === reference ||
+        String(business.id).replace(/^business:/, "") === reference,
+    ) ||
+    null
   );
 }
 
-function RequirementList({
-  requirements,
-  empty = "Нет условий в данных игры.",
-}) {
-  if (!requirements?.length) return <p className="overview-empty">{empty}</p>;
+function findWork(id) {
+  if (id == null) return null;
+  const reference = String(id).replace(/^work:/, "");
   return (
-    <ul className="overview-requirements">
-      {requirements.map((requirement, index) => {
-        const state = requirementState(requirement);
-        return (
-          <li
-            className="overview-requirement"
-            key={`${requirement.type}-${requirement.label}-${index}`}
-          >
-            <div className="overview-requirement-copy">
-              <CardTitle as="span">{requirementLabel(requirement)}</CardTitle>
-              <CardDescription>
-                {requirementProgress(requirement)}
-              </CardDescription>
-            </div>
-            <StatusPill state={state} />
+    knowledgeBase.works.find(
+      (work) =>
+        String(work.id) === String(id) ||
+        String(work.apiId ?? work.workId ?? "") === reference,
+    ) || null
+  );
+}
+
+function requirementCurrentBusinessLevel(
+  requirement,
+  business,
+  businessLevels,
+) {
+  if (Number.isSafeInteger(requirement.current)) return requirement.current;
+  const apiId = String(business?.apiId ?? business?.id ?? "").replace(
+    /^business:/,
+    "",
+  );
+  return (
+    businessLevels?.find((entry) => String(entry.id) === apiId)?.level ?? null
+  );
+}
+
+function GoalBusinessBoss({ boss, items }) {
+  const department = departmentById[boss.departmentId];
+  return (
+    <BaseCard as="li" variant="floor-data" className="overview-goal-boss">
+      <ImageCard src={boss.image} alt={boss.name} size={48} imageSize="100%" />
+      <div className="overview-goal-boss-copy">
+        <CardTitle>{boss.name}</CardTitle>
+        {department && (
+          <CardDescription>
+            Блок {department.code}
+            {department.name ? ` • ${department.name}` : ""}
+          </CardDescription>
+        )}
+        <CardDescription>
+          {boss.requiredLevel != null
+            ? `Уровень от ${fmt(boss.requiredLevel)}`
+            : "Дроп предметов бизнеса"}
+        </CardDescription>
+      </div>
+      <ul className="overview-goal-boss-items">
+        {items.map((item) => (
+          <li key={item.entityId}>
+            <span>
+              ×{item.requiredAmount == null ? "—" : fmt(item.requiredAmount)}
+            </span>
+            <BusinessItemTile
+              itemId={item.entityId}
+              name={item.name}
+              size={32}
+              imageSize={28}
+            />
           </li>
-        );
-      })}
+        ))}
+      </ul>
+    </BaseCard>
+  );
+}
+
+function BusinessGoalDetails({ requirement, businessLevels }) {
+  const business = findBusiness(
+    requirement.targetBusinessId ?? requirement.businessId,
+  );
+  const targetLevel = requirement.requiredLevel ?? requirement.required;
+  const currentLevel = requirementCurrentBusinessLevel(
+    requirement,
+    business,
+    businessLevels,
+  );
+  const upgrade = business ? getBusinessUpgrade(business.id) : null;
+  const itemTotals =
+    Number.isSafeInteger(targetLevel) &&
+    targetLevel > 0 &&
+    Number.isSafeInteger(currentLevel)
+      ? getBusinessUpgradeTotals(upgrade, targetLevel, currentLevel).filter(
+          (item) => item.requiredAmount == null || item.requiredAmount > 0,
+        )
+      : [];
+  const groups = new Map();
+  const unassigned = [];
+  for (const item of itemTotals) {
+    const matches = findItemBosses(Object.values(bossById), item.entityId);
+    if (!matches.length) {
+      unassigned.push(item);
+      continue;
+    }
+    for (const boss of matches) {
+      const group = groups.get(boss.id) ?? { boss, items: [] };
+      group.items.push(item);
+      groups.set(boss.id, group);
+    }
+  }
+  const bossGroups = [...groups.values()];
+  const openingCondition =
+    requirement.openingConditionLabel ||
+    requirement.label ||
+    requirementLabel(requirement);
+
+  return (
+    <>
+      {!!bossGroups.length && (
+        <details className="floor-work-disclosure overview-goal-boss-disclosure">
+          <summary className="floor-work-summary floor-opening-summary overview-goal-boss-summary">
+            <CardDescription as="span">
+              {requirement.conditionNumber}. {openingCondition}
+            </CardDescription>
+            <Pill
+              variant="warning"
+              dot={false}
+              className="overview-goal-business-status"
+              aria-label={
+                Number.isSafeInteger(currentLevel)
+                  ? `Уровень ${fmt(currentLevel)} из ${fmt(targetLevel)}`
+                  : `Требуется уровень ${fmt(targetLevel)}`
+              }
+            >
+              {Number.isSafeInteger(currentLevel) ? fmt(currentLevel) : "—"} из{" "}
+              {Number.isFinite(targetLevel) ? fmt(targetLevel) : "—"}
+            </Pill>
+          </summary>
+          <div className="floor-work-expanded floor-opening-expanded">
+            <ul className="overview-goal-boss-list">
+              {bossGroups.map(({ boss, items }) => (
+                <GoalBusinessBoss key={boss.id} boss={boss} items={items} />
+              ))}
+            </ul>
+          </div>
+        </details>
+      )}
+      {!!unassigned.length && (
+        <ul className="overview-goal-unassigned-items">
+          {unassigned.map((item) => (
+            <li key={item.entityId}>
+              <BusinessItemTile
+                itemId={item.entityId}
+                name={item.name}
+                size={36}
+                imageSize={32}
+              />
+              <span>{item.name}</span>
+              <strong>
+                ×{item.requiredAmount == null ? "—" : fmt(item.requiredAmount)}
+              </strong>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function EnergyGoalDetails({ requirement, profile }) {
+  const work = findWork(requirement.targetDepartmentId ?? requirement.workId);
+  const workDepartment = work ? departmentById[work.departmentId] : null;
+  const cycleEnergy = workDepartment?.energyCycle?.full;
+  const count = requirement.required;
+  const total =
+    Number.isFinite(cycleEnergy) && Number.isSafeInteger(count)
+      ? cycleEnergy * count
+      : null;
+  const plan =
+    total != null &&
+    Number.isFinite(profile?.energy?.max) &&
+    Number.isFinite(profile?.energy?.current)
+      ? calculateRequirementEnergy(
+          total,
+          profile.energy.max,
+          profile.energy.current,
+        )
+      : null;
+
+  return (
+    <div className="overview-goal-energy">
+      <strong>
+        {total == null ? (
+          "Энергия не указана"
+        ) : (
+          <>
+            {fmtEnergy(total)} <Icon type="energy" size="small" />
+          </>
+        )}
+      </strong>
+      {plan && (
+        <CardDescription>
+          {plan.remaining > 0
+            ? `Ждать ${restoreTime(plan.minutes)} • малые ×${fmt(plan.smallRefills)} • большие ×${fmt(plan.largeRefills)} • ${fmt(plan.banknotes)} купюр`
+            : "Текущей энергии хватит"}
+        </CardDescription>
+      )}
+    </div>
+  );
+}
+
+function GoalRequirement({
+  requirement,
+  businessLevels,
+  profile,
+  conditionNumber,
+}) {
+  const boss = findBoss(requirement.targetBossId ?? requirement.bossId);
+  const business = findBusiness(
+    requirement.targetBusinessId ?? requirement.businessId,
+  );
+  const label = business?.title || requirementLabel(requirement);
+  return (
+    <li
+      className={`overview-goal-requirement overview-goal-requirement--${requirement.type}`}
+    >
+      <div className="overview-goal-requirement-copy">
+        {requirement.type !== "business_level" && (
+          <CardTitle>{label}</CardTitle>
+        )}
+        {requirement.type === "business_level" ? (
+          <BusinessGoalDetails
+            requirement={{ ...requirement, conditionNumber }}
+            businessLevels={businessLevels}
+          />
+        ) : requirement.type === "work_completions" ? (
+          <EnergyGoalDetails requirement={requirement} profile={profile} />
+        ) : requirement.type === "boss_kills" && boss ? (
+          <CardDescription>
+            Победить {fmt(requirement.required || 1)} раз
+          </CardDescription>
+        ) : Number.isFinite(requirement.current) &&
+          Number.isFinite(requirement.required) ? (
+          <CardDescription>
+            {fmt(requirement.current)} / {fmt(requirement.required)}
+          </CardDescription>
+        ) : null}
+      </div>
+      {requirement.type === "boss_kills" && boss && (
+        <ImageCard
+          src={boss.image}
+          alt={boss.name}
+          size={56}
+          imageSize="100%"
+        />
+      )}
+    </li>
+  );
+}
+
+function GoalRequirements({ requirements, businessLevels, profile }) {
+  if (!requirements.length) return null;
+  return (
+    <ul className="overview-goal-requirements">
+      {requirements.map((requirement, index) => (
+        <GoalRequirement
+          key={`${requirement.type}-${requirement.label}-${index}`}
+          requirement={requirement}
+          businessLevels={businessLevels}
+          profile={profile}
+          conditionNumber={index + 1}
+        />
+      ))}
     </ul>
   );
-}
-
-function displayRequirements(apiRequirements, catalogueRequirements) {
-  if (Array.isArray(apiRequirements) && apiRequirements.length)
-    return apiRequirements;
-  return catalogueRequirements || [];
 }
 
 function getNextFloor(availability) {
@@ -204,7 +482,10 @@ function ProfileSummary({ state }) {
           </CardDescription>
         </div>
         <div className="overview-energy" aria-label="Энергия">
-          <span>Энергия</span>
+          <span className="overview-energy-label">
+            <Icon type="energy" size="small" className="overview-energy-icon" />
+            Энергия
+          </span>
           <strong>
             {energyKnown
               ? `${numberFormat.format(profile.energy.current)} / ${numberFormat.format(profile.energy.max)}`
@@ -222,7 +503,7 @@ function ProfileSummary({ state }) {
               {Number.isFinite(derived) && (
                 <small>
                   {" "}
-                  · {numberFormat.format(derived)} {unit}
+                  • {numberFormat.format(derived)} {unit}
                 </small>
               )}
             </dd>
@@ -233,7 +514,11 @@ function ProfileSummary({ state }) {
         {profile.wallet.map(([name, value, icon]) => (
           <div key={name}>
             <dt>
-              <Icon type={icon} size="small" />
+              <Icon
+                type={icon}
+                size="small"
+                className={`overview-wallet-icon overview-wallet-icon--${icon}`}
+              />
               {name}
             </dt>
             <dd>{numberFormat.format(value)}</dd>
@@ -244,135 +529,59 @@ function ProfileSummary({ state }) {
   );
 }
 
-function FloorGoal({
-  floor,
-  details,
-  status,
-  availability,
-  onOpenFloors,
-  onRetry,
-}) {
-  if (status === "loading")
-    return (
-      <p className="overview-empty" role="status">
-        Загружаем доступность этажей…
-      </p>
-    );
-  if (status === "error")
-    return (
-      <>
-        <p className="overview-empty" role="status">
-          Не удалось определить следующую цель.
-        </p>
-        <Button variant="secondary" onClick={onRetry}>
-          Повторить
-        </Button>
-      </>
-    );
-  if (!floor) {
-    const allAvailable =
-      orderedFloors.length > 0 &&
-      orderedFloors.every((item) => availability[item.code] === true);
-    return (
-      <p className="overview-empty">
-        {allAvailable
-          ? "Все этажи справочника уже доступны."
-          : "Игра не передала доступность следующего этажа."}
-      </p>
-    );
-  }
-  const catalogueFloor = knowledgeBase.floors.find(
-    (item) => item.code === floor.code,
-  );
+function NextGoal({ goal, floorAvailability, departmentState, profile }) {
+  if (!goal) return null;
+  const catalogueRequirements =
+    goal.type === "floor"
+      ? knowledgeBase.floors.find((floor) => floor.code === goal.code)
+          ?.unlockRequirements
+      : goal.department?.requirements;
   const requirements = displayRequirements(
-    details?.unlockRequirements,
-    catalogueFloor?.unlockRequirements,
+    goal.requirements,
+    catalogueRequirements,
   );
-  return (
-    <>
-      <div className="overview-goal-heading">
-        <div>
-          <CardTitle as="h3">Этаж {floor.code}</CardTitle>
-          <CardDescription>
-            {details?.requiredLevel != null
-              ? `Требуемый уровень персонажа: ${fmt(details.requiredLevel)}`
-              : details?.unlockDescription ||
-                "Следующая цель по доступности в игре"}
-          </CardDescription>
-        </div>
-        <StatusPill state="incomplete" label="Закрыт" />
-      </div>
-      <RequirementList
-        requirements={requirements}
-        empty="Игра пока не передала список условий этого этажа."
-      />
-      {catalogueFloor?.openingConditionText && (
-        <p className="overview-caveat">{catalogueFloor.openingConditionText}</p>
-      )}
-      <Button variant="secondary" onClick={() => onOpenFloors(floor.code)}>
-        Открыть этажи
-      </Button>
-    </>
-  );
-}
+  const heading =
+    goal.type === "floor"
+      ? `Этаж ${goal.code}`
+      : `${goal.code}${goal.name ? ` • ${goal.name}` : ""}`;
 
-function DepartmentGoals({ state }) {
-  if (!state)
-    return (
-      <p className="overview-empty">
-        Загрузка условий отделений после восстановления сессии…
-      </p>
-    );
-  if (state?.status === "loading")
-    return (
-      <p className="overview-empty" role="status">
-        Загружаем условия отделений…
-      </p>
-    );
-  if (state?.status === "error")
-    return (
-      <p className="overview-empty">Условия отделений временно недоступны.</p>
-    );
-  const locked = (state?.departments || []).filter(
-    (department) => !department.unlocked,
-  );
-  if (!locked.length)
-    return (
-      <p className="overview-empty">
-        Нет закрытых отделений в последнем доступном этаже.
-      </p>
-    );
   return (
-    <div className="overview-department-list">
-      {locked.map((department) => (
-        <div className="overview-department-goal" key={department.blockCode}>
-          <div className="overview-goal-heading">
-            <div>
-              <CardTitle as="h3">
-                {department.name || department.blockCode}
-              </CardTitle>
-              <CardDescription>{department.blockCode}</CardDescription>
-            </div>
-            <StatusPill state="incomplete" label="Закрыто" />
-          </div>
-          <RequirementList requirements={department.requirements} />
-        </div>
-      ))}
-    </div>
+    <details
+      className="floor-opening-disclosure floor-work-disclosure overview-goal-card"
+      open
+    >
+      <summary className="floor-work-summary floor-opening-summary overview-goal-card-summary">
+        <CardTitle className="floor-opening-heading">
+          Следующая цель: {heading}
+        </CardTitle>
+        <LockIndicator
+          size={20}
+          locked={
+            goal.type === "floor"
+              ? floorAvailability.availability[goal.code] !== true
+              : true
+          }
+          label={`Следующая цель: ${heading}`}
+        />
+      </summary>
+      <div className="floor-work-expanded floor-opening-expanded">
+        <GoalRequirements
+          requirements={requirements}
+          businessLevels={departmentState?.businessLevels}
+          profile={profile}
+        />
+        {!requirements.length && floorAvailability.status === "error" && (
+          <p className="overview-empty" role="status">
+            Не удалось загрузить требования.
+          </p>
+        )}
+      </div>
+    </details>
   );
 }
 
 function RelevantRaids({ schedule, requirements, onOpenRaids }) {
-  if (schedule.status === "loading")
-    return (
-      <p className="overview-empty" role="status">
-        Загружаем актуальные рейды…
-      </p>
-    );
-  if (schedule.status === "error")
-    return (
-      <p className="overview-empty">Расписание рейдов временно недоступно.</p>
-    );
+  if (schedule.status !== "ready") return null;
   const targetNames = new Set(
     requirements
       .filter(
@@ -390,23 +599,14 @@ function RelevantRaids({ schedule, requirements, onOpenRaids }) {
       getRaidStatus(raid) !== "completed" &&
       targetNames.has(normalizeName(raid?.boss)),
   );
-  if (!targetNames.size)
-    return (
-      <p className="overview-empty">
-        В условиях этой цели нет требований по боссам.
-      </p>
-    );
-  if (!latest || !raids.length)
-    return (
-      <p className="overview-empty">
-        В актуальном расписании нет рейдов на нужных боссов.
-      </p>
-    );
+  if (!targetNames.size || !latest || !raids.length) return null;
   return (
-    <>
-      <p className="overview-raid-date">
-        Расписание на {latest.raidDateLabel || "ближайшую дату"}
-      </p>
+    <BaseCard
+      as="article"
+      variant="floor-data"
+      className="overview-card overview-raid-card"
+    >
+      <CardTitle as="h2">Рейды по цели</CardTitle>
       <ul className="overview-raid-list">
         {raids.map((raid, index) => {
           const status = getRaidStatus(raid);
@@ -419,16 +619,11 @@ function RelevantRaids({ schedule, requirements, onOpenRaids }) {
               <div className="overview-raid-copy">
                 <CardTitle as="span">{raid.boss}</CardTitle>
                 <CardDescription>
-                  {raid.time || "Время не указано"} ·{" "}
+                  {raid.time || "Время не указано"} •{" "}
                   {raid.zone || "Зона не указана"}
                 </CardDescription>
               </div>
-              <span
-                className={`overview-status overview-status--${info.color}`}
-              >
-                <span className="overview-status-dot" aria-hidden="true" />
-                {info.label}
-              </span>
+              <Pill variant={info.color}>{info.label}</Pill>
             </li>
           );
         })}
@@ -436,7 +631,7 @@ function RelevantRaids({ schedule, requirements, onOpenRaids }) {
       <Button variant="secondary" onClick={onOpenRaids}>
         Все рейды
       </Button>
-    </>
+    </BaseCard>
   );
 }
 
@@ -445,99 +640,66 @@ export function OverviewSection({
   floorAvailability,
   departmentState,
   schedule,
-  onOpenFloors,
   onOpenRaids,
-  onRetryFloors,
 }) {
+  const lastAvailableFloor = [...orderedFloors]
+    .reverse()
+    .find((floor) => floorAvailability.availability[floor.code] === true);
+  const nextDepartment =
+    departmentState?.status === "ready" &&
+    departmentState.code === lastAvailableFloor?.code
+      ? departmentState.departments.find((department) => !department.unlocked)
+      : null;
   const nextFloor = getNextFloor(floorAvailability.availability);
-  const targetDetails = nextFloor
-    ? floorAvailability.floorDetails?.[nextFloor.code]
-    : null;
-  const catalogueFloor = nextFloor
-    ? knowledgeBase.floors.find((floor) => floor.code === nextFloor.code)
-    : null;
-  const floorRequirements = displayRequirements(
-    targetDetails?.unlockRequirements,
-    catalogueFloor?.unlockRequirements,
-  );
-  const departmentRequirements = (departmentState?.departments || [])
-    .filter((department) => !department.unlocked)
-    .flatMap((department) => department.requirements || []);
-  const raidRequirements = [...floorRequirements, ...departmentRequirements];
+  const goal = nextDepartment
+    ? {
+        type: "department",
+        code: nextDepartment.blockCode,
+        name: nextDepartment.name,
+        requirements: nextDepartment.requirements,
+        department:
+          departmentById[
+            (lastAvailableFloor?.departmentIds || []).find(
+              (id) => departmentById[id]?.code === nextDepartment.blockCode,
+            )
+          ],
+      }
+    : nextFloor
+      ? {
+          type: "floor",
+          code: nextFloor.code,
+          requirements:
+            floorAvailability.floorDetails?.[nextFloor.code]
+              ?.unlockRequirements,
+        }
+      : null;
+  const profile = profileState.status === "ready" ? profileState.profile : null;
+  const goalRequirements = goal
+    ? displayRequirements(
+        goal.requirements,
+        goal.type === "floor"
+          ? knowledgeBase.floors.find((floor) => floor.code === goal.code)
+              ?.unlockRequirements
+          : goal.department?.requirements,
+      )
+    : [];
 
   return (
-    <section
-      className="overview-section"
-      id="overview"
-      aria-labelledby="overview-title"
-    >
-      <div className="overview-heading">
-        <div>
-          <h1 id="overview-title">Обзор</h1>
-          <p>Персонаж, ближайшая цель и рейды по её условиям.</p>
-        </div>
-      </div>
+    <section className="overview-section" id="overview" aria-label="Главная">
       <ProfileSummary state={profileState} />
       <div className="overview-grid">
-        <BaseCard
-          as="article"
-          variant="floor-data"
-          className="overview-card overview-goal-card"
-        >
-          <div className="overview-card-heading">
-            <div>
-              <CardTitle as="h2">Следующий этаж</CardTitle>
-              <CardDescription>
-                Условия открытия по текущим данным игры
-              </CardDescription>
-            </div>
-          </div>
-          <FloorGoal
-            floor={nextFloor}
-            details={targetDetails}
-            status={floorAvailability.status}
-            availability={floorAvailability.availability}
-            onOpenFloors={onOpenFloors}
-            onRetry={onRetryFloors}
-          />
-        </BaseCard>
-        <BaseCard
-          as="article"
-          variant="floor-data"
-          className="overview-card overview-raid-card"
-        >
-          <div className="overview-card-heading">
-            <div>
-              <CardTitle as="h2">Рейды по цели</CardTitle>
-              <CardDescription>
-                Боссы из условий этажа и закрытых отделений
-              </CardDescription>
-            </div>
-          </div>
-          <RelevantRaids
-            schedule={schedule}
-            requirements={raidRequirements}
-            onOpenRaids={onOpenRaids}
-          />
-        </BaseCard>
+        <NextGoal
+          goal={goal}
+          floorAvailability={floorAvailability}
+          departmentState={departmentState}
+          profile={profile}
+        />
+        <RelevantRaids
+          schedule={schedule}
+          requirements={goalRequirements}
+          onOpenRaids={onOpenRaids}
+        />
       </div>
-      <BaseCard
-        as="article"
-        variant="floor-data"
-        className="overview-card overview-department-card"
-      >
-        <div className="overview-card-heading">
-          <div>
-            <CardTitle as="h2">Отделения текущего этажа</CardTitle>
-            <CardDescription>
-              {departmentState?.code
-                ? `Закрытые отделения этажа ${departmentState.code}`
-                : "Закрытые отделения последнего доступного этажа"}
-            </CardDescription>
-          </div>
-        </div>
-        <DepartmentGoals state={departmentState} />
-      </BaseCard>
     </section>
   );
 }

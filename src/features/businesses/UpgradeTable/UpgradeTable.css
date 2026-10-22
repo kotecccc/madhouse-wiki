@@ -1,12 +1,10 @@
 .floor-work-source-note {
-  margin-top: var(--space-8) !important;
-  color: #777064 !important;
-  font-size: 9px !important;
+  margin-top: var(--space-8);
 }
 
 .business-upgrade-card {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-8);
   min-width: 0;
 }
 
@@ -17,36 +15,16 @@
 .business-upgrade-table {
   width: 100%;
   border-collapse: collapse;
-  color: #bfb298;
-  font: 9px var(--mono);
   text-align: left;
 }
 
 .business-upgrade-table th,
 .business-upgrade-table td {
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid rgba(212, 196, 163, 0.09);
+  padding: var(--space-4) var(--space-8);
   white-space: nowrap;
 }
 
-.business-upgrade-table thead th {
-  color: #9f9277;
-  font-size: 8px;
-  font-weight: 400;
-}
-
-.business-upgrade-table tbody th {
-  color: #8e826c;
-  font-weight: 400;
-}
-
-.business-upgrade-total th,
-.business-upgrade-total td {
-  color: #e0cda5 !important;
-  border-top: 1px solid rgba(212, 196, 163, 0.24);
-}
-
 .business-upgrade-card {
-  --card-title-size: 11px;
-  --card-description-size: 8px;
+  --card-title-size: var(--font-size-xs);
+  --card-description-size: var(--font-size-2xs);
 }

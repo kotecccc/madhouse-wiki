@@ -1,5 +1,7 @@
+import { useId } from "react";
 import { Dialog } from "../Dialog/Dialog.jsx";
 import { Title } from "../Title/Title.jsx";
+import { Button } from "../Button/Button.jsx";
 import { DialogCloseButton } from "../DialogCloseButton/DialogCloseButton.jsx";
 import "./Modal.css";
 
@@ -12,11 +14,13 @@ export function Modal({
   footer,
   className = "",
   width,
+  showCloseButton = true,
   contentScrollable = true,
   contentVariant = "default",
   visible = true,
 }) {
-  const id = titleId || "modal-title";
+  const generatedId = useId();
+  const id = titleId || generatedId;
   return (
     <Dialog
       modal
@@ -43,7 +47,7 @@ export function Modal({
             <p className="shared-modal-description">{description}</p>
           )}
         </div>
-        <DialogCloseButton onClick={onClose} />
+        {showCloseButton && <DialogCloseButton onClick={onClose} />}
       </header>
       <div
         className={`shared-modal-content${
@@ -54,7 +58,13 @@ export function Modal({
       >
         {children}
       </div>
-      {footer && <footer className="shared-modal-footer">{footer}</footer>}
+      {footer ? (
+        <footer className="shared-modal-footer">{footer}</footer>
+      ) : (
+        <footer className="shared-modal-footer shared-modal-mobile-footer">
+          <Button onClick={onClose}>Закрыть</Button>
+        </footer>
+      )}
     </Dialog>
   );
 }

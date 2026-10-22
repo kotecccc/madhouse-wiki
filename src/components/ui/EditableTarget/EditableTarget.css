@@ -1,0 +1,8 @@
+.ui-editable-target {
+  cursor: pointer;
+}
+
+.ui-editable-target:hover:not(:has(.ui-editable-target:hover)),
+.ui-editable-target:focus-visible {
+  box-shadow: var(--focus-shadow);
+}

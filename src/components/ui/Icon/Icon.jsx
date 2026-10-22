@@ -1,10 +1,24 @@
 import "./Icon.css";
+
+function iconSizeVariant(size) {
+  if (typeof size !== "number") return size;
+  if (size <= 14) return "small";
+  if (size <= 16) return "medium";
+  return "large";
+}
+
 export function Icon({ type, size, className = "" }) {
   const paths = {
     boss: (
       <>
         <path d="M5 21v-2a7 7 0 0 1 14 0v2M8 6l1-3h6l1 3v5a4 4 0 0 1-8 0V6Z" />
         <path d="M10 9h.01M14 9h.01M10 12h4" />
+      </>
+    ),
+    character: (
+      <>
+        <circle cx="12" cy="7.5" r="4" />
+        <path d="M4.5 21v-1.5a7.5 7.5 0 0 1 15 0V21" />
       </>
     ),
     chevron: <path d="m5 8.5 7 7 7-7" strokeWidth="1.5" />,
@@ -46,7 +60,7 @@ export function Icon({ type, size, className = "" }) {
     ),
     unlock: (
       <>
-        <path d="M7.25 10V7.5a4.75 4.75 0 0 1 9.5 0" />
+        <path d="M7.25 10V7.5a4.75 4.75 0 0 1 7.2-4.25" />
         <rect x="5" y="10" width="14" height="11" rx="1.8" />
         <path d="M12 14v3" />
       </>
@@ -115,6 +129,13 @@ export function Icon({ type, size, className = "" }) {
         <path d="M12 22c-2.1-1.1-3.2-2.7-3.2-4.7 0-1.6 1-3.2 2.5-4.8.4 1.5 1.1 2.3 2.3 3.1 1.1.8 1.4 1.7 1.4 2.5 0 1.7-1 3-3 3.9Z" />
       </>
     ),
+    timer: (
+      <>
+        <circle cx="12" cy="13" r="8" />
+        <path d="M12 9v4l2.5 1.5M9 2h6M12 5V3M4.8 6.8 3.5 5.5M19.2 6.8l1.3-1.3" />
+      </>
+    ),
+    energy: <path d="m13.2 2.5-8 11h6l-.5 8 8.1-11h-6.1l.5-8Z" />,
     dice: (
       <>
         <g strokeWidth="1.5">
@@ -162,8 +183,15 @@ export function Icon({ type, size, className = "" }) {
     ),
     pill: (
       <g transform="rotate(-45 12 12)">
-        <rect x="2" y="7" width="20" height="10" rx="5" />
-        <path d="M12 7v10" />
+        <path
+          className="icon-pill-outline--lower"
+          d="M12 7H7a5 5 0 0 0 0 10h5"
+        />
+        <path
+          className="icon-pill-outline--upper"
+          d="M12 7h5a5 5 0 0 1 0 10h-5"
+        />
+        <path className="icon-pill-divider" d="M12 7v10" />
       </g>
     ),
     banknote: (
@@ -182,7 +210,9 @@ export function Icon({ type, size, className = "" }) {
       className={[
         "ui-icon",
         type === "bug" && "ui-icon--filled",
-        size && `ui-icon--${size}`,
+        ["energy", "coin", "pill", "banknote"].includes(type) &&
+          `ui-icon--${type}`,
+        size && `ui-icon--${iconSizeVariant(size)}`,
         className,
       ]
         .filter(Boolean)

@@ -160,9 +160,7 @@ export function createConnectorBridge({
         "login-required",
         "pending",
         "failed",
-      ].includes(
-        data.status,
-      )
+      ].includes(data.status)
     )
       return;
     if (

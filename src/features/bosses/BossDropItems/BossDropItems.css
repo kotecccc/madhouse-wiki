@@ -7,6 +7,10 @@
   min-height: 36px;
 }
 
+.boss-drop-items--compact {
+  min-height: 0;
+}
+
 .boss-drop-item {
   display: inline-flex;
   align-items: center;
@@ -18,17 +22,13 @@
 }
 
 .boss-drop-item-name {
-  overflow: hidden;
-  color: var(--card-description-color);
-  font-size: var(--card-description-size);
-  line-height: var(--card-line-height);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 0 1 auto;
 }
 
 .boss-drop-required-count {
   flex: 0 0 auto;
   color: var(--card-title-color);
-  font: 600 var(--card-description-size)/var(--card-line-height) var(--mono);
+  font: var(--font-weight-semibold)
+    var(--card-description-size)/var(--card-line-height) var(--mono);
   white-space: nowrap;
 }

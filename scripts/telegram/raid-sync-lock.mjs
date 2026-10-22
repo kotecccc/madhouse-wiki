@@ -54,10 +54,7 @@ export function createRaidSyncLock({
 
       const token = randomUUID();
       try {
-        await write(
-          { token, expiresAt: now + LOCK_TTL_MS },
-          current.etag,
-        );
+        await write({ token, expiresAt: now + LOCK_TTL_MS }, current.etag);
       } catch (error) {
         if (error instanceof BlobPreconditionFailedError) return null;
         throw error;

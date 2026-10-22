@@ -175,7 +175,7 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
     knowledgeBase.departments.map((department) => [department.id, department]),
   );
   const lines = [
-    `<b>🏢 Этаж ${escapeHtml(floor.code)} · отделения и условия открытия</b>`,
+    `<b>🏢 Этаж ${escapeHtml(floor.code)} • отделения и условия открытия</b>`,
   ];
   const floorText = String(floor.openingConditionText || "").trim();
   if (floorText)
@@ -213,11 +213,11 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
         .map((business) => business.title)
         .filter(Boolean);
       const businessLine = departmentBusinesses.length
-        ? ` · ${escapeHtml(departmentBusinesses.join(", "))}`
+        ? ` • ${escapeHtml(departmentBusinesses.join(", "))}`
         : "";
       lines.push(
         "",
-        `<b>${escapeHtml(department.code)} · ${escapeHtml(department.name)}${businessLine}</b>`,
+        `<b>${escapeHtml(department.code)} • ${escapeHtml(department.name)}${businessLine}</b>`,
       );
 
       const conditions = Array.isArray(department.openingConditions)
@@ -252,7 +252,7 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
         })),
   );
   if (businessUnlocks.length) {
-    lines.push("", "<b>Бизнесы · условия открытия отделений</b>");
+    lines.push("", "<b>Бизнесы • условия открытия отделений</b>");
     lines.push(
       ...sourceCaveats(
         knowledgeBase,
@@ -267,7 +267,7 @@ function describeFloor(floor, knowledgeBase, siteUrl) {
 
   return inlineArticle({
     id: `floor-${normalizeCode(floor.code).replace(/[^A-Z0-9]/g, "x")}`,
-    title: `🏢 Этаж ${floor.code} · условия`,
+    title: `🏢 Этаж ${floor.code} • условия`,
     description: floorText || "Бизнесы и условия открытия отделений",
     message: fitHtmlLines(lines),
     siteUrl,
@@ -289,10 +289,10 @@ function describeDepartment(
     : [];
   const lines = energy
     ? [
-        `<b>⚡ ${escapeHtml(department.code)} · ${escapeHtml(department.name)}</b>`,
+        `<b>⚡ ${escapeHtml(department.code)} • ${escapeHtml(department.name)}</b>`,
       ]
     : [
-        `<b>🏢 ${escapeHtml(department.code)} · ${escapeHtml(department.name)}</b>`,
+        `<b>🏢 ${escapeHtml(department.code)} • ${escapeHtml(department.name)}</b>`,
       ];
   if (floor) lines.push(`Этаж ${escapeHtml(floor.code)}`);
 
@@ -322,7 +322,7 @@ function describeDepartment(
             : null;
         lines.push(
           energyTotal == null
-            ? `• ${label} · энергия по каталогу не рассчитана.`
+            ? `• ${label} • энергия по каталогу не рассчитана.`
             : `• ${label} — ${formatNumber(targetEnergy)} × ${formatNumber(count)} = <b>${formatNumber(energyTotal)} ⚡</b>.`,
         );
       } else {
@@ -346,7 +346,7 @@ function describeDepartment(
 function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
   const departments = getDepartments(knowledgeBase, floor);
   const lines = [
-    `<b>⚡ Энергия отделений · этаж ${escapeHtml(floor.code)}</b>`,
+    `<b>⚡ Энергия отделений • этаж ${escapeHtml(floor.code)}</b>`,
   ];
   let hasEnergyData = false;
 
@@ -356,7 +356,7 @@ function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
     if (hasDepartmentEnergy) hasEnergyData = true;
     lines.push(
       "",
-      `<b>${escapeHtml(department.code)} · ${escapeHtml(department.name)}</b>`,
+      `<b>${escapeHtml(department.code)} • ${escapeHtml(department.name)}</b>`,
     );
     if (hasDepartmentEnergy) {
       lines.push(
@@ -401,9 +401,9 @@ function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
 
   return inlineArticle({
     id: `energy-floor-${normalizeCode(floor.code).replace(/[^A-Z0-9]/g, "x")}`,
-    title: `⚡ Этаж ${floor.code} · энергия`,
+    title: `⚡ Этаж ${floor.code} • энергия`,
     description: departments.length
-      ? `${departments.length} отделения · расход на полный цикл`
+      ? `${departments.length} отделения • расход на полный цикл`
       : "Энергия в каталоге пока не указана",
     message: fitHtmlLines(lines),
     siteUrl,
@@ -444,8 +444,8 @@ function describeEnergyTable(siteUrl) {
   ];
   return inlineArticle({
     id: "energy-table-snapshot",
-    title: "⚡ Энергия · таблица проходок",
-    description: "D-1—M-1 · купюры и примерное время",
+    title: "⚡ Энергия • таблица проходок",
+    description: "D-1—M-1 • купюры и примерное время",
     message: fitHtmlLines(lines),
     siteUrl,
     shareQuery: "энергия",
@@ -477,12 +477,12 @@ function describeRaidPost(post, siteUrl) {
 
   for (const raid of raids.slice(0, 20)) {
     const details = [raid?.clan, raid?.boss].filter(Boolean).map(escapeHtml);
-    const leader = raid?.leader ? ` · ведущий ${escapeHtml(raid.leader)}` : "";
-    const duration = raid?.duration ? ` · ${escapeHtml(raid.duration)}` : "";
+    const leader = raid?.leader ? ` • ведущий ${escapeHtml(raid.leader)}` : "";
+    const duration = raid?.duration ? ` • ${escapeHtml(raid.duration)}` : "";
     lines.push(
       "",
-      `<b>📍 ${escapeHtml(raid?.zone || "Зона не указана")} · ${escapeHtml(raid?.time || "время не указано")}</b>`,
-      `${details.join(" · ") || "Детали рейда не указаны"}${leader}${duration}`,
+      `<b>📍 ${escapeHtml(raid?.zone || "Зона не указана")} • ${escapeHtml(raid?.time || "время не указано")}</b>`,
+      `${details.join(" • ") || "Детали рейда не указаны"}${leader}${duration}`,
     );
   }
   if (raids.length > 20)
@@ -496,8 +496,8 @@ function describeRaidPost(post, siteUrl) {
   return inlineArticle({
     id: `raids-${String(post?.raidDate || post?.sourceMessageId || "latest").replace(/[^a-zA-Z0-9_-]/g, "-")}`,
     title:
-      post?.sourceTitle || `🔥 Рейды · ${post?.raidDateLabel || "актуальные"}`,
-    description: `${raids.length} рейдов · ${post?.timeZone || "время не указано"}`,
+      post?.sourceTitle || `🔥 Рейды • ${post?.raidDateLabel || "актуальные"}`,
+    description: `${raids.length} рейдов • ${post?.timeZone || "время не указано"}`,
     message: fitHtmlLines(lines),
     siteUrl,
     sourceUrl,
@@ -556,7 +556,7 @@ function describeBusinessUnlocks(knowledgeBase, siteUrl) {
       );
     });
 
-  const lines = ["<b>🏢 Этажи · условия открытия отделений по бизнесам</b>"];
+  const lines = ["<b>🏢 Этажи • условия открытия отделений по бизнесам</b>"];
   lines.push(
     ...sourceCaveats(
       knowledgeBase,
@@ -578,7 +578,7 @@ function describeBusinessUnlocks(knowledgeBase, siteUrl) {
 
   return inlineArticle({
     id: "business-unlocks-all",
-    title: "🏢 Бизнесы · все условия открытия",
+    title: "🏢 Бизнесы • все условия открытия",
     description: `${unlocks.length} связей из каталога Madhouse Wiki`,
     message: fitHtmlLines(lines),
     siteUrl,
@@ -655,8 +655,8 @@ function describeOpeningEnergy(knowledgeBase, siteUrl) {
 
   return inlineArticle({
     id: "opening-energy-all",
-    title: "⚡ Энергия · открытие отделений",
-    description: `${requirements.length} условий · итог по полным циклам работ`,
+    title: "⚡ Энергия • открытие отделений",
+    description: `${requirements.length} условий • итог по полным циклам работ`,
     message: fitHtmlLines(lines),
     siteUrl,
     shareQuery: "энергия",
@@ -996,7 +996,7 @@ export function createWikiBotApi({
       const departments = getDepartments(knowledgeBase, floor);
       const departmentRows = departments.map((department) => [
         {
-          text: `${floorMatch[1] === "energyfloor" ? "⚡" : "🏥"} ${department.code} · ${department.name}`.slice(
+          text: `${floorMatch[1] === "energyfloor" ? "⚡" : "🏥"} ${department.code} • ${department.name}`.slice(
             0,
             64,
           ),

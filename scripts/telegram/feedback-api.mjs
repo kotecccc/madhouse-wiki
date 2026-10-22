@@ -88,8 +88,8 @@ function makeFeedbackId(now = new Date()) {
 
 function contactLabel(user) {
   const name = user.displayName || "Имя не указано";
-  const username = user.username ? ` · @${user.username}` : "";
-  return `${name}${username} · Telegram ID ${user.id}`;
+  const username = user.username ? ` • @${user.username}` : "";
+  return `${name}${username} • Telegram ID ${user.id}`;
 }
 
 export function createFeedbackApi({

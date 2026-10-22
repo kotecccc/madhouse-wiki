@@ -3,15 +3,19 @@
   margin-bottom: var(--space-16);
 }
 
-.input-wrap input {
-  padding: 0 var(--space-56) 0 var(--space-12);
+.input-wrap--none {
+  margin-bottom: 0;
 }
 
 .input-suffix {
   position: absolute;
   top: 50%;
-  right: 13px;
+  right: var(--space-12);
   transform: translateY(-50%);
-  color: var(--input-suffix-color, #746d60);
-  font: var(--input-suffix-size, 12px)/1 var(--input-suffix-font, var(--sans));
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  pointer-events: none;
 }

@@ -25,6 +25,7 @@ function screenFromHash(authenticated) {
 }
 
 export function App() {
+  const scrollRegionRef = useRef(null);
   const floorAvailability = useFloorAvailability();
   const profileState = usePlayerProfile();
   const raidSchedule = useRaidSchedule();
@@ -100,6 +101,7 @@ export function App() {
     explicitScreen.current = true;
     setActiveScreen(next);
     window.history.replaceState(null, "", `#${next}`);
+    scrollRegionRef.current?.scrollTo({ top: 0, behavior: "instant" });
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   const onOpenFloors = (code) => {
@@ -120,41 +122,46 @@ export function App() {
   return (
     <div className="site-shell">
       <SiteHeader />
-      <main id="top" className={`app-content app-content--${activeScreen}`}>
-        {authenticated && (
-          <div id="screen-overview" className="app-screen app-screen--overview">
-            <OverviewSection
-              profileState={profileState}
-              floorAvailability={floorAvailability}
-              departmentState={departmentState}
-              schedule={raidSchedule}
-              onOpenFloors={onOpenFloors}
-              onOpenRaids={onOpenRaids}
-              onRetryFloors={floorAvailability.retry}
+      <div className="app-scroll-region" ref={scrollRegionRef} data-page-scroll>
+        <main id="top" className={`app-content app-content--${activeScreen}`}>
+          {authenticated && (
+            <div
+              id="screen-overview"
+              className="app-screen app-screen--overview"
+            >
+              <OverviewSection
+                profileState={profileState}
+                floorAvailability={floorAvailability}
+                departmentState={departmentState}
+                schedule={raidSchedule}
+                onOpenFloors={onOpenFloors}
+                onOpenRaids={onOpenRaids}
+                onRetryFloors={floorAvailability.retry}
+              />
+            </div>
+          )}
+          <div id="screen-floors" className="app-screen app-screen--floors">
+            {kb.floors.length === 0 && (
+              <p role="status">Справочник ещё не заполнен.</p>
+            )}
+            <FloorsSection
+              {...floorAvailability}
+              onCalculator={setConditionDialog}
+              onUpgradeSelect={setUpgradeDialog}
+              onDepartmentState={onDepartmentState}
+              selectedFloorCode={floorFocusCode}
             />
           </div>
-        )}
-        <div id="screen-floors" className="app-screen app-screen--floors">
-          {kb.floors.length === 0 && (
-            <p role="status">Справочник ещё не заполнен.</p>
-          )}
-          <FloorsSection
-            {...floorAvailability}
-            onCalculator={setConditionDialog}
-            onUpgradeSelect={setUpgradeDialog}
-            onDepartmentState={onDepartmentState}
-            selectedFloorCode={floorFocusCode}
-          />
-        </div>
-        <div id="screen-raids" className="app-screen app-screen--raids">
-          <RaidScheduleSection
-            availability={floorAvailability.availability}
-            state={raidSchedule}
-            onRetry={raidSchedule.retry}
-          />
-        </div>
-      </main>
-      <SiteFooter />
+          <div id="screen-raids" className="app-screen app-screen--raids">
+            <RaidScheduleSection
+              availability={floorAvailability.availability}
+              state={raidSchedule}
+              onRetry={raidSchedule.retry}
+            />
+          </div>
+        </main>
+        <SiteFooter />
+      </div>
       <MobileNavigation
         activeScreen={activeScreen}
         onScreenChange={changeScreen}

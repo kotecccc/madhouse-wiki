@@ -15,7 +15,10 @@ const clothingSlotLabels = new Map([
   [8, "Маска"],
   [9, "Питомец"],
 ]);
-export function readKnowledgeBase(root, file = resolve(root, "local-data/madhouse.sqlite")) {
+export function readKnowledgeBase(
+  root,
+  file = resolve(root, "local-data/madhouse.sqlite"),
+) {
   const db = new DatabaseSync(file, {
     readOnly: true,
   });
@@ -25,6 +28,14 @@ export function readKnowledgeBase(root, file = resolve(root, "local-data/madhous
         "SELECT kind,id,api_id,data_json,source_id FROM entities ORDER BY kind,coalesce(json_extract(data_json,'$.number'),cast(api_id as integer)),id",
       )
       .all();
+    const rewardPreviewCaptures = new Set(
+      db
+        .prepare(
+          "SELECT key FROM metadata WHERE key LIKE 'boss_reward_preview:v1:%'",
+        )
+        .all()
+        .map((row) => row.key.slice("boss_reward_preview:v1:".length)),
+    );
     const links = db
       .prepare("SELECT * FROM entity_links ORDER BY ordinal,to_id")
       .all();
@@ -136,9 +147,8 @@ export function readKnowledgeBase(root, file = resolve(root, "local-data/madhous
       return (
         stashSets.find(
           (set) =>
-            text(set.medallionReward?.name)
-              .trim()
-              .toLocaleLowerCase("ru") === medallionName,
+            text(set.medallionReward?.name).trim().toLocaleLowerCase("ru") ===
+            medallionName,
         ) || null
       );
     };
@@ -372,6 +382,9 @@ export function readKnowledgeBase(root, file = resolve(root, "local-data/madhous
       bosses: of("boss").map((b) => ({
         ...b,
         numericId: Number(b.apiId),
+        rewardPreviewCaptured:
+          Object.hasOwn(b, "rewardPreview") ||
+          rewardPreviewCaptures.has(String(b.apiId)),
         name: text(b.nameRu ?? b.name),
         departmentId: inDepartment(b),
         image: bossPreviewUrl(b.apiId),

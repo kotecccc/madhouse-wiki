@@ -1,5 +1,4 @@
 import "./FieldLabel.css";
-import "./FieldLabel.css";
 
 export function FieldLabel({ htmlFor, hint, children, className = "" }) {
   return (

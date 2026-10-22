@@ -10,7 +10,11 @@ export function calculateCycleEnergy(cost, count) {
   return Number.isFinite(total) ? { total, count, cost } : null;
 }
 
-export function calculateRequirementEnergy(totalEnergy, maxEnergy, currentEnergy) {
+export function calculateRequirementEnergy(
+  totalEnergy,
+  maxEnergy,
+  currentEnergy,
+) {
   if (
     ![totalEnergy, maxEnergy, currentEnergy].every(
       (value) => Number.isFinite(value) && value >= 0,
@@ -29,9 +33,7 @@ export function calculateRequirementEnergy(totalEnergy, maxEnergy, currentEnergy
   const mixedCost = largeRefills * 10 + smallRefills * 2;
   const largeOnlyCost = largeOnlyRefills * 10;
   const useLargeOnly = largeOnlyCost < mixedCost;
-  const selectedLargeRefills = useLargeOnly
-    ? largeOnlyRefills
-    : largeRefills;
+  const selectedLargeRefills = useLargeOnly ? largeOnlyRefills : largeRefills;
   const selectedSmallRefills = useLargeOnly ? 0 : smallRefills;
 
   return {
