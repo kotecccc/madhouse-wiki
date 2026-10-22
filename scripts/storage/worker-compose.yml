@@ -14,7 +14,7 @@ services:
     working_dir: /app
     volumes:
       - ./app:/app:ro
-    tmpfs: [/tmp:uid=1000, gid=1000, mode=0700, size=32m]
+    tmpfs: ["/tmp:uid=1000,gid=1000,mode=0700,size=32m"]
     command: [node, --max-old-space-size=128, worker.mjs]
     logging:
       driver: json-file

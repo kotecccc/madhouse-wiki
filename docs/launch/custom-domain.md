@@ -59,11 +59,12 @@ unavailable. The store has not been deleted. This does not imply that its old
 objects have been recovered into the VPS storage service; only data present in
 the current VPS storage is available to the application.
 
-The Mac raid worker is disabled. The replacement VPS worker is waiting for
-secure Telegram account authentication. The login flow is open in the local
-Terminal and is awaiting QR confirmation and the account's two-step verification password. No
-live raid synchronization is claimed until authentication succeeds and the
-worker is enabled.
+The Mac raid worker is disabled. The replacement VPS worker completed secure
+Telegram authentication and its initial history reconciliation on 2026-10-23.
+It runs as `madhouse-raid-worker` with automatic restart, receives channel
+updates, and reconciles history every ten minutes. Startup was verified with
+`raids_worker_ready`, zero restarts, and no OOM termination. The encrypted
+session is backed up with the private storage data.
 
 The storage endpoint remains behind the VPS nginx virtual host at
 `/_madhouse-storage/`, forwarding to the loopback-only storage container. Do
