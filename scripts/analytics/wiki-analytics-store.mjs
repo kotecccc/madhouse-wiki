@@ -1,5 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { del, get, list, put } from "@vercel/blob";
+import { del, get, list, put } from "../storage/client.mjs";
 import { strongBlobEtag } from "../telegram/raid-blob-etag.mjs";
 
 const EVENT_PREFIX = "madhouse-wiki/analytics/events/";

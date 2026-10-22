@@ -6,6 +6,7 @@ import { connectorHeaders } from "../../connector/worker.js";
 // Node transport only; the shared API owns validation and auth behavior.
 export function createVercelConnectorHandler({
   wikiOrigin,
+  wikiOrigins = [wikiOrigin],
   connectorOrigin,
   endpoint,
   appParams = () => ({
@@ -14,10 +15,10 @@ export function createVercelConnectorHandler({
   }),
   fetcher = fetch,
 }) {
-  const security = connectorHeaders([wikiOrigin]);
+  const security = connectorHeaders(wikiOrigins);
   const api = createConnectorApi({
     appParams,
-    wikiOrigins: [wikiOrigin],
+    wikiOrigins,
     fetcher,
     accountSessions: createAccountSessions({
       store: createBlobSessionStore(),

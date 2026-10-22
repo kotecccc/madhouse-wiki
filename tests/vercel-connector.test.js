@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { createVercelConnectorHandler } from "../scripts/deploy/vercel-connector-handler.mjs";
 const wikiOrigin = "https://wiki.example";
+const legacyWikiOrigin = "https://legacy-wiki.example";
 const connectorOrigin = "https://connect.example";
 const settings = { apiId: 123456, apiHash: "a".repeat(32) }; // Synthetic app parameters.
 const initData = "hash=" + "0".repeat(64) + "&user=%7B%7D&auth_date=1";
@@ -26,6 +27,7 @@ async function invoke(
     body,
     parsed = false,
     appParams = () => settings,
+    wikiOrigins = [wikiOrigin],
     fetcher,
   } = {},
 ) {
@@ -46,6 +48,7 @@ async function invoke(
   const res = response();
   await createVercelConnectorHandler({
     wikiOrigin,
+    wikiOrigins,
     connectorOrigin,
     endpoint,
     appParams,
@@ -70,6 +73,25 @@ test("Vercel config uses runtime params, exact Wiki origin, CSP and no private c
     (await invoke("/api/config", { appParams: () => ({}) })).statusCode,
     503,
   );
+});
+test("Vercel connector accepts only the configured current and legacy Wiki origins", async () => {
+  const wikiOrigins = [wikiOrigin, legacyWikiOrigin];
+  const r = await invoke("/api/config", { wikiOrigins });
+  assert.deepEqual(JSON.parse(r.body).wikiOrigins, wikiOrigins);
+  for (const origin of wikiOrigins) {
+    assert.ok(r.headers["content-security-policy"].includes(origin));
+  }
+  assert.equal(
+    r.headers["content-security-policy"].includes("https://unrelated.example"),
+    false,
+  );
+  const unrelated = await invoke("/api/game-session", {
+    method: "POST",
+    origin: "https://unrelated.example",
+    wikiOrigins,
+    body: {},
+  });
+  assert.equal(unrelated.statusCode, 403);
 });
 test("Vercel streamed and parsed bodies preserve shared game auth without old Bearer or cookies", async () => {
   for (const parsed of [false, true]) {

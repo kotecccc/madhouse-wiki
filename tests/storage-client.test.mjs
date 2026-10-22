@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   BlobPreconditionFailedError,
   get,
+  list,
+  del,
   put,
 } from "../scripts/storage/client.mjs";
 
@@ -102,4 +104,56 @@ test("configured storage rejects insecure origins and incomplete credentials", a
   process.env.MADHOUSE_STORAGE_ORIGIN = "https://storage.example";
   process.env.MADHOUSE_STORAGE_TOKEN = "short";
   await assert.rejects(get("private"), /madhouse_storage_config_unavailable/);
+
+  delete process.env.MADHOUSE_STORAGE_ORIGIN;
+  delete process.env.MADHOUSE_STORAGE_TOKEN;
+  await assert.rejects(get("private"), /madhouse_storage_config_unavailable/);
+});
+
+test("LIST sends pagination parameters and DELETE handles one or many paths", async (t) => {
+  configure();
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (savedOrigin === undefined) delete process.env.MADHOUSE_STORAGE_ORIGIN;
+    else process.env.MADHOUSE_STORAGE_ORIGIN = savedOrigin;
+    if (savedToken === undefined) delete process.env.MADHOUSE_STORAGE_TOKEN;
+    else process.env.MADHOUSE_STORAGE_TOKEN = savedToken;
+  });
+
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url, init });
+    if (init.method === "GET")
+      return Response.json({
+        blobs: [{ pathname: "events/one" }],
+        hasMore: false,
+      });
+    return new Response(null, { status: 204 });
+  };
+  const result = await list({
+    prefix: "events/2026-10-23/",
+    limit: 100,
+    cursor: "next page",
+  });
+  assert.equal(result.blobs[0].pathname, "events/one");
+  assert.equal(
+    requests[0].url,
+    "https://storage.example/_madhouse-storage/v1/list?prefix=events%2F2026-10-23%2F&limit=100&cursor=next+page",
+  );
+  await del("one.json", { ifMatch: '"tag"' });
+  await del(["two.json", "three.json"]);
+  assert.equal(
+    requests[1].url,
+    "https://storage.example/_madhouse-storage/v1/objects/one.json",
+  );
+  assert.equal(requests[1].init.headers["if-match"], '"tag"');
+  assert.equal(
+    requests[2].url,
+    "https://storage.example/_madhouse-storage/v1/objects/two.json",
+  );
+  assert.equal(
+    requests[3].url,
+    "https://storage.example/_madhouse-storage/v1/objects/three.json",
+  );
 });

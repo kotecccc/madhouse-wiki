@@ -49,6 +49,19 @@ const connectorOrigin =
   service === "connector"
     ? productionOrigin(process.env.CONNECTOR_PUBLIC_ORIGIN)
     : productionOrigin(process.env.VITE_TELEGRAM_CONNECTOR_ORIGIN);
+const wikiOrigins =
+  service === "connector"
+    ? [
+        ...new Set([
+          wikiOrigin,
+          ...(process.env.CONNECTOR_LEGACY_WIKI_ORIGINS || "")
+            .split(",")
+            .map((origin) => origin.trim())
+            .filter(Boolean)
+            .map(productionOrigin),
+        ]),
+      ]
+    : [wikiOrigin];
 if (wikiOrigin === connectorOrigin)
   throw new Error("Wiki and connector must use separate origins");
 const root = process.cwd();
@@ -140,7 +153,7 @@ const overrides = {};
 if (service === "connector") {
   routes.push({
     src: "/(.*)",
-    headers: connectorHeaders([wikiOrigin]),
+    headers: connectorHeaders(wikiOrigins),
     continue: true,
   });
   routes.push({
@@ -168,6 +181,7 @@ if (service === "connector") {
     "connector/worker.js",
     "connector/account-session.js",
     "connector/blob-session-store.js",
+    "scripts/storage/client.mjs",
   ];
   for (const [name, endpoint] of [
     ["api/config", "/api/config"],
@@ -178,7 +192,7 @@ if (service === "connector") {
     functionFiles(
       name,
       files,
-      `import {createVercelConnectorHandler} from './scripts/deploy/vercel-connector-handler.mjs';export default createVercelConnectorHandler(${JSON.stringify({ wikiOrigin, connectorOrigin, endpoint })});`,
+      `import {createVercelConnectorHandler} from './scripts/deploy/vercel-connector-handler.mjs';export default createVercelConnectorHandler(${JSON.stringify({ wikiOrigin, wikiOrigins, connectorOrigin, endpoint })});`,
     );
   }
   for (const file of readdirSync(resolve(output, "static/assets")))
@@ -270,6 +284,7 @@ if (service === "connector") {
     "api/analytics.js",
     "scripts/analytics/wiki-analytics-api.mjs",
     "scripts/analytics/wiki-analytics-store.mjs",
+    "scripts/storage/client.mjs",
     "scripts/telegram/telegram-init-data.mjs",
     "scripts/telegram/wiki-api-vercel-handler.mjs",
     "scripts/telegram/raid-blob-etag.mjs",
@@ -284,6 +299,7 @@ if (service === "connector") {
     "api/analytics-cleanup.js",
     "scripts/analytics/wiki-analytics-api.mjs",
     "scripts/analytics/wiki-analytics-store.mjs",
+    "scripts/storage/client.mjs",
     "scripts/telegram/telegram-init-data.mjs",
     "scripts/telegram/wiki-api-vercel-handler.mjs",
     "scripts/telegram/raid-blob-etag.mjs",

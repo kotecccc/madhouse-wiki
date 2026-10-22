@@ -162,3 +162,126 @@ test("simultaneous create requests allow only one conditional winner", async () 
     );
   });
 });
+
+test("session records use a narrow path pattern, 32 KiB limit, and CAS", async () => {
+  await withServer(async ({ call }) => {
+    const path = `/v1/objects/accounts/${"a".repeat(64)}.json`;
+    const create = await call(path, {
+      method: "PUT",
+      headers: { "if-none-match": "*" },
+      body: "session",
+    });
+    assert.equal(create.status, 200);
+    const etag = create.headers.get("etag");
+    assert.equal(
+      (
+        await call(path, {
+          method: "PUT",
+          headers: { "if-match": '"stale"' },
+          body: "next",
+        })
+      ).status,
+      412,
+    );
+    assert.equal(
+      (
+        await call(path, {
+          method: "PUT",
+          headers: { "if-match": etag },
+          body: "next",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await call(`/v1/objects/accounts/${"g".repeat(64)}.json`, {
+          method: "PUT",
+          headers: { "if-none-match": "*" },
+          body: "x",
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await call(path, {
+          method: "PUT",
+          headers: { "if-match": create.headers.get("etag") },
+          body: Buffer.alloc(32 * 1024 + 1),
+        })
+      ).status,
+      413,
+    );
+    assert.equal(
+      (await call("/v1/list?prefix=accounts%2F&limit=10")).status,
+      400,
+    );
+  });
+});
+
+test("analytics listing is bounded and paginated, and deletion honors supplied CAS", async () => {
+  await withServer(async ({ call }) => {
+    const prefix = "madhouse-wiki/analytics/events/2026-10-23/";
+    const names = [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+    ];
+    for (const id of names) {
+      const response = await call(`/v1/objects/${prefix}${id}.json`, {
+        method: "PUT",
+        headers: { "if-none-match": "*" },
+        body: `record-${id}`,
+      });
+      assert.equal(response.status, 200);
+    }
+    assert.equal(
+      (await call("/v1/list?prefix=accounts%2F&limit=10")).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call(
+          `/v1/list?prefix=${encodeURIComponent(prefix)}&limit=1&cursor=${encodeURIComponent("madhouse-wiki/analytics/events/2026-10-22/00000000-0000-4000-8000-000000000001.json")}`,
+        )
+      ).status,
+      400,
+    );
+    const first = await call(
+      `/v1/list?prefix=${encodeURIComponent(prefix)}&limit=1`,
+    );
+    const page = await first.json();
+    assert.equal(first.status, 200);
+    assert.equal(page.blobs.length, 1);
+    assert.equal(page.blobs[0].pathname, `${prefix}${names[0]}.json`);
+    assert.equal(page.hasMore, true);
+    const second = await call(
+      `/v1/list?prefix=${encodeURIComponent(prefix)}&limit=1&cursor=${encodeURIComponent(page.cursor)}`,
+    );
+    const next = await second.json();
+    assert.equal(next.blobs[0].pathname, `${prefix}${names[1]}.json`);
+    assert.equal(next.hasMore, false);
+    const objectPath = `/v1/objects/${prefix}${names[0]}.json`;
+    assert.equal(
+      (
+        await call(objectPath, {
+          method: "DELETE",
+          headers: { "if-match": '"stale"' },
+        })
+      ).status,
+      412,
+    );
+    const current = await call(objectPath);
+    const etag = current.headers.get("etag");
+    assert.equal(
+      (
+        await call(objectPath, {
+          method: "DELETE",
+          headers: { "if-match": etag },
+        })
+      ).status,
+      200,
+    );
+    assert.equal((await call(objectPath)).status, 404);
+  });
+});

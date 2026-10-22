@@ -1,4 +1,4 @@
-import { get, put } from "@vercel/blob";
+import { get, put } from "../scripts/storage/client.mjs";
 // Server-only private storage. Names are HMACs; content is AES-GCM encrypted.
 // Consistent reads + conditional writes preserve logout under concurrent logins.
 export function createBlobSessionStore() {
