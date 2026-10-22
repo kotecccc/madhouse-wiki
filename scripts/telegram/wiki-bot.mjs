@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 const TARGET_USERNAME = "madhouse_wiki_bot";
-const DEFAULT_WIKI_ORIGIN = "https://madhouse-wiki.vercel.app";
+const DEFAULT_WIKI_ORIGIN = "https://madhouse-wiki.ru";
 const TMA_URL = `https://t.me/${TARGET_USERNAME}?startapp=home`;
 const START_IMAGE_PATH = "/madhouse-wiki-bot-start.png";
 const MAX_WEBHOOK_BODY_BYTES = 96 * 1024;

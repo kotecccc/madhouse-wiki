@@ -42,7 +42,7 @@ const wikiOrigin =
   service === "connector"
     ? productionOrigin(process.env.CONNECTOR_WIKI_ORIGIN)
     : publicHttpsOrigin(
-        process.env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.vercel.app",
+        process.env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.ru",
         "WIKI_PUBLIC_ORIGIN",
       );
 const connectorOrigin =

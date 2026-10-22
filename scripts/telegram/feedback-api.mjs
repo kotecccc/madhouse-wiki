@@ -95,7 +95,7 @@ function contactLabel(user) {
 export function createFeedbackApi({
   botToken,
   adminTelegramId,
-  wikiOrigin = "https://madhouse-wiki.vercel.app",
+  wikiOrigin = "https://madhouse-wiki.ru",
   fetchImpl = globalThis.fetch,
   now = () => new Date(),
 } = {}) {
