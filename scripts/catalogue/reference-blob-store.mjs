@@ -1,4 +1,4 @@
-import { get, put } from "@vercel/blob";
+import { get, put } from "../storage/client.mjs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

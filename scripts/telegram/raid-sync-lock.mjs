@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BlobPreconditionFailedError, get, put } from "@vercel/blob";
+import { BlobPreconditionFailedError, get, put } from "../storage/client.mjs";
 import { strongBlobEtag } from "./raid-blob-etag.mjs";
 
 const BLOB_PATH = "madhouse-raids/sync-lock.json";

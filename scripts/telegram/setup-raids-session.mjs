@@ -56,6 +56,14 @@ try {
   );
   const user = await client.start({
     qrCodeHandler: async (url) => {
+      if (process.env.RAID_SETUP_QR_FILE) {
+        await QRCode.toFile(process.env.RAID_SETUP_QR_FILE, url, {
+          width: 480,
+          margin: 4,
+        });
+        console.log("Telegram login QR updated.");
+        return;
+      }
       console.clear();
       console.log(
         "Telegram → Settings → Devices → Link Desktop Device. Scan this code:",
@@ -94,7 +102,7 @@ try {
 
   await store.save(await client.exportSession(), { replace });
   saved = true;
-  console.log("Encrypted Telegram session saved to private Vercel Blob.");
+  console.log("Encrypted Telegram session saved to private storage.");
 } finally {
   if (!saved) {
     try {

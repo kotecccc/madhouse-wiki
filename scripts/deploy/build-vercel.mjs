@@ -201,6 +201,7 @@ if (service === "connector") {
     "scripts/telegram/raid-api.mjs",
     "scripts/telegram/raid-feed-page.mjs",
     "scripts/telegram/raid-blob-store.mjs",
+    "scripts/storage/client.mjs",
     "scripts/telegram/raid-blob-etag.mjs",
     "scripts/telegram/raid-vercel-handler.mjs",
   ];
@@ -220,6 +221,7 @@ if (service === "connector") {
     "scripts/telegram/raid-session-store.mjs",
     "scripts/telegram/raid-mtproto-client.mjs",
     "scripts/telegram/raid-blob-store.mjs",
+    "scripts/storage/client.mjs",
     "scripts/telegram/raid-schedule-parser.mjs",
     "scripts/telegram/raid-vercel-handler.mjs",
     "node_modules/@mtcute/wasm/mtcute-simd.wasm",
@@ -302,6 +304,7 @@ if (service === "connector") {
     "scripts/catalogue/item-facts.mjs",
     "scripts/catalogue/schema.sql",
     "scripts/catalogue/reference-blob-store.mjs",
+    "scripts/storage/client.mjs",
     "scripts/telegram/raid-blob-etag.mjs",
     "scripts/telegram/wiki-api-vercel-handler.mjs",
   ];

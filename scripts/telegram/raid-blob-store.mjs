@@ -1,4 +1,4 @@
-import { get, put } from "@vercel/blob";
+import { get, put } from "../storage/client.mjs";
 import { strongBlobEtag } from "./raid-blob-etag.mjs";
 
 const BLOB_PATH = "madhouse-raids/schedule.json";

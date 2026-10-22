@@ -14,5 +14,6 @@ COPY scripts/telegram/raid-mtproto-client.mjs ./scripts/telegram/
 COPY scripts/telegram/raid-schedule-parser.mjs ./scripts/telegram/
 COPY scripts/telegram/raid-session-store.mjs ./scripts/telegram/
 COPY scripts/telegram/raid-sync-lock.mjs ./scripts/telegram/
+COPY scripts/storage/client.mjs ./scripts/storage/
 
 CMD ["node", "scripts/telegram/raid-live-worker.mjs"]
