@@ -7,7 +7,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 192m
+    mem_limit: 256m
     cpus: 0.5
     pids_limit: 64
     env_file: .env
@@ -15,7 +15,7 @@ services:
     volumes:
       - ./app:/app:ro
     tmpfs: [/tmp:uid=1000, gid=1000, mode=0700, size=32m]
-    command: [node, --max-old-space-size=96, worker.mjs]
+    command: [node, --max-old-space-size=128, worker.mjs]
     logging:
       driver: json-file
       options:

@@ -45,7 +45,7 @@ dependency installation on the production VPS. Deploy `.vercel/raid-worker/`
 to `/opt/madhouse-raid-worker/app/` and use `scripts/storage/worker-compose.yml`.
 Its protected `.env` contains only Telegram application credentials, the
 session encryption key, and storage configuration. The container has a
-192 MiB memory cap and no published ports. The Mac LaunchAgent is disabled;
+256 MiB memory cap and no published ports. The Mac LaunchAgent is disabled;
 never start both workers. Before initial startup, establish the encrypted
 Telegram session with `scripts/telegram/setup-raids-session.mjs`. If it is
 missing, the worker must not claim synchronization is live.
