@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
@@ -7,55 +6,7 @@ import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import { RaidArchive } from "../RaidArchive/RaidArchive.jsx";
 import "./RaidScheduleSection.css";
 
-const REFRESH_INTERVAL = 10 * 1000;
-
-export function RaidScheduleSection({ availability }) {
-  const [state, setState] = useState({
-    status: "loading",
-    posts: [],
-    nextCursor: null,
-  });
-  const [reload, setReload] = useState(0);
-  const loadSchedule = useCallback(async (signal) => {
-    try {
-      const response = await fetch("/api/raids?limit=1", {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-        signal,
-      });
-      if (!response.ok) throw new Error("schedule-unavailable");
-      const result = await response.json();
-      const nextPosts = Array.isArray(result.posts) ? result.posts : [];
-      setState((current) =>
-        current.status === "ready" &&
-        JSON.stringify(current.posts) === JSON.stringify(nextPosts) &&
-        current.nextCursor === result.nextCursor
-          ? current
-          : {
-              status: "ready",
-              posts: nextPosts,
-              nextCursor: result.nextCursor || null,
-            },
-      );
-    } catch (error) {
-      if (error?.name !== "AbortError")
-        setState((current) =>
-          current.status === "ready" ? current : { status: "error", posts: [] },
-        );
-    }
-  }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    loadSchedule(controller.signal);
-    const timer = window.setInterval(
-      () => loadSchedule(controller.signal),
-      REFRESH_INTERVAL,
-    );
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [loadSchedule, reload]);
+export function RaidScheduleSection({ availability, state, onRetry }) {
   const latest = state.posts[0];
   const headingDate = latest?.raidDateLabel?.replace(
     /^(\d{2}\.\d{2}\.)\d{2}(\d{2})$/,
@@ -93,10 +44,7 @@ export function RaidScheduleSection({ availability }) {
       {state.status === "error" && (
         <div className="raid-feed-state" role="status">
           <p>Расписание временно недоступно.</p>
-          <Button
-            variant="secondary"
-            onClick={() => setReload((value) => value + 1)}
-          >
+          <Button variant="secondary" onClick={onRetry}>
             Повторить
           </Button>
         </div>

@@ -18,7 +18,7 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { Input } from "../../../components/ui/Input/Input.jsx";
 import { TokenBookmarklet } from "./TokenBookmarklet.jsx";
 import "./LoginControl.css";
-import { profileAvatarUrl } from "../profile.js";
+import { normalizePlayerProfile } from "../profile.js";
 import {
   TelegramConnection,
   TELEGRAM_CONNECTOR_ORIGIN,
@@ -113,43 +113,8 @@ export function LoginControl() {
       setRestoring(true);
       try {
         const data = await getSessionJson("/api/me", { signal });
-        const text = (value) =>
-          typeof value === "string" ? value.trim().slice(0, 80) : "";
         if (!signal.aborted) {
-          setProfile({
-            name:
-              text(data.nickname) ||
-              text(data.firstName) ||
-              text(data.username) ||
-              "Игрок",
-            username: text(data.username).replace(/^@/, ""),
-            avatarUrl: profileAvatarUrl(data),
-            stats: [
-              [
-                "Безумие",
-                data.characterStats?.madness?.total,
-                data.characterStats?.maxHealth,
-                "HP",
-              ],
-              [
-                "Агрессия",
-                data.characterStats?.aggression?.total,
-                data.characterStats?.baseDamage,
-                "урон",
-              ],
-              [
-                "Ярость",
-                data.characterStats?.rage?.total,
-                data.characterStats?.critChancePercent,
-                "% шанс крита",
-              ],
-            ].filter(([, value]) => Number.isFinite(value)),
-            wallet: [
-              ["Монеты", data.wallet?.gold, "coin"],
-              ["Пилюли", data.wallet?.pills, "pill"],
-              ["Доллары", data.wallet?.dollar, "banknote"],
-            ].filter(([, value]) => Number.isFinite(value)),
-          });
+          setProfile(normalizePlayerProfile(data));
           setRestoring(false);
         }
       } catch {
@@ -543,24 +508,24 @@ export function LoginControl() {
                         >
                           web.telegram.org
                         </a>{" "}
-                        и перейдите в чат, из которого запускаете игру.
-                        Саму игру пока не запускайте.
+                        и перейдите в чат, из которого запускаете игру. Саму
+                        игру пока не запускайте.
                       </li>
                       <li>
                         Вызовите закладку: нажмите адресную строку, наберите{" "}
                         <code>wiki</code> и выберите закладку в подсказках.
-                        Когда она попросит открыть игру, запустите её —
-                        вкладка сама перейдёт на страницу игры.
+                        Когда она попросит открыть игру, запустите её — вкладка
+                        сама перейдёт на страницу игры.
                       </li>
                       <li>
-                        Сразу, не дожидаясь загрузки игры, вызовите закладку
-                        тем же способом ещё раз. В появившемся окне скопируйте
+                        Сразу, не дожидаясь загрузки игры, вызовите закладку тем
+                        же способом ещё раз. В появившемся окне скопируйте
                         токен, вернитесь сюда и вставьте его в поле ниже.
                       </li>
                     </ol>
                     <p className="login-token-phone-copy">
-                      После настройки закладки выполняйте шаги без пауз.
-                      Если не получилось, начните заново со второго шага.
+                      После настройки закладки выполняйте шаги без пауз. Если не
+                      получилось, начните заново со второго шага.
                     </p>
                   </section>
                 ) : (

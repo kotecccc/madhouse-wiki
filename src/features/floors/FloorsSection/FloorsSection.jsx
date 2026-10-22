@@ -21,6 +21,8 @@ export function FloorsSection({
   retry,
   onCalculator,
   onUpgradeSelect,
+  onDepartmentState,
+  selectedFloorCode,
 }) {
   const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
@@ -35,6 +37,12 @@ export function FloorsSection({
       : orderedFloors[0];
   const selectedFloor =
     orderedFloors.find((floor) => floor.id === selectedFloorId) || defaultFloor;
+
+  useEffect(() => {
+    if (!selectedFloorCode) return;
+    const floor = orderedFloors.find((item) => item.code === selectedFloorCode);
+    if (floor) setSelectedFloorId(floor.id);
+  }, [selectedFloorCode]);
 
   useEffect(() => {
     let previousStatus = readSession().status;
@@ -52,6 +60,13 @@ export function FloorsSection({
     availability[selectedFloor?.code],
     selectedFloor?.code === lastAvailableFloorCode,
   );
+  useEffect(() => {
+    if (
+      departmentState.status === "ready" ||
+      departmentState.status === "error"
+    )
+      onDepartmentState?.(departmentState);
+  }, [departmentState, onDepartmentState]);
   const departmentAvailability =
     availability[selectedFloor?.code] === false
       ? Object.fromEntries(

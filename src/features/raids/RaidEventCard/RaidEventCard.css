@@ -11,6 +11,10 @@
   padding-right: 100px;
 }
 
+.raid-card .boss-card-main {
+  width: calc(100% - 158px);
+}
+
 .raid-event-meta {
   position: absolute;
   top: var(--card-padding);
@@ -90,6 +94,16 @@
   background: color-mix(in srgb, var(--status-active) 10%, transparent);
 }
 
+.raid-status--active .raid-status-dot {
+  animation: raid-status-dot-flicker 1.2s ease-in-out infinite;
+}
+
+@keyframes raid-status-dot-flicker {
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .raid-status--completed {
   color: var(--status-completed);
   background: color-mix(in srgb, var(--status-completed) 10%, transparent);
@@ -109,5 +123,12 @@
   }
   .raid-status {
     font-size: 8px;
+  }
+  .raid-status--locked {
+    gap: 0;
+    padding-inline: var(--space-4);
+  }
+  .raid-status--locked > span:last-child {
+    display: none;
   }
 }

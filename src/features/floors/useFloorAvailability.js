@@ -30,6 +30,7 @@ function isTelegramRestorePending() {
 // Account access is transient UI state, never part of the reference catalogue.
 export function useFloorAvailability() {
   const [availability, setAvailability] = useState({});
+  const [floorDetails, setFloorDetails] = useState({});
   const [status, setStatus] = useState(() =>
     readSession().status === "ready" || isTelegramRestorePending()
       ? "loading"
@@ -48,6 +49,7 @@ export function useFloorAvailability() {
       const session = readSession();
       previousStatus = session.status;
       setAvailability({});
+      setFloorDetails({});
       let catalogue = null;
       let importedAny = false;
       try {
@@ -74,14 +76,60 @@ export function useFloorAvailability() {
         if (signal.aborted) return;
         if (!Array.isArray(floors)) throw new Error("Invalid floors response");
         const next = {};
+        const details = {};
         for (const floor of floors) {
           if (
             typeof floor.code === "string" &&
             typeof floor.isAvailable === "boolean"
-          )
+          ) {
             next[floor.code] = floor.isAvailable;
+            details[floor.code] = {
+              code: floor.code,
+              number: Number.isFinite(floor.number) ? floor.number : null,
+              requiredLevel: Number.isFinite(floor.requiredLevel)
+                ? floor.requiredLevel
+                : null,
+              isAvailable: floor.isAvailable,
+              unlockDescription:
+                typeof floor.unlockDescription === "string"
+                  ? floor.unlockDescription
+                  : "",
+              unlockRequirements: Array.isArray(floor.unlockRequirements)
+                ? floor.unlockRequirements
+                    .filter(
+                      (requirement) =>
+                        requirement && typeof requirement === "object",
+                    )
+                    .map((requirement) => ({
+                      type:
+                        typeof requirement.type === "string"
+                          ? requirement.type
+                          : "",
+                      label:
+                        typeof requirement.label === "string"
+                          ? requirement.label
+                          : "",
+                      required: Number.isFinite(requirement.required)
+                        ? requirement.required
+                        : null,
+                      current: Number.isFinite(requirement.current)
+                        ? requirement.current
+                        : null,
+                      met:
+                        typeof requirement.met === "boolean"
+                          ? requirement.met
+                          : null,
+                      workId: requirement.workId ?? null,
+                      bossId: requirement.bossId ?? null,
+                      businessId: requirement.businessId ?? null,
+                      medallionId: requirement.medallionId ?? null,
+                    }))
+                : null,
+            };
+          }
         }
         setAvailability(next);
+        setFloorDetails(details);
         setStatus("ready");
         if (signal.aborted) return;
         const complete = new Set(catalogue?.completeFloors || []);
@@ -118,6 +166,7 @@ export function useFloorAvailability() {
       } catch {
         if (!signal.aborted) {
           setAvailability({});
+          setFloorDetails({});
           setStatus("error");
         }
       }
@@ -146,6 +195,7 @@ export function useFloorAvailability() {
   }, [requestId]);
   return {
     availability,
+    floorDetails,
     status,
     retry: () => {
       attemptedFloors.current.clear();

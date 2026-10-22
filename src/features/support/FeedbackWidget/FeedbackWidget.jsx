@@ -41,7 +41,7 @@ function encodeFile(file) {
   });
 }
 
-export function FeedbackWidget({ screen = "floors", onOpenPrivacy }) {
+export function FeedbackWidget({ screen = "floors" }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [file, setFile] = useState(null);
@@ -204,14 +204,7 @@ export function FeedbackWidget({ screen = "floors", onOpenPrivacy }) {
           <p className="feedback-privacy-note">
             Текст и скриншот сразу отправятся администратору в личный чат
             Telegram вместе с Telegram ID, именем и username из проверенной
-            сессии. Wiki не сохраняет обращение у себя.{" "}
-            <button
-              type="button"
-              className="feedback-privacy-link"
-              onClick={onOpenPrivacy}
-            >
-              Настройки приватности
-            </button>
+            сессии. Wiki не сохраняет обращение у себя.
           </p>
           {status.message && (
             <p

@@ -24,17 +24,6 @@
   margin-left: auto;
 }
 
-.footer-privacy-link {
-  padding: var(--space-8);
-  border: 0;
-  color: var(--muted);
-  background: transparent;
-  font: inherit;
-  font-size: 10px;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
 @media (max-width: 650px) {
   .footer {
     min-height: 120px;

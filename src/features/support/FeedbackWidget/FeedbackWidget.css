@@ -132,20 +132,6 @@
   line-height: 1.55;
 }
 
-.feedback-privacy-link {
-  color: var(--paper-bright);
-}
-
-.feedback-privacy-link {
-  display: inline;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
 .feedback-status {
   margin: 0;
   color: var(--paper-bright);
