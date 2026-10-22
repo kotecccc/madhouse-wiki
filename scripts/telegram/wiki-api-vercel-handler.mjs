@@ -25,15 +25,38 @@ function serializeBody(body) {
   }
 }
 
+async function readStreamedBody(request) {
+  if (typeof request[Symbol.asyncIterator] !== "function") return undefined;
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk)
+      ? chunk
+      : typeof chunk === "string"
+        ? Buffer.from(chunk)
+        : chunk instanceof Uint8Array
+          ? Buffer.from(chunk)
+          : null;
+    if (!bytes) throw new Error("unsupported_request_body_chunk");
+    size += bytes.byteLength;
+    if (size > MAX_JSON_BODY_BYTES) return null;
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks, size);
+}
+
 export function createWikiApiVercelHandler(api) {
   return async (request, response) => {
     let result;
     try {
       const method = request.method || "GET";
-      const body = serializeBody(request.body);
+      let body = serializeBody(request.body);
+      if (body === undefined && !["GET", "HEAD"].includes(method))
+        body = await readStreamedBody(request);
       if (
-        body !== undefined &&
-        Buffer.byteLength(body, "utf8") > MAX_JSON_BODY_BYTES
+        body === null ||
+        (body !== undefined &&
+          Buffer.byteLength(body, "utf8") > MAX_JSON_BODY_BYTES)
       ) {
         result = Response.json(
           { error: "payload_too_large" },
