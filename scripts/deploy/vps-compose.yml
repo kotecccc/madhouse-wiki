@@ -18,6 +18,7 @@ services:
     env_file:
       - /opt/madhouse-wiki/storage.env
       - /opt/madhouse-wiki/wiki.env
+      - /opt/madhouse-wiki/raid.env
     environment:
       MADHOUSE_SERVICE: wiki
       MADHOUSE_RELEASE_SHA: ${MADHOUSE_RELEASE_SHA}

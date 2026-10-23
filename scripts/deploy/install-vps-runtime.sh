@@ -26,6 +26,9 @@ fi
 if [[ ! -e "${DEPLOY_DIR}/connector.env" ]]; then
   install -m 0600 "${ROOT}/scripts/deploy/vps-connector.env.example" "${DEPLOY_DIR}/connector.env"
 fi
+if [[ ! -e "${DEPLOY_DIR}/raid.env" ]]; then
+  install -m 0600 "${ROOT}/scripts/deploy/vps-raid.env.example" "${DEPLOY_DIR}/raid.env"
+fi
 if [[ ! -e "${DEPLOY_DIR}/storage.env" ]]; then
   install -m 0600 "${ROOT}/scripts/deploy/vps-storage.env.example" "${DEPLOY_DIR}/storage.env"
 fi

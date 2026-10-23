@@ -54,8 +54,8 @@ only in a private temporary directory during deployment.
 
 `scripts/deploy/install-vps-runtime.sh` installs the Compose, Nginx, and
 systemd definitions into `/opt/madhouse-wiki` and `/etc/systemd/system`. It
-does not enable the timers or Nginx site. It creates the two mode-0600
-environment files only when they do not already exist.
+does not enable the timers or Nginx site. It creates the mode-0600 environment
+files only when they do not already exist.
 
 `/opt/madhouse-wiki/storage.env` holds the shared `MADHOUSE_STORAGE_TOKEN`.
 `/opt/madhouse-wiki/wiki.env` requires the current production values for
@@ -63,9 +63,12 @@ environment files only when they do not already exist.
 `WIKI_ADMIN_TELEGRAM_ID`, and `CRON_SECRET`.
 `/opt/madhouse-wiki/connector.env` requires `TELEGRAM_API_ID`,
 `TELEGRAM_API_HASH`, `WIKI_INITDATA_KEY`, and `ACCOUNT_SESSION_KEY`. These are
-copied unchanged from their existing trusted source. Do not put values in
-GitHub, image layers, release assets, command arguments, logs, or this
-repository.
+copied unchanged from their existing trusted source.
+`/opt/madhouse-wiki/raid.env` supplies `TELEGRAM_API_ID`,
+`TELEGRAM_API_HASH`, and `TELEGRAM_RAIDS_SESSION_ENCRYPTION_KEY` to the
+protected Wiki raid recovery endpoint, using the current raid worker values.
+Do not put values in GitHub, image layers, release assets, command arguments,
+logs, or this repository.
 
 The Vercel Wiki build keeps its existing analytics Cron unless
 `MADHOUSE_DISABLE_ANALYTICS_CRON=1` is set during that build. Set this only
@@ -74,8 +77,9 @@ production deployment before enabling the VPS cleanup timer.
 
 ## Cutover sequence
 
-1. Install the runtime files on the VPS and populate both environment files
-   with the existing production values. Do not change or rotate them.
+1. Install the runtime files on the VPS and populate the Wiki, connector,
+   storage, and raid environment files with the existing production values.
+   Do not change or rotate them.
 2. Obtain a renewable certificate covering both `madhouse-wiki.ru` and
    `connect.madhouse-wiki.ru`. Keep the storage certificate and storage Nginx
    virtual host intact.

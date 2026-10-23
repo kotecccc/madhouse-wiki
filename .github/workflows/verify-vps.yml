@@ -32,6 +32,21 @@ jobs:
             --build-arg "VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru" \
             .
 
+      - name: Validate VPS Compose configuration
+        run: |
+          config_root="$(mktemp -d)"
+          for name in storage.env wiki.env connector.env raid.env; do
+            : > "${config_root}/${name}"
+          done
+          sed "s|/opt/madhouse-wiki|${config_root}|g" \
+            scripts/deploy/vps-compose.yml > "${config_root}/vps-compose.yml"
+          printf 'MADHOUSE_RELEASE_SHA=%040d\n' 0 > "${config_root}/release.env"
+          docker compose \
+            --project-name madhouse-wiki \
+            --file "${config_root}/vps-compose.yml" \
+            --env-file "${config_root}/release.env" \
+            config --quiet
+
       - name: Exercise both services without production credentials
         run: |
           wiki_name="madhouse-wiki-smoke-wiki-${GITHUB_RUN_ID}"
