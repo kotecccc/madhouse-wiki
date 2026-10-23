@@ -25,6 +25,14 @@ export function createVercelConnectorHandler({
       verificationKey: process.env.WIKI_INITDATA_KEY,
       encryptionKey: process.env.ACCOUNT_SESSION_KEY,
       fetcher,
+      onAuthDiagnostic: (event) =>
+        console.info(
+          JSON.stringify({
+            kind: "telegram-auth",
+            sourceCommit: process.env.MADHOUSE_RELEASE_SHA || "unknown",
+            ...event,
+          }),
+        ),
     }),
   });
   return async (request, response) => {

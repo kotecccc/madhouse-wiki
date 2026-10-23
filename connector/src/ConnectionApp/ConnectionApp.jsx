@@ -258,6 +258,10 @@ export function ConnectionApp() {
     appRef = useRef(null),
     formRef = useRef(null),
     uiActionHandler = useRef(() => {});
+  const authTrace = useRef(null);
+  const [diagnosticId, setDiagnosticId] = useState("");
+  const [diagnosticRecorded, setDiagnosticRecorded] = useState(false);
+  const [challengeRestored, setChallengeRestored] = useState(false);
   const [config, setConfig] = useState(null),
     [stage, setStage] = useState("loading");
   const [error, setError] = useState(""),
@@ -373,6 +377,38 @@ export function ConnectionApp() {
       };
     return data;
   }, []);
+  const beginAuthTrace = useCallback(() => {
+    setDiagnosticRecorded(false);
+    try {
+      const id = crypto.randomUUID();
+      authTrace.current = { id, sequence: 0 };
+      setDiagnosticId(id);
+    } catch {
+      authTrace.current = null;
+      setDiagnosticId("");
+    }
+  }, []);
+  const recordAuthEvent = useCallback(
+    (event, context) => {
+      const target = context || {
+        trace: authTrace.current,
+        request: currentRequest.current,
+      };
+      const { trace, request } = target;
+      if (!trace || trace.sequence >= 64 || !request?.data.wikiInitData)
+        return target;
+      const diagnostic = { id: trace.id, sequence: ++trace.sequence, ...event };
+      // Only explicit metadata reaches this endpoint; never pass a raw RPC/error.
+      void accountSession(request, "diagnostic", { diagnostic })
+        .then((result) => {
+          if (result?.status === "accepted" && authTrace.current === trace)
+            setDiagnosticRecorded(true);
+        })
+        .catch(() => {});
+      return target;
+    },
+    [accountSession],
+  );
   const disconnect = useCallback(
     async (request) => {
       // A storage/network failure must not prevent revocation of the local key.
@@ -478,6 +514,13 @@ export function ConnectionApp() {
       } else {
         const pending = readPendingLogin(request.data.expectedUserId);
         if (pending) {
+          beginAuthTrace();
+          recordAuthEvent({
+            event: "pending-restored",
+            deliveryType: pending.deliveryType,
+            nextDeliveryType: pending.nextDeliveryType,
+          });
+          setChallengeRestored(true);
           setPhone(pending.phone);
           setCode("");
           setPassword("");
@@ -500,7 +543,7 @@ export function ConnectionApp() {
         else reply(request, { status: "login-required" });
       }
     },
-    [reply, accountSession],
+    [reply, accountSession, beginAuthTrace, recordAuthEvent],
   );
   useEffect(() => {
     let stopped = false,
@@ -519,6 +562,7 @@ export function ConnectionApp() {
         } = await import("@mtcute/web");
         if (stopped) return;
         const conn = createConnection({
+          onAuthEvent: recordAuthEvent,
           errorTypes: { MtTimeoutError, MtSecurityError, MtUnsupportedError },
           createClient: (storage) =>
             new TelegramClient({
@@ -659,7 +703,7 @@ export function ConnectionApp() {
       loginAbort.current?.abort();
       connection.current?.cancel();
     };
-  }, [complete, reply, run, accountSession, disconnect]);
+  }, [complete, reply, run, accountSession, disconnect, recordAuthEvent]);
 
   const startQr = async () => {
     const request = currentRequest.current;
@@ -953,6 +997,8 @@ export function ConnectionApp() {
             request.freshLogin = true;
             run(async () => {
               const normalizedPhone = normalizePhone(phone);
+              beginAuthTrace();
+              setChallengeRestored(false);
               setPhone(normalizedPhone);
               const sentCode =
                 await connection.current.phoneCode(normalizedPhone);
@@ -1042,6 +1088,9 @@ export function ConnectionApp() {
         >
           <div className="connection-step-intro">
             <h2 className="connection-step-title">Код Telegram</h2>
+            {challengeRestored && (
+              <p>Продолжен ранее начатый вход. Новый код не запрашивался.</p>
+            )}
             <p>
               {codeDeliveryInstructions(codeDeliveryType)}
               {!textCode && codeDeliveryType !== "email_required"
@@ -1202,6 +1251,14 @@ export function ConnectionApp() {
         <p className="connection-error" role="alert">
           {error}
         </p>
+      )}
+      {interactive && diagnosticId && (
+        <small>
+          Диагностика попытки: {diagnosticId}.{" "}
+          {diagnosticRecorded
+            ? "Записана на сервере."
+            : "Запись на сервере пока не подтверждена."}
+        </small>
       )}
     </main>
   );
