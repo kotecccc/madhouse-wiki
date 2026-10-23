@@ -8,6 +8,10 @@ import {
   normalizeInlineCode,
   unavailableBusinessCardFilename,
 } from "./inline-card-assets.mjs";
+import {
+  findItemBosses,
+  getBusinessUpgradeTotals,
+} from "../../src/lib/business-upgrades.js";
 
 const TARGET_USERNAME = "madhouse_wiki_bot";
 const DEFAULT_WIKI_ORIGIN = "https://madhouse-wiki.ru";
@@ -153,21 +157,58 @@ function inlinePhoto({
   };
 }
 
-function fitHtmlLines(lines) {
+function fitHtmlLines(lines, maxLength = MAX_MESSAGE_LENGTH) {
   const kept = [];
   let used = 0;
   for (const line of lines) {
     const nextLength = used + (kept.length ? 1 : 0) + line.length;
-    if (nextLength > MAX_MESSAGE_LENGTH) break;
+    if (nextLength > maxLength) break;
     kept.push(line);
     used = nextLength;
   }
   if (kept.length < lines.length) {
-    while (kept.length && kept.join("\n").length + 2 > MAX_MESSAGE_LENGTH)
-      kept.pop();
+    while (kept.length && kept.join("\n").length + 2 > maxLength) kept.pop();
     kept.push("…");
   }
   return kept.join("\n");
+}
+
+function getDepartmentLocation(knowledgeBase, departmentId) {
+  const department = knowledgeBase.departments.find(
+    (candidate) => candidate.id === departmentId,
+  );
+  return department?.code || department?.blockCode || "—";
+}
+
+function getBusinessBossLines(knowledgeBase, upgrade, level) {
+  const bosses = knowledgeBase.bosses || [];
+  const rows = new Map();
+
+  for (const item of getBusinessUpgradeTotals(upgrade, level)) {
+    for (const boss of findItemBosses(bosses, item.entityId)) {
+      if (item.requiredAmount === 0) continue;
+      const row = rows.get(boss.id) || {
+        boss,
+        requiredAmount: 0,
+        hasUnknownAmount: false,
+      };
+      if (item.requiredAmount == null) {
+        row.hasUnknownAmount = true;
+      } else {
+        row.requiredAmount += item.requiredAmount;
+      }
+      rows.set(boss.id, row);
+    }
+  }
+
+  return [...rows.values()].map(
+    ({ boss, requiredAmount, hasUnknownAmount }) => {
+      const amount = hasUnknownAmount
+        ? "количество не указано"
+        : `${formatNumber(requiredAmount)} предметов бизнеса`;
+      return `${escapeHtml(boss.name || "Босс")} — отделение ${escapeHtml(getDepartmentLocation(knowledgeBase, boss.departmentId))} — ${amount}`;
+    },
+  );
 }
 
 function normalizeCode(value) {
@@ -340,18 +381,22 @@ function describeBusinessLevel(
   siteUrl,
 ) {
   const businessId = business.apiId || business.id;
-  const sources = sourceCaveats(knowledgeBase, [upgrade.sourceId]);
+  const departmentLocation = getDepartmentLocation(
+    knowledgeBase,
+    business.departmentId || upgrade.departmentId,
+  );
   const captionParts = [
-    `🏢 <b>${escapeHtml(business.title)} • уровень ${level}</b>`,
-    ...sources.map(escapeHtml),
-    "Количество в карточке — предметы, не число побед.",
+    `<b>${escapeHtml(departmentLocation)} • ${escapeHtml(business.title)} • Уровень ${level}</b>`,
+    ...getBusinessBossLines(knowledgeBase, upgrade, level).map(
+      (line, index) => `${index + 1}. ${line}`,
+    ),
   ];
   return inlinePhoto({
     id: businessCardFilename(businessId, level).replace(/\.jpg$/u, ""),
     filename: businessCardFilename(businessId, level),
     title: `🏢 ${business.title} • уровень ${level}`,
     description: `${upgrade.items?.length || 0} типов предметов • пользовательская подборка`,
-    caption: captionParts.join("\n"),
+    caption: fitHtmlLines(captionParts, 1024),
     siteUrl,
     knowledgeBase,
     shareQuery: `бизнес ${business.title} ${level}`,
