@@ -7,6 +7,7 @@ import {
 } from "../connector/auth-trace.js";
 import { createConnection } from "../connector/session.js";
 import { createAccountSessions } from "../connector/account-session.js";
+import { sendCode } from "@mtcute/core/methods.js";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const event = { id, sequence: 1, event: "send-start", memoryOnly: false };
@@ -62,7 +63,7 @@ test("actual SDK calls emit ordered safe events while challenge retains its hash
   assert.equal(calls, 1);
   assert.equal(challenge.phoneCodeHash, "secret-hash");
   assert.deepEqual(events, [
-    { event: "send-start", memoryOnly: false },
+    { event: "send-start", memoryOnly: false, accountState: "unknown" },
     {
       event: "send-response",
       deliveryType: "app",
@@ -76,6 +77,39 @@ test("actual SDK calls emit ordered safe events while challenge retains its hash
   for (const [index, value] of events.entries())
     validateAuthTrace({ id, sequence: index + 1, ...value });
   assert.doesNotMatch(JSON.stringify(events), /secret|private|phoneCodeHash/);
+});
+
+test("installed SDK sends each supplied phone with shared app credentials and no owner identity", async () => {
+  const calls = [];
+  const sdkClient = {
+    getApiCredentials: async () => ({ id: 12345678, hash: "a".repeat(32) }),
+    call: async (rpc) => {
+      calls.push(rpc);
+      return {
+        _: "auth.sentCode",
+        phoneCodeHash: "private",
+        type: { _: "auth.sentCodeTypeApp", length: 5 },
+      };
+    },
+  };
+  await sendCode(sdkClient, { phone: "+1 555 000 0101" });
+  await sendCode(sdkClient, { phone: "+1 555 000 0102" });
+  assert.deepEqual(
+    calls.map((rpc) => rpc.phoneNumber),
+    ["15550000101", "15550000102"],
+  );
+  assert.deepEqual(
+    calls.map((rpc) => rpc.apiId),
+    [12345678, 12345678],
+  );
+  for (const rpc of calls)
+    assert.deepEqual(Object.keys(rpc).sort(), [
+      "_",
+      "apiHash",
+      "apiId",
+      "phoneNumber",
+      "settings",
+    ]);
 });
 
 test("SDK error telemetry contains an enum while original error reaches the UI", async () => {

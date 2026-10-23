@@ -66,6 +66,7 @@ export function validateAuthTrace(value) {
     "elapsedMs",
     "errorCategory",
     "memoryOnly",
+    "accountState",
   ]);
   if (
     !value ||
@@ -79,6 +80,13 @@ export function validateAuthTrace(value) {
     value.sequence < 1 ||
     value.sequence > 64 ||
     !events.has(value.event)
+  )
+    throw new Error("invalid_request");
+  if (
+    Object.hasOwn(value, "accountState") &&
+    !["unknown", "anonymous", "signed-in", "wrong-account"].includes(
+      value.accountState,
+    )
   )
     throw new Error("invalid_request");
   for (const key of ["deliveryType", "nextDeliveryType"])

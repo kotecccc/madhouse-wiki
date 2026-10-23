@@ -71,6 +71,7 @@ export function createConnection({
     cleanup = null;
   let memoryOnly = false,
     storageIdentity = null;
+  let accountState = "unknown";
   const authOperations = new Set();
   const state = (value) => onState(value);
   const trace = (value) => {
@@ -99,6 +100,7 @@ export function createConnection({
       client = null;
       clientPromise = null;
       storageIdentity = expectedUserId;
+      accountState = "unknown";
     }
     let stage = "CLIENT";
     try {
@@ -107,10 +109,12 @@ export function createConnection({
       const self = await current.getMe();
       if (started !== generation) throw new Error("cancelled");
       if (expectedUserId && String(self.id) !== expectedUserId) {
+        accountState = "wrong-account";
         state({ stage: "wrong-account" });
         return false;
       }
       account = String(self.id);
+      accountState = "signed-in";
       qrExpires = 0;
       state({ stage: "connected" });
       return true;
@@ -128,6 +132,7 @@ export function createConnection({
         ].includes(error?.text)
       ) {
         account = null;
+        accountState = "anonymous";
         state({ stage: "consent" });
         return false;
       }
@@ -248,6 +253,7 @@ export function createConnection({
     if (cleanup) return cleanup;
     cancel();
     account = null;
+    accountState = "unknown";
     cleanup = revoke();
     try {
       return await cleanup;
@@ -330,7 +336,7 @@ export function createConnection({
   }
   async function tracedCode(operation, invoke) {
     const started = now();
-    trace({ event: `${operation}-start`, memoryOnly });
+    trace({ event: `${operation}-start`, memoryOnly, accountState });
     try {
       const result = await invoke();
       const details =
