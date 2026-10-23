@@ -13,6 +13,42 @@ const PHONE_CODE_DELIVERY_TYPES = new Set([
   "sms_word",
   "sms_phrase",
 ]);
+const NEXT_PHONE_CODE_DELIVERY_TYPES = new Set([
+  "sms",
+  "call",
+  "flash_call",
+  "missed_call",
+  "fragment",
+]);
+
+function codeChallenge(result) {
+  const deliveryType = PHONE_CODE_DELIVERY_TYPES.has(result.type)
+    ? result.type
+    : "unknown";
+  const nextDeliveryType = NEXT_PHONE_CODE_DELIVERY_TYPES.has(result.nextType)
+    ? result.nextType
+    : "none";
+  const codeLength =
+    Number.isSafeInteger(result.length) &&
+    result.length >= 4 &&
+    result.length <= 9
+      ? result.length
+      : 5;
+  const timeout =
+    Number.isSafeInteger(result.timeout) &&
+    result.timeout >= 0 &&
+    result.timeout <= 86400
+      ? result.timeout
+      : 0;
+
+  return {
+    phoneCodeHash: result.phoneCodeHash,
+    deliveryType,
+    codeLength,
+    nextDeliveryType,
+    timeout,
+  };
+}
 
 export function createConnection({
   createClient,
@@ -264,24 +300,20 @@ export function createConnection({
       throw error;
     }
     if ("phoneCodeHash" in result) {
-      const deliveryType = PHONE_CODE_DELIVERY_TYPES.has(result.type)
-        ? result.type
-        : "unknown";
-      const codeLength =
-        Number.isSafeInteger(result.length) &&
-        result.length >= 4 &&
-        result.length <= 9
-          ? result.length
-          : 5;
-      state({ stage: "code", deliveryType, codeLength });
-      return {
-        phoneCodeHash: result.phoneCodeHash,
-        deliveryType,
-        codeLength,
-      };
+      const challenge = codeChallenge(result);
+      state({ stage: "code", ...challenge });
+      return challenge;
     }
     account = String(result.id);
     return { phoneCodeHash: null, deliveryType: "success", codeLength: 5 };
+  }
+  async function resendPhoneCode(phone, phoneCodeHash) {
+    const result = await runAuth((current) =>
+      current.resendCode({ phone, phoneCodeHash }),
+    );
+    const challenge = codeChallenge(result);
+    state({ stage: "code", ...challenge });
+    return challenge;
   }
   async function signIn(phone, phoneCodeHash, phoneCode) {
     try {
@@ -306,6 +338,7 @@ export function createConnection({
     logout,
     cancel,
     phoneCode,
+    resendPhoneCode,
     signIn,
     password,
     getClient,
