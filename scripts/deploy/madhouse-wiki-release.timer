@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for Madhouse Wiki VPS releases every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=45s
+Persistent=true
+Unit=madhouse-wiki-release.service
+
+[Install]
+WantedBy=timers.target

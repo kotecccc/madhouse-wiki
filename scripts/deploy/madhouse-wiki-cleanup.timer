@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Madhouse Wiki analytics cleanup daily at 04:17 UTC
+
+[Timer]
+OnCalendar=*-*-* 04:17:00 UTC
+AccuracySec=1min
+Persistent=true
+Unit=madhouse-wiki-cleanup.service
+
+[Install]
+WantedBy=timers.target

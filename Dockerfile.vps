@@ -1,0 +1,93 @@
+FROM node:24-bookworm-slim AS runtime-base
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV NODE_ENV=production \
+    PUPPETEER_CACHE_DIR=/opt/puppeteer \
+    PUPPETEER_TMP_DIR=/tmp \
+    XDG_CONFIG_HOME=/tmp/.config \
+    XDG_CACHE_HOME=/tmp/.cache
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      fonts-liberation \
+      libasound2 \
+      libatk-bridge2.0-0 \
+      libatk1.0-0 \
+      libcairo2 \
+      libcups2 \
+      libdbus-1-3 \
+      libdrm2 \
+      libexpat1 \
+      libfontconfig1 \
+      libgcc-s1 \
+      libgbm1 \
+      libglib2.0-0 \
+      libgtk-3-0 \
+      libnspr4 \
+      libnss3 \
+      libpango-1.0-0 \
+      libpangocairo-1.0-0 \
+      libstdc++6 \
+      libx11-6 \
+      libx11-xcb1 \
+      libxcb1 \
+      libxcomposite1 \
+      libxcursor1 \
+      libxdamage1 \
+      libxext6 \
+      libxfixes3 \
+      libxi6 \
+      libxrandr2 \
+      libxkbcommon0 \
+      libxrender1 \
+      libxss1 \
+      libxtst6 \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM runtime-base AS build
+
+ARG MADHOUSE_RELEASE_SHA
+ARG VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru
+ENV MADHOUSE_RELEASE_SHA=${MADHOUSE_RELEASE_SHA} \
+    VITE_TELEGRAM_CONNECTOR_ORIGIN=${VITE_TELEGRAM_CONNECTOR_ORIGIN}
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci --include=dev
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/* /opt/puppeteer \
+    && npx puppeteer browsers install chrome
+COPY . .
+RUN npm run build:hosted \
+    && npm run validate:data \
+    && npm run lint:ui \
+    && npm run lint \
+    && npm test \
+    && npm run build \
+    && npm run build:connector
+
+FROM runtime-base AS runtime
+
+ARG MADHOUSE_RELEASE_SHA
+ENV MADHOUSE_RELEASE_SHA=${MADHOUSE_RELEASE_SHA}
+WORKDIR /app
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/api ./api
+COPY --from=build --chown=node:node /app/catalogue ./catalogue
+COPY --from=build --chown=node:node /app/connector ./connector
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/index.html ./index.html
+COPY --from=build --chown=node:node /app/local-data/madhouse.sqlite ./local-data/madhouse.sqlite
+COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /app/scripts ./scripts
+COPY --from=build --chown=node:node /app/shared ./shared
+COPY --from=build --chown=node:node /app/src ./src
+COPY --from=build --chown=node:node /opt/puppeteer /opt/puppeteer
+RUN chown -R node:node /opt/puppeteer
+
+USER node
+EXPOSE 9092 9093
+ENTRYPOINT ["node", "scripts/deploy/vps-server.mjs"]

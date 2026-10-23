@@ -1,0 +1,88 @@
+name: Verify VPS image
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Fetch the exact pull request merge commit
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Validate and build the Linux amd64 VPS image
+        run: |
+          docker build --pull --platform linux/amd64 \
+            --file Dockerfile.vps \
+            --tag "madhouse-wiki:vps-${GITHUB_SHA}" \
+            --build-arg "MADHOUSE_RELEASE_SHA=${GITHUB_SHA}" \
+            --build-arg "VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru" \
+            .
+
+      - name: Validate VPS Compose configuration
+        run: |
+          config_root="$(mktemp -d)"
+          for name in storage.env wiki.env connector.env raid.env; do
+            : > "${config_root}/${name}"
+          done
+          sed "s|/opt/madhouse-wiki|${config_root}|g" \
+            scripts/deploy/vps-compose.yml > "${config_root}/vps-compose.yml"
+          printf 'MADHOUSE_RELEASE_SHA=%040d\n' 0 > "${config_root}/release.env"
+          docker compose \
+            --project-name madhouse-wiki \
+            --file "${config_root}/vps-compose.yml" \
+            --env-file "${config_root}/release.env" \
+            config --quiet
+
+      - name: Exercise both services without production credentials
+        run: |
+          wiki_name="madhouse-wiki-smoke-wiki-${GITHUB_RUN_ID}"
+          connector_name="madhouse-wiki-smoke-connector-${GITHUB_RUN_ID}"
+          cleanup() {
+            docker rm --force "${wiki_name}" "${connector_name}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach --name "${wiki_name}" \
+            --init \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m,mode=1777 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --memory 1280m \
+            --pids-limit 160 \
+            --publish 127.0.0.1:19092:9092 \
+            "madhouse-wiki:vps-${GITHUB_SHA}" wiki >/dev/null
+          docker run --detach --name "${connector_name}" \
+            --init \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m,mode=1777 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --memory 384m \
+            --pids-limit 96 \
+            --publish 127.0.0.1:19093:9093 \
+            "madhouse-wiki:vps-${GITHUB_SHA}" connector >/dev/null
+          node scripts/deploy/smoke-vps-image.mjs \
+            http://127.0.0.1:19092 \
+            http://127.0.0.1:19093 \
+            "${GITHUB_SHA}"
+          docker exec "${wiki_name}" node --input-type=module -e '
+            import puppeteer from "puppeteer";
+            const browser = await puppeteer.launch({
+              args: ["--no-sandbox", "--disable-dev-shm-usage"],
+            });
+            await browser.close();
+          '

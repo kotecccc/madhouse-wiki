@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { createServer } from "vite";
 import puppeteer from "puppeteer";
+import { tmpdir } from "node:os";
 import { cataloguePlugin } from "../catalogue/vite-plugin.mjs";
 import { bossOpeningGroups } from "./boss-opening-groups.mjs";
 
@@ -11,6 +12,7 @@ export async function renderBossOpeningCards(knowledgeBase, root) {
   const server = await createServer({
     configFile: false,
     root,
+    cacheDir: `${tmpdir()}/madhouse-vite-cache-${process.pid}`,
     plugins: [react(), cataloguePlugin(root)],
     server: {
       host: "127.0.0.1",
@@ -90,7 +92,9 @@ export async function renderBossOpeningCards(knowledgeBase, root) {
       (elements) => elements.map((element) => element.dataset.bossOpeningGroup),
     );
     if (renderedKeys.some((key, index) => key !== groups[index].key)) {
-      throw new Error("Boss opening card groups differ from the SQLite catalogue");
+      throw new Error(
+        "Boss opening card groups differ from the SQLite catalogue",
+      );
     }
     const { default: sharp } = await import("sharp");
     const results = [];
