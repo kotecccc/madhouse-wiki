@@ -389,10 +389,14 @@ export function ConnectionApp() {
     }
   }, []);
   const recordAuthEvent = useCallback(
-    (event) => {
-      const trace = authTrace.current;
-      const request = currentRequest.current;
-      if (!trace || trace.sequence >= 64 || !request?.data.wikiInitData) return;
+    (event, context) => {
+      const target = context || {
+        trace: authTrace.current,
+        request: currentRequest.current,
+      };
+      const { trace, request } = target;
+      if (!trace || trace.sequence >= 64 || !request?.data.wikiInitData)
+        return target;
       const diagnostic = { id: trace.id, sequence: ++trace.sequence, ...event };
       // Only explicit metadata reaches this endpoint; never pass a raw RPC/error.
       void accountSession(request, "diagnostic", { diagnostic })
@@ -401,6 +405,7 @@ export function ConnectionApp() {
             setDiagnosticRecorded(true);
         })
         .catch(() => {});
+      return target;
     },
     [accountSession],
   );

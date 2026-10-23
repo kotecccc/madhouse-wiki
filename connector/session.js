@@ -74,9 +74,9 @@ export function createConnection({
   let accountState = "unknown";
   const authOperations = new Set();
   const state = (value) => onState(value);
-  const trace = (value) => {
+  const trace = (value, context) => {
     try {
-      onAuthEvent(value);
+      return onAuthEvent(value, context);
     } catch {
       /* Diagnostics cannot interrupt login. */
     }
@@ -336,7 +336,12 @@ export function createConnection({
   }
   async function tracedCode(operation, invoke) {
     const started = now();
-    trace({ event: `${operation}-start`, memoryOnly, accountState });
+    // Keep the same observer context if the UI switches requests mid-flight.
+    const context = trace({
+      event: `${operation}-start`,
+      memoryOnly,
+      accountState,
+    });
     try {
       const result = await invoke();
       const details =
@@ -344,22 +349,31 @@ export function createConnection({
           ? codeChallenge(result)
           : { deliveryType: "success" };
       const { deliveryType, nextDeliveryType, codeLength, timeout } = details;
-      trace({
-        event: `${operation}-response`,
-        deliveryType,
-        ...(nextDeliveryType === undefined
-          ? {}
-          : { nextDeliveryType, codeLength, timeout }),
-        elapsedMs: Math.min(3600000, Math.max(0, Math.round(now() - started))),
-        memoryOnly,
-      });
+      trace(
+        {
+          event: `${operation}-response`,
+          deliveryType,
+          ...(nextDeliveryType === undefined
+            ? {}
+            : { nextDeliveryType, codeLength, timeout }),
+          elapsedMs: Math.min(
+            3600000,
+            Math.max(0, Math.round(now() - started)),
+          ),
+          memoryOnly,
+        },
+        context,
+      );
       return result;
     } catch (error) {
-      trace({
-        event: `${operation}-error`,
-        errorCategory: authErrorCategory(error),
-        memoryOnly,
-      });
+      trace(
+        {
+          event: `${operation}-error`,
+          errorCategory: authErrorCategory(error),
+          memoryOnly,
+        },
+        context,
+      );
       throw error;
     }
   }
