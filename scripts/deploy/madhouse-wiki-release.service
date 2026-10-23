@@ -1,0 +1,22 @@
+[Unit]
+Description=Check and activate the latest verified Madhouse Wiki VPS release
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=20min
+ExecStart=/opt/madhouse-wiki/vps-release-update.sh
+User=root
+Group=root
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/madhouse-wiki /var/lib/docker
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+
+const [wikiOrigin, connectorOrigin, expectedCommit] = process.argv.slice(2);
+if (
+  !wikiOrigin ||
+  !connectorOrigin ||
+  !/^[a-f0-9]{40}$/.test(expectedCommit || "")
+)
+  throw new Error("Pass the Wiki URL, connector URL, and full release SHA");
+
+async function fetchReady(url) {
+  let lastError;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    } catch (error) {
+      lastError = error;
+      if (attempt < 39)
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw lastError;
+}
+
+async function getJson(url) {
+  const response = await fetchReady(url);
+  const body = await response.json();
+  return { response, body };
+}
+
+const wikiHealth = await getJson(`${wikiOrigin}/healthz`);
+assert.equal(wikiHealth.response.status, 200);
+assert.deepEqual(wikiHealth.body, {
+  service: "wiki",
+  sourceCommit: expectedCommit,
+});
+const wikiRelease = await getJson(`${wikiOrigin}/release.json`);
+assert.equal(wikiRelease.response.status, 200);
+assert.equal(wikiRelease.body.provider, "VPS");
+assert.equal(wikiRelease.body.sourceCommit, expectedCommit);
+assert.equal(
+  wikiRelease.body.telegramConnector?.origin,
+  "https://connect.madhouse-wiki.ru",
+);
+const wikiPage = await fetchReady(`${wikiOrigin}/`);
+assert.equal(wikiPage.status, 200);
+assert.match(wikiPage.headers.get("content-type") || "", /text\/html/u);
+assert.match(await wikiPage.text(), /<div id="root">/u);
+const privateApi = await fetchReady(`${wikiOrigin}/api/achievements`);
+assert.equal(privateApi.status, 401);
+
+const connectorHealth = await getJson(`${connectorOrigin}/healthz`);
+assert.equal(connectorHealth.response.status, 200);
+assert.deepEqual(connectorHealth.body, {
+  service: "connector",
+  sourceCommit: expectedCommit,
+});
+const connectorRelease = await getJson(`${connectorOrigin}/release.json`);
+assert.equal(connectorRelease.response.status, 200);
+assert.equal(connectorRelease.body.provider, "VPS");
+assert.equal(connectorRelease.body.sourceCommit, expectedCommit);
+assert.equal(connectorRelease.body.wikiOrigin, "https://madhouse-wiki.ru");
+assert.equal(
+  connectorRelease.body.connectorOrigin,
+  "https://connect.madhouse-wiki.ru",
+);
+const connectorPage = await fetchReady(`${connectorOrigin}/`);
+assert.equal(connectorPage.status, 200);
+assert.match(connectorPage.headers.get("content-type") || "", /text\/html/u);
+assert.match(
+  connectorPage.headers.get("content-security-policy") || "",
+  /frame-ancestors https:\/\/madhouse-wiki\.ru https:\/\/web\.telegram\.org/u,
+);
+const connectorConfig = await getJson(`${connectorOrigin}/api/config`);
+assert.equal(connectorConfig.response.status, 503);
+assert.equal(connectorConfig.body.error, "connection_unavailable");
+
+console.log("VPS image smoke checks passed for Wiki and connector");

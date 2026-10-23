@@ -375,7 +375,8 @@ writeFileSync(
       version: 3,
       routes,
       overrides,
-      ...(service === "wiki"
+      ...(service === "wiki" &&
+      process.env.MADHOUSE_DISABLE_ANALYTICS_CRON !== "1"
         ? {
             crons: [{ path: "/api/analytics-cleanup", schedule: "17 4 * * *" }],
           }
