@@ -57,6 +57,12 @@
   gap: var(--space-4);
 }
 
+.overview-level-progress {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
 .overview-energy {
   display: grid;
   gap: var(--space-8);
@@ -66,17 +72,24 @@
   text-align: right;
 }
 
-.overview-energy-heading {
+.overview-energy-heading,
+.overview-level-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-8);
 }
 
-.overview-energy-label {
+.overview-energy-label,
+.overview-level-label {
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);
+}
+
+.overview-level-label {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 
 .overview-energy small {

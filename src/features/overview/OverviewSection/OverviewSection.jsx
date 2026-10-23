@@ -515,14 +515,28 @@ function ProfileSummary({ state }) {
               {profile.username ? `@${profile.username}` : "Персонаж игрока"}
             </CardDescription>
             {experienceKnown && Number.isSafeInteger(profile.playerLevel) && (
-              <ProgressBar
-                value={profile.experience.current}
-                max={profile.experience.toNextLevel}
-                size="lg"
-                label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
-                valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
-                displayText={`Уровень ${fmt(profile.playerLevel)}`}
-              />
+              <div
+                className="overview-level-progress"
+                role="group"
+                aria-label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
+              >
+                <div className="overview-level-heading">
+                  <span className="overview-level-label">
+                    Уровень {fmt(profile.playerLevel)}
+                  </span>
+                  <CardTitle as="span" size="sm" aria-hidden="true">
+                    {numberFormat.format(profile.experience.current)} /{" "}
+                    {numberFormat.format(profile.experience.toNextLevel)}
+                  </CardTitle>
+                </div>
+                <ProgressBar
+                  value={profile.experience.current}
+                  max={profile.experience.toNextLevel}
+                  size="sm"
+                  label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
+                  valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
+                />
+              </div>
             )}
           </div>
         </div>
