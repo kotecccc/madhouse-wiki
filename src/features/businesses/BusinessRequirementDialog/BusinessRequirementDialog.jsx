@@ -21,7 +21,7 @@ import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
 import { fmt } from "../../../lib/format.js";
 import "./BusinessRequirementDialog.css";
 
-function BusinessRequirementSource({ boss }) {
+function BusinessRequirementSource({ boss, imageLoading }) {
   const department = departmentById[boss.departmentId];
   const items = boss.dropItems || [];
 
@@ -34,7 +34,14 @@ function BusinessRequirementSource({ boss }) {
         variant="floor-data"
         displayFields={bossDisplayFields(boss, department || {})}
         showDropList={false}
-        action={<BusinessItemDropList items={items} bossName={boss.name} />}
+        imageLoading={imageLoading}
+        action={
+          <BusinessItemDropList
+            items={items}
+            bossName={boss.name}
+            loading={imageLoading}
+          />
+        }
       />
     );
 
@@ -44,7 +51,13 @@ function BusinessRequirementSource({ boss }) {
       variant="floor-data"
       className="business-requirements-source"
     >
-      <ImageCard src={boss.image} alt={boss.name} size={58} imageSize="100%" />
+      <ImageCard
+        src={boss.image}
+        alt={boss.name}
+        size={58}
+        imageSize="100%"
+        loading={imageLoading}
+      />
       <div className="business-requirements-copy">
         <CardTitle>{boss.name}</CardTitle>
         <CardDescription>Дроп босса</CardDescription>
@@ -60,6 +73,7 @@ function BusinessRequirementSource({ boss }) {
               name={item.name}
               size={44}
               imageSize={40}
+              loading={imageLoading}
             />
           </div>
         ))}
@@ -68,7 +82,11 @@ function BusinessRequirementSource({ boss }) {
   );
 }
 
-export function BusinessRequirementDialog({ business, requirement, onClose }) {
+export function BusinessRequirementContent({
+  business,
+  requirement,
+  imageLoading,
+}) {
   const level = requirement?.requiredLevel ?? requirement?.required;
   const upgrade = getBusinessUpgrade(business?.id);
   const totals = getBusinessUpgradeTotals(upgrade, level);
@@ -97,6 +115,32 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
     (total) => !total.matches && total.lastLevel <= level,
   );
   return (
+    <div className="business-requirements-content">
+      <ul className="business-requirements-sources">
+        {bosses.map((boss) => (
+          <BusinessRequirementSource
+            key={boss.id}
+            boss={boss}
+            imageLoading={imageLoading}
+          />
+        ))}
+      </ul>
+      {!bosses.length && (
+        <CardDescription>Предметы пока не указаны.</CardDescription>
+      )}
+      {disagreements.map((total) => (
+        <CardDescription as="p" key={total.itemName}>
+          «{total.itemName}»: в исходной строке «ИТОГО» — {total.declared},
+          сумма по уровням — {total.computed}. Использована сумма по уровням.
+        </CardDescription>
+      ))}
+    </div>
+  );
+}
+
+export function BusinessRequirementDialog({ business, requirement, onClose }) {
+  const level = requirement?.requiredLevel ?? requirement?.required;
+  return (
     <Modal
       title={`Что собирать для «${business?.title || "Бизнес"}»${level != null ? `, уровень ${fmt(level)}` : ""}?`}
       titleId="business-requirements-title"
@@ -105,22 +149,10 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
       contentVariant="inset"
       footer={<Button onClick={onClose}>Закрыть</Button>}
     >
-      <div className="business-requirements-content">
-        <ul className="business-requirements-sources">
-          {bosses.map((boss) => (
-            <BusinessRequirementSource key={boss.id} boss={boss} />
-          ))}
-        </ul>
-        {!bosses.length && (
-          <CardDescription>Предметы пока не указаны.</CardDescription>
-        )}
-        {disagreements.map((total) => (
-          <CardDescription as="p" key={total.itemName}>
-            «{total.itemName}»: в исходной строке «ИТОГО» — {total.declared},
-            сумма по уровням — {total.computed}. Использована сумма по уровням.
-          </CardDescription>
-        ))}
-      </div>
+      <BusinessRequirementContent
+        business={business}
+        requirement={requirement}
+      />
     </Modal>
   );
 }

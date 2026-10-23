@@ -3,7 +3,7 @@ import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
 import { fmt } from "../../../lib/format.js";
 import "./BusinessItemDropList.css";
 
-export function BusinessItemDropList({ items, bossName }) {
+export function BusinessItemDropList({ items, bossName, loading }) {
   return (
     <ul
       className="business-item-drop-list boss-card-business-items-right"
@@ -27,6 +27,7 @@ export function BusinessItemDropList({ items, bossName }) {
             name={item.name}
             size={64}
             imageSize={48}
+            loading={loading}
           />
         </li>
       ))}

@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  businessCardFilename,
   departmentCardFilename,
   floorCardFilename,
   unavailableBusinessCardFilename,
 } from "./inline-card-assets.mjs";
+import { renderBusinessUpgradeCards } from "./inline-business-card-renderer.mjs";
 import { renderBossOpeningCards } from "./inline-boss-card-renderer.mjs";
 
 const WIDTH = 1200;
@@ -358,58 +358,6 @@ function departmentCard(department, knowledgeBase, theme) {
   );
 }
 
-function dropNamesForItem(knowledgeBase, entityId) {
-  return (knowledgeBase.bosses || [])
-    .filter((boss) =>
-      (boss.dropItems || []).some(
-        (item) => String(item.entityId) === String(entityId),
-      ),
-    )
-    .map((boss) => boss.name)
-    .filter(Boolean);
-}
-
-function businessCard(business, upgrade, level, knowledgeBase, theme) {
-  const itemTotals = (upgrade.items || []).map((item) => {
-    const levels = Array.isArray(item.levels)
-      ? item.levels.slice(0, level)
-      : [];
-    const amount =
-      levels.length === level && levels.every(Number.isFinite)
-        ? levels.reduce((total, value) => total + value, 0)
-        : null;
-    const dropNames = dropNamesForItem(knowledgeBase, item.entityId);
-    return {
-      label: item.name || item.sourceName || "Предмет не указан",
-      amount: amount == null ? "нет данных" : `× ${formatNumber(amount)}`,
-      detail: dropNames.length ? `Дроп с: ${dropNames.join(", ")}` : null,
-    };
-  });
-  const notes = [
-    "Источник: пользовательская подборка; требования не подтверждены API.",
-    "Количество — предметы для уровня, а не число побед над боссами.",
-  ];
-  const mismatchTotals = (upgrade.sourceTotals || []).filter(
-    (total) =>
-      total.firstLevel === 1 && total.lastLevel === level && !total.matches,
-  );
-  for (const total of mismatchTotals) {
-    notes.push(
-      `В источнике для «${total.itemName}» указано ${formatNumber(total.declared)}, сумма по уровням — ${formatNumber(total.computed)}.`,
-    );
-  }
-
-  return renderCardSvg(
-    {
-      title: business?.title || "Бизнес",
-      subtitle: `Требования до уровня ${level}`,
-      rows: itemTotals,
-      notes,
-    },
-    theme,
-  );
-}
-
 function unavailableBusinessCard(business, theme) {
   return renderCardSvg(
     {
@@ -429,20 +377,6 @@ function unavailableBusinessCard(business, theme) {
   );
 }
 
-function formatNumber(value) {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(
-    value,
-  );
-}
-
-function knownUpgradeLevels(upgrade) {
-  const itemLengths = (upgrade.items || [])
-    .map((item) => (Array.isArray(item.levels) ? item.levels.length : 0))
-    .filter((length) => length > 0);
-  const highestLevel = itemLengths.length ? Math.min(...itemLengths) : 0;
-  return Array.from({ length: highestLevel }, (_, index) => index + 1);
-}
-
 async function jpeg(svg) {
   const { default: sharp } = await import("sharp");
   return sharp(Buffer.from(svg))
@@ -454,6 +388,10 @@ export async function generateInlineCards(knowledgeBase, root) {
   const theme = getTheme(root);
   const cards = [];
   const bossOpeningCards = await renderBossOpeningCards(knowledgeBase, root);
+  const businessUpgradeCards = await renderBusinessUpgradeCards(
+    knowledgeBase,
+    root,
+  );
   const bossOpeningFilenames = new Set(
     bossOpeningCards.map((card) => card.filename),
   );
@@ -475,24 +413,11 @@ export async function generateInlineCards(knowledgeBase, root) {
       });
     }
   }
-  for (const upgrade of knowledgeBase.businessUpgrades || []) {
-    const business = (knowledgeBase.businesses || []).find(
-      (candidate) => candidate.id === upgrade.businessId,
-    );
-    const businessId = business?.apiId || business?.id;
-    for (const level of knownUpgradeLevels(upgrade)) {
-      cards.push({
-        filename: businessCardFilename(businessId, level),
-        buffer: await jpeg(
-          businessCard(business, upgrade, level, knowledgeBase, theme),
-        ),
-      });
-    }
-  }
   cards.push({
     filename: unavailableBusinessCardFilename,
     buffer: await jpeg(unavailableBusinessCard(null, theme)),
   });
   cards.push(...bossOpeningCards);
+  cards.push(...businessUpgradeCards);
   return cards;
 }

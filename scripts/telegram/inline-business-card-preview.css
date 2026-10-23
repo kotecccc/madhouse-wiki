@@ -1,0 +1,10 @@
+main {
+  display: grid;
+  gap: var(--space-16);
+  padding: var(--space-16);
+}
+
+.inline-business-upgrade-group {
+  display: grid;
+  gap: var(--space-12);
+}

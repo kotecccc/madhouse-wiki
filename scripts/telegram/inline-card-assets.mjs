@@ -47,7 +47,7 @@ export function inlineCardsVersion(knowledgeBase) {
     if (cached) return cached;
   }
   const version = createHash("sha256")
-    .update("inline-card-template-v2:")
+    .update("inline-card-template-v3:")
     .update(JSON.stringify(knowledgeBase || {}))
     .digest("hex")
     .slice(0, 12);
