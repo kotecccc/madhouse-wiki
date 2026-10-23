@@ -3,7 +3,9 @@ FROM node:24-bookworm-slim AS runtime-base
 ARG DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production \
     PUPPETEER_CACHE_DIR=/opt/puppeteer \
-    PUPPETEER_TMP_DIR=/tmp
+    PUPPETEER_TMP_DIR=/tmp \
+    XDG_CONFIG_HOME=/tmp/.config \
+    XDG_CACHE_HOME=/tmp/.cache
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
