@@ -381,7 +381,7 @@ export function ConnectionApp() {
     setDiagnosticRecorded(false);
     try {
       const id = crypto.randomUUID();
-      authTrace.current = { id, sequence: 0 };
+      authTrace.current = { id, sequence: 0, request: currentRequest.current };
       setDiagnosticId(id);
     } catch {
       authTrace.current = null;
@@ -392,7 +392,7 @@ export function ConnectionApp() {
     (event, context) => {
       const target = context || {
         trace: authTrace.current,
-        request: currentRequest.current,
+        request: authTrace.current?.request,
       };
       const { trace, request } = target;
       if (!trace || trace.sequence >= 64 || !request?.data.wikiInitData)
