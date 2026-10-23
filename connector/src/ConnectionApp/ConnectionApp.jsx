@@ -54,6 +54,55 @@ const messages = {
 };
 const PENDING_LOGIN_PREFIX = "madhouse-wiki.pending-telegram-login:";
 const PENDING_LOGIN_TTL = 10 * 60 * 1000;
+const CODE_DELIVERY_TYPES = new Set([
+  "app",
+  "sms",
+  "call",
+  "flash_call",
+  "missed_call",
+  "email",
+  "email_required",
+  "fragment",
+  "firebase",
+  "sms_word",
+  "sms_phrase",
+  "unknown",
+]);
+
+function normalizeCodeLength(value) {
+  return Number.isSafeInteger(value) && value >= 4 && value <= 9 ? value : 5;
+}
+
+function normalizeDeliveryType(value) {
+  return CODE_DELIVERY_TYPES.has(value) ? value : "unknown";
+}
+
+function codeDeliveryInstructions(deliveryType) {
+  switch (deliveryType) {
+    case "app":
+      return "Проверьте служебный чат Telegram на устройстве, где открыт аккаунт этого номера. Код приходит от Telegram, не от бота.";
+    case "sms":
+      return "Проверьте SMS на указанном номере. В этом случае код может не появиться в чате Telegram.";
+    case "call":
+      return "Ожидайте автоматический звонок на указанный номер: Telegram продиктует код.";
+    case "flash_call":
+    case "missed_call":
+      return "Проверьте входящий или пропущенный звонок на этом номере и следуйте подсказке Telegram.";
+    case "email":
+      return "Проверьте адрес электронной почты, привязанный к аккаунту Telegram.";
+    case "email_required":
+      return "Telegram требует настроить почту для входа. Завершите настройку в официальном приложении Telegram, затем повторите попытку.";
+    case "fragment":
+      return "Telegram использует Fragment для доставки кода. Следуйте подсказке Telegram для этого номера.";
+    case "firebase":
+      return "Проверьте SMS на указанном номере и следуйте дальнейшим подсказкам Telegram.";
+    case "sms_word":
+    case "sms_phrase":
+      return "Проверьте SMS: вместо цифр Telegram мог прислать слово или фразу.";
+    default:
+      return "Проверьте служебный чат Telegram, SMS и другие способы доставки, которые предлагает Telegram.";
+  }
+}
 
 function pendingLoginKey(expectedUserId) {
   const id = String(expectedUserId || "");
@@ -77,7 +126,12 @@ function readPendingLogin(expectedUserId) {
       Number.isFinite(pending.expiresAt) &&
       pending.expiresAt > Date.now() &&
       pending.expiresAt <= Date.now() + PENDING_LOGIN_TTL + 60000;
-    if (valid) return pending;
+    if (valid)
+      return {
+        ...pending,
+        codeLength: normalizeCodeLength(pending.codeLength),
+        deliveryType: normalizeDeliveryType(pending.deliveryType),
+      };
     window.localStorage.removeItem(key);
   } catch {
     /* Storage may be blocked in some WebViews. */
@@ -85,7 +139,10 @@ function readPendingLogin(expectedUserId) {
   return null;
 }
 
-function savePendingLogin(expectedUserId, { phone, phoneCodeHash, stage }) {
+function savePendingLogin(
+  expectedUserId,
+  { phone, phoneCodeHash, stage, codeLength, deliveryType },
+) {
   const key = pendingLoginKey(expectedUserId);
   if (!key) return false;
   try {
@@ -96,6 +153,8 @@ function savePendingLogin(expectedUserId, { phone, phoneCodeHash, stage }) {
         phone,
         phoneCodeHash,
         stage,
+        codeLength: normalizeCodeLength(codeLength),
+        deliveryType: normalizeDeliveryType(deliveryType),
         expiresAt: Date.now() + PENDING_LOGIN_TTL,
       }),
     );
@@ -141,6 +200,8 @@ export function ConnectionApp() {
   const [phone, setPhone] = useState(""),
     [code, setCode] = useState(""),
     [password, setPassword] = useState("");
+  const [codeLength, setCodeLength] = useState(5),
+    [codeDeliveryType, setCodeDeliveryType] = useState("unknown");
   const phoneHash = useRef(null),
     passwordWaiter = useRef(null);
   const reply = useCallback((request, payload, kind = "result") => {
@@ -333,6 +394,8 @@ export function ConnectionApp() {
           setPassword("");
           setQr("");
           phoneHash.current = pending.phoneCodeHash;
+          setCodeLength(pending.codeLength);
+          setCodeDeliveryType(pending.deliveryType);
           request.freshLogin = true;
           if (request.data.interactive) {
             setStage(pending.stage);
@@ -595,6 +658,9 @@ export function ConnectionApp() {
     if (command === "choose-phone") {
       setError("");
       setPhone("");
+      setCode("");
+      setCodeLength(5);
+      setCodeDeliveryType("unknown");
       setStage("phone");
       return;
     }
@@ -651,10 +717,16 @@ export function ConnectionApp() {
     }
   };
   const interactive = !!currentRequest.current?.data.interactive;
+  const textCode = ["sms_word", "sms_phrase"].includes(codeDeliveryType);
+  const codeIsComplete = textCode
+    ? code.trim().length > 0
+    : code.length === codeLength && /^\d+$/.test(code);
   const normalizedPhone = phone.trim().replace(/[\s().-]/g, "");
   const canSubmit =
     (stage === "phone" && /^\+[1-9]\d{6,14}$/.test(normalizedPhone)) ||
-    (stage === "code" && /^[0-9]{5}$/.test(code)) ||
+    (stage === "code" &&
+      codeIsComplete &&
+      codeDeliveryType !== "email_required") ||
     (stage === "password" && password.length > 0);
   useEffect(() => {
     const request = currentRequest.current;
@@ -764,13 +836,18 @@ export function ConnectionApp() {
             run(async () => {
               const normalizedPhone = normalizePhone(phone);
               setPhone(normalizedPhone);
-              phoneHash.current =
+              const sentCode =
                 await connection.current.phoneCode(normalizedPhone);
+              phoneHash.current = sentCode.phoneCodeHash;
+              setCodeLength(normalizeCodeLength(sentCode.codeLength));
+              setCodeDeliveryType(normalizeDeliveryType(sentCode.deliveryType));
               if (phoneHash.current) {
                 const stored = savePendingLogin(request.data.expectedUserId, {
                   phone: normalizedPhone,
                   phoneCodeHash: phoneHash.current,
                   stage: "code",
+                  codeLength: sentCode.codeLength,
+                  deliveryType: sentCode.deliveryType,
                 });
                 if (!stored)
                   setError(
@@ -806,9 +883,10 @@ export function ConnectionApp() {
           className="connection-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!/^[0-9]{5}$/.test(code)) return;
+            if (!codeIsComplete || codeDeliveryType === "email_required")
+              return;
             const request = currentRequest.current,
-              value = code;
+              value = textCode ? code.trim() : code;
             setCode("");
             run(async () => {
               if (
@@ -833,14 +911,37 @@ export function ConnectionApp() {
         >
           <div className="connection-step-intro">
             <h2 className="connection-step-title">Код Telegram</h2>
-            <p>Введите код из сообщения Telegram.</p>
+            <p>
+              {codeDeliveryInstructions(codeDeliveryType)}
+              {!textCode && codeDeliveryType !== "email_required"
+                ? ` Введите ${codeLength}-значный код.`
+                : ""}
+            </p>
           </div>
-          <OtpCodeInput value={code} onChange={setCode} disabled={busy} />
+          {textCode ? (
+            <label>
+              Код Telegram
+              <input
+                type="text"
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                autoComplete="one-time-code"
+                disabled={busy}
+              />
+            </label>
+          ) : codeDeliveryType !== "email_required" ? (
+            <OtpCodeInput
+              value={code}
+              length={codeLength}
+              onChange={setCode}
+              disabled={busy}
+            />
+          ) : null}
           {!hostedControls && (
             <Button
               variant="primary"
               type="submit"
-              disabled={busy || !/^[0-9]{5}$/.test(code)}
+              disabled={busy || !canSubmit}
             >
               Подтвердить вход
             </Button>

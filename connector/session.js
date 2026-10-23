@@ -1,5 +1,19 @@
 import { connectionFailure } from "./diagnostics.js";
 
+const PHONE_CODE_DELIVERY_TYPES = new Set([
+  "app",
+  "sms",
+  "call",
+  "flash_call",
+  "missed_call",
+  "email",
+  "email_required",
+  "fragment",
+  "firebase",
+  "sms_word",
+  "sms_phrase",
+]);
+
 export function createConnection({
   createClient,
   createMemoryClient,
@@ -250,11 +264,24 @@ export function createConnection({
       throw error;
     }
     if ("phoneCodeHash" in result) {
-      state({ stage: "code" });
-      return result.phoneCodeHash;
+      const deliveryType = PHONE_CODE_DELIVERY_TYPES.has(result.type)
+        ? result.type
+        : "unknown";
+      const codeLength =
+        Number.isSafeInteger(result.length) &&
+        result.length >= 4 &&
+        result.length <= 9
+          ? result.length
+          : 5;
+      state({ stage: "code", deliveryType, codeLength });
+      return {
+        phoneCodeHash: result.phoneCodeHash,
+        deliveryType,
+        codeLength,
+      };
     }
     account = String(result.id);
-    return null;
+    return { phoneCodeHash: null, deliveryType: "success", codeLength: 5 };
   }
   async function signIn(phone, phoneCodeHash, phoneCode) {
     try {
