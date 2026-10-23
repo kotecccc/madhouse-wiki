@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createVercelConnectorHandler } from "./vercel-connector-handler.mjs";
 import { connectorHeaders } from "../../connector/worker.js";
+import { VERSION } from "../../connector/protocol.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
@@ -121,12 +122,15 @@ const releaseMarker =
         sourceCommit,
         provider: "VPS",
         catalogue: "reference-only-sqlite",
-        telegramConnector: { origin: connectorOrigin, protocolVersion: 1 },
+        telegramConnector: {
+          origin: connectorOrigin,
+          protocolVersion: VERSION,
+        },
       }
     : {
         service: "telegram-connector",
         sourceCommit,
-        protocolVersion: 1,
+        protocolVersion: VERSION,
         wikiOrigin,
         connectorOrigin,
         provider: "VPS",

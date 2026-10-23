@@ -18,17 +18,17 @@ test("release packaging refuses local, invalid or missing required connector ori
     "https://connect.example/?token=bad",
   ])
     assert.throws(() =>
-      productionConnectorConfig({ origin, protocolVersion: 1 }),
+      productionConnectorConfig({ origin, protocolVersion: VERSION }),
     );
   assert.throws(() =>
-    productionConnectorConfig({ origin: null, protocolVersion: 1 }, true),
+    productionConnectorConfig({ origin: null, protocolVersion: VERSION }, true),
   );
   assert.deepEqual(
     productionConnectorConfig(
-      { origin: "https://connect.example", protocolVersion: 1 },
+      { origin: "https://connect.example", protocolVersion: VERSION },
       true,
     ),
-    { origin: "https://connect.example", protocolVersion: 1 },
+    { origin: "https://connect.example", protocolVersion: VERSION },
   );
 });
 const launch =

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { VERSION } from "../connector/protocol.js";
 const source = (name = "auth-session.js") =>
   readFileSync(new URL("../shared/" + name, import.meta.url), "utf8");
 export function authSessionPlugin() {
@@ -22,7 +23,7 @@ export function authSessionPlugin() {
       this.emitFile({
         type: "asset",
         fileName: "connection-config.json",
-        source: JSON.stringify({ origin: connector, protocolVersion: 1 }),
+        source: JSON.stringify({ origin: connector, protocolVersion: VERSION }),
       });
       for (const name of ["auth-session.js", "telegram-context.js"])
         this.emitFile({

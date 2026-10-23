@@ -1,4 +1,4 @@
-import { connectorOrigin } from "../../connector/protocol.js";
+import { connectorOrigin, VERSION } from "../../connector/protocol.js";
 export function productionConnectorConfig(config, required = false) {
   if (!config?.origin) {
     if (required)
@@ -12,7 +12,7 @@ export function productionConnectorConfig(config, required = false) {
   if (
     !url ||
     url.protocol !== "https:" ||
-    config.protocolVersion !== 1 ||
+    config.protocolVersion !== VERSION ||
     url.hostname === "localhost" ||
     url.hostname.endsWith(".localhost") ||
     !url.hostname.includes(".") ||
@@ -22,5 +22,5 @@ export function productionConnectorConfig(config, required = false) {
     throw new Error(
       "A production release cannot contain a local or invalid Telegram connector origin",
     );
-  return { origin, protocolVersion: 1 };
+  return { origin, protocolVersion: VERSION };
 }

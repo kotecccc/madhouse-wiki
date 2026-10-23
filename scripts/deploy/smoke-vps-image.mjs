@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { VERSION } from "../../connector/protocol.js";
 
 const [wikiOrigin, connectorOrigin, expectedCommit] = process.argv.slice(2);
 if (
@@ -38,6 +39,7 @@ const wikiRelease = await getJson(`${wikiOrigin}/release.json`);
 assert.equal(wikiRelease.response.status, 200);
 assert.equal(wikiRelease.body.provider, "VPS");
 assert.equal(wikiRelease.body.sourceCommit, expectedCommit);
+assert.equal(wikiRelease.body.telegramConnector?.protocolVersion, VERSION);
 assert.equal(
   wikiRelease.body.telegramConnector?.origin,
   "https://connect.madhouse-wiki.ru",
@@ -59,6 +61,7 @@ const connectorRelease = await getJson(`${connectorOrigin}/release.json`);
 assert.equal(connectorRelease.response.status, 200);
 assert.equal(connectorRelease.body.provider, "VPS");
 assert.equal(connectorRelease.body.sourceCommit, expectedCommit);
+assert.equal(connectorRelease.body.protocolVersion, VERSION);
 assert.equal(connectorRelease.body.wikiOrigin, "https://madhouse-wiki.ru");
 assert.equal(
   connectorRelease.body.connectorOrigin,

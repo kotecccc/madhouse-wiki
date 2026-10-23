@@ -10,6 +10,7 @@ import {
 import { resolve, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { connectorHeaders } from "../../connector/worker.js";
+import { VERSION } from "../../connector/protocol.js";
 import { packageSeed } from "../catalogue/package-seed.mjs";
 import { productionConnectorConfig } from "./connector-release-config.mjs";
 
@@ -37,7 +38,8 @@ const publicHttpsOrigin = (value, name) => {
   return url.origin;
 };
 const productionOrigin = (value) =>
-  productionConnectorConfig({ origin: value, protocolVersion: 1 }, true).origin;
+  productionConnectorConfig({ origin: value, protocolVersion: VERSION }, true)
+    .origin;
 const wikiOrigin =
   service === "connector"
     ? productionOrigin(process.env.CONNECTOR_WIKI_ORIGIN)
@@ -80,7 +82,7 @@ const marker =
     ? {
         service: "telegram-connector",
         sourceCommit,
-        protocolVersion: 1,
+        protocolVersion: VERSION,
         wikiOrigin,
         connectorOrigin,
         provider: "Vercel",
@@ -90,7 +92,10 @@ const marker =
         sourceCommit,
         provider: "Vercel",
         catalogue: "reference-only-sqlite",
-        telegramConnector: { origin: connectorOrigin, protocolVersion: 1 },
+        telegramConnector: {
+          origin: connectorOrigin,
+          protocolVersion: VERSION,
+        },
       };
 if (service === "wiki") {
   const built = JSON.parse(

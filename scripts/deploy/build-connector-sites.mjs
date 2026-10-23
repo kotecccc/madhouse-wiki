@@ -1,6 +1,7 @@
 import { readFile, readdir, mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve, relative, extname } from "node:path";
 import { build } from "esbuild";
+import { VERSION } from "../../connector/protocol.js";
 
 const root = process.cwd();
 const output = resolve(root, ".sites-release/connector");
@@ -48,7 +49,7 @@ assets["/release.json"] = {
     JSON.stringify({
       service: "telegram-connector",
       sourceCommit,
-      protocolVersion: 1,
+      protocolVersion: VERSION,
       wikiOrigin: wiki.origin,
     }),
   ).toString("base64"),
