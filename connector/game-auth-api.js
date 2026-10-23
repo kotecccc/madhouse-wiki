@@ -74,6 +74,7 @@ export function createConnectorApi({
               "playerLevel",
               "currentExp",
               "expToNextLevel",
+              "diagnostic",
             ].includes(key),
           )
         )

@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { validateAuthTrace } from "./auth-trace.js";
 const subtle = webcrypto.subtle;
 const encoder = new TextEncoder();
 const utf8 = (s) => encoder.encode(s);
@@ -75,6 +76,7 @@ export function createAccountSessions({
   encryptionKey,
   fetcher = fetch,
   now = Date.now,
+  onAuthDiagnostic = () => {},
 }) {
   async function cryptoKey() {
     return subtle.importKey("raw", keyBytes(encryptionKey), "AES-GCM", false, [
@@ -188,6 +190,10 @@ export function createAccountSessions({
       ).toString("base64url");
     }
     const reply = (result) => ({ ...result, wikiProof });
+    if (data.action === "diagnostic") {
+      onAuthDiagnostic(validateAuthTrace(data.diagnostic));
+      return reply({ status: "accepted" });
+    }
     const id =
       "accounts/" +
       hex(await mac(keyBytes(encryptionKey), "account:" + userId)) +

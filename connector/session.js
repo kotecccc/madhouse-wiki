@@ -1,4 +1,5 @@
 import { connectionFailure } from "./diagnostics.js";
+import { authErrorCategory } from "./auth-trace.js";
 
 const PHONE_CODE_DELIVERY_TYPES = new Set([
   "app",
@@ -56,6 +57,7 @@ export function createConnection({
   errorTypes,
   exchange,
   onState = () => {},
+  onAuthEvent = () => {},
   storage = "madhouse-wiki-telegram-v1",
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -71,6 +73,13 @@ export function createConnection({
     storageIdentity = null;
   const authOperations = new Set();
   const state = (value) => onState(value);
+  const trace = (value) => {
+    try {
+      onAuthEvent(value);
+    } catch {
+      /* Diagnostics cannot interrupt login. */
+    }
+  };
   async function getClient() {
     if (!client) {
       clientPromise ??= Promise.resolve().then(() =>
@@ -144,6 +153,7 @@ export function createConnection({
         client = null;
         clientPromise = null;
         memoryOnly = true;
+        trace({ event: "storage-memory", memoryOnly: true });
         account = null;
         return restore(expectedUserId);
       }
@@ -209,6 +219,7 @@ export function createConnection({
     }
   }
   function cancel() {
+    trace({ event: "cancel", memoryOnly });
     generation++;
     active = null;
   }
@@ -294,7 +305,9 @@ export function createConnection({
     state({ stage: "busy" });
     let result;
     try {
-      result = await runAuth((current) => current.sendCode({ phone }));
+      result = await runAuth((current) =>
+        tracedCode("send", () => current.sendCode({ phone })),
+      );
     } catch (error) {
       state({ stage: "phone" });
       throw error;
@@ -309,11 +322,40 @@ export function createConnection({
   }
   async function resendPhoneCode(phone, phoneCodeHash) {
     const result = await runAuth((current) =>
-      current.resendCode({ phone, phoneCodeHash }),
+      tracedCode("resend", () => current.resendCode({ phone, phoneCodeHash })),
     );
     const challenge = codeChallenge(result);
     state({ stage: "code", ...challenge });
     return challenge;
+  }
+  async function tracedCode(operation, invoke) {
+    const started = now();
+    trace({ event: `${operation}-start`, memoryOnly });
+    try {
+      const result = await invoke();
+      const details =
+        "phoneCodeHash" in result
+          ? codeChallenge(result)
+          : { deliveryType: "success" };
+      const { deliveryType, nextDeliveryType, codeLength, timeout } = details;
+      trace({
+        event: `${operation}-response`,
+        deliveryType,
+        ...(nextDeliveryType === undefined
+          ? {}
+          : { nextDeliveryType, codeLength, timeout }),
+        elapsedMs: Math.min(3600000, Math.max(0, Math.round(now() - started))),
+        memoryOnly,
+      });
+      return result;
+    } catch (error) {
+      trace({
+        event: `${operation}-error`,
+        errorCategory: authErrorCategory(error),
+        memoryOnly,
+      });
+      throw error;
+    }
   }
   async function signIn(phone, phoneCodeHash, phoneCode) {
     try {
