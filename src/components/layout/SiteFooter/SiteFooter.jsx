@@ -1,12 +1,11 @@
 import "./SiteFooter.css";
-import { Brand } from "../Brand/Brand.jsx";
-export function SiteFooter() {
+export function SiteFooter({ children }) {
   return (
     <footer className="footer">
-      <Brand />
       <p className="footer-disclaimer">
         Фанатский справочник. Не связан с разработчиками игры.
       </p>
+      {children}
     </footer>
   );
 }

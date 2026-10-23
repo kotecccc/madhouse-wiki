@@ -29,7 +29,7 @@
 }
 
 .base-card--popover {
-  --card-background: var(--surface-inset);
+  --card-background: var(--surface-page);
 }
 
 .base-card--glass-nav {

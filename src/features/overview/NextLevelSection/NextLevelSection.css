@@ -1,0 +1,20 @@
+.next-level-section {
+  display: grid;
+  align-content: start;
+  gap: var(--space-16);
+}
+
+.next-level-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.next-level-items {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

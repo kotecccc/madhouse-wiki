@@ -1,10 +1,39 @@
 import { OtpCodeInput } from "../OtpCodeInput/OtpCodeInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../src/components/ui/Button/Button.jsx";
+import { LoadingStatus } from "../../../src/components/ui/LoadingStatus/LoadingStatus.jsx";
 import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { createConnection } from "../../session.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
+
+function hasLevelProgress(value) {
+  return (
+    Number.isSafeInteger(value?.playerLevel) &&
+    value.playerLevel > 0 &&
+    Number.isSafeInteger(value?.currentExp) &&
+    value.currentExp >= 0 &&
+    Number.isSafeInteger(value?.expToNextLevel) &&
+    value.expToNextLevel > 0
+  );
+}
+
+function levelProgressFields(value) {
+  return {
+    ...(Number.isSafeInteger(value?.playerLevel) && value.playerLevel > 0
+      ? { playerLevel: value.playerLevel }
+      : {}),
+    ...(Number.isSafeInteger(value?.currentExp) &&
+    value.currentExp >= 0 &&
+    Number.isSafeInteger(value?.expToNextLevel) &&
+    value.expToNextLevel > 0
+      ? {
+          currentExp: value.currentExp,
+          expToNextLevel: value.expToNextLevel,
+        }
+      : {}),
+  };
+}
 
 const messages = {
   PHONE_NUMBER_INVALID: "Проверьте номер телефона.",
@@ -233,7 +262,7 @@ export function ConnectionApp() {
       // Restore the signed account's server session BEFORE touching browser IDB.
       const shared = await accountSession(request, "restore");
       if (currentRequest.current !== request) return;
-      if (shared?.status === "connected") {
+      if (shared?.status === "connected" && hasLevelProgress(shared)) {
         clearPendingLogin(request.data.expectedUserId);
         setCode("");
         setPassword("");
@@ -244,6 +273,7 @@ export function ConnectionApp() {
         reply(request, {
           status: "connected",
           accessToken: shared.accessToken,
+          ...levelProgressFields(shared),
         });
         return;
       }
@@ -259,17 +289,30 @@ export function ConnectionApp() {
         request.data.expectedUserId,
       );
       if (currentRequest.current !== request) return;
+      const connectedProfile =
+        result.status === "connected"
+          ? {
+              ...shared,
+              ...result,
+              playerLevel: result.playerLevel ?? shared?.playerLevel,
+              currentExp: result.currentExp ?? shared?.currentExp,
+              expToNextLevel: result.expToNextLevel ?? shared?.expToNextLevel,
+            }
+          : shared?.status === "connected"
+            ? shared
+            : null;
       if (result.status === "connected" && shared) {
         await accountSession(request, "save", {
           ticket: shared.ticket,
           accessToken: result.accessToken,
+          ...levelProgressFields(connectedProfile),
         });
         if (currentRequest.current !== request) {
           await accountSession(request, "logout");
           return;
         }
       }
-      if (result.status === "connected") {
+      if (connectedProfile) {
         clearPendingLogin(request.data.expectedUserId);
         setCode("");
         setPassword("");
@@ -277,7 +320,11 @@ export function ConnectionApp() {
         setQr("");
         phoneHash.current = null;
         request.freshLogin = false;
-        reply(request, result);
+        reply(request, {
+          status: "connected",
+          accessToken: connectedProfile.accessToken,
+          ...levelProgressFields(connectedProfile),
+        });
       } else {
         const pending = readPendingLogin(request.data.expectedUserId);
         if (pending) {
@@ -354,7 +401,12 @@ export function ConnectionApp() {
             });
             const data = await result.json();
             if (!result.ok) throw new Error(data.error);
-            return data.accessToken;
+            return {
+              accessToken: data.accessToken,
+              playerLevel: data.playerLevel,
+              currentExp: data.currentExp,
+              expToNextLevel: data.expToNextLevel,
+            };
           },
           onState: (value) => {
             if (!stopped) setStage(value.stage);
@@ -648,7 +700,9 @@ export function ConnectionApp() {
       className="connection-app"
       data-hosted-controls={hostedControls || undefined}
     >
-      {stage === "loading" && <p role="status">Подготавливаем подключение…</p>}
+      {stage === "loading" && (
+        <LoadingStatus>Подготавливаем подключение…</LoadingStatus>
+      )}
       {stage === "waiting" && <p>Откройте подключение из Madhouse Wiki.</p>}
       {interactive && ["consent", "wrong-account"].includes(stage) && (
         <section className="connection-consent">
@@ -840,13 +894,13 @@ export function ConnectionApp() {
           <div className="connection-qr">
             <p>Telegram → Настройки → Устройства → Подключить устройство</p>
             <img src={qr} alt="QR для входа в Telegram" />
-            <p role="status">Ожидаем подтверждение в Telegram…</p>
+            <LoadingStatus>Ожидаем подтверждение в Telegram…</LoadingStatus>
           </div>
         </section>
       )}
-      {busy && stage !== "qr" && <p role="status">Подключаемся…</p>}
+      {busy && stage !== "qr" && <LoadingStatus>Подключаемся…</LoadingStatus>}
       {stage === "connected" && (
-        <p role="status">Завершаем вход в игровую сессию…</p>
+        <LoadingStatus>Завершаем вход в игровую сессию…</LoadingStatus>
       )}
       {error && (
         <p className="connection-error" role="alert">

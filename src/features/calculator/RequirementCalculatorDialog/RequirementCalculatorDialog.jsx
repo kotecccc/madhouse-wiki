@@ -3,6 +3,7 @@ import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
+import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import "./RequirementCalculatorDialog.css";
 import {
   calculateCycleEnergy,
@@ -20,20 +21,6 @@ import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
-
-function DefibrillatorIcon({ variant }) {
-  return (
-    <svg
-      className={`requirement-calculator-defibrillator-icon requirement-calculator-defibrillator-icon--${variant}`}
-      viewBox="0 0 32 32"
-      aria-hidden="true"
-    >
-      <rect x="5.5" y="3.5" width="21" height="25" rx="4" />
-      <path d="M10 9h12M10 23h12" />
-      <path d="m17 11-4 6h4l-2 5 5-7h-4l2-4Z" />
-    </svg>
-  );
-}
 
 export function RequirementCalculatorDialog({
   conditionDialog,
@@ -181,10 +168,10 @@ export function RequirementCalculatorDialog({
               </div>
             )}
             {profileStatus === "loading" && (
-              <div className="requirement-calculator-total" role="status">
-                <CardDescription size="sm">
+              <div className="requirement-calculator-total">
+                <LoadingStatus>
                   Загружаю запас энергии из профиля…
-                </CardDescription>
+                </LoadingStatus>
               </div>
             )}
             {requirementCalc > 0 && profileEnergy && (
@@ -264,6 +251,7 @@ export function RequirementCalculatorDialog({
                     </CardTitle>
                     <Icon
                       type="banknote"
+                      size="medium"
                       className="requirement-calculator-option-icon"
                     />
                   </div>
@@ -273,7 +261,7 @@ export function RequirementCalculatorDialog({
                     aria-label="Дефибрилляторы для восстановления энергии"
                   >
                     <div className="requirement-calculator-refill">
-                      <DefibrillatorIcon variant="small" />
+                      <Icon type="defibrillator-small" size="large" />
                       <span className="requirement-calculator-refill-copy">
                         <CardTitle size="sm">Малый</CardTitle>
                         <CardDescription size="2xs">10% лимита</CardDescription>
@@ -287,7 +275,7 @@ export function RequirementCalculatorDialog({
                       </CardTitle>
                     </div>
                     <div className="requirement-calculator-refill">
-                      <DefibrillatorIcon variant="large" />
+                      <Icon type="defibrillator-large" size="large" />
                       <span className="requirement-calculator-refill-copy">
                         <CardTitle size="sm">Большой</CardTitle>
                         <CardDescription size="2xs">

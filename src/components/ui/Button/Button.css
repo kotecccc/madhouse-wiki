@@ -28,7 +28,7 @@
       var(--control-transition-easing);
 }
 
-.button:hover:not(:disabled) {
+.button:hover:not(:disabled):not(.button-nav-tab):not(.button--no-lift) {
   transform: translateY(-1px);
 }
 
@@ -86,16 +86,38 @@
   background: var(--navigation-selected);
 }
 
+.button-locked {
+  border-color: var(--control-locked-border);
+  color: var(--control-locked-color);
+  background: var(--control-locked-background);
+}
+
+.button-locked:hover:not(:disabled) {
+  border-color: var(--control-locked-color);
+  background: var(--control-locked-background-hover);
+}
+
+.button-locked[aria-pressed="true"] {
+  border-color: var(--control-locked-color);
+  box-shadow: inset 0 0 0 1px var(--control-locked-color);
+}
+
 .button-toggle {
   border-color: var(--card-border);
   color: var(--text-muted);
-  background: var(--surface-inset);
+  background: var(--surface-page);
 }
 
 .button-toggle[aria-pressed="true"] {
-  border-color: var(--red-bright);
+  border-color: var(--card-border);
   color: var(--text-primary);
   background: var(--navigation-selected);
+  box-shadow: inset 0 0 0 1px var(--card-border);
+}
+
+.button-secondary[aria-pressed="true"] {
+  background: var(--navigation-selected);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .button-card-action {
@@ -178,11 +200,6 @@
   color: var(--navigation-tab-active-color);
   background: var(--navigation-tab-active-background);
   box-shadow: var(--navigation-tab-active-shadow);
-}
-
-.button-nav-tab:hover:not(:disabled) {
-  transform: none;
-  background: var(--navigation-tab-hover-background);
 }
 
 @media (max-width: 650px) {

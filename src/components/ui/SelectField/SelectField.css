@@ -6,7 +6,7 @@ select.select-field {
   padding: 0 var(--space-12);
   border: 1px solid var(--card-border);
   border-radius: var(--control-radius);
-  background: var(--surface-inset);
+  background: var(--surface-page);
   color: var(--text-primary);
   font-family: var(--sans);
   font-size: var(--font-size-sm);

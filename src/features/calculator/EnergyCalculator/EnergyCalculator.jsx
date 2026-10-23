@@ -86,7 +86,7 @@ export function EnergyCalculator() {
           onChange={(event) => setRunCount(event.target.value)}
         />
         <Button variant="primary" className="calculate-button" type="submit">
-          Посчитать <span aria-hidden="true">→</span>
+          Посчитать <Icon type="arrow-right" size="small" />
         </Button>
         <BaseCard className="calc-result" aria-live="polite">
           <span>ИТОГО</span>

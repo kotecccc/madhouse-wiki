@@ -9,6 +9,7 @@ import { CardEditingContext } from "../../components/ui/CardEditing/CardEditing.
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
+import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { FieldLabel } from "../../components/ui/FieldLabel/FieldLabel.jsx";
 import { Input } from "../../components/ui/Input/Input.jsx";
 import { MonoLabel } from "../../components/ui/MonoLabel/MonoLabel.jsx";
@@ -186,7 +187,7 @@ export function EntityCardEditor({ entityKey, children, componentProps }) {
           aria-label="Предыдущая вариация"
           onClick={() => select(variants[index - 1].id)}
         >
-          ←
+          <Icon type="arrow-left" size="small" />
         </Button>
         <Button
           size="sm"
@@ -210,7 +211,7 @@ export function EntityCardEditor({ entityKey, children, componentProps }) {
           aria-label="Следующая вариация"
           onClick={() => select(variants[index + 1].id)}
         >
-          →
+          <Icon type="arrow-right" size="small" />
         </Button>
         <Button
           size="sm"
@@ -262,7 +263,7 @@ export function EntityCardEditor({ entityKey, children, componentProps }) {
           <div className="entity-editor-token">
             <CardTitle>{kindLabels[popup.kind] || "Вариация"}</CardTitle>
             <Button size="sm" aria-label="Закрыть настройки" onClick={dismiss}>
-              ×
+              <Icon type="close" size="small" />
             </Button>
           </div>
           {popup.kind === "variation" ? (
@@ -363,7 +364,7 @@ export function EntityCardEditor({ entityKey, children, componentProps }) {
                             change({ sectionOrder: next });
                           }}
                         >
-                          ↑
+                          <Icon type="arrow-up" size="small" />
                         </Button>
                         <Button
                           size="sm"
@@ -378,7 +379,7 @@ export function EntityCardEditor({ entityKey, children, componentProps }) {
                             change({ sectionOrder: next });
                           }}
                         >
-                          ↓
+                          <Icon type="arrow-down" size="small" />
                         </Button>
                       </div>
                     </div>

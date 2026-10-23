@@ -20,11 +20,20 @@ export function usePlayerProfile() {
       setState({ status: "loading", profile: null });
       getSessionJson("/api/me", { signal })
         .then((data) => {
-          if (!signal.aborted)
+          if (!signal.aborted) {
+            const profile = normalizePlayerProfile(data);
+            const session = readSession();
+            profile.playerLevel ??= session.playerLevel;
+            if (
+              !Number.isSafeInteger(profile.experience.current) ||
+              !Number.isSafeInteger(profile.experience.toNextLevel)
+            )
+              profile.experience = session.experience ?? profile.experience;
             setState({
               status: "ready",
-              profile: normalizePlayerProfile(data),
+              profile,
             });
+          }
         })
         .catch((error) => {
           if (!signal.aborted)

@@ -14,13 +14,13 @@
   overflow: hidden;
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--surface-inset);
+  background: var(--surface-page);
   accent-color: var(--icon-energy);
 }
 
 .ui-progress-bar-segment::-webkit-progress-bar {
   border-radius: var(--radius-pill);
-  background: var(--surface-inset);
+  background: var(--surface-page);
 }
 
 .ui-progress-bar-segment::-webkit-progress-value {
@@ -31,4 +31,40 @@
 .ui-progress-bar-segment::-moz-progress-bar {
   border-radius: var(--radius-pill);
   background: var(--icon-energy);
+}
+
+.ui-progress-bar--lg {
+  position: relative;
+  align-items: stretch;
+}
+
+.ui-progress-bar--lg .ui-progress-bar-segment {
+  height: var(--control-height-lg);
+}
+
+.ui-progress-bar-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  padding-inline: var(--space-12);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ui-progress-bar-label > span {
+  max-width: 100%;
+  overflow: hidden;
+  padding-inline: var(--space-12);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-page);
+  text-overflow: ellipsis;
 }

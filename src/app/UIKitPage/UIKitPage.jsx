@@ -33,6 +33,7 @@ const cardVariants = [
 const buttonVariants = [
   { name: "Primary", variant: "primary" },
   { name: "Secondary", variant: "secondary" },
+  { name: "Locked", variant: "locked", icon: "lock" },
   { name: "Card action", variant: "card-action", icon: "external-link" },
   { name: "Toggle", variant: "toggle", state: "toggle" },
   { name: "Tab", variant: "nav-tab", state: "selected" },
@@ -67,6 +68,15 @@ const iconTypes = [
   "coin",
   "pill",
   "banknote",
+  "defibrillator-small",
+  "defibrillator-large",
+  "arrow-left",
+  "arrow-right",
+  "arrow-up",
+  "arrow-down",
+  "corner-down-left",
+  "check",
+  "close",
 ];
 const sampleBossPortrait = knowledgeBase.bosses.find(
   (boss) => Number(boss.apiId) === 49,
@@ -74,11 +84,15 @@ const sampleBossPortrait = knowledgeBase.bosses.find(
 
 const colorTokens = [
   { name: "Page", token: "--surface-page", color: "var(--surface-page)" },
-  { name: "Inset", token: "--surface-inset", color: "var(--surface-inset)" },
   { name: "Raised", token: "--surface-raised", color: "var(--surface-raised)" },
   { name: "Card", token: "--card-background", color: "var(--card-background)" },
   { name: "Text", token: "--text-primary", color: "var(--text-primary)" },
   { name: "Accent", token: "--red", color: "var(--red)" },
+  {
+    name: "Locked surface",
+    token: "--control-locked-background",
+    color: "var(--control-locked-background)",
+  },
   {
     name: "Success",
     token: "--status-completed",
@@ -94,6 +108,7 @@ const colorTokens = [
 
 const spacingTokens = [
   ["4", "--space-unit"],
+  ["6", "--space-6"],
   ["8", "--space-8"],
   ["12", "--space-12"],
   ["16", "--space-16"],
@@ -348,7 +363,8 @@ export function UIKitPage() {
                       aria-pressed={controlDisabled}
                       onClick={() => setControlDisabled((current) => !current)}
                     >
-                      {controlDisabled ? "✓ " : ""}Disabled
+                      {controlDisabled && <Icon type="check" size="small" />}{" "}
+                      Disabled
                     </Button>
                   </div>
                   <div className="ui-kit-control-preview-grid">

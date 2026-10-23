@@ -218,6 +218,21 @@ export function createAccountSessions({
     }
     if (data.action === "save") {
       if (
+        Object.hasOwn(data, "playerLevel") &&
+        (!Number.isSafeInteger(data.playerLevel) || data.playerLevel < 1)
+      )
+        throw new Error("invalid_request");
+      if (
+        Object.hasOwn(data, "currentExp") &&
+        (!Number.isSafeInteger(data.currentExp) || data.currentExp < 0)
+      )
+        throw new Error("invalid_request");
+      if (
+        Object.hasOwn(data, "expToNextLevel") &&
+        (!Number.isSafeInteger(data.expToNextLevel) || data.expToNextLevel < 1)
+      )
+        throw new Error("invalid_request");
+      if (
         typeof data.ticket !== "string" ||
         data.ticket !== (await ticket(id, found.record.revision))
       )
@@ -263,14 +278,47 @@ export function createAccountSessions({
           revoked: false,
           expiresAt: Math.min(payload.exp * 1000, now() + 86400000),
           accessToken: token,
+          ...(Number.isSafeInteger(data.playerLevel) && data.playerLevel > 0
+            ? { playerLevel: data.playerLevel }
+            : {}),
+          ...(Number.isSafeInteger(data.currentExp) &&
+          data.currentExp >= 0 &&
+          Number.isSafeInteger(data.expToNextLevel) &&
+          data.expToNextLevel > 0
+            ? {
+                currentExp: data.currentExp,
+                expToNextLevel: data.expToNextLevel,
+              }
+            : {}),
         },
         found.etag,
       );
       return reply({ status: "saved" });
     }
     const record = found.record;
-    if (record.accessToken && record.expiresAt > now())
-      return reply({ status: "connected", accessToken: record.accessToken });
+    if (record.accessToken && record.expiresAt > now()) {
+      const hasExperience =
+        Number.isSafeInteger(record.currentExp) &&
+        record.currentExp >= 0 &&
+        Number.isSafeInteger(record.expToNextLevel) &&
+        record.expToNextLevel > 0;
+      const hasLevel =
+        Number.isSafeInteger(record.playerLevel) && record.playerLevel > 0;
+      return reply({
+        status: "connected",
+        accessToken: record.accessToken,
+        ...(hasLevel ? { playerLevel: record.playerLevel } : {}),
+        ...(hasExperience
+          ? {
+              currentExp: record.currentExp,
+              expToNextLevel: record.expToNextLevel,
+            }
+          : {}),
+        ...(!hasLevel || !hasExperience
+          ? { ticket: await ticket(id, record.revision) }
+          : {}),
+      });
+    }
     return reply({
       status: "login-required",
       revoked: record.revoked === true,

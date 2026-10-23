@@ -1,4 +1,5 @@
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
+import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import "./BossesSection.css";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { useState } from "react";
@@ -33,7 +34,7 @@ export function BossesSection({ compact = false }) {
           disabled={floorPage === 0}
           onClick={() => setFloorPage((p) => Math.max(0, p - 1))}
         >
-          ←
+          <Icon type="arrow-left" size="small" />
         </Button>
         <span className="boss-count" aria-live="polite">
           {floorCode === "unknown" ? "Этаж не указан" : `Этаж ${floorCode}`} •{" "}
@@ -48,7 +49,7 @@ export function BossesSection({ compact = false }) {
             setFloorPage((p) => Math.min(bossFloors.length - 1, p + 1))
           }
         >
-          →
+          <Icon type="arrow-right" size="small" />
         </Button>
       </div>
       <div className="boss-grid" aria-live="polite">

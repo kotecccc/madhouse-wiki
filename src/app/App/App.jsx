@@ -121,7 +121,13 @@ export function App() {
 
   return (
     <div className="site-shell">
-      <SiteHeader />
+      <SiteHeader
+        loading={
+          profileState.status === "loading" ||
+          floorAvailability.status === "loading" ||
+          raidSchedule.status === "loading"
+        }
+      />
       <div className="app-scroll-region" ref={scrollRegionRef} data-page-scroll>
         <main id="top" className={`app-content app-content--${activeScreen}`}>
           {authenticated && (
@@ -146,6 +152,7 @@ export function App() {
             )}
             <FloorsSection
               {...floorAvailability}
+              isAuthenticated={authenticated}
               onCalculator={setConditionDialog}
               onUpgradeSelect={setUpgradeDialog}
               onDepartmentState={onDepartmentState}
@@ -160,7 +167,9 @@ export function App() {
             />
           </div>
         </main>
-        <SiteFooter />
+        <SiteFooter>
+          <FeedbackWidget screen={activeScreen} />
+        </SiteFooter>
       </div>
       <MobileNavigation
         activeScreen={activeScreen}
@@ -178,7 +187,6 @@ export function App() {
         />
       )}
       <TelegramLaunchScreen />
-      <FeedbackWidget screen={activeScreen} />
     </div>
   );
 }

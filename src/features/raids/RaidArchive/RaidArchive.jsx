@@ -3,6 +3,7 @@ import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import "./RaidArchive.css";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
@@ -82,7 +83,9 @@ function ArchivePages({ cursor, floorAvailability }) {
         />
       ))}
       <div ref={sentinel} className="raid-archive-loader">
-        {state.status === "loading" && <p role="status">Загружаем архив…</p>}
+        {state.status === "loading" && (
+          <LoadingStatus>Загружаем архив…</LoadingStatus>
+        )}
         {state.status === "error" && (
           <>
             <p role="status">Не удалось загрузить архив.</p>

@@ -125,11 +125,6 @@
   font-size: var(--font-size-2xs);
   margin-bottom: var(--space-4);
 }
-.profile-stats dt .ui-icon {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
-}
 .profile-stats dd {
   margin: 0;
   color: var(--paper-bright);

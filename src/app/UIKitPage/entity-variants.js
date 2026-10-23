@@ -16,6 +16,7 @@ export const IMAGE_SIZES = SPACES.map((size) => `var(--space-${size})`);
 export const BUTTON_VARIANTS = [
   "primary",
   "secondary",
+  "locked",
   "card-action",
   "toggle",
   "nav-tab",

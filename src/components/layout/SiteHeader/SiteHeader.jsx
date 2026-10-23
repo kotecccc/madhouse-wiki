@@ -2,9 +2,9 @@ import { LoginControl } from "../../../features/auth/LoginControl/LoginControl.j
 import "./SiteHeader.css";
 import { Brand } from "../Brand/Brand.jsx";
 
-export function SiteHeader() {
+export function SiteHeader({ loading = false }) {
   return (
-    <header className="topbar">
+    <header className={`topbar${loading ? " topbar--loading" : ""}`}>
       <Brand />
       <LoginControl />
     </header>

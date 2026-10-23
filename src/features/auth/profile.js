@@ -19,8 +19,11 @@ export function profileAvatarUrl(profile) {
 export function normalizePlayerProfile(data) {
   const text = (value) =>
     typeof value === "string" ? value.trim().slice(0, 80) : "";
+  const playerLevel = data?.exp?.level;
   return {
     playerId: data.playerId,
+    playerLevel:
+      Number.isSafeInteger(playerLevel) && playerLevel > 0 ? playerLevel : null,
     name:
       text(data.nickname) ||
       text(data.firstName) ||
@@ -58,6 +61,12 @@ export function normalizePlayerProfile(data) {
       max: data.energy?.max,
       secondsToNext: data.energy?.secondsToNext,
       regenIntervalSeconds: data.energy?.regenIntervalSeconds,
+      nextEnergyAtUtc: data.energy?.nextEnergyAtUtc,
+      snapshotAtMs: Date.now(),
+    },
+    experience: {
+      current: data.exp?.currentExp,
+      toNextLevel: data.exp?.expToNextLevel,
     },
   };
 }

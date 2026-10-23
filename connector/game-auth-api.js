@@ -71,6 +71,9 @@ export function createConnectorApi({
               "action",
               "ticket",
               "accessToken",
+              "playerLevel",
+              "currentExp",
+              "expToNextLevel",
             ].includes(key),
           )
         )
@@ -142,8 +145,25 @@ export function createConnectorApi({
         )
       )
         return json({ error: "invalid_game_response" }, 502);
-      // No account profile, cookies, previous Bearer or Telegram session leaves this handler.
-      return json({ accessToken: body.accessToken });
+      const playerLevel = body.exp?.level;
+      const currentExp = body.exp?.currentExp;
+      const expToNextLevel = body.exp?.expToNextLevel;
+      const experience =
+        Number.isSafeInteger(currentExp) &&
+        currentExp >= 0 &&
+        Number.isSafeInteger(expToNextLevel) &&
+        expToNextLevel > 0
+          ? { currentExp, expToNextLevel }
+          : {};
+      // Only the token and the validated level progress needed by the Wiki
+      // leave this handler. The rest of the account profile stays private.
+      return json({
+        accessToken: body.accessToken,
+        ...(Number.isSafeInteger(playerLevel) && playerLevel > 0
+          ? { playerLevel }
+          : {}),
+        ...experience,
+      });
     } catch {
       return json({ error: "game_unavailable" }, 502);
     }

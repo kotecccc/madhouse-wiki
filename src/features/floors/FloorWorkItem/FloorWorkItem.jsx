@@ -19,6 +19,9 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
 import { EditableValue } from "../../../components/ui/CardEditing/EditableValue.jsx";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
+
+const showDepartmentBusinesses = false;
+
 export function FloorWorkItem({
   work,
   onCalculator,
@@ -91,7 +94,7 @@ export function FloorWorkItem({
                     editKey="title"
                   >
                     <span className="floor-work-code">
-                      {locked && <LockIndicator size="1em" />}
+                      {locked && <LockIndicator size="medium" />}
                       <EditableValue
                         editKey="code"
                         className="floor-work-id"
@@ -128,7 +131,7 @@ export function FloorWorkItem({
                   ? "—"
                   : fmt(work.energyCycle.full)}
               </EditableValue>{" "}
-              <Icon type="energy" size="small" />
+              <Icon type="energy" size="medium" />
             </span>
           </summary>
           <EditableLayout
@@ -171,34 +174,36 @@ export function FloorWorkItem({
                 </p>
               )}
             </section>
-            <section className="floor-work-extra">
-              <Title as="h4" editKey="businesses-heading">
-                Бизнесы
-              </Title>
-              {businesses.length ? (
-                <ul className="floor-work-business-list">
-                  {businesses.map((business) => (
-                    <BusinessCard
-                      key={business.id}
-                      business={business}
-                      upgrade={upgrades.find(
-                        (upgrade) => upgrade.businessId === business.id,
-                      )}
-                      onUpgradeSelect={onUpgradeSelect}
-                    />
+            {showDepartmentBusinesses && (
+              <section className="floor-work-extra">
+                <Title as="h4" editKey="businesses-heading">
+                  Бизнесы
+                </Title>
+                {businesses.length ? (
+                  <ul className="floor-work-business-list">
+                    {businesses.map((business) => (
+                      <BusinessCard
+                        key={business.id}
+                        business={business}
+                        upgrade={upgrades.find(
+                          (upgrade) => upgrade.businessId === business.id,
+                        )}
+                        onUpgradeSelect={onUpgradeSelect}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="floor-work-empty">
+                    В данных нет бизнесов для этого блока.
+                  </p>
+                )}
+                {upgrades
+                  .filter((u) => u.businessId == null)
+                  .map((u) => (
+                    <UpgradeTable key={u.id} upgrade={u} />
                   ))}
-                </ul>
-              ) : (
-                <p className="floor-work-empty">
-                  В данных нет бизнесов для этого блока.
-                </p>
-              )}
-              {upgrades
-                .filter((u) => u.businessId == null)
-                .map((u) => (
-                  <UpgradeTable key={u.id} upgrade={u} />
-                ))}
-            </section>
+              </section>
+            )}
           </EditableLayout>
         </details>
       </li>

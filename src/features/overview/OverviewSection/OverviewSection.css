@@ -21,7 +21,17 @@
 }
 
 .overview-player-heading {
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-8);
+}
+
+.overview-player-summary {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-12);
 }
 
 .overview-avatar {
@@ -49,24 +59,24 @@
 
 .overview-energy {
   display: grid;
-  gap: var(--space-4);
-  margin-left: auto;
+  gap: var(--space-8);
+  min-width: 0;
   color: var(--muted);
   font-size: var(--font-size-xs);
   text-align: right;
 }
 
+.overview-energy-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
 .overview-energy-label {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   gap: var(--space-4);
-}
-
-.overview-energy strong {
-  color: var(--paper-bright);
-  font-size: var(--font-size-md);
-  font-variant-numeric: tabular-nums;
 }
 
 .overview-energy small {
@@ -174,8 +184,7 @@
   width: 100%;
 }
 
-.overview-goal-requirement-copy,
-.overview-goal-boss-copy {
+.overview-goal-requirement-copy {
   display: grid;
   min-width: 0;
   gap: var(--space-4);
@@ -203,26 +212,6 @@
   grid-column: 2;
 }
 
-.overview-goal-boss {
-  display: grid;
-  width: 100%;
-  box-sizing: border-box;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
-  align-items: center;
-  gap: var(--space-8);
-}
-
-.overview-goal-boss-items {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-8);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.overview-goal-boss-items li,
 .overview-goal-unassigned-items li {
   display: flex;
   align-items: center;
@@ -275,26 +264,31 @@
 
 @media (max-width: 520px) {
   .overview-player-heading {
-    flex-wrap: wrap;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-8);
+  }
+
+  .overview-player-summary {
+    grid-column: span 2;
   }
 
   .overview-energy {
-    margin-left: auto;
-    text-align: right;
+    grid-column: 3;
+    text-align: left;
+  }
+
+  .overview-energy-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .overview-energy-label {
+    justify-content: flex-start;
   }
 
   .overview-requirement,
   .overview-goal-requirement,
   .overview-raid {
     flex-wrap: wrap;
-  }
-
-  .overview-goal-boss {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .overview-goal-boss-items {
-    grid-column: 2;
-    justify-content: flex-start;
   }
 }

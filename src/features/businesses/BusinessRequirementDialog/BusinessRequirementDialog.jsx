@@ -1,8 +1,12 @@
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { Button } from "../../../components/ui/Button/Button.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
+import { BossCardVariant } from "../../bosses/BossCard/BossCardVariant.jsx";
+import { bossDisplayFields } from "../../../lib/card-display-fields.js";
+import { BusinessItemDropList } from "../BusinessItemDropList/BusinessItemDropList.jsx";
 import {
   bossById,
   departmentById,
@@ -16,6 +20,53 @@ import {
 import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
 import { fmt } from "../../../lib/format.js";
 import "./BusinessRequirementDialog.css";
+
+function BusinessRequirementSource({ boss }) {
+  const department = departmentById[boss.departmentId];
+  const items = boss.dropItems || [];
+
+  if (boss.kind === "boss")
+    return (
+      <BossCardVariant
+        as="li"
+        boss={boss}
+        preset="boss-business"
+        variant="floor-data"
+        displayFields={bossDisplayFields(boss, department || {})}
+        showDropList={false}
+        action={<BusinessItemDropList items={items} bossName={boss.name} />}
+      />
+    );
+
+  return (
+    <BaseCard
+      as="li"
+      variant="floor-data"
+      className="business-requirements-source"
+    >
+      <ImageCard src={boss.image} alt={boss.name} size={58} imageSize="100%" />
+      <div className="business-requirements-copy">
+        <CardTitle>{boss.name}</CardTitle>
+        <CardDescription>Дроп босса</CardDescription>
+      </div>
+      <div className="business-requirements-drops">
+        {items.map((item) => (
+          <div className="business-requirements-item" key={item.entityId}>
+            <CardDescription as="span" size="xs">
+              × {item.requiredAmount == null ? "—" : fmt(item.requiredAmount)}
+            </CardDescription>
+            <BusinessItemTile
+              itemId={item.entityId}
+              name={item.name}
+              size={44}
+              imageSize={40}
+            />
+          </div>
+        ))}
+      </div>
+    </BaseCard>
+  );
+}
 
 export function BusinessRequirementDialog({ business, requirement, onClose }) {
   const level = requirement?.requiredLevel ?? requirement?.required;
@@ -51,75 +102,23 @@ export function BusinessRequirementDialog({ business, requirement, onClose }) {
       titleId="business-requirements-title"
       width={560}
       onClose={onClose}
+      contentVariant="inset"
+      footer={<Button onClick={onClose}>Закрыть</Button>}
     >
       <div className="business-requirements-content">
         <ul className="business-requirements-sources">
           {bosses.map((boss) => (
-            <BaseCard
-              as="li"
-              variant="floor-data"
-              className="business-requirements-source"
-              key={boss.id}
-            >
-              <ImageCard
-                src={boss.image}
-                alt={boss.name}
-                size={58}
-                imageSize="100%"
-              />
-              <div className="business-requirements-copy">
-                <CardTitle>{boss.name}</CardTitle>
-                <CardDescription>
-                  {boss.requiredLevel != null && boss.rewardUntilLevel != null
-                    ? `Уровень ${fmt(boss.requiredLevel)}–${fmt(boss.rewardUntilLevel)}`
-                    : "Дроп босса"}
-                </CardDescription>
-                <CardDescription>
-                  {departmentById[boss.departmentId]?.code
-                    ? "Отделение " + departmentById[boss.departmentId].code
-                    : "Отделение не указано"}
-                </CardDescription>
-              </div>
-              <div className="business-requirements-drops">
-                {(boss.dropItems || []).map((item) => (
-                  <div
-                    className="business-requirements-item"
-                    key={item.entityId}
-                  >
-                    <span
-                      className="business-requirements-count"
-                      aria-label={
-                        item.requiredAmount == null
-                          ? "Необходимое количество пока неизвестно"
-                          : `Нужно собрать ${fmt(item.requiredAmount)} предметов`
-                      }
-                      title={item.name}
-                    >
-                      ×{" "}
-                      {item.requiredAmount == null
-                        ? "—"
-                        : fmt(item.requiredAmount)}
-                    </span>
-                    <BusinessItemTile
-                      itemId={item.entityId}
-                      name={item.name}
-                      size={44}
-                      imageSize={40}
-                    />
-                  </div>
-                ))}
-              </div>
-            </BaseCard>
+            <BusinessRequirementSource key={boss.id} boss={boss} />
           ))}
         </ul>
         {!bosses.length && (
           <CardDescription>Предметы пока не указаны.</CardDescription>
         )}
         {disagreements.map((total) => (
-          <p className="business-requirements-provenance" key={total.itemName}>
+          <CardDescription as="p" key={total.itemName}>
             «{total.itemName}»: в исходной строке «ИТОГО» — {total.declared},
             сумма по уровням — {total.computed}. Использована сумма по уровням.
-          </p>
+          </CardDescription>
         ))}
       </div>
     </Modal>

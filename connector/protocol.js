@@ -1,5 +1,5 @@
 export const CHANNEL = "madhouse-wiki-connection";
-export const VERSION = 1;
+export const VERSION = 2;
 export const ACTIONS = [
   "status",
   "connect-game",

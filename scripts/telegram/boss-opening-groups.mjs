@@ -1,9 +1,13 @@
-import { departmentCardFilename, floorCardFilename } from "./inline-card-assets.mjs";
+import {
+  departmentCardFilename,
+  floorCardFilename,
+} from "./inline-card-assets.mjs";
 
 const bossKillConditions = (record) =>
-  (Array.isArray(record?.openingConditions) ? record.openingConditions : []).filter(
-    (condition) => condition.type === "boss_kills",
-  );
+  (Array.isArray(record?.openingConditions)
+    ? record.openingConditions
+    : []
+  ).filter((condition) => condition.type === "boss_kills");
 
 function resolveBoss(condition, bossesById, bossesByApiId) {
   const targetId = condition.targetBossId;
@@ -29,7 +33,9 @@ function makeGroup(type, record, conditions, resolveTarget, filename) {
 }
 
 export function bossOpeningGroups(knowledgeBase) {
-  const bosses = Array.isArray(knowledgeBase?.bosses) ? knowledgeBase.bosses : [];
+  const bosses = Array.isArray(knowledgeBase?.bosses)
+    ? knowledgeBase.bosses
+    : [];
   const bossesById = new Map(bosses.map((boss) => [String(boss.id), boss]));
   const bossesByApiId = new Map(
     bosses.map((boss) => [String(boss.apiId), boss]),

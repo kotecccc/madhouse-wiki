@@ -3,6 +3,8 @@ export const TOKEN_KEY = "madhouse.wiki.jwt";
 export const TOKEN_OWNER_KEY = "madhouse.wiki.jwt-owner";
 let volatileToken = null;
 let volatileOwner = null;
+let volatilePlayerLevel = null;
+let volatileExperience = null;
 const CHANGE_EVENT = "madhouse:auth-change";
 let authRestoreSettled = false;
 export const AUTH_RESTORE_SETTLED_EVENT = "madhouse:auth-restore-settled";
@@ -109,19 +111,52 @@ export function readSession(now = Date.now()) {
   if (!token) return { status: "empty", expiresAt: null };
   try {
     const { status, expiresAt, notBefore } = inspectToken(token, now);
-    return { status, expiresAt, notBefore };
+    return {
+      status,
+      expiresAt,
+      notBefore,
+      playerLevel:
+        status === "ready" && token === volatileToken && owner === volatileOwner
+          ? volatilePlayerLevel
+          : null,
+      experience:
+        status === "ready" && token === volatileToken && owner === volatileOwner
+          ? volatileExperience
+          : null,
+    };
   } catch {
     return { status: "invalid", expiresAt: null };
   }
 }
-export function saveToken(value) {
+export function saveToken(
+  value,
+  { playerLevel, currentExp, expToNextLevel } = {},
+) {
   const session = inspectToken(value);
   if (session.status === "expired")
     throw new Error("Срок действия этого JWT уже истёк.");
   const owner = telegramContext().userId || null;
-  if (volatileToken === session.token && volatileOwner === owner) return;
+  const normalizedLevel =
+    Number.isSafeInteger(playerLevel) && playerLevel > 0 ? playerLevel : null;
+  const normalizedExperience =
+    Number.isSafeInteger(currentExp) &&
+    currentExp >= 0 &&
+    Number.isSafeInteger(expToNextLevel) &&
+    expToNextLevel > 0
+      ? { current: currentExp, toNextLevel: expToNextLevel }
+      : null;
+  if (
+    volatileToken === session.token &&
+    volatileOwner === owner &&
+    volatilePlayerLevel === normalizedLevel &&
+    volatileExperience?.current === normalizedExperience?.current &&
+    volatileExperience?.toNextLevel === normalizedExperience?.toNextLevel
+  )
+    return;
   volatileToken = session.token;
   volatileOwner = owner;
+  volatilePlayerLevel = normalizedLevel;
+  volatileExperience = normalizedExperience;
   try {
     if (telegramContext().isTelegram) {
       window.localStorage.removeItem(TOKEN_KEY);
@@ -138,6 +173,8 @@ export function saveToken(value) {
 export function clearToken() {
   volatileToken = null;
   volatileOwner = null;
+  volatilePlayerLevel = null;
+  volatileExperience = null;
   try {
     window.localStorage.removeItem(TOKEN_KEY);
     window.localStorage.removeItem(TOKEN_OWNER_KEY);

@@ -36,11 +36,6 @@ export function RaidScheduleSection({ availability, state, onRetry }) {
           <span className="raid-channel-label">Источник</span>
         </a>
       </div>
-      {state.status === "loading" && (
-        <p className="raid-feed-state" role="status">
-          Загружаем расписание из Telegram…
-        </p>
-      )}
       {state.status === "error" && (
         <div className="raid-feed-state" role="status">
           <p>Расписание временно недоступно.</p>

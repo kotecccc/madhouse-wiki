@@ -138,6 +138,9 @@ export function createConnectorBridge({
           "kind",
           "status",
           "accessToken",
+          "playerLevel",
+          "currentExp",
+          "expToNextLevel",
           "remoteRevoked",
           "localCleared",
         ].includes(key),
@@ -169,6 +172,22 @@ export function createConnectorBridge({
     )
       return;
     if (
+      data.playerLevel != null &&
+      (!Number.isSafeInteger(data.playerLevel) || data.playerLevel < 1)
+    )
+      return;
+    if (
+      data.currentExp != null &&
+      (!Number.isSafeInteger(data.currentExp) || data.currentExp < 0)
+    )
+      return;
+    if (
+      data.expToNextLevel != null &&
+      (!Number.isSafeInteger(data.expToNextLevel) || data.expToNextLevel < 1)
+    )
+      return;
+    if ((data.currentExp == null) !== (data.expToNextLevel == null)) return;
+    if (
       pending.message.action === "connect-game" &&
       data.status === "connected" &&
       !data.accessToken
@@ -180,12 +199,22 @@ export function createConnectorBridge({
     )
       return;
     if (data.accessToken && data.status !== "connected") return;
+    if (
+      (data.playerLevel != null || data.currentExp != null) &&
+      data.status !== "connected"
+    )
+      return;
+    if (data.currentExp != null && data.status !== "connected") return;
+    if (data.expToNextLevel != null && data.status !== "connected") return;
     if (pending.message.action !== "connect-game" && data.accessToken) return;
     if (data.status === "failed") finish(new Error("connection_failed"));
     else
       finish(null, {
         status: data.status,
         accessToken: data.accessToken,
+        playerLevel: data.playerLevel,
+        currentExp: data.currentExp,
+        expToNextLevel: data.expToNextLevel,
         remoteRevoked: data.remoteRevoked === true,
         localCleared: data.localCleared === true,
       });

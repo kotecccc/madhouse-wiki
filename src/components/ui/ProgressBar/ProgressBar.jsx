@@ -6,6 +6,8 @@ export function ProgressBar({
   segments = 1,
   label,
   valueText,
+  size = "sm",
+  displayText,
   className = "",
 }) {
   const safeMax = Number.isFinite(max) && max > 0 ? max : 1;
@@ -16,10 +18,11 @@ export function ProgressBar({
     Number.isSafeInteger(segments) && segments > 0 ? segments : 1;
   const renderedSegments = segmentCount <= 100 ? segmentCount : 1;
   const segmentMax = safeMax / renderedSegments;
+  const safeSize = size === "lg" ? "lg" : "sm";
 
   return (
     <div
-      className={`ui-progress-bar ${className}`.trim()}
+      className={`ui-progress-bar ui-progress-bar--${safeSize} ${className}`.trim()}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={safeMax}
@@ -43,6 +46,11 @@ export function ProgressBar({
           />
         );
       })}
+      {safeSize === "lg" && displayText != null && (
+        <span className="ui-progress-bar-label" aria-hidden="true">
+          <span>{displayText}</span>
+        </span>
+      )}
     </div>
   );
 }

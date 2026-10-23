@@ -8,6 +8,7 @@ import {
 import { FloorGroup } from "../FloorGroup/FloorGroup.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
+import { Divider } from "../../../components/ui/Divider/Divider.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
 import { useDepartmentAvailability } from "../useDepartmentAvailability.js";
 import {
@@ -18,11 +19,11 @@ import { trackProductEvent } from "../../analytics/analytics-client.js";
 export function FloorsSection({
   availability,
   status,
-  retry,
   onCalculator,
   onUpgradeSelect,
   onDepartmentState,
   selectedFloorCode,
+  isAuthenticated = false,
 }) {
   const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
@@ -113,78 +114,69 @@ export function FloorsSection({
       id="floors"
       aria-labelledby="floors-title"
     >
+      {isAuthenticated && (
+        <div className="floors-section-heading" aria-hidden="true">
+          <Divider />
+          <Title as="h2">Этажи и работёнки</Title>
+        </div>
+      )}
       <Title as="h2" className="sr-only" id="floors-title">
         Этажи и работёнки
       </Title>
-      {status === "loading" ? (
-        <div
-          className="floor-availability-state"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="floor-availability-spinner" aria-hidden="true" />
-          <span>Загружаем доступность этажей…</span>
-        </div>
-      ) : status === "error" ? (
-        <div
-          className="floor-availability-state floor-availability-error"
-          role="alert"
-        >
-          <span>Не удалось загрузить доступность этажей.</span>
-          <Button variant="secondary" onClick={retry}>
-            Повторить
-          </Button>
-        </div>
-      ) : (
-        <>
-          <div
-            className="floor-selector"
-            role="group"
-            aria-label="Выберите этаж"
+      <div className="floor-selector" role="group" aria-label="Выберите этаж">
+        {orderedFloors.map((floor) => (
+          <Button
+            key={floor.id}
+            variant={
+              availability[floor.code] === false ? "locked" : "secondary"
+            }
+            className="floor-selector-tile"
+            aria-label={[
+              `Этаж ${floor.code}`,
+              floor.id === selectedFloor?.id ? "выбран" : null,
+              availability[floor.code] === false ? "заблокирован в игре" : null,
+            ]
+              .filter(Boolean)
+              .join(" — ")}
+            aria-pressed={floor.id === selectedFloor?.id}
+            onClick={() => {
+              setSelectedFloorId(floor.id);
+              trackProductEvent("floor_select", {
+                section: "floors",
+                feature: "floor_catalogue",
+                subject: floor.code,
+              });
+            }}
           >
-            {orderedFloors.map((floor) => (
-              <Button
-                key={floor.id}
-                variant="secondary"
-                className={`floor-selector-tile${floor.id === selectedFloor?.id ? " is-active" : ""}`}
-                aria-label={`Этаж ${floor.code}${availability[floor.code] === false ? " — заблокирован в игре" : ""}`}
-                aria-pressed={floor.id === selectedFloor?.id}
-                onClick={() => {
-                  setSelectedFloorId(floor.id);
-                  trackProductEvent("floor_select", {
-                    section: "floors",
-                    feature: "floor_catalogue",
-                    subject: floor.code,
-                  });
-                }}
-              >
-                <span className="floor-selector-code">
-                  <span className="floor-selector-dash">–</span>
-                  <span>{floor.code}</span>
-                  {availability[floor.code] === false && (
-                    <LockIndicator className="floor-selector-lock" />
-                  )}
-                  <span className="floor-selector-dash">–</span>
-                </span>
-              </Button>
-            ))}
-          </div>
+            <span className="floor-selector-code">
+              <span className="floor-selector-dash">–</span>
+              <span>{floor.code}</span>
+              {availability[floor.code] === false && (
+                <LockIndicator
+                  variant="locked"
+                  size="medium"
+                  className="floor-selector-lock"
+                />
+              )}
+              <span className="floor-selector-dash">–</span>
+            </span>
+          </Button>
+        ))}
+      </div>
 
-          {departmentState.status === "loading" && (
-            <p className="department-access-status sr-only" role="status">
-              Загружаем доступность отделений…
-            </p>
-          )}
-          {departmentState.status === "error" && (
-            <p className="department-access-status" role="status">
-              Доступность отделений не удалось проверить.
-            </p>
-          )}
-          <div className="floor-grid" aria-live="polite">
-            {selectedFloor ? renderFloor(selectedFloor) : null}
-          </div>
-        </>
+      {departmentState.status === "loading" && (
+        <p className="department-access-status sr-only" role="status">
+          Загружаем доступность отделений…
+        </p>
       )}
+      {departmentState.status === "error" && (
+        <p className="department-access-status" role="status">
+          Доступность отделений не удалось проверить.
+        </p>
+      )}
+      <div className="floor-grid" aria-live="polite">
+        {selectedFloor ? renderFloor(selectedFloor) : null}
+      </div>
     </ContentSection>
   );
 }

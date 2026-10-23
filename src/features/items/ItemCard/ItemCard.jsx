@@ -82,18 +82,20 @@ function Price({ label, value }) {
 }
 
 // Standalone catalogue card, also reused for a boss's possible loot.
-export function ItemCard({ item, as = "li" }) {
+export function ItemCard({ item, as = "li", showAllStats = false }) {
   const facts = item.facts;
   const isWeaponOrPet = item.type === "weapon" || item.type === "pet";
   const sourceStats = facts?.stats || {};
-  const stats = isWeaponOrPet
-    ? Object.fromEntries(
-        Object.entries(sourceStats).filter(
-          ([key]) => !key.startsWith("attackCooldown"),
-        ),
-      )
-    : sourceStats;
-  const perLevelStats = isWeaponOrPet ? {} : facts?.perLevelStats || {};
+  const stats =
+    isWeaponOrPet && !showAllStats
+      ? Object.fromEntries(
+          Object.entries(sourceStats).filter(
+            ([key]) => !key.startsWith("attackCooldown"),
+          ),
+        )
+      : sourceStats;
+  const perLevelStats =
+    isWeaponOrPet && !showAllStats ? {} : facts?.perLevelStats || {};
   const knownZeroStats =
     Object.keys(stats).length > 0 &&
     Object.values(stats).every((value) => value === 0);

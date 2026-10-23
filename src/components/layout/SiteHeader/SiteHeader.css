@@ -18,6 +18,38 @@
   transform: translateX(-50%);
 }
 
+.topbar--loading::after {
+  height: 1px;
+  border: 0;
+  background:
+    linear-gradient(90deg, transparent, var(--red-bright), transparent) 0 0 /
+      var(--space-64) 100% no-repeat,
+    var(--line);
+  animation: topbar-progress 1.2s linear infinite;
+}
+
+@keyframes topbar-progress {
+  from {
+    background-position:
+      0 0,
+      0 0;
+  }
+  to {
+    background-position:
+      100% 0,
+      0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar--loading::after {
+    animation: none;
+    background-position:
+      50% 0,
+      0 0;
+  }
+}
+
 @media (max-width: 650px) {
   .topbar {
     height: 60px;

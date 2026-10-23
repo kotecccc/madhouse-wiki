@@ -30,6 +30,7 @@
 .shared-modal-content--inset {
   padding-top: var(--modal-content-padding);
   border-top: 1px solid var(--card-border);
+  background: var(--surface-page);
 }
 
 .shared-modal-footer {

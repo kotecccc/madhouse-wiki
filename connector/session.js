@@ -123,9 +123,32 @@ export function createConnection({
       );
       if (!initData) throw new Error("invalid_launch");
       // Exactly one exchange. A rejected initData is never replayed.
-      const accessToken = await exchange(initData);
+      const exchanged = await exchange(initData);
+      const accessToken =
+        typeof exchanged === "string" ? exchanged : exchanged?.accessToken;
+      const playerLevel =
+        Number.isSafeInteger(exchanged?.playerLevel) &&
+        exchanged.playerLevel > 0
+          ? exchanged.playerLevel
+          : null;
+      const currentExp =
+        Number.isSafeInteger(exchanged?.currentExp) && exchanged.currentExp >= 0
+          ? exchanged.currentExp
+          : null;
+      const expToNextLevel =
+        Number.isSafeInteger(exchanged?.expToNextLevel) &&
+        exchanged.expToNextLevel > 0
+          ? exchanged.expToNextLevel
+          : null;
       if (started !== generation) throw new Error("cancelled");
-      return { status: "connected", accessToken };
+      return {
+        status: "connected",
+        accessToken,
+        ...(playerLevel == null ? {} : { playerLevel }),
+        ...(currentExp == null || expToNextLevel == null
+          ? {}
+          : { currentExp, expToNextLevel }),
+      };
     })();
     const entry = { promise: task, identity };
     active = entry;

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import { FieldLabel } from "../../../components/ui/FieldLabel/FieldLabel.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { telegramContext } from "../../../../shared/telegram-context.js";
@@ -135,10 +136,8 @@ export function FeedbackWidget({ screen = "floors" }) {
   return (
     <>
       <Button
-        variant="primary"
-        className="feedback-floating-button"
-        icon="bug"
-        iconSize="medium"
+        size="sm"
+        variant="secondary"
         onClick={openDialog}
         aria-label="Сообщить об ошибке"
       >
@@ -206,7 +205,10 @@ export function FeedbackWidget({ screen = "floors" }) {
             Telegram вместе с Telegram ID, именем и username из проверенной
             сессии. Wiki не сохраняет обращение у себя.
           </p>
-          {status.message && (
+          {status.message && status.state === "loading" && (
+            <LoadingStatus>{status.message}</LoadingStatus>
+          )}
+          {status.message && status.state !== "loading" && (
             <p
               className={`feedback-status feedback-status--${status.state}`}
               role="status"

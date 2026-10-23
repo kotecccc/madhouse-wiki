@@ -12,5 +12,7 @@
 }
 
 .ui-dialog::backdrop {
-  background: var(--bg-deep);
+  background: var(--dialog-backdrop);
+  -webkit-backdrop-filter: blur(var(--navigation-glass-blur));
+  backdrop-filter: blur(var(--navigation-glass-blur));
 }

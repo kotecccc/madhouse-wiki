@@ -5,6 +5,7 @@ import { Icon } from "../Icon/Icon.jsx";
 const variants = new Set([
   "primary",
   "secondary",
+  "locked",
   "card-action",
   "toggle",
   "nav-tab",

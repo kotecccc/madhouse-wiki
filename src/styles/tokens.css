@@ -2,9 +2,10 @@
   --scrollbar-thumb: rgba(212, 196, 163, 0.38);
   --scrollbar-thumb-hover: rgba(212, 196, 163, 0.62);
   --scrollbar-track: transparent;
-  /* Shared 4px spacing scale. */
+  /* Shared spacing scale. */
   --space-unit: 4px;
   --space-4: var(--space-unit);
+  --space-6: 6px;
   --space-8: 8px;
   --space-12: 12px;
   --space-16: 16px;
@@ -21,11 +22,10 @@
   --floor-card-border-bottom: rgba(212, 196, 163, 0.1);
   color-scheme: dark;
   --bg: #191816;
-  --bg-deep: #11100f;
   --panel: #22201d;
   --surface-page: #191816;
-  --surface-inset: #11100f;
   --surface-raised: #22201d;
+  --dialog-backdrop: rgba(0, 0, 0, 0.6);
   --card-background: rgba(55, 50, 42, 0.24);
   --image-card-surface: #1d1c19;
   --card-border: rgba(212, 196, 163, 0.16);
@@ -82,6 +82,22 @@
   --status-active: #80b8ed;
   --status-completed: #73c993;
   --status-business: #d2ad58;
+  --control-locked-color: var(--red-bright);
+  --control-locked-border: color-mix(
+    in srgb,
+    var(--red-bright) 32%,
+    var(--card-border)
+  );
+  --control-locked-background: color-mix(
+    in srgb,
+    var(--red-bright) 10%,
+    var(--surface-raised)
+  );
+  --control-locked-background-hover: color-mix(
+    in srgb,
+    var(--red-bright) 16%,
+    var(--surface-raised)
+  );
   --icon-energy: #e2b63f;
   --navigation-glass-fallback: rgba(34, 32, 29, 0.82);
   --navigation-glass-border: rgba(233, 222, 197, 0.24);
@@ -97,7 +113,6 @@
   --navigation-tab-active-background: rgba(233, 222, 197, 0.12);
   --navigation-tab-active-border: transparent;
   --navigation-tab-active-shadow: inset 0 1px 0 rgba(233, 222, 197, 0.12);
-  --navigation-tab-hover-background: transparent;
   --navigation-selected: rgba(233, 222, 197, 0.12);
   --sans: "Manrope", Arial, sans-serif;
   --mono: var(--sans);

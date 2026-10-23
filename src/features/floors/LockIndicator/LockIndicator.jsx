@@ -4,21 +4,19 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 export function LockIndicator({
   label = "Заблокировано в игре",
   className = "",
-  size = 12,
   locked = true,
+  variant,
+  size = "small",
 }) {
+  const variantClass = variant === "locked" ? "lock-indicator--locked" : "";
   return (
     <span
-      className={`lock-indicator ${className}`.trim()}
-      style={{
-        "--lock-indicator-size":
-          typeof size === "number" ? "var(--space-12)" : size,
-      }}
+      className={`lock-indicator ${variantClass} ${className}`.trim()}
       role="img"
       aria-label={label}
       title={label}
     >
-      <Icon type={locked ? "lock" : "unlock"} />
+      <Icon type={locked ? "lock" : "unlock"} size={size} />
     </span>
   );
 }

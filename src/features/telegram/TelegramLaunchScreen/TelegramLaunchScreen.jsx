@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import "./TelegramLaunchScreen.css";
 
 const APP_BACKGROUND = "#191816";
@@ -43,8 +44,6 @@ export function TelegramLaunchScreen() {
         "telegram-launch-screen" +
         (leaving ? " telegram-launch-screen--leaving" : "")
       }
-      role="status"
-      aria-live="polite"
     >
       <div className="telegram-launch-screen-content">
         <span className="telegram-launch-mark" aria-hidden="true">
@@ -55,12 +54,7 @@ export function TelegramLaunchScreen() {
         <strong className="telegram-launch-title">
           MADHOUSE <b>WIKI</b>
         </strong>
-        <span className="telegram-launch-caption">Загружаем справочник</span>
-        <span className="telegram-launch-indicator" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </span>
+        <LoadingStatus>Загружаем справочник</LoadingStatus>
       </div>
     </div>
   );

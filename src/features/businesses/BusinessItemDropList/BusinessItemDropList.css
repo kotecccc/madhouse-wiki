@@ -1,0 +1,11 @@
+.business-item-drop-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.business-item-drop-list > li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}

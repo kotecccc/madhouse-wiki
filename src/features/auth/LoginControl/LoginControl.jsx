@@ -178,11 +178,11 @@ export function LoginControl() {
       setSession(readSession());
       close();
       if (TELEGRAM_CONNECTOR_ORIGIN) {
-        const result = await telegramRef.current.logout();
-        if (!result?.remoteRevoked || !result?.localCleared)
-          setError(
-            "Локальный вход удалён. Полный выход на сервере или отзыв Telegram-сессии не подтверждён. Повторите попытку и проверьте Telegram → Устройства.",
-          );
+        try {
+          await telegramRef.current.logout();
+        } catch {
+          // Local Wiki sign-out is complete; remote confirmation stays silent.
+        }
       }
     } catch (error) {
       setError(
@@ -354,8 +354,8 @@ export function LoginControl() {
             setError("");
             setOpen(true);
           }}
-          onToken={(value) => {
-            saveToken(value);
+          onToken={(value, playerLevel, currentExp, expToNextLevel) => {
+            saveToken(value, { playerLevel, currentExp, expToNextLevel });
             try {
               window.localStorage.setItem(
                 accountStorageKey(AUTO_CONNECT_KEY),
@@ -379,17 +379,18 @@ export function LoginControl() {
         loginMethod === "choose" && (
           <Modal
             title="Вход в Madhouse Wiki"
-            description="Выберите способ входа в игровой аккаунт."
+            description="Войдите, чтобы открыть личный обзор и увидеть свой игровой профиль."
             titleId="login-title"
             width={420}
             onClose={close}
           >
             <div className="login-modal-actions">
-              <Button variant="primary" onClick={connect}>
+              <Button variant="primary" liftOnHover={false} onClick={connect}>
                 {pendingLogin ? "Продолжить вход" : "Войти через Telegram"}
               </Button>
               <Button
                 variant="secondary"
+                liftOnHover={false}
                 onClick={() => setLoginMethod("token")}
               >
                 Войти по AccessToken

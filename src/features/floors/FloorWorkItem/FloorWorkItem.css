@@ -55,7 +55,7 @@
   gap: var(--space-16);
   padding: var(--space-16);
   border-top: 1px solid var(--line);
-  background: var(--surface-inset);
+  background: var(--surface-page);
 }
 
 .floor-work-extra .title--h4 {
@@ -153,6 +153,10 @@
     gap: var(--space-8);
   }
   .floor-cost {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-4);
     min-width: 0;
     font-size: var(--font-size-xs);
   }

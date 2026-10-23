@@ -7,8 +7,12 @@ import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
+import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
+import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
+import { BossCardVariant } from "../../bosses/BossCard/BossCardVariant.jsx";
 import { BusinessItemTile } from "../../businesses/BusinessItemTile/BusinessItemTile.jsx";
+import { BusinessItemDropList } from "../../businesses/BusinessItemDropList/BusinessItemDropList.jsx";
 import {
   getBusinessUpgradeTotals,
   findItemBosses,
@@ -19,6 +23,8 @@ import {
   RAID_STATUS_INFO,
   sortRaidsByTime,
 } from "../../../lib/raid-schedule.js";
+import { bossDisplayFields } from "../../../lib/card-display-fields.js";
+import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
 import {
   businessById,
   bossById,
@@ -30,6 +36,44 @@ import { fmt, fmtEnergy, restoreTime } from "../../../lib/format.js";
 import "./OverviewSection.css";
 
 const numberFormat = new Intl.NumberFormat("ru-RU");
+const fallbackEnergyRegenSeconds = 120;
+
+function energyAtTime(energy, now) {
+  if (
+    !Number.isFinite(energy?.current) ||
+    !Number.isFinite(energy?.max) ||
+    energy.max <= 0
+  )
+    return null;
+
+  const current = Math.min(energy.max, Math.max(0, energy.current));
+  if (current >= energy.max) return { current, secondsToNext: null };
+
+  const intervalSeconds =
+    Number.isSafeInteger(energy.regenIntervalSeconds) &&
+    energy.regenIntervalSeconds > 0
+      ? energy.regenIntervalSeconds
+      : fallbackEnergyRegenSeconds;
+  const intervalMs = intervalSeconds * 1000;
+  const apiNextAt = Date.parse(energy.nextEnergyAtUtc);
+  const firstRegenAt = Number.isFinite(apiNextAt)
+    ? apiNextAt
+    : (energy.snapshotAtMs ?? now) +
+      Math.max(
+        0,
+        Number.isFinite(energy.secondsToNext)
+          ? energy.secondsToNext
+          : intervalSeconds,
+      ) *
+        1000;
+  const completedTicks =
+    now >= firstRegenAt ? Math.floor((now - firstRegenAt) / intervalMs) + 1 : 0;
+  const nextRegenAt = firstRegenAt + completedTicks * intervalMs;
+  return {
+    current: Math.min(energy.max, current + completedTicks),
+    secondsToNext: Math.max(0, Math.ceil((nextRegenAt - now) / 1000)),
+  };
+}
 
 function requirementState(requirement) {
   if (typeof requirement?.met === "boolean")
@@ -156,38 +200,15 @@ function requirementCurrentBusinessLevel(
 function GoalBusinessBoss({ boss, items }) {
   const department = departmentById[boss.departmentId];
   return (
-    <BaseCard as="li" variant="floor-data" className="overview-goal-boss">
-      <ImageCard src={boss.image} alt={boss.name} size={48} imageSize="100%" />
-      <div className="overview-goal-boss-copy">
-        <CardTitle>{boss.name}</CardTitle>
-        {department && (
-          <CardDescription>
-            Блок {department.code}
-            {department.name ? ` • ${department.name}` : ""}
-          </CardDescription>
-        )}
-        <CardDescription>
-          {boss.requiredLevel != null
-            ? `Уровень от ${fmt(boss.requiredLevel)}`
-            : "Дроп предметов бизнеса"}
-        </CardDescription>
-      </div>
-      <ul className="overview-goal-boss-items">
-        {items.map((item) => (
-          <li key={item.entityId}>
-            <span>
-              ×{item.requiredAmount == null ? "—" : fmt(item.requiredAmount)}
-            </span>
-            <BusinessItemTile
-              itemId={item.entityId}
-              name={item.name}
-              size={32}
-              imageSize={28}
-            />
-          </li>
-        ))}
-      </ul>
-    </BaseCard>
+    <BossCardVariant
+      as="li"
+      boss={boss}
+      preset="boss-business"
+      variant="floor-data"
+      displayFields={bossDisplayFields(boss, department || {})}
+      showDropList={false}
+      action={<BusinessItemDropList items={items} bossName={boss.name} />}
+    />
   );
 }
 
@@ -446,27 +467,39 @@ function PlayerAvatar({ profile }) {
 }
 
 function ProfileSummary({ state }) {
+  const [now, setNow] = useState(() => Date.now());
+  const profile = state.profile;
+  const energy = profile?.energy;
+  const energyKnown =
+    Number.isFinite(energy?.current) &&
+    Number.isFinite(energy?.max) &&
+    energy.max > 0;
+  const displayedEnergy = energyKnown ? energyAtTime(energy, now) : null;
+  const shouldTickEnergy =
+    !!displayedEnergy && displayedEnergy.current < energy.max;
+  useEffect(() => {
+    if (!energyKnown || !shouldTickEnergy) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [energyKnown, shouldTickEnergy]);
   if (state.status === "loading" || state.status === "idle")
-    return (
-      <p className="overview-empty" role="status">
-        Загружаем персонажа…
-      </p>
-    );
+    return <LoadingStatus>Загружаем персонажа…</LoadingStatus>;
   if (state.status === "error")
     return (
       <p className="overview-empty" role="status">
         {state.message}
       </p>
     );
-  const profile = state.profile;
-  const energyKnown =
-    Number.isFinite(profile?.energy?.current) &&
-    Number.isFinite(profile?.energy?.max);
-  const nextEnergy = Number.isFinite(profile?.energy?.secondsToNext)
-    ? profile.energy.secondsToNext <= 0
+  const nextEnergy = !displayedEnergy
+    ? ""
+    : displayedEnergy.current >= energy.max
       ? "Энергия восполнена"
-      : `+1 через ${Math.floor(profile.energy.secondsToNext / 60)} мин ${profile.energy.secondsToNext % 60} сек`
-    : "";
+      : `+1 через ${Math.floor(displayedEnergy.secondsToNext / 60)} мин ${displayedEnergy.secondsToNext % 60} сек`;
+  const experienceKnown =
+    Number.isSafeInteger(profile.experience?.current) &&
+    profile.experience.current >= 0 &&
+    Number.isSafeInteger(profile.experience?.toNextLevel) &&
+    profile.experience.toNextLevel > 0;
   return (
     <BaseCard
       as="article"
@@ -474,23 +507,52 @@ function ProfileSummary({ state }) {
       className="overview-card overview-player-card"
     >
       <div className="overview-player-heading">
-        <PlayerAvatar profile={profile} />
-        <div className="overview-player-identity">
-          <CardTitle as="h2">{profile.name}</CardTitle>
-          <CardDescription>
-            {profile.username ? `@${profile.username}` : "Персонаж игрока"}
-          </CardDescription>
+        <div className="overview-player-summary">
+          <PlayerAvatar profile={profile} />
+          <div className="overview-player-identity">
+            <CardTitle as="h2">{profile.name}</CardTitle>
+            <CardDescription>
+              {profile.username ? `@${profile.username}` : "Персонаж игрока"}
+            </CardDescription>
+            {experienceKnown && Number.isSafeInteger(profile.playerLevel) && (
+              <ProgressBar
+                value={profile.experience.current}
+                max={profile.experience.toNextLevel}
+                size="lg"
+                label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
+                valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
+                displayText={`Уровень ${fmt(profile.playerLevel)}`}
+              />
+            )}
+          </div>
         </div>
-        <div className="overview-energy" aria-label="Энергия">
-          <span className="overview-energy-label">
-            <Icon type="energy" size="small" className="overview-energy-icon" />
-            Энергия
-          </span>
-          <strong>
-            {energyKnown
-              ? `${numberFormat.format(profile.energy.current)} / ${numberFormat.format(profile.energy.max)}`
-              : "Нет данных"}
-          </strong>
+        <div className="overview-energy" role="group" aria-label="Энергия">
+          <div className="overview-energy-heading">
+            <span className="overview-energy-label">
+              <Icon
+                type="energy"
+                size="small"
+                className="overview-energy-icon"
+              />
+              Энергия
+            </span>
+            <CardTitle as="span" size="sm" aria-hidden="true">
+              {displayedEnergy
+                ? `${numberFormat.format(displayedEnergy.current)} / ${numberFormat.format(energy.max)}`
+                : "Нет данных"}
+            </CardTitle>
+          </div>
+          <ProgressBar
+            value={displayedEnergy?.current}
+            max={energy?.max}
+            size="sm"
+            label="Запас энергии"
+            valueText={
+              displayedEnergy
+                ? `${fmt(displayedEnergy.current)} из ${fmt(energy.max)} энергии${nextEnergy ? `, ${nextEnergy}` : ""}`
+                : "Нет данных об энергии"
+            }
+          />
           {nextEnergy && <small>{nextEnergy}</small>}
         </div>
       </div>
@@ -555,7 +617,6 @@ function NextGoal({ goal, floorAvailability, departmentState, profile }) {
           Следующая цель: {heading}
         </CardTitle>
         <LockIndicator
-          size={20}
           locked={
             goal.type === "floor"
               ? floorAvailability.availability[goal.code] !== true
@@ -687,6 +748,7 @@ export function OverviewSection({
   return (
     <section className="overview-section" id="overview" aria-label="Главная">
       <ProfileSummary state={profileState} />
+      {profile && <NextLevelSection playerLevel={profile.playerLevel} />}
       <div className="overview-grid">
         <NextGoal
           goal={goal}

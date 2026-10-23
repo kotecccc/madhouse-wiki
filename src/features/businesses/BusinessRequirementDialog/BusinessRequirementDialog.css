@@ -41,20 +41,6 @@
   white-space: nowrap;
 }
 
-.business-requirements-count {
-  color: var(--paper-bright);
-  font-family: var(--mono);
-  font-size: var(--font-size-xs);
-  line-height: 1;
-}
-
-.business-requirements-provenance {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--font-size-2xs);
-  line-height: 1.6;
-}
-
 @media (max-width: 600px) {
   .business-requirements-source {
     grid-template-columns: 58px minmax(0, 1fr) auto;

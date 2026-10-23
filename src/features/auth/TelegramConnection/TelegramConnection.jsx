@@ -91,7 +91,12 @@ export function TelegramConnection({
     if (epoch !== currentEpoch || context.userId !== telegramContext().userId)
       throw new Error("cancelled");
     if (result.status === "connected")
-      callbacks.current.onToken(result.accessToken);
+      callbacks.current.onToken(
+        result.accessToken,
+        result.playerLevel,
+        result.currentExp,
+        result.expToNextLevel,
+      );
     else if (result.status === "login-required") callbacks.current.onEmpty?.();
     else if (result.status === "pending") callbacks.current.onPending?.();
     return result;

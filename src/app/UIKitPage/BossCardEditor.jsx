@@ -40,7 +40,7 @@ const itemSizes = [
   "--space-48",
   "--space-64",
 ];
-const spacingSizes = ["4", "8", "12", "16", "24", "32", "40", "48", "64"];
+const spacingSizes = ["4", "6", "8", "12", "16", "24", "32", "40", "48", "64"];
 const defaultSettings = {
   cardPadding: "16",
   contentGap: "8",

@@ -1,4 +1,5 @@
 import { Button } from "../Button/Button.jsx";
+import { Icon } from "../Icon/Icon.jsx";
 import "./DialogCloseButton.css";
 
 export function DialogCloseButton({ onClick, className = "", ...props }) {
@@ -10,7 +11,7 @@ export function DialogCloseButton({ onClick, className = "", ...props }) {
       onClick={onClick}
       {...props}
     >
-      ×
+      <Icon type="close" size="small" />
     </Button>
   );
 }

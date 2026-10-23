@@ -58,8 +58,6 @@
 
 .requirement-calculator-option-icon {
   flex: 0 0 auto;
-  width: var(--space-16);
-  height: var(--space-16);
 }
 
 .requirement-calculator-recovery {
@@ -92,30 +90,6 @@
   align-items: center;
   gap: var(--space-8);
   min-width: 0;
-}
-
-.requirement-calculator-defibrillator-icon {
-  width: var(--space-32);
-  height: var(--space-32);
-  flex: 0 0 var(--space-32);
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
-}
-
-.requirement-calculator-defibrillator-icon > path:last-child {
-  fill: currentColor;
-  stroke: none;
-}
-
-.requirement-calculator-defibrillator-icon--small {
-  color: var(--green);
-}
-
-.requirement-calculator-defibrillator-icon--large {
-  color: var(--red-bright);
 }
 
 .requirement-calculator-refill-copy {

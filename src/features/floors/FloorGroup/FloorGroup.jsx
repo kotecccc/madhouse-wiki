@@ -60,7 +60,7 @@ export function FloorGroup({
             </EditableValue>
           </CardTitle>
           <LockIndicator
-            size={20}
+            size="medium"
             locked={floorAvailable !== true}
             label={
               floorAvailable == null

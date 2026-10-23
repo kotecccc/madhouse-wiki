@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
+import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { normalizeFieldSelection } from "../../lib/card-display-fields.js";
 import "./DisplayFieldPicker.css";
 
@@ -51,7 +52,7 @@ export function DisplayFieldPicker({
                     )
                   }
                 >
-                  ↵
+                  <Icon type="corner-down-left" size="small" />
                 </Button>
               )}
 
@@ -61,7 +62,7 @@ export function DisplayFieldPicker({
                 aria-label={`${field.label}: выше`}
                 onClick={() => move(index, -1)}
               >
-                ↑
+                <Icon type="arrow-up" size="small" />
               </Button>
               <Button
                 size="sm"
@@ -69,14 +70,14 @@ export function DisplayFieldPicker({
                 aria-label={`${field.label}: ниже`}
                 onClick={() => move(index, 1)}
               >
-                ↓
+                <Icon type="arrow-down" size="small" />
               </Button>
               <Button
                 size="sm"
                 aria-label={`Убрать: ${field.label}`}
                 onClick={() => onChange(ids.filter((key) => key !== id))}
               >
-                ×
+                <Icon type="close" size="small" />
               </Button>
             </div>
           </div>

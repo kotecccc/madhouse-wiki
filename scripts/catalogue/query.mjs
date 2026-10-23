@@ -137,6 +137,39 @@ export function readKnowledgeBase(
     const activityItemNames = new Map(
       of("activity_item").map((item) => [String(item.itemId), item.name]),
     );
+    const wardrobeItems = all
+      .filter((entity) =>
+        ["clothing_item", "weapon", "pet"].includes(entity.kind),
+      )
+      .map((entity) => {
+        const unlock = entity.unlock;
+        if (
+          unlock?.required !== true ||
+          unlock.conditionType !== "player_level"
+        )
+          return null;
+        const requiredLevel =
+          unlock.requiredLevel ??
+          entity.requiredLevel ??
+          unlock.conditionId ??
+          null;
+        if (!Number.isSafeInteger(requiredLevel) || requiredLevel < 1)
+          return null;
+        return {
+          id: entity.id,
+          apiId: entity.apiId,
+          type: entity.kind,
+          name: text(entity.name),
+          requiredLevel,
+          image: itemImageUrl(entity.apiId),
+          slotLabel:
+            entity.kind === "clothing_item"
+              ? (clothingSlotLabels.get(Number(entity.categoryId)) ?? null)
+              : null,
+          facts: itemFacts(entity, entity.kind),
+        };
+      })
+      .filter(Boolean);
     const stashSets = of("stash_set");
     const stashSetForRequirement = (r) => {
       if (r.type !== "stash_medallion" || typeof r.label !== "string")
@@ -416,6 +449,7 @@ export function readKnowledgeBase(
         title: text(b.title ?? b.name),
         departmentId: inDepartment(b),
       })),
+      wardrobeItems,
       stashSets,
       businessUpgrades: of("business_upgrade"),
       sources: db.prepare("SELECT * FROM sources").all(),
