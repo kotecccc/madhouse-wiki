@@ -21,6 +21,11 @@
   height: auto;
 }
 
+.boss-drop-item--right {
+  gap: var(--space-8);
+  max-width: none;
+}
+
 .boss-drop-item-name {
   flex: 0 1 auto;
 }

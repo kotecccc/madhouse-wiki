@@ -19,6 +19,7 @@
 
 .base-card--floor-data {
   --card-padding: var(--space-12);
+  --card-background: var(--surface-raised);
   border-bottom-color: var(--floor-card-border-bottom);
 }
 

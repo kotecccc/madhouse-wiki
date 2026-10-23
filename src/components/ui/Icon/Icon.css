@@ -3,10 +3,6 @@
   width: var(--icon-size, var(--font-size-md));
   height: var(--icon-size, var(--font-size-md));
   flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .ui-icon--small {
@@ -37,22 +33,30 @@
   color: var(--text-primary);
 }
 
-.ui-icon--pill .icon-pill-outline--upper {
-  fill: none;
-  stroke: var(--red-bright);
+.ui-icon--duotone {
+  position: relative;
 }
 
-.ui-icon--pill .icon-pill-outline--lower,
-.ui-icon--pill .icon-pill-divider {
-  fill: none;
-  stroke: var(--text-primary);
+.ui-icon__duotone-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ui-icon__duotone-layer--accent {
+  color: var(--red-bright);
+  clip-path: polygon(0 2.5%, 97.5% 100%, 0 100%);
+}
+
+.ui-icon--defibrillator-small {
+  color: var(--green);
+}
+
+.ui-icon--defibrillator-large {
+  color: var(--red-bright);
 }
 
 .ui-icon--banknote {
   color: var(--status-completed);
-}
-
-.ui-icon--filled {
-  fill: currentColor;
-  stroke: none;
 }

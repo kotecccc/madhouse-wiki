@@ -251,6 +251,7 @@ if (service === "connector") {
   const wikiBotFiles = [
     "api/telegram/bot-webhook.js",
     "scripts/telegram/wiki-bot.mjs",
+    "scripts/telegram/inline-card-assets.mjs",
     "scripts/telegram/wiki-bot-vercel-handler.mjs",
     "scripts/catalogue/query.mjs",
     "scripts/catalogue/public-assets.mjs",

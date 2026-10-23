@@ -1,4 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
+import {
+  businessCardFilename,
+  departmentCardFilename,
+  floorCardFilename,
+  inlineCardUrl,
+  inlineCardsVersion,
+  normalizeInlineCode,
+  unavailableBusinessCardFilename,
+} from "./inline-card-assets.mjs";
 
 const TARGET_USERNAME = "madhouse_wiki_bot";
 const DEFAULT_WIKI_ORIGIN = "https://madhouse-wiki.ru";
@@ -115,6 +124,35 @@ function inlineArticle({
   };
 }
 
+function inlinePhoto({
+  id,
+  filename,
+  title,
+  description,
+  caption,
+  siteUrl,
+  knowledgeBase,
+  sourceUrl,
+  shareQuery = null,
+}) {
+  const photoUrl = inlineCardUrl(
+    siteUrl,
+    filename,
+    inlineCardsVersion(knowledgeBase),
+  );
+  return {
+    type: "photo",
+    id,
+    photo_url: photoUrl,
+    thumbnail_url: photoUrl,
+    title: String(title || "Madhouse Wiki").slice(0, 128),
+    description: String(description || "").slice(0, 256),
+    caption: String(caption || "").slice(0, 1024),
+    parse_mode: "HTML",
+    reply_markup: inlineMarkup(sourceUrl, shareQuery),
+  };
+}
+
 function fitHtmlLines(lines) {
   const kept = [];
   let used = 0;
@@ -133,12 +171,12 @@ function fitHtmlLines(lines) {
 }
 
 function normalizeCode(value) {
-  return value === "$" ? "$" : String(value || "").toLocaleUpperCase("en-US");
+  return value === "$" ? "$" : normalizeInlineCode(value);
 }
 
 function getRequestedCode(query) {
   const match =
-    /(?:^|[\s,;])(?:этаж(?:а|е|и)?|корпус(?:а|е)?|отделени(?:е|я)|floor|department|energy|энерги(?:я|и)|бизнес(?:а|ы|е)?)?\s*(\$|[a-o])\s*-?\s*([1-3])?(?=$|[\s,;])/iu.exec(
+    /(?:^|[\s,;])(?:этаж(?:а|е|и)?|корпус(?:а|е)?|отделени(?:е|я)|floor|department|energy|энерги(?:я|и)|бизнес(?:а|ы|е)?)?\s*(\$|[a-oс])\s*-?\s*([1-3])?(?=$|[\s,;])/iu.exec(
       String(query || "").trim(),
     );
   if (!match) return null;
@@ -169,108 +207,17 @@ function getDepartments(knowledgeBase, floor) {
 }
 
 function describeFloor(floor, knowledgeBase, siteUrl) {
-  const departments = getDepartments(knowledgeBase, floor);
-  const businesses = knowledgeBase.businesses || [];
-  const departmentsById = new Map(
-    knowledgeBase.departments.map((department) => [department.id, department]),
-  );
-  const lines = [
-    `<b>🏢 Этаж ${escapeHtml(floor.code)} • отделения и условия открытия</b>`,
-  ];
-  const floorText = String(floor.openingConditionText || "").trim();
-  if (floorText)
-    lines.push(`<blockquote>${escapeHtml(floorText)}</blockquote>`);
-
-  const additionalConditions = (floor.openingConditions || []).filter(
-    (condition) => {
-      const label = String(condition.label || "").trim();
-      return (
-        label &&
-        !floorText
-          .toLocaleLowerCase("ru")
-          .includes(label.toLocaleLowerCase("ru"))
-      );
-    },
-  );
-  if (additionalConditions.length) {
-    lines.push("", "<b>Условия перехода на этаж</b>");
-    lines.push(
-      ...additionalConditions.map(
-        (condition) => `• ${escapeHtml(condition.label)}`,
-      ),
-    );
-  }
-
-  if (!floorText && !additionalConditions.length) {
-    lines.push("", "Условия перехода на этот этаж в каталоге не указаны.");
-  }
-
-  if (departments.length) {
-    lines.push("", "<b>Отделения</b>");
-    for (const department of departments) {
-      const departmentBusinesses = businesses
-        .filter((business) => business.departmentId === department.id)
-        .map((business) => business.title)
-        .filter(Boolean);
-      const businessLine = departmentBusinesses.length
-        ? ` • ${escapeHtml(departmentBusinesses.join(", "))}`
-        : "";
-      lines.push(
-        "",
-        `<b>${escapeHtml(department.code)} • ${escapeHtml(department.name)}${businessLine}</b>`,
-      );
-
-      const conditions = Array.isArray(department.openingConditions)
-        ? department.openingConditions
-        : [];
-      if (conditions.length) {
-        lines.push(
-          ...conditions.map(
-            (condition) =>
-              `• ${escapeHtml(condition.label || "Условие не указано")}`,
-          ),
-        );
-      } else {
-        lines.push(
-          "• <i>Условия открытия отделения в каталоге не указаны.</i>",
-        );
-      }
-    }
-  }
-
-  const businessUnlocks = (knowledgeBase.businessUpgrades || []).flatMap(
-    (upgrade) =>
-      (upgrade.unlocks || [])
-        .filter(
-          (unlock) =>
-            departmentsById.get(unlock.targetDepartmentId)?.floorId ===
-            floor.id,
-        )
-        .map((unlock) => ({
-          ...unlock,
-          sourceId: upgrade.sourceId,
-        })),
-  );
-  if (businessUnlocks.length) {
-    lines.push("", "<b>Бизнесы • условия открытия отделений</b>");
-    lines.push(
-      ...sourceCaveats(
-        knowledgeBase,
-        businessUnlocks.map((unlock) => unlock.sourceId),
-      ).map((note) => `<i>${escapeHtml(note)}</i>`),
-    );
-    for (const unlock of businessUnlocks) {
-      if (unlock.sourceHeading)
-        lines.push(`• ${escapeHtml(unlock.sourceHeading)}`);
-    }
-  }
-
-  return inlineArticle({
+  const conditions = Array.isArray(floor.openingConditions)
+    ? floor.openingConditions
+    : [];
+  return inlinePhoto({
     id: `floor-${normalizeCode(floor.code).replace(/[^A-Z0-9]/g, "x")}`,
-    title: `🏢 Этаж ${floor.code} • условия`,
-    description: floorText || "Бизнесы и условия открытия отделений",
-    message: fitHtmlLines(lines),
+    filename: floorCardFilename(floor.code),
+    title: `🏢 Этаж ${floor.code}`,
+    description: `${conditions.length} условий открытия этажа`,
+    caption: `🏢 <b>Этаж ${escapeHtml(floor.code)}</b> • условия открытия.`,
     siteUrl,
+    knowledgeBase,
     shareQuery: `этаж ${floor.code}`,
   });
 }
@@ -287,6 +234,18 @@ function describeDepartment(
   const conditions = Array.isArray(department.openingConditions)
     ? department.openingConditions
     : [];
+  if (!energy) {
+    return inlinePhoto({
+      id: `department-${normalizeCode(department.code).replace(/[^A-Z0-9]/g, "x")}`,
+      filename: departmentCardFilename(department.code),
+      title: `🏢 Отделение ${department.code}`,
+      description: `${department.name || "Условия открытия отделения"} • ${conditions.length} условий`,
+      caption: `🏢 <b>Отделение ${escapeHtml(department.code)}</b>${department.name ? ` • ${escapeHtml(department.name)}` : ""}.`,
+      siteUrl,
+      knowledgeBase,
+      shareQuery: `отделение ${department.code}`,
+    });
+  }
   const lines = energy
     ? [
         `<b>⚡ ${escapeHtml(department.code)} • ${escapeHtml(department.name)}</b>`,
@@ -341,6 +300,168 @@ function describeDepartment(
     siteUrl,
     shareQuery: `${energy ? "энергия" : "отделение"} ${department.code}`,
   });
+}
+
+function normalizeBusinessSearch(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replaceAll("ё", "е")
+    .replaceAll("Ё", "Е")
+    .trim()
+    .toLocaleLowerCase("ru-RU");
+}
+
+function getBusinessQueryParts(query) {
+  const prefix = /^\s*(?:бизнес(?:а|ы|е)?|business)\s*:?[ \t]*/iu;
+  const term = String(query || "")
+    .replace(prefix, "")
+    .trim();
+  const levelMatch = /(?:^|\s)(?:уров(?:ень|ня)\s*)?(\d+)\s*$/iu.exec(term);
+  if (!levelMatch) return { name: term, level: null };
+  return {
+    name: term.slice(0, levelMatch.index).trim(),
+    level: Number(levelMatch[1]),
+  };
+}
+
+function getUpgradeLevels(upgrade) {
+  const lengths = (upgrade?.items || [])
+    .map((item) => (Array.isArray(item.levels) ? item.levels.length : 0))
+    .filter((length) => length > 0);
+  const maximum = lengths.length ? Math.min(...lengths) : 0;
+  return Array.from({ length: maximum }, (_, index) => index + 1);
+}
+
+function describeBusinessLevel(
+  knowledgeBase,
+  business,
+  upgrade,
+  level,
+  siteUrl,
+) {
+  const businessId = business.apiId || business.id;
+  const sources = sourceCaveats(knowledgeBase, [upgrade.sourceId]);
+  const captionParts = [
+    `🏢 <b>${escapeHtml(business.title)} • уровень ${level}</b>`,
+    ...sources.map(escapeHtml),
+    "Количество в карточке — предметы, не число побед.",
+  ];
+  return inlinePhoto({
+    id: businessCardFilename(businessId, level).replace(/\.jpg$/u, ""),
+    filename: businessCardFilename(businessId, level),
+    title: `🏢 ${business.title} • уровень ${level}`,
+    description: `${upgrade.items?.length || 0} типов предметов • пользовательская подборка`,
+    caption: captionParts.join("\n"),
+    siteUrl,
+    knowledgeBase,
+    shareQuery: `бизнес ${business.title} ${level}`,
+  });
+}
+
+function describeUnavailableBusiness(knowledgeBase, business, level, siteUrl) {
+  const title = business?.title || "Бизнес не найден";
+  const levelLabel = level == null ? "" : ` • уровень ${level}`;
+  const businessId = business?.apiId || business?.id || "unknown";
+  const resultId = businessCardFilename(businessId, level || 0)
+    .replace(/^business-/u, "")
+    .replace(/\.jpg$/u, "");
+  return inlinePhoto({
+    id: `business-unavailable-${resultId}`,
+    filename: unavailableBusinessCardFilename,
+    title: `🏢 ${title}${levelLabel}`,
+    description: "В таблице нет подтверждённых требований для этого уровня",
+    caption: `🏢 <b>${escapeHtml(title)}${escapeHtml(levelLabel)}</b> • требований к этому уровню в доступной таблице нет.`,
+    siteUrl,
+    knowledgeBase,
+    shareQuery: level == null ? `бизнес ${title}` : `бизнес ${title} ${level}`,
+  });
+}
+
+function getBusinessResults(knowledgeBase, query, siteUrl) {
+  const { name, level } = getBusinessQueryParts(query);
+  const businesses = knowledgeBase.businesses || [];
+  const upgrades = knowledgeBase.businessUpgrades || [];
+  if (!name) {
+    const results = [];
+    const seen = new Set();
+    for (const upgrade of upgrades) {
+      const business = businesses.find(
+        (candidate) => candidate.id === upgrade.businessId,
+      );
+      if (!business || seen.has(business.id)) continue;
+      seen.add(business.id);
+      const firstLevel = getUpgradeLevels(upgrade)[0];
+      if (firstLevel) {
+        results.push(
+          describeBusinessLevel(
+            knowledgeBase,
+            business,
+            upgrade,
+            firstLevel,
+            siteUrl,
+          ),
+        );
+      }
+    }
+    return results.slice(0, 50);
+  }
+
+  const wanted = normalizeBusinessSearch(name);
+  const matches = businesses.filter((business) => {
+    const title = normalizeBusinessSearch(business.title);
+    return (
+      title === wanted || title.startsWith(wanted) || title.includes(wanted)
+    );
+  });
+  if (!matches.length) {
+    return [
+      inlineArticle({
+        id: "business-not-found",
+        title: "Бизнес не найден",
+        description: "Проверьте название в каталоге",
+        message: `Не нашёл бизнес «${escapeHtml(name)}». Пример: <code>@madhouse_wiki_bot бизнес Исследовательская 3</code>.`,
+        siteUrl,
+      }),
+    ];
+  }
+
+  const results = [];
+  for (const business of matches) {
+    const upgrade = upgrades.find(
+      (candidate) => candidate.businessId === business.id,
+    );
+    const levels = getUpgradeLevels(upgrade);
+    if (!upgrade || !levels.length) {
+      results.push(
+        describeUnavailableBusiness(knowledgeBase, business, level, siteUrl),
+      );
+      continue;
+    }
+    const selectedLevels = level == null ? levels : [level];
+    for (const targetLevel of selectedLevels) {
+      if (!levels.includes(targetLevel)) {
+        results.push(
+          describeUnavailableBusiness(
+            knowledgeBase,
+            business,
+            targetLevel,
+            siteUrl,
+          ),
+        );
+      } else {
+        results.push(
+          describeBusinessLevel(
+            knowledgeBase,
+            business,
+            upgrade,
+            targetLevel,
+            siteUrl,
+          ),
+        );
+      }
+    }
+  }
+  return results.slice(0, 50);
 }
 
 function describeEnergyFloor(floor, knowledgeBase, siteUrl) {
@@ -509,10 +630,10 @@ function quickStartArticle(siteUrl) {
   return inlineArticle({
     id: "quick-start",
     title: "🔎 Поиск по справочнику",
-    description: "Введите этаж, энергию или рейды",
+    description: "Введите код этажа, отделения или название бизнеса",
     message: [
       "<b>Madhouse Wiki</b>",
-      "В любом чате введите <code>@madhouse_wiki_bot этаж B</code>, <code>@madhouse_wiki_bot энергия A</code> или <code>@madhouse_wiki_bot рейды</code>.",
+      "В любом чате введите <code>@madhouse_wiki_bot C</code> для этажа, <code>@madhouse_wiki_bot C1</code> для отделения или <code>@madhouse_wiki_bot бизнес Исследовательская 3</code> для требований бизнеса.",
       "Выберите карточку — она отправится в чат.",
     ].join("\n\n"),
     siteUrl,
@@ -795,7 +916,9 @@ export function createWikiBotApi({
       cacheTime = 10;
     } else if (/энерг|energy|проходк|затрат/.test(normalized)) {
       results = getEnergyResults(knowledgeBase, rawQuery, siteUrl);
-    } else if (/этаж|корпус|отделени|бизнес|услов|unlock/.test(normalized)) {
+    } else if (/бизнес|business/.test(normalized)) {
+      results = getBusinessResults(knowledgeBase, rawQuery, siteUrl);
+    } else if (/этаж|корпус|отделени|услов|unlock/.test(normalized)) {
       results = getFloorResults(knowledgeBase, rawQuery, siteUrl);
     } else if (rawQuery) {
       const departmentCode = getRequestedCode(rawQuery);
@@ -851,6 +974,7 @@ export function createWikiBotApi({
   function startKeyboard(chatType) {
     const rows = [
       [{ text: "🏢 Этажи и отделения", callback_data: "menu:floors" }],
+      [{ text: "🏬 Бизнес • требования", callback_data: "menu:business" }],
       [{ text: "⚡ Энергия работ", callback_data: "menu:energy" }],
       [{ text: "🔥 Актуальные рейды", callback_data: "menu:raids" }],
     ];
@@ -926,6 +1050,19 @@ export function createWikiBotApi({
     );
   }
 
+  async function sendInlineResult(chatId, result, replyMarkup) {
+    if (result?.type === "photo") {
+      await sendPhoto(
+        chatId,
+        result.photo_url,
+        result.caption,
+        replyMarkup || result.reply_markup,
+      );
+      return;
+    }
+    await sendArticle(chatId, result, replyMarkup || result?.reply_markup);
+  }
+
   async function handleCallback(callback) {
     const chatId = callback.message?.chat?.id;
     if (!chatId || typeof callback.data !== "string") return;
@@ -944,6 +1081,25 @@ export function createWikiBotApi({
         chatId,
         "<b>🏢 Этажи и отделения</b>\nВыберите этаж, чтобы посмотреть условия открытия и связанные отделения.",
         floorPicker("floors"),
+      );
+      return;
+    }
+    if (callback.data === "menu:business") {
+      await sendMessage(
+        chatId,
+        "<b>🏬 Требования бизнеса</b>\nВведите название бизнеса и целевой уровень. Например: <code>бизнес Исследовательская 3</code>. Количества из пользовательской таблицы относятся к предметам, не к числу побед над боссами.",
+        {
+          inline_keyboard: [
+            [
+              {
+                text: "🔎 Искать бизнес",
+                switch_inline_query_current_chat: "бизнес ",
+                style: "primary",
+              },
+            ],
+            [{ text: "↩ Главное меню", callback_data: "menu:home" }],
+          ],
+        },
       );
       return;
     }
@@ -1003,7 +1159,7 @@ export function createWikiBotApi({
           callback_data: `department:${floorMatch[1] === "energyfloor" ? "energy:" : ""}${department.code}`,
         },
       ]);
-      await sendArticle(
+      await sendInlineResult(
         chatId,
         article,
         screenMarkup(
@@ -1035,7 +1191,7 @@ export function createWikiBotApi({
         siteUrl,
         energy,
       );
-      await sendArticle(
+      await sendInlineResult(
         chatId,
         article,
         screenMarkup(`${energy ? "энергия" : "отделение"} ${department.code}`),
@@ -1068,9 +1224,29 @@ export function createWikiBotApi({
         [
           "<b>Как пользоваться Madhouse Wiki</b>",
           "Выберите раздел в меню бота. В карточке нажмите <b>↗ Поделиться карточкой</b>, чтобы отправить её в другой чат.",
-          "Или найдите карточку прямо в переписке: <code>@madhouse_wiki_bot этаж B</code>, <code>@madhouse_wiki_bot энергия A</code>, <code>@madhouse_wiki_bot рейды</code>.",
+          "Или найдите карточку прямо в переписке: <code>@madhouse_wiki_bot C</code> — этаж, <code>@madhouse_wiki_bot C1</code> или <code>@madhouse_wiki_bot этаж С1</code> — отделение, <code>@madhouse_wiki_bot бизнес Исследовательская 3</code> — требования бизнеса.",
         ].join("\n\n"),
         startKeyboard(message.chat.type),
+      );
+      return;
+    }
+
+    if (command === "/business") {
+      await sendMessage(
+        chatId,
+        "<b>🏬 Требования бизнеса</b>\nВведите название бизнеса и целевой уровень, например <code>бизнес Исследовательская 3</code>.",
+        {
+          inline_keyboard: [
+            [
+              {
+                text: "🔎 Искать бизнес",
+                switch_inline_query_current_chat: "бизнес ",
+                style: "primary",
+              },
+            ],
+            [{ text: "↩ Главное меню", callback_data: "menu:home" }],
+          ],
+        },
       );
       return;
     }

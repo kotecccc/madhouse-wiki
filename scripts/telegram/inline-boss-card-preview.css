@@ -1,0 +1,29 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  background: var(--bg);
+}
+
+body {
+  color: var(--paper-bright);
+  font-family: var(--sans);
+}
+
+main {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.inline-boss-opening-group {
+  display: grid;
+  gap: var(--space-16);
+  padding: var(--space-24);
+  background: var(--bg);
+}

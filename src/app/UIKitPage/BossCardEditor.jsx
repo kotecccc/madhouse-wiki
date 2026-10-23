@@ -9,6 +9,7 @@ import {
 import { departmentById } from "../../model/knowledge-base.js";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button/Button.jsx";
+import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { MonoLabel } from "../../components/ui/MonoLabel/MonoLabel.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
@@ -16,7 +17,10 @@ import { FieldLabel } from "../../components/ui/FieldLabel/FieldLabel.jsx";
 import { Popover } from "../../components/ui/Popover/Popover.jsx";
 import "./BossCardEditor.css";
 import { Input } from "../../components/ui/Input/Input.jsx";
+import { NumberField } from "../../components/ui/NumberField/NumberField.jsx";
+import { BossDropItem } from "../../features/bosses/BossDropItems/BossDropItems.jsx";
 import { BossCardView } from "../../features/bosses/BossCard/BossCardView.jsx";
+import { bossCardVariants } from "../../features/bosses/BossCard/boss-card-variants.js";
 
 const fontSizes = [
   "2xs",
@@ -59,6 +63,20 @@ const defaultSettings = {
   actionText: "Весь дроп",
   drops: {},
 };
+const sourceVariantNames = {
+  "boss-main": "Основная",
+  "boss-raid": "Рейд",
+  "boss-business": "Бизнес",
+};
+const sourceCardVariants = {
+  "boss-main": "floor-data",
+  "boss-raid": "raid",
+  "boss-business": "floor-data",
+};
+const hasSourceVariant = (key) =>
+  Object.prototype.hasOwnProperty.call(bossCardVariants, key);
+const cardVariants = new Set(["floor-data", "raid", "boss"]);
+const maxStoredVariants = 30 + Object.keys(bossCardVariants).length;
 const newVariant = () => ({
   id: crypto.randomUUID(),
   name: "Основная",
@@ -107,22 +125,62 @@ function normalizeSettings(source) {
   )) {
     if (!/^\d+$/.test(index) || !drop || typeof drop !== "object") continue;
     settings.drops[index] = {
-      ...(typeof drop.name === "string"
-        ? { name: drop.name.slice(0, 1000) }
-        : {}),
       ...(fontSizes.includes(drop.textSize) ? { textSize: drop.textSize } : {}),
       ...(itemSizes.includes(drop.itemSize) ? { itemSize: drop.itemSize } : {}),
+      ...(drop.position === "left" || drop.position === "right"
+        ? { position: drop.position }
+        : {}),
+      ...(Number.isSafeInteger(drop.requiredAmount) && drop.requiredAmount >= 0
+        ? { requiredAmount: drop.requiredAmount }
+        : {}),
     };
   }
 
   return settings;
 }
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableValue(value[key])]),
+    );
+  return value;
+}
+function isDefaultStarter(item) {
+  return (
+    item.name === "Основная" &&
+    !item.sourceKey &&
+    !item.implementation &&
+    !item.mobileSettings &&
+    JSON.stringify(stableValue(normalizeSettings(item.settings || {}))) ===
+      JSON.stringify(stableValue(normalizeSettings(defaultSettings)))
+  );
+}
+function sourceVariants() {
+  return Object.entries(bossCardVariants)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([sourceKey, settings]) => ({
+      id: `runtime-${sourceKey}`,
+      sourceKey,
+      name: sourceVariantNames[sourceKey] || sourceKey,
+      cardVariant: sourceCardVariants[sourceKey] || "boss",
+      settings: normalizeSettings(settings.desktop),
+      mobileSettings: normalizeSettings(settings.mobile || settings.desktop),
+    }));
+}
 function loadVariants(key) {
+  const defaults = sourceVariants();
   try {
     const parsed = JSON.parse(localStorage.getItem(key));
-    if (Array.isArray(parsed) && parsed.length && parsed.length <= 30) {
+    if (
+      Array.isArray(parsed) &&
+      parsed.length &&
+      parsed.length <= maxStoredVariants
+    ) {
       const ids = new Set();
-      return parsed.map((item) => {
+      const loaded = parsed.map((item) => {
         if (
           typeof item.id !== "string" ||
           ids.has(item.id) ||
@@ -132,21 +190,49 @@ function loadVariants(key) {
         ids.add(item.id);
         const settings = normalizeSettings(item.settings || {});
         const implementation = validateImplementation(item.implementation);
+        const sourceKey =
+          typeof item.sourceKey === "string" && hasSourceVariant(item.sourceKey)
+            ? item.sourceKey
+            : implementation?.key && hasSourceVariant(implementation.key)
+              ? implementation.key
+              : undefined;
         return {
           id: item.id,
           name: item.name.slice(0, 100),
           settings,
+          ...(sourceKey ? { sourceKey } : {}),
+          ...(cardVariants.has(item.cardVariant)
+            ? { cardVariant: item.cardVariant }
+            : {}),
           ...(item.mobileSettings
             ? { mobileSettings: normalizeSettings(item.mobileSettings) }
             : {}),
           ...(implementation ? { implementation } : {}),
         };
       });
+      const sourceOverrides = new Map();
+      const customVariants = [];
+      for (const item of loaded) {
+        if (isDefaultStarter(item)) continue;
+        if (item.sourceKey) {
+          sourceOverrides.set(item.sourceKey, item);
+          continue;
+        }
+        customVariants.push(item);
+      }
+      return defaults
+        .map((item) => {
+          const override = sourceOverrides.get(item.sourceKey);
+          return override
+            ? { ...item, ...override, id: item.id, sourceKey: item.sourceKey }
+            : item;
+        })
+        .concat(customVariants);
     }
   } catch {
-    /* An unusable local draft falls back to the actual card. */
+    /* An unusable local draft falls back to the source-controlled variants. */
   }
-  return [newVariant()];
+  return defaults.length ? defaults : [newVariant()];
 }
 function TokenSwitch({ label, value, choices, onChange, labels }) {
   const index = choices.indexOf(value);
@@ -261,17 +347,43 @@ export function BossCardEditor({ boss, raid }) {
     });
   const draftBoss = {
     ...referenceBoss,
-    dropItems: boss.dropItems?.map((item, index) => ({
-      ...item,
-      name: settings.drops[index]?.name ?? item.name,
-    })),
+    dropItems: boss.dropItems?.map((item, index) => {
+      const override = settings.drops[index];
+      return override && Object.hasOwn(override, "requiredAmount")
+        ? { ...item, requiredAmount: override.requiredAmount }
+        : item;
+    }),
   };
+  const rightBusinessItems = (draftBoss.dropItems || [])
+    .map((item, index) => ({ item, index }))
+    .filter(({ index }) => settings.drops[index]?.position === "right");
+  const businessItemAction = rightBusinessItems.length ? (
+    settings.showDrops ? (
+      <div className="boss-card-business-items-right">
+        {rightBusinessItems.map(({ item, index }) => (
+          <BossDropItem
+            key={`${item.entityId}-${index}`}
+            item={item}
+            index={index}
+            itemOverrides={settings.drops}
+            placement="right"
+            loading="eager"
+            onSelectItem={(selectedIndex, anchor, event) =>
+              open(`drop:${selectedIndex}`, anchor, event)
+            }
+          />
+        ))}
+      </div>
+    ) : (
+      false
+    )
+  ) : undefined;
   const labels = {
     card: "Карточка",
     title: "Название",
     info: "Описание",
     portrait: "Портрет",
-    drops: "Дроп",
+    drops: "Предметы бизнеса",
     action: "Кнопка",
     status: "Статус",
     availability: "Доступность босса",
@@ -287,8 +399,7 @@ export function BossCardEditor({ boss, raid }) {
         if (part !== "card") close();
       }}
     >
-      {settings[key] ? "✓ " : ""}
-      {label}
+      {settings[key] && <Icon type="check" size="small" />} {label}
     </Button>
   );
 
@@ -309,7 +420,7 @@ export function BossCardEditor({ boss, raid }) {
               close();
             }}
           >
-            ←
+            <Icon type="arrow-left" size="small" />
           </Button>
           <Button
             size="sm"
@@ -327,7 +438,7 @@ export function BossCardEditor({ boss, raid }) {
               close();
             }}
           >
-            →
+            <Icon type="arrow-right" size="small" />
           </Button>
           <Button
             size="sm"
@@ -339,6 +450,7 @@ export function BossCardEditor({ boss, raid }) {
                 ...variant,
                 id: crypto.randomUUID(),
                 name: `${variant.name} • копия`,
+                sourceKey: undefined,
                 settings: structuredClone(variant.settings),
                 ...(variant.mobileSettings
                   ? { mobileSettings: structuredClone(variant.mobileSettings) }
@@ -404,6 +516,7 @@ export function BossCardEditor({ boss, raid }) {
       )}
       <BossCardView
         boss={draftBoss}
+        variant={variant.cardVariant || "floor-data"}
         title={settings.title ?? boss.name}
         cardPadding={settings.cardPadding}
         columnGap={settings.columnGap}
@@ -428,7 +541,7 @@ export function BossCardEditor({ boss, raid }) {
 
         showDropList={settings.showDrops}
         dropItemOverrides={settings.drops}
-        action={settings.showAction ? undefined : false}
+        action={businessItemAction ?? (settings.showAction ? undefined : false)}
         actionText={settings.actionText}
         actionSize={settings.actionSize}
         onSelectPart={open}
@@ -439,12 +552,12 @@ export function BossCardEditor({ boss, raid }) {
           anchor={popup.anchor}
           point={popup.point}
           onClose={dismiss}
-          label={`Настройки: ${labels[part] || "Предмет дропа"}`}
+          label={`Настройки: ${labels[part] || "Предмет бизнеса"}`}
         >
           <div className="boss-editor-popup-heading">
-            <CardTitle>{labels[part] || "Предмет дропа"}</CardTitle>
+            <CardTitle>{labels[part] || "Предмет бизнеса"}</CardTitle>
             <Button size="sm" onClick={dismiss} aria-label="Закрыть настройки">
-              ×
+              <Icon type="close" size="small" />
             </Button>
           </div>
           {part === "variation" && (
@@ -479,7 +592,19 @@ export function BossCardEditor({ boss, raid }) {
               />
               <Button
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  const sourceSettings = variant.sourceKey
+                    ? bossCardVariants[variant.sourceKey]?.[device] ||
+                      bossCardVariants[variant.sourceKey]?.desktop
+                    : null;
+                  if (sourceSettings) {
+                    update({
+                      ...normalizeSettings(sourceSettings),
+                      title: undefined,
+                      infoText: undefined,
+                    });
+                    return;
+                  }
                   update({
                     ...defaultSettings,
                     title: undefined,
@@ -487,14 +612,14 @@ export function BossCardEditor({ boss, raid }) {
                     titleFields: undefined,
                     descriptionFields: undefined,
                     drops: {},
-                  })
-                }
+                  });
+                }}
               >
                 Сбросить свойства
               </Button>
               <Button
                 size="sm"
-                disabled={variants.length === 1}
+                disabled={variants.length === 1 || Boolean(variant.sourceKey)}
                 onClick={() => {
                   const next = variants.filter(
                     (item) => item.id !== variant.id,
@@ -614,14 +739,37 @@ export function BossCardEditor({ boss, raid }) {
             </>
           )}
           {part === "portrait" && toggle("showPortrait", "Портрет")}
-          {part === "drops" && toggle("showDrops", "Дроп")}
+          {part === "drops" && toggle("showDrops", "Предметы бизнеса")}
           {drop && (
             <>
-              <TextField
-                id="boss-drop-name"
-                label="Название предмета"
-                value={dropSettings.name ?? drop.name}
-                onChange={(name) => updateDrop({ name })}
+              <TokenSwitch
+                label="Положение предмета бизнеса"
+                value={dropSettings.position ?? "left"}
+                choices={["left", "right"]}
+                labels={{ left: "Слева", right: "Справа" }}
+                onChange={(position) => updateDrop({ position })}
+              />
+              <NumberField
+                id="boss-business-item-amount"
+                label="Количество предмета бизнеса"
+                size="sm"
+                min="0"
+                step="1"
+                suffix="шт."
+                value={dropSettings.requiredAmount ?? drop.requiredAmount ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "") {
+                    updateDrop({ requiredAmount: undefined });
+                    return;
+                  }
+                  const requiredAmount = Number(value);
+                  if (
+                    Number.isSafeInteger(requiredAmount) &&
+                    requiredAmount >= 0
+                  )
+                    updateDrop({ requiredAmount });
+                }}
               />
               <TokenSwitch
                 label="Размер текста"
@@ -630,8 +778,13 @@ export function BossCardEditor({ boss, raid }) {
                 onChange={(textSize) => updateDrop({ textSize })}
               />
               <TokenSwitch
-                label="Размер предмета"
-                value={dropSettings.itemSize ?? "--space-32"}
+                label="Размер карточки предмета"
+                value={
+                  dropSettings.itemSize ??
+                  (dropSettings.position === "right"
+                    ? "--space-64"
+                    : "--space-32")
+                }
                 choices={itemSizes}
                 onChange={(itemSize) => updateDrop({ itemSize })}
               />

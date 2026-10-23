@@ -40,6 +40,21 @@
   white-space: nowrap;
 }
 
+.boss-card-business-items-right {
+  align-self: center;
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.boss-card-view:not(.boss-card-view--no-portrait):has(
+    > .boss-card-business-items-right
+  ) {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .boss-drops-dialog {
   --dialog-width: 560px;
 }
