@@ -1,55 +1,4 @@
 import { connectionFailure } from "./diagnostics.js";
-import { authErrorCategory } from "./auth-trace.js";
-
-const PHONE_CODE_DELIVERY_TYPES = new Set([
-  "app",
-  "sms",
-  "call",
-  "flash_call",
-  "missed_call",
-  "email",
-  "email_required",
-  "fragment",
-  "firebase",
-  "sms_word",
-  "sms_phrase",
-]);
-const NEXT_PHONE_CODE_DELIVERY_TYPES = new Set([
-  "sms",
-  "call",
-  "flash_call",
-  "missed_call",
-  "fragment",
-]);
-
-function codeChallenge(result) {
-  const deliveryType = PHONE_CODE_DELIVERY_TYPES.has(result.type)
-    ? result.type
-    : "unknown";
-  const nextDeliveryType = NEXT_PHONE_CODE_DELIVERY_TYPES.has(result.nextType)
-    ? result.nextType
-    : "none";
-  const codeLength =
-    Number.isSafeInteger(result.length) &&
-    result.length >= 4 &&
-    result.length <= 9
-      ? result.length
-      : 5;
-  const timeout =
-    Number.isSafeInteger(result.timeout) &&
-    result.timeout >= 0 &&
-    result.timeout <= 86400
-      ? result.timeout
-      : 0;
-
-  return {
-    phoneCodeHash: result.phoneCodeHash,
-    deliveryType,
-    codeLength,
-    nextDeliveryType,
-    timeout,
-  };
-}
 
 export function createConnection({
   createClient,
@@ -57,7 +6,6 @@ export function createConnection({
   errorTypes,
   exchange,
   onState = () => {},
-  onAuthEvent = () => {},
   storage = "madhouse-wiki-telegram-v1",
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -71,17 +19,9 @@ export function createConnection({
     cleanup = null;
   let memoryOnly = false,
     storageIdentity = null;
-  let accountState = "unknown";
   let passwordRequired = false;
   const authOperations = new Set();
   const state = (value) => onState(value);
-  const trace = (value, context) => {
-    try {
-      return onAuthEvent(value, context);
-    } catch {
-      /* Diagnostics cannot interrupt login. */
-    }
-  };
   async function getClient() {
     if (!client) {
       clientPromise ??= Promise.resolve().then(() =>
@@ -101,7 +41,6 @@ export function createConnection({
       client = null;
       clientPromise = null;
       storageIdentity = expectedUserId;
-      accountState = "unknown";
       passwordRequired = false;
     }
     let stage = "CLIENT";
@@ -112,12 +51,10 @@ export function createConnection({
       if (started !== generation) throw new Error("cancelled");
       passwordRequired = false;
       if (expectedUserId && String(self.id) !== expectedUserId) {
-        accountState = "wrong-account";
         state({ stage: "wrong-account" });
         return false;
       }
       account = String(self.id);
-      accountState = "signed-in";
       qrExpires = 0;
       state({ stage: "connected" });
       return true;
@@ -128,7 +65,6 @@ export function createConnection({
       }
       if (error?.text === "SESSION_PASSWORD_NEEDED") {
         account = null;
-        accountState = "anonymous";
         passwordRequired = true;
         state({ stage: "password" });
         return false;
@@ -142,7 +78,6 @@ export function createConnection({
         ].includes(error?.text)
       ) {
         account = null;
-        accountState = "anonymous";
         passwordRequired = false;
         state({ stage: "consent" });
         return false;
@@ -169,7 +104,6 @@ export function createConnection({
         client = null;
         clientPromise = null;
         memoryOnly = true;
-        trace({ event: "storage-memory", memoryOnly: true });
         account = null;
         return restore(expectedUserId);
       }
@@ -256,7 +190,6 @@ export function createConnection({
     }
   }
   function cancel() {
-    trace({ event: "cancel", memoryOnly });
     generation++;
     active = null;
   }
@@ -285,7 +218,6 @@ export function createConnection({
     if (cleanup) return cleanup;
     cancel();
     account = null;
-    accountState = "unknown";
     passwordRequired = false;
     cleanup = revoke();
     try {
@@ -344,71 +276,17 @@ export function createConnection({
     state({ stage: "busy" });
     let result;
     try {
-      result = await runAuth((current) =>
-        tracedCode("send", () => current.sendCode({ phone })),
-      );
+      result = await runAuth((current) => current.sendCode({ phone }));
     } catch (error) {
       state({ stage: "phone" });
       throw error;
     }
     if ("phoneCodeHash" in result) {
-      const challenge = codeChallenge(result);
-      state({ stage: "code", ...challenge });
-      return challenge;
+      state({ stage: "code" });
+      return result.phoneCodeHash;
     }
     account = String(result.id);
-    return { phoneCodeHash: null, deliveryType: "success", codeLength: 5 };
-  }
-  async function resendPhoneCode(phone, phoneCodeHash) {
-    const result = await runAuth((current) =>
-      tracedCode("resend", () => current.resendCode({ phone, phoneCodeHash })),
-    );
-    const challenge = codeChallenge(result);
-    state({ stage: "code", ...challenge });
-    return challenge;
-  }
-  async function tracedCode(operation, invoke) {
-    const started = now();
-    // Keep the same observer context if the UI switches requests mid-flight.
-    const context = trace({
-      event: `${operation}-start`,
-      memoryOnly,
-      accountState,
-    });
-    try {
-      const result = await invoke();
-      const details =
-        "phoneCodeHash" in result
-          ? codeChallenge(result)
-          : { deliveryType: "success" };
-      const { deliveryType, nextDeliveryType, codeLength, timeout } = details;
-      trace(
-        {
-          event: `${operation}-response`,
-          deliveryType,
-          ...(nextDeliveryType === undefined
-            ? {}
-            : { nextDeliveryType, codeLength, timeout }),
-          elapsedMs: Math.min(
-            3600000,
-            Math.max(0, Math.round(now() - started)),
-          ),
-          memoryOnly,
-        },
-        context,
-      );
-      return result;
-    } catch (error) {
-      trace(
-        {
-          event: `${operation}-error`,
-          errorCategory: authErrorCategory(error),
-          memoryOnly,
-        },
-        context,
-      );
-      throw error;
-    }
+    return null;
   }
   async function signIn(phone, phoneCodeHash, phoneCode) {
     try {
@@ -434,7 +312,6 @@ export function createConnection({
     logout,
     cancel,
     phoneCode,
-    resendPhoneCode,
     signIn,
     password,
     getClient,
