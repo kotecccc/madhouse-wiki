@@ -12,14 +12,14 @@ function response() {
     },
   };
 }
-test("production proxy rejects writes, unknown destinations and missing sessions without upstream calls", async () => {
+test("production proxy rejects undocumented methods, unknown destinations and missing sessions without upstream calls", async () => {
   const proxy = createProxy(() => {
     throw new Error("must not fetch");
   });
   for (const [method, url, expected] of [
     ["POST", "/api/me", 405],
     ["GET", "https://evil.test/api/me", 404],
-    ["GET", "/api/auth/telegram", 404],
+    ["GET", "/api/auth/telegram", 405],
     ["GET", "/api/%2e%2e/me", 404],
     ["GET", "/api/me", 401],
   ]) {

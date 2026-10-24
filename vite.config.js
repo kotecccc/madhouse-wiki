@@ -7,6 +7,7 @@ import { installCatalogueCapture } from "./scripts/catalogue/proxy-capture.mjs";
 import { raidsFixturePlugin } from "./scripts/raids-fixture-plugin.mjs";
 import { catalogueSyncPlugin } from "./scripts/catalogue/dev-sync-plugin.mjs";
 import { inlineCardsPlugin } from "./scripts/telegram/inline-cards-vite-plugin.mjs";
+import { apiDocsProxyGuard } from "./scripts/api-docs-proxy-guard.mjs";
 
 function redirectApiDocs(server) {
   server.middlewares.use((request, response, next) => {
@@ -27,6 +28,7 @@ export default defineConfig({
     catalogueSyncPlugin(fileURLToPath(new URL(".", import.meta.url))),
     cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
     inlineCardsPlugin(fileURLToPath(new URL(".", import.meta.url))),
+    apiDocsProxyGuard(),
     {
       name: "api-docs-entry",
       configureServer: redirectApiDocs,
@@ -48,6 +50,9 @@ export default defineConfig({
             proxy,
             fileURLToPath(new URL(".", import.meta.url)),
           );
+          proxy.on("proxyReq", (proxyRequest) => {
+            proxyRequest.removeHeader("x-madhouse-allow-mutations");
+          });
         },
       },
     },

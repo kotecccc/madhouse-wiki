@@ -210,8 +210,9 @@ if (service === "connector") {
     "api",
     [
       "api/[...path].js",
+      "scripts/api-operations.mjs",
       "scripts/deploy/production-api.mjs",
-      "public/api-docs/openapi.readonly.json",
+      "public/api-docs/openapi.json",
     ],
     "export {default} from './api/[...path].js';",
   );

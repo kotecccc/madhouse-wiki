@@ -1,21 +1,67 @@
-// Shared Fetch API transport for Vercel and the Sites Worker. No disk, sessions,
-// response logging, arbitrary origins, cookies, writes or private cache entries.
-export function createProductionApi(paths, fetcher = fetch) {
-  const routes = paths.map(
-    (path) =>
-      new RegExp(
-        "^" +
-          path
-            .split(/(\{[^}]+\})/)
-            .map((part) =>
-              part.startsWith("{")
-                ? "[A-Za-z0-9_$-]+"
-                : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-            )
-            .join("") +
-          "$",
-      ),
+// Shared Vercel/Sites transport; only documented routes reach the fixed origin.
+export const API_MAX_REQUEST_BYTES = 64 * 1024;
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function routePattern(path) {
+  return new RegExp(
+    "^" +
+      path
+        .split(/(\{[^}]+\})/)
+        .map((part) =>
+          part.startsWith("{")
+            ? "[A-Za-z0-9_$-]+"
+            : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        )
+        .join("") +
+      "$",
   );
+}
+
+function normalizeOperations(operations) {
+  return operations.map((operation) => {
+    // Keep the original string form as a GET-only compatibility path for
+    // small consumers that construct the transport directly.
+    const route =
+      typeof operation === "string"
+        ? { method: "GET", path: operation, requiresAuth: true }
+        : operation;
+    return {
+      method: String(route.method || "GET").toUpperCase(),
+      path: route.path,
+      requiresAuth: route.requiresAuth !== false,
+      allowsDevKey: route.allowsDevKey === true,
+      regex: routePattern(route.path),
+    };
+  });
+}
+
+async function readLimitedBody(request) {
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > API_MAX_REQUEST_BYTES) {
+      await reader.cancel();
+      return false;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+export function createProductionApi(operations, fetcher = fetch) {
+  const routes = normalizeOperations(operations);
   return async (request) => {
     const headers = {
       "Cache-Control": "private, no-store, max-age=0",
@@ -29,24 +75,88 @@ export function createProductionApi(paths, fetcher = fetch) {
         status,
         headers: { ...headers, ...extra },
       });
-    if (request.method !== "GET")
-      return fail(405, "Only GET requests are supported", { Allow: "GET" });
+
+    const method = (request.method || "GET").toUpperCase();
     const url = new URL(request.url);
     if (
       /[%\\#]/.test(url.pathname.replace(/%24/gi, "$")) ||
-      url.href.length > 4096 ||
-      !routes.some((route) => route.test(url.pathname.replace(/%24/gi, "$")))
+      url.href.length > 4096
     )
       return fail(404, "Unknown API route");
+
+    const path = url.pathname.replace(/%24/gi, "$");
+    const matchingPath = routes.filter((route) => route.regex.test(path));
+    if (!matchingPath.length) return fail(404, "Unknown API route");
+    const matchingRoute = matchingPath.find((route) => route.method === method);
+    if (!matchingRoute) {
+      const allowed = [...new Set(matchingPath.map((route) => route.method))]
+        .sort()
+        .join(", ");
+      return fail(405, "Method is not documented for this route", {
+        Allow: allowed,
+      });
+    }
+
+    if (
+      MUTATION_METHODS.has(method) &&
+      request.headers.get("x-madhouse-allow-mutations") !== "true"
+    )
+      return fail(
+        403,
+        "State-changing requests require X-Madhouse-Allow-Mutations: true",
+      );
+
     const authorization = request.headers.get("authorization");
-    if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
+    if (
+      matchingRoute.requiresAuth &&
+      (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
+    )
       return fail(401, "A game session is required");
+    if (
+      !matchingRoute.requiresAuth &&
+      authorization &&
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
+    )
+      return fail(401, "Invalid game session");
+
+    let body = null;
+    if (method !== "GET" && method !== "HEAD") {
+      const contentLength = Number(request.headers.get("content-length"));
+      if (
+        Number.isFinite(contentLength) &&
+        contentLength > API_MAX_REQUEST_BYTES
+      )
+        return fail(413, "Request body too large");
+      try {
+        body = await readLimitedBody(request);
+      } catch {
+        return fail(400, "Invalid request body");
+      }
+      if (body === false) return fail(413, "Request body too large");
+      if (
+        body?.byteLength &&
+        !/^application\/json(?:\s*;|$)/i.test(
+          request.headers.get("content-type") || "",
+        )
+      )
+        return fail(415, "Only JSON request bodies are supported");
+    }
+
+    const upstreamHeaders = { Accept: "application/json" };
+    if (authorization) upstreamHeaders.Authorization = authorization;
+    if (body?.byteLength) upstreamHeaders["Content-Type"] = "application/json";
+    if (matchingRoute.allowsDevKey) {
+      const devKey = request.headers.get("x-cargohustle-dev-key");
+      if (devKey) upstreamHeaders["X-CargoHustle-Dev-Key"] = devKey;
+    }
+
     try {
       const upstream = await fetcher(
         "https://cargohustle.online" + url.pathname + url.search,
         {
-          method: "GET",
-          headers: { Authorization: authorization, Accept: "application/json" },
+          method,
+          headers: upstreamHeaders,
+          ...(body?.byteLength ? { body } : {}),
           redirect: "manual",
           cache: "no-store",
           signal: AbortSignal.timeout(20000),
@@ -80,15 +190,15 @@ export function createProductionApi(paths, fetcher = fetch) {
           "X-Madhouse-Upstream-Status": String(upstream.status),
         });
       }
-      const body = await upstream.arrayBuffer();
-      if (body.byteLength > 4 * 1024 * 1024)
+      const responseBody = await upstream.arrayBuffer();
+      if (responseBody.byteLength > MAX_RESPONSE_BYTES)
         return fail(502, "Upstream response too large");
       if (upstream.status === 429) {
         const retry = upstream.headers.get("retry-after");
         if (retry && /^\d+$/.test(retry)) headers["Retry-After"] = retry;
       }
       return new Response(
-        [204, 205, 304].includes(upstream.status) ? null : body,
+        [204, 205, 304].includes(upstream.status) ? null : responseBody,
         { status: upstream.status, headers },
       );
     } catch (error) {

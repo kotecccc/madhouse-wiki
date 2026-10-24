@@ -1,6 +1,6 @@
 # Madhouse API discovery
 
-Status: discovery snapshot, 2026-10-20. The paths come from the public client bundle `app.b3a2797399.js`; the “observed” subset was also seen in Chrome DevTools Network while the Telegram Mini App loaded. This is a client-surface inventory, not a server-published OpenAPI contract. Endpoints can change without notice.
+Route discovery snapshot: 2026-10-20. Swagger and proxy coverage updated: 2026-10-24. The paths come from the public client bundle `app.b3a2797399.js`; the “observed” subset was also seen in Chrome DevTools Network while the Telegram Mini App loaded. This is a client-surface inventory, not a server-published OpenAPI contract. Endpoints can change without notice.
 
 ## Connection
 
@@ -19,11 +19,11 @@ curl --fail-with-body --silent --show-error \
   "${MADHOUSE_API_BASE_URL:-https://cargohustle.online}/api/me"
 ```
 
-The interactive Swagger UI at [`/api-docs/`](../public/api-docs/index.html) now exposes only the 62 GET operations, with Russian descriptions. It loads [`openapi.readonly.json`](../public/api-docs/openapi.readonly.json); the complete discovery specification remains in [`openapi.json`](../public/api-docs/openapi.json). Swagger allows submission only of GET requests and its request interceptor rejects other methods. This restriction applies to this Swagger interface; it does not change the production API or the separate full Postman collection.
+The interactive Swagger UI at [`/api-docs/`](../public/api-docs/index.html) loads [`openapi.swagger.json`](../public/api-docs/openapi.swagger.json), which contains all 166 REST operations from the complete discovery specification in [`openapi.json`](../public/api-docs/openapi.json). The 62 GET operations keep their Russian reader descriptions; mutation descriptions and request schemas retain the source specification's client-derived wording. The UI uses the same-origin Wiki proxy. POST, PUT, PATCH, and DELETE are disabled until the page-only **Разрешить изменяющие запросы** checkbox is enabled. The API proxy independently requires `X-Madhouse-Allow-Mutations: true`, so direct calls remain disabled by default too. The toggle is not persisted.
 
-Start the existing Vite app with `npm run dev` and open `http://127.0.0.1:4174/api-docs/`. Vite proxies `/api` to the production host. Paste the token into **Authorize** without the Bearer prefix; persistence is disabled. Russian operation text lives in [`api-readonly.ru.json`](api-readonly.ru.json). Regenerate the reader-facing specification with `node scripts/build-readonly-api.mjs` after editing the text or the full specification.
+Start the existing Vite app with `npm run dev` and open `http://127.0.0.1:4174/api-docs/`. Vite proxies documented game routes to the production host; the local proxy guard applies the same mutation-header requirement. The Wiki session supplies the Bearer token. Token persistence in Swagger is disabled. Russian GET operation text lives in [`api-readonly.ru.json`](api-readonly.ru.json). Regenerate both Swagger specifications with `node scripts/build-api-docs.mjs` after editing the text or the full specification.
 
-The full Postman collection and environment remain in [`postman/`](postman/). Its own mutation guard defaults to `allowMutations=false`; the read-only Swagger setting does not replace that independent guard.
+The full Postman collection and environment remain in [`postman/`](postman/). Its own mutation guard defaults to `allowMutations=false`. Swagger uses a separate page-only toggle and a server-enforced request header.
 
 ## Initial requests observed in Network
 
