@@ -90,17 +90,20 @@ export function createConnectorApi({
             "invalid_game_session",
             "game_account_mismatch",
             "session_changed",
+            "game_unavailable",
           ];
           const code = allowed.includes(error?.message)
             ? error.message
             : "session_store_unavailable";
           return json(
             { error: code },
-            code === "session_store_unavailable"
-              ? 503
-              : code === "invalid_wiki_identity"
-                ? 401
-                : 409,
+            code === "game_unavailable"
+              ? 502
+              : code === "session_store_unavailable"
+                ? 503
+                : code === "invalid_wiki_identity"
+                  ? 401
+                  : 409,
           );
         }
       }

@@ -566,3 +566,84 @@ test("game 5xx are temporary outages rather than rejected Telegram credentials",
     assert.equal(calls, 1);
   }
 });
+
+test("temporary account-session verification outage remains a 502", async () => {
+  const api = createConnectorApi({
+    appParams: async () => ({}),
+    wikiOrigins: [],
+    accountSessions: async () => {
+      throw new Error("game_unavailable");
+    },
+  });
+  const response = await api(
+    new Request("https://connect.example/api/account-session", {
+      method: "POST",
+      headers: {
+        Origin: "https://connect.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action: "save" }),
+    }),
+  );
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: "game_unavailable" });
+});
+
+test("restoring a QR session waiting for 2FA resumes password entry before game exchange", async () => {
+  let needsPassword = true,
+    launches = 0,
+    exchanges = 0;
+  const states = [];
+  const conn = createConnection({
+    createClient: () =>
+      client({
+        getMe: async () => {
+          if (needsPassword) throw { text: "SESSION_PASSWORD_NEEDED" };
+          return { id: 42 };
+        },
+        checkPassword: async (value) => {
+          assert.equal(value, "private-test-password");
+          needsPassword = false;
+        },
+        openWebview: async () => {
+          launches++;
+          return { url: launch };
+        },
+      }),
+    exchange: async () => {
+      exchanges++;
+      return "verified-game-token";
+    },
+    onState: ({ stage }) => states.push(stage),
+  });
+  assert.deepEqual(await conn.gameLogin("42"), { status: "password-required" });
+  assert.equal(launches, 0);
+  assert.equal(exchanges, 0);
+  assert.equal(states.at(-1), "password");
+  await conn.password("private-test-password");
+  assert.equal((await conn.gameLogin("42")).accessToken, "verified-game-token");
+  assert.equal(launches, 1);
+  assert.equal(exchanges, 1);
+});
+
+test("2FA recovery still rejects the wrong account after password verification", async () => {
+  let needsPassword = true;
+  const conn = createConnection({
+    createClient: () =>
+      client({
+        getMe: async () => {
+          if (needsPassword) throw { text: "SESSION_PASSWORD_NEEDED" };
+          return { id: 99 };
+        },
+        checkPassword: async () => {
+          needsPassword = false;
+        },
+      }),
+    exchange: async () => {
+      throw new Error("must not exchange for wrong account");
+    },
+  });
+  assert.equal((await conn.gameLogin("42")).status, "password-required");
+  await conn.password("private-test-password");
+  assert.equal((await conn.gameLogin("42")).status, "login-required");
+});

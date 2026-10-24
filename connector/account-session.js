@@ -76,6 +76,7 @@ export function createAccountSessions({
   encryptionKey,
   fetcher = fetch,
   now = Date.now,
+  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   onAuthDiagnostic = () => {},
 }) {
   async function cryptoKey() {
@@ -257,15 +258,28 @@ export function createAccountSessions({
         throw new Error("invalid_game_session");
       // Decoding alone isn't verification. The game authenticates this exact JWT;
       // its own Telegram identity field must match signed Wiki launch identity.
-      const me = await fetcher("https://cargohustle.online/api/me", {
+      const verificationSignal = AbortSignal.timeout(15000);
+      const verificationOptions = {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
         credentials: "omit",
         redirect: "error",
-        signal: AbortSignal.timeout(15000),
-      });
+        signal: verificationSignal,
+      };
+      let me;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        verificationSignal.throwIfAborted();
+        me = await fetcher(
+          "https://cargohustle.online/api/me",
+          verificationOptions,
+        );
+        if (![500, 502, 503, 504].includes(me.status)) break;
+        await me.body?.cancel();
+        if (attempt === 2) throw new Error("game_unavailable");
+        await pause(1100 * (attempt + 1));
+      }
       if (!me.ok) throw new Error("invalid_game_session");
       const profile = await me.json();
       const telegramId =
