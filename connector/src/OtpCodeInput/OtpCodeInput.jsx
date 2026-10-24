@@ -1,63 +1,55 @@
 import { useRef } from "react";
 import "./OtpCodeInput.css";
 
-function normalizeLength(value) {
-  return Number.isSafeInteger(value) && value >= 4 && value <= 9 ? value : 5;
-}
+const CODE_LENGTH = 5;
 
-function digitsOnly(value, length) {
+function digitsOnly(value) {
   return String(value ?? "")
     .replace(/[^0-9]/g, "")
-    .slice(0, length);
+    .slice(0, CODE_LENGTH);
 }
 
-export function OtpCodeInput({
-  value = "",
-  length = 5,
-  onChange,
-  disabled = false,
-}) {
-  const codeLength = normalizeLength(length);
+export function OtpCodeInput({ value = "", onChange, disabled = false }) {
   const inputs = useRef([]);
   const digits = Array.from(
-    { length: codeLength },
-    (_, index) => digitsOnly(value, codeLength)[index] || "",
+    { length: CODE_LENGTH },
+    (_, index) => digitsOnly(value)[index] || "",
   );
 
   const update = (start, inserted) => {
     const next = digits.slice();
-    const clean = digitsOnly(inserted, codeLength);
+    const clean = digitsOnly(inserted);
     for (
       let index = 0;
-      index < clean.length && start + index < codeLength;
+      index < clean.length && start + index < CODE_LENGTH;
       index++
     )
       next[start + index] = clean[index];
     onChange(next.join(""));
     const focusIndex = Math.min(
       start + Math.max(clean.length, 1),
-      codeLength - 1,
+      CODE_LENGTH - 1,
     );
     inputs.current[focusIndex]?.focus();
   };
 
   const handleChange = (index, rawValue) => {
-    const clean = digitsOnly(rawValue, codeLength);
+    const clean = digitsOnly(rawValue);
     if (clean.length > 1) {
-      update(clean.length === codeLength ? 0 : index, clean);
+      update(clean.length === CODE_LENGTH ? 0 : index, clean);
       return;
     }
     const next = digits.slice();
     next[index] = clean;
     onChange(next.join(""));
-    if (clean && index < codeLength - 1) inputs.current[index + 1]?.focus();
+    if (clean && index < CODE_LENGTH - 1) inputs.current[index + 1]?.focus();
   };
 
   const handleKeyDown = (event, index) => {
     if (event.key === "ArrowLeft" && index > 0) {
       event.preventDefault();
       inputs.current[index - 1]?.focus();
-    } else if (event.key === "ArrowRight" && index < codeLength - 1) {
+    } else if (event.key === "ArrowRight" && index < CODE_LENGTH - 1) {
       event.preventDefault();
       inputs.current[index + 1]?.focus();
     } else if (event.key === "Backspace" && !digits[index] && index > 0) {
@@ -71,17 +63,12 @@ export function OtpCodeInput({
 
   const handlePaste = (event, index) => {
     event.preventDefault();
-    const pasted = digitsOnly(event.clipboardData.getData("text"), codeLength);
-    update(pasted.length === codeLength ? 0 : index, pasted);
+    const pasted = digitsOnly(event.clipboardData.getData("text"));
+    update(pasted.length === CODE_LENGTH ? 0 : index, pasted);
   };
 
   return (
-    <div
-      className="otp-code-input"
-      data-length={codeLength}
-      role="group"
-      aria-label="Код Telegram"
-    >
+    <div className="otp-code-input" role="group" aria-label="Код Telegram">
       {digits.map((digit, index) => (
         <input
           key={index}
@@ -92,8 +79,8 @@ export function OtpCodeInput({
           type="text"
           inputMode="numeric"
           autoComplete={index === 0 ? "one-time-code" : "off"}
-          aria-label={`Цифра ${index + 1} из ${codeLength} кода Telegram`}
-          maxLength={codeLength}
+          aria-label={`Цифра ${index + 1} из ${CODE_LENGTH} кода Telegram`}
+          maxLength={CODE_LENGTH}
           value={digit}
           onFocus={(event) => event.currentTarget.select()}
           disabled={disabled}
