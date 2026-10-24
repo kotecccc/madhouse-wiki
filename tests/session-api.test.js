@@ -85,3 +85,75 @@ test("a switched session cannot receive a prior pending response or a cached res
   expired = true;
   await assert.rejects(api.get("/api/me"), /expired/);
 });
+
+test("temporary GET failures recover within the shared request and cache only success", async () => {
+  let calls = 0;
+  const waits = [];
+  const api = createSessionApi({
+    interval: 0,
+    pause: async (ms) => waits.push(ms),
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake" },
+    }),
+    fetcher: async () =>
+      ++calls < 3
+        ? new Response("", { status: 500 })
+        : Response.json({ ready: true }),
+  });
+  const [one, two] = await Promise.all([
+    api.get("/api/me"),
+    api.get("/api/me"),
+  ]);
+  assert.deepEqual(one, { ready: true });
+  assert.deepEqual(two, one);
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [1000, 2000]);
+  await api.get("/api/me");
+  assert.equal(calls, 3);
+});
+
+test("authentication, throttling and writes are never automatically retried", async () => {
+  for (const [method, status] of [
+    ["GET", 401],
+    ["GET", 403],
+    ["GET", 429],
+    ["POST", 500],
+  ]) {
+    let calls = 0;
+    const api = createSessionApi({
+      interval: 0,
+      pause: async () => {},
+      authorize: (request) => ({
+        ...request,
+        headers: { Authorization: "fake" },
+      }),
+      fetcher: async () => {
+        calls++;
+        return new Response("", { status });
+      },
+    });
+    await assert.rejects(
+      method === "GET" ? api.get("/api/me") : api.post("/api/me", {}),
+    );
+    assert.equal(calls, 1);
+  }
+});
+
+test("account changes stop a paused GET retry before another request", async () => {
+  let calls = 0;
+  const api = createSessionApi({
+    interval: 0,
+    pause: async () => api.clear(),
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake" },
+    }),
+    fetcher: async () => {
+      calls++;
+      return new Response("", { status: 500 });
+    },
+  });
+  await assert.rejects(api.get("/api/me"), /Сессия изменилась/);
+  assert.equal(calls, 1);
+});

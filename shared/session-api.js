@@ -62,7 +62,7 @@ export function createSessionApi({
       const timeout = setTimeout(() => controller.abort(), 20000);
       lastStarted = now();
       try {
-        const response = await fetcher(request.url, {
+        const options = {
           method,
           headers: {
             ...request.headers,
@@ -73,7 +73,22 @@ export function createSessionApi({
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           cache: "no-store",
           signal: controller.signal,
-        });
+        };
+        let response;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (generation !== requestGeneration || controller.signal.aborted)
+            throw new Error("Сессия изменилась");
+          lastStarted = now();
+          response = await fetcher(request.url, options);
+          if (
+            method !== "GET" ||
+            ![500, 502, 503, 504].includes(response.status) ||
+            attempt === 2
+          )
+            break;
+          await response.body?.cancel();
+          await pause(Math.max(interval, 1000) * (attempt + 1));
+        }
         if (!response.ok) throw new Error("Не удалось загрузить данные");
         const data = await response.json();
         if (generation !== requestGeneration || controller.signal.aborted)

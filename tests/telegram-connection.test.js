@@ -462,3 +462,107 @@ test("account-specific Telegram stores never restore the previous account after 
   assert.ok(names[0].endsWith("-42"));
   assert.ok(names[1].endsWith("-99"));
 });
+
+test("temporary game failures request fresh launches and never replay initData", async () => {
+  let launches = 0;
+  const exchanged = [];
+  const conn = createConnection({
+    createClient: () =>
+      client({
+        openWebview: async () => ({
+          url: launch.replace("auth_date%3D1", `auth_date%3D${++launches}`),
+        }),
+      }),
+    pause: async () => {},
+    exchange: async (initData) => {
+      exchanged.push(initData);
+      if (exchanged.length < 3) throw new Error("game_unavailable");
+      return "recovered-token";
+    },
+  });
+  assert.equal((await conn.gameLogin("42")).accessToken, "recovered-token");
+  assert.equal(launches, 3);
+  assert.equal(new Set(exchanged).size, 3);
+});
+
+test("repeated signed launches and permanent game rejection are not replayed", async () => {
+  for (const category of ["game_unavailable", "game_auth_rejected"]) {
+    let launches = 0,
+      exchanges = 0;
+    const conn = createConnection({
+      createClient: () =>
+        client({
+          openWebview: async () => {
+            launches++;
+            return { url: launch };
+          },
+        }),
+      pause: async () => {},
+      exchange: async () => {
+        exchanges++;
+        throw new Error(category);
+      },
+    });
+    await assert.rejects(conn.gameLogin("42"), new RegExp(category));
+    assert.equal(exchanges, 1);
+    assert.equal(launches, category === "game_unavailable" ? 3 : 1);
+  }
+});
+
+test("cancellation stops recovery before requesting another signed launch", async () => {
+  let launches = 0;
+  const conn = createConnection({
+    createClient: () =>
+      client({
+        openWebview: async () => {
+          launches++;
+          return { url: launch };
+        },
+      }),
+    pause: async () => conn.cancel(),
+    exchange: async () => {
+      throw new Error("game_unavailable");
+    },
+  });
+  await assert.rejects(conn.gameLogin("42"), /cancelled/);
+  assert.equal(launches, 1);
+});
+
+test("game 5xx are temporary outages rather than rejected Telegram credentials", async () => {
+  for (const upstream of [400, 401, 403, 429, 500, 502, 503, 504]) {
+    let calls = 0;
+    const api = createConnectorApi({
+      appParams: async () => ({}),
+      wikiOrigins: [],
+      fetcher: async () => {
+        calls++;
+        return new Response("", { status: upstream });
+      },
+    });
+    const response = await api(
+      new Request("https://connect.example/api/game-session", {
+        method: "POST",
+        headers: {
+          Origin: "https://connect.example",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          initData: "hash=" + "a".repeat(64) + "&auth_date=1&user=%7B%7D",
+        }),
+      }),
+    );
+    assert.equal(
+      response.status,
+      upstream >= 500 ? 502 : upstream === 429 ? 429 : 401,
+    );
+    assert.equal(
+      (await response.json()).error,
+      upstream >= 500
+        ? "game_unavailable"
+        : upstream === 429
+          ? "try_later"
+          : "game_auth_rejected",
+    );
+    assert.equal(calls, 1);
+  }
+});

@@ -132,6 +132,7 @@ export function createConnectorApi({
         redirect: "error",
         signal: AbortSignal.timeout(20000),
       });
+      if (result.status >= 500) return json({ error: "game_unavailable" }, 502);
       if (!result.ok)
         return json(
           { error: result.status === 429 ? "try_later" : "game_auth_rejected" },

@@ -23,6 +23,7 @@ function readHiddenPassword() {
     const cleanup = () => {
       input.off("data", onData);
       input.setRawMode(false);
+      input.pause();
       process.stdout.write("\n");
     };
     const onData = (chunk) => {
