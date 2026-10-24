@@ -72,6 +72,7 @@ export function createConnection({
   let memoryOnly = false,
     storageIdentity = null;
   let accountState = "unknown";
+  let passwordRequired = false;
   const authOperations = new Set();
   const state = (value) => onState(value);
   const trace = (value, context) => {
@@ -101,6 +102,7 @@ export function createConnection({
       clientPromise = null;
       storageIdentity = expectedUserId;
       accountState = "unknown";
+      passwordRequired = false;
     }
     let stage = "CLIENT";
     try {
@@ -108,6 +110,7 @@ export function createConnection({
       stage = "RESTORE";
       const self = await current.getMe();
       if (started !== generation) throw new Error("cancelled");
+      passwordRequired = false;
       if (expectedUserId && String(self.id) !== expectedUserId) {
         accountState = "wrong-account";
         state({ stage: "wrong-account" });
@@ -123,6 +126,13 @@ export function createConnection({
         // eslint-disable-next-line preserve-caught-error
         throw new Error("cancelled");
       }
+      if (error?.text === "SESSION_PASSWORD_NEEDED") {
+        account = null;
+        accountState = "anonymous";
+        passwordRequired = true;
+        state({ stage: "password" });
+        return false;
+      }
       if (
         [
           "AUTH_KEY_UNREGISTERED",
@@ -133,6 +143,7 @@ export function createConnection({
       ) {
         account = null;
         accountState = "anonymous";
+        passwordRequired = false;
         state({ stage: "consent" });
         return false;
       }
@@ -172,7 +183,10 @@ export function createConnection({
     if (active) cancel();
     const started = generation;
     const task = (async () => {
-      if (!(await restore(expectedUserId))) return { status: "login-required" };
+      if (!(await restore(expectedUserId)))
+        return {
+          status: passwordRequired ? "password-required" : "login-required",
+        };
       if (started !== generation) throw new Error("cancelled");
       const submitted = new Set();
       let exchanged;
@@ -272,6 +286,7 @@ export function createConnection({
     cancel();
     account = null;
     accountState = "unknown";
+    passwordRequired = false;
     cleanup = revoke();
     try {
       return await cleanup;
@@ -411,6 +426,7 @@ export function createConnection({
   }
   async function password(value) {
     await runAuth((current) => current.checkPassword(value));
+    passwordRequired = false;
   }
   return {
     restore,

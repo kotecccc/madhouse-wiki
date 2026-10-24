@@ -473,6 +473,18 @@ export function ConnectionApp() {
         request.data.expectedUserId,
       );
       if (currentRequest.current !== request) return;
+      if (result.status === "password-required") {
+        clearPendingLogin(request.data.expectedUserId);
+        phoneHash.current = null;
+        passwordWaiter.current = null;
+        setCode("");
+        setPassword("");
+        if (request.data.interactive) {
+          request.freshLogin = true;
+          setStage("password");
+        } else reply(request, { status: "pending" });
+        return;
+      }
       const connectedProfile =
         result.status === "connected"
           ? {
