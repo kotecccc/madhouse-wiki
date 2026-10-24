@@ -174,21 +174,39 @@ export function createConnection({
     const task = (async () => {
       if (!(await restore(expectedUserId))) return { status: "login-required" };
       if (started !== generation) throw new Error("cancelled");
-      const launch = await client.openWebview({
-        bot: "imadhouse_bot",
-        platform: "web",
-        webview: { type: "main" },
-      });
-      if (started !== generation) throw new Error("cancelled");
-      const url = new URL(launch.url);
-      if (url.origin !== "https://cargohustle.online")
-        throw new Error("invalid_launch");
-      const initData = new URLSearchParams(url.hash.slice(1)).get(
-        "tgWebAppData",
-      );
-      if (!initData) throw new Error("invalid_launch");
-      // Exactly one exchange. A rejected initData is never replayed.
-      const exchanged = await exchange(initData);
+      const submitted = new Set();
+      let exchanged;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt) await pause(1100 * attempt);
+        if (started !== generation) throw new Error("cancelled");
+        const launch = await client.openWebview({
+          bot: "imadhouse_bot",
+          platform: "web",
+          webview: { type: "main" },
+        });
+        if (started !== generation) throw new Error("cancelled");
+        const url = new URL(launch.url);
+        if (url.origin !== "https://cargohustle.online")
+          throw new Error("invalid_launch");
+        const initData = new URLSearchParams(url.hash.slice(1)).get(
+          "tgWebAppData",
+        );
+        if (!initData) throw new Error("invalid_launch");
+        // A temporary game outage may be retried with a new signed launch.
+        // Never replay a submitted launch, including one Telegram returned again.
+        if (submitted.has(initData)) {
+          if (attempt === 2) throw new Error("game_unavailable");
+          continue;
+        }
+        submitted.add(initData);
+        try {
+          exchanged = await exchange(initData);
+          break;
+        } catch (error) {
+          if (error?.message !== "game_unavailable" || attempt === 2)
+            throw error;
+        }
+      }
       const accessToken =
         typeof exchanged === "string" ? exchanged : exchanged?.accessToken;
       const playerLevel =
