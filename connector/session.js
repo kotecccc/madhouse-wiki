@@ -1,4 +1,12 @@
 import { connectionFailure } from "./diagnostics.js";
+import {
+  normalizePhoneNumber,
+  requestPhoneCode,
+  resendPhoneCode as requestPhoneResend,
+  sanitizePhoneAuthError,
+  submitPhoneCode,
+  submitPhonePassword,
+} from "./phone-auth.js";
 
 export function createConnection({
   createClient,
@@ -20,8 +28,15 @@ export function createConnection({
   let memoryOnly = false,
     storageIdentity = null;
   let passwordRequired = false;
+  let phoneAttempt = null;
   const authOperations = new Set();
   const state = (value) => onState(value);
+  const localPhoneError = (text, waitSeconds) => {
+    const error = new Error(text);
+    error.text = text;
+    if (Number.isSafeInteger(waitSeconds)) error.waitSeconds = waitSeconds;
+    return sanitizePhoneAuthError(error);
+  };
   async function getClient() {
     if (!client) {
       clientPromise ??= Promise.resolve().then(() =>
@@ -42,6 +57,7 @@ export function createConnection({
       clientPromise = null;
       storageIdentity = expectedUserId;
       passwordRequired = false;
+      phoneAttempt = null;
     }
     let stage = "CLIENT";
     try {
@@ -193,18 +209,20 @@ export function createConnection({
     generation++;
     active = null;
   }
-  async function runAuth(operation) {
+  async function runAuth(operation, abortSignal) {
     const started = generation;
     if (cleanup) await cleanup;
     const current = await getClient();
     if (started !== generation) throw new Error("cancelled");
-    const task = Promise.resolve().then(() => operation(current));
+    const task = Promise.resolve().then(() => operation(current, abortSignal));
     authOperations.add(task);
-    let result;
+    let result, failure;
     try {
       result = await task;
       if (result?._ === "auth.loginToken" && Number.isFinite(result.expires))
         qrExpires = result.expires * 1000 + 3000;
+    } catch (error) {
+      failure = error;
     } finally {
       authOperations.delete(task);
     }
@@ -212,6 +230,7 @@ export function createConnection({
       await logout();
       throw new Error("cancelled");
     }
+    if (failure) throw failure;
     return result;
   }
   async function logout() {
@@ -219,6 +238,7 @@ export function createConnection({
     cancel();
     account = null;
     passwordRequired = false;
+    phoneAttempt = null;
     cleanup = revoke();
     try {
       return await cleanup;
@@ -272,39 +292,170 @@ export function createConnection({
     }
     return { status: "disconnected", remoteRevoked, localCleared };
   }
-  async function phoneCode(phone) {
+  async function phoneCode(phone, abortSignal) {
+    const normalizedPhone = normalizePhoneNumber(phone);
+    phoneAttempt = {
+      phone: normalizedPhone,
+      identity: storageIdentity,
+      challenge: null,
+    };
     state({ stage: "busy" });
     let result;
     try {
-      result = await runAuth((current) => current.sendCode({ phone }));
+      result = await runAuth(
+        (current, signal) =>
+          requestPhoneCode(current, normalizedPhone, { abortSignal: signal }),
+        abortSignal,
+      );
     } catch (error) {
+      if (error?.name === "AbortError" || error?.message === "cancelled")
+        throw error;
+      phoneAttempt = null;
       state({ stage: "phone" });
-      throw error;
+      throw sanitizePhoneAuthError(error);
     }
-    if ("phoneCodeHash" in result) {
+    if (result.status === "challenge") {
+      phoneAttempt.challenge = result.challenge;
       state({ stage: "code" });
-      return result.phoneCodeHash;
+      return result;
     }
-    account = String(result.id);
-    return null;
+    phoneAttempt = null;
+    return result;
   }
-  async function signIn(phone, phoneCodeHash, phoneCode) {
+  function resumePhoneAuth(phone, challenge, expectedUserId) {
+    const normalizedPhone = normalizePhoneNumber(phone);
+    if (
+      expectedUserId &&
+      String(expectedUserId) !== String(storageIdentity || "")
+    )
+      return false;
+    if (
+      !challenge ||
+      typeof challenge.phoneCodeHash !== "string" ||
+      challenge.phoneCodeHash.length === 0 ||
+      challenge.phoneCodeHash.length > 1024
+    )
+      return false;
+    const nextTypes = new Set([
+      "call",
+      "flash_call",
+      "fragment",
+      "missed_call",
+      "sms",
+    ]);
+    const types = new Set([
+      "app",
+      "call",
+      "email",
+      "email_required",
+      "firebase",
+      "flash_call",
+      "fragment",
+      "missed_call",
+      "sms",
+      "sms_phrase",
+      "sms_word",
+      "unknown",
+    ]);
+    const timeout =
+      Number.isSafeInteger(challenge.timeout) && challenge.timeout >= 0
+        ? Math.min(challenge.timeout, 365 * 24 * 60 * 60)
+        : 0;
+    const challengeState = {
+      phoneCodeHash: challenge.phoneCodeHash,
+      type: types.has(challenge.type) ? challenge.type : "unknown",
+      nextType: nextTypes.has(challenge.nextType) ? challenge.nextType : "none",
+      timeout,
+      resendAt: Number.isFinite(challenge.resendAt)
+        ? challenge.resendAt
+        : now() + timeout * 1000,
+      length:
+        Number.isSafeInteger(challenge.length) && challenge.length > 0
+          ? Math.min(challenge.length, 64)
+          : 0,
+    };
+    phoneAttempt = {
+      phone: normalizedPhone,
+      identity: storageIdentity,
+      challenge: challengeState,
+    };
+    return true;
+  }
+  function discardPhoneAuth() {
+    phoneAttempt = null;
+  }
+  async function resendPhoneCode(abortSignal) {
+    const attempt = phoneAttempt;
+    if (!attempt?.challenge || attempt.identity !== storageIdentity)
+      throw localPhoneError("RESEND_UNAVAILABLE");
+    state({ stage: "busy" });
     try {
-      await runAuth((current) =>
-        current.signIn({ phone, phoneCodeHash, phoneCode }),
+      const result = await runAuth(
+        (current, signal) =>
+          requestPhoneResend(current, attempt.phone, attempt.challenge, {
+            abortSignal: signal,
+            now,
+          }),
+        abortSignal,
+      );
+      if (result.status === "challenge") {
+        attempt.challenge = result.challenge;
+        state({ stage: "code" });
+        return result;
+      }
+      phoneAttempt = null;
+      return result;
+    } catch (error) {
+      if (error?.name !== "AbortError" && error?.message !== "cancelled")
+        state({ stage: "code" });
+      throw sanitizePhoneAuthError(error);
+    }
+  }
+  async function signIn(phone, challenge, phoneCode, abortSignal) {
+    const attempt = phoneAttempt;
+    const normalizedPhone = normalizePhoneNumber(phone);
+    if (
+      !attempt?.challenge ||
+      attempt.identity !== storageIdentity ||
+      attempt.phone !== normalizedPhone ||
+      attempt.challenge.phoneCodeHash !== challenge?.phoneCodeHash
+    )
+      throw localPhoneError("PHONE_CODE_EXPIRED");
+    try {
+      await runAuth(
+        (current, signal) =>
+          submitPhoneCode(
+            current,
+            attempt.phone,
+            attempt.challenge,
+            phoneCode,
+            {
+              abortSignal: signal,
+            },
+          ),
+        abortSignal,
       );
     } catch (error) {
       if (error?.text === "SESSION_PASSWORD_NEEDED") {
+        passwordRequired = true;
         state({ stage: "password" });
         return false;
       }
-      throw error;
+      if (error?.text === "PHONE_CODE_EXPIRED") phoneAttempt = null;
+      throw sanitizePhoneAuthError(error);
     }
+    passwordRequired = false;
+    phoneAttempt = null;
     return true;
   }
-  async function password(value) {
-    await runAuth((current) => current.checkPassword(value));
+  async function password(value, abortSignal) {
+    await runAuth(
+      (current, signal) =>
+        submitPhonePassword(current, value, { abortSignal: signal }),
+      abortSignal,
+    );
     passwordRequired = false;
+    phoneAttempt = null;
   }
   return {
     restore,
@@ -312,6 +463,9 @@ export function createConnection({
     logout,
     cancel,
     phoneCode,
+    resumePhoneAuth,
+    discardPhoneAuth,
+    resendPhoneCode,
     signIn,
     password,
     getClient,
