@@ -566,3 +566,25 @@ test("game 5xx are temporary outages rather than rejected Telegram credentials",
     assert.equal(calls, 1);
   }
 });
+
+test("temporary account-session verification outage remains a 502", async () => {
+  const api = createConnectorApi({
+    appParams: async () => ({}),
+    wikiOrigins: [],
+    accountSessions: async () => {
+      throw new Error("game_unavailable");
+    },
+  });
+  const response = await api(
+    new Request("https://connect.example/api/account-session", {
+      method: "POST",
+      headers: {
+        Origin: "https://connect.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action: "save" }),
+    }),
+  );
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: "game_unavailable" });
+});

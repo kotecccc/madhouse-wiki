@@ -32,9 +32,10 @@ const jwt = () =>
     ),
     "game-signature",
   ].join(".");
-function setup() {
+function setup({ profileStatuses = [] } = {}) {
   const records = new Map();
   let serial = 0;
+  let profileCalls = 0;
   let clock = now,
     gameId = 42,
     accepted = true;
@@ -54,7 +55,9 @@ function setup() {
     verificationKey,
     encryptionKey,
     now: () => clock,
+    pause: async () => {},
     fetcher: async (url, opts) => {
+      profileCalls++;
       assert.equal(url, "https://cargohustle.online/api/me");
       assert.equal(opts.headers.Authorization, "Bearer " + jwt());
       assert.equal(opts.redirect, "error");
@@ -63,7 +66,7 @@ function setup() {
           telegramId: gameId,
           privateProfile: "never-store-this",
         }),
-        { status: accepted ? 200 : 401 },
+        { status: profileStatuses.shift() ?? (accepted ? 200 : 401) },
       );
     },
   });
@@ -77,6 +80,7 @@ function setup() {
     setTime: (t) => (clock = t),
     setGameId: (id) => (gameId = id),
     rejectGame: () => (accepted = false),
+    profileCalls: () => profileCalls,
   };
 }
 test("signed Wiki identity rejects tampering, duplicate keys, wrong bot key and stale/future launches", async () => {
@@ -191,4 +195,35 @@ test("short launch bootstrap exchanges for a bounded encrypted connector proof, 
     s.api({ action: "restore", wikiProof: initial.wikiProof }),
     /invalid_wiki_identity/,
   );
+});
+
+test("temporary profile verification failure recovers without weakening account matching", async () => {
+  const s = setup({ profileStatuses: [500, 200] });
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  assert.equal(s.profileCalls(), 2);
+  assert.equal((await s.call("restore")).accessToken, jwt());
+
+  const wrong = setup({ profileStatuses: [500, 200] });
+  const pending = await wrong.call("restore");
+  wrong.setGameId(99);
+  await assert.rejects(
+    wrong.call("save", { ticket: pending.ticket, accessToken: jwt() }),
+    /game_account_mismatch/,
+  );
+  assert.equal(wrong.profileCalls(), 2);
+  assert.equal((await wrong.call("restore")).status, "login-required");
+});
+
+test("profile verification retries are bounded and never retry rejected credentials", async () => {
+  for (const status of [401, 403, 429, 500, 502, 503, 504]) {
+    const s = setup({ profileStatuses: [status, status, status] });
+    const start = await s.call("restore");
+    await assert.rejects(
+      s.call("save", { ticket: start.ticket, accessToken: jwt() }),
+      status >= 500 ? /game_unavailable/ : /invalid_game_session/,
+    );
+    assert.equal(s.profileCalls(), status >= 500 ? 3 : 1);
+    assert.equal((await s.call("restore")).status, "login-required");
+  }
 });
