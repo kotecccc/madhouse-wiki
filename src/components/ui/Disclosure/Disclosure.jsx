@@ -10,6 +10,10 @@ export function Disclosure({
   count,
   countLabel,
   description,
+  titleSize,
+  descriptionSize,
+  leading,
+  status,
   defaultOpen = false,
   children,
 }) {
@@ -21,11 +25,40 @@ export function Disclosure({
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className="ui-disclosure-summary">
-        <CardTitle as="span">{title}</CardTitle>
-        <CardDescription title={countLabel} aria-label={countLabel}>
-          {count ?? description}
-        </CardDescription>
+      <summary
+        className={`ui-disclosure-summary${leading ? " ui-disclosure-summary--leading" : ""}${status ? " ui-disclosure-summary--status" : ""}`}
+      >
+        {leading}
+        {leading || status ? (
+          <span className="ui-disclosure-copy">
+            <CardTitle as="span" size={titleSize}>
+              {title}
+            </CardTitle>
+            {(count != null || description) && (
+              <CardDescription
+                size={descriptionSize}
+                title={countLabel}
+                aria-label={countLabel}
+              >
+                {count ?? description}
+              </CardDescription>
+            )}
+          </span>
+        ) : (
+          <>
+            <CardTitle as="span" size={titleSize}>
+              {title}
+            </CardTitle>
+            <CardDescription
+              size={descriptionSize}
+              title={countLabel}
+              aria-label={countLabel}
+            >
+              {count ?? description}
+            </CardDescription>
+          </>
+        )}
+        {status}
         <span className="ui-disclosure-chevron">
           <Icon type="chevron" size="medium" />
         </span>

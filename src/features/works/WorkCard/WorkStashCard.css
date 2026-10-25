@@ -1,15 +1,12 @@
-.work-stash-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-}
 .work-stash-items {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: space-between;
   gap: var(--space-16);
+  overflow-x: auto;
 }
 .work-stash-item {
+  flex: 1 0 var(--space-48);
   display: flex;
   flex-direction: column;
   align-items: center;

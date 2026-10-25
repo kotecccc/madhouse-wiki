@@ -52,10 +52,6 @@
   }
 
   @supports selector(::-webkit-scrollbar) {
-    .app-scroll-region {
-      scrollbar-width: auto;
-    }
-
     .app-scroll-region::-webkit-scrollbar-track {
       margin-bottom: calc(
         var(--space-64) + var(--space-16) + env(safe-area-inset-bottom, 0px)

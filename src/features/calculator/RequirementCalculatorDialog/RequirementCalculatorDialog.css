@@ -8,12 +8,6 @@
   margin-top: var(--space-8);
 }
 
-.requirement-calculator-mode {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-8);
-}
-
 .requirement-calculator-energy-summary {
   display: grid;
   gap: var(--space-12);
@@ -58,7 +52,7 @@
 .requirement-calculator-option {
   position: relative;
   display: grid;
-  gap: var(--space-8);
+  gap: var(--card-padding);
   margin: 0;
 }
 

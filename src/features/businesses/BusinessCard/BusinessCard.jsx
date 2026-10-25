@@ -13,7 +13,11 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
-import { businessIncomeField } from "../state/business-state.js";
+import {
+  businessIncomeField,
+  normalizeBusinessState,
+} from "../state/business-state.js";
+import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 
 export function BusinessCard({
   business,
@@ -24,8 +28,16 @@ export function BusinessCard({
   goalAction,
   department,
   locked = false,
+  businessState: listedState,
+  businessStateProvided = false,
 }) {
-  const current = useBusinessState(business, !locked);
+  const detailState = useBusinessState(
+    business,
+    !locked && !businessStateProvided,
+  );
+  const current = businessStateProvided
+    ? normalizeBusinessState(listedState, business)
+    : detailState;
   const incomeField = businessIncomeField(current?.income ?? []);
   const levelText =
     current?.level != null
@@ -81,15 +93,19 @@ export function BusinessCard({
             >
               {[department?.code, business.title].filter(Boolean).join(" • ")}
             </CardTitle>
-            {!locked && current?.level != null && (
-              <Pill
-                variant="scheduled"
-                size="xs"
-                dot={false}
-                aria-label={levelText}
-              >
-                Ур. {fmt(current.level)}
-              </Pill>
+            {locked ? (
+              <LockIndicator variant="locked" label="Бизнес недоступен" />
+            ) : (
+              current?.level != null && (
+                <Pill
+                  variant="scheduled"
+                  size="xs"
+                  dot={false}
+                  aria-label={levelText}
+                >
+                  Ур. {fmt(current.level)}
+                </Pill>
+              )
             )}
           </div>
           <CardDescription

@@ -121,7 +121,8 @@ export function WorkFarmDialog({
     active && energyOnly
       ? Math.max(0, (run.energyBudget ?? 0) - (run.energySpent ?? 0))
       : (knownEnergy?.current ?? null);
-  const serviceUnavailable = Boolean(state.error || (!view && state.notice));
+  const refreshIssue = state.error || (!view ? state.notice : null);
+  const serviceUnavailable = Boolean(refreshIssue);
   const [retryNow, setRetryNow] = useState(Date.now);
   const [retryStartedAt, setRetryStartedAt] = useState(() =>
     readRetryStartedAt(WORK_RETRY_KEY),
@@ -177,7 +178,7 @@ export function WorkFarmDialog({
         : Math.max(completed + 1, requested || completed + 1);
   const refreshed = useRef(null);
   useEffect(() => {
-    if (!state.loaded) {
+    if (!state.loaded || state.error) {
       refreshed.current = null;
       return;
     }
@@ -196,6 +197,7 @@ export function WorkFarmDialog({
     workId,
     view,
     state.loaded,
+    state.error,
     state.pending,
     running,
     retryUntil,
@@ -398,7 +400,8 @@ export function WorkFarmDialog({
       boostersLoading={!view && !state.error && !state.notice}
       conditionDialog={condition}
       title={`Работа · ${work.title || work.name || "Работёнка"}`}
-      footerStart={
+      footerStart={<Button onClick={onClose}>Закрыть</Button>}
+      footer={
         running ? (
           <Button onClick={() => void farmStore.stop()}>Остановить</Button>
         ) : serviceUnavailable ? (
@@ -414,6 +417,7 @@ export function WorkFarmDialog({
           </Button>
         ) : (
           <Button
+            variant="primary"
             disabled={
               !ready ||
               (!energyOnly &&
@@ -442,8 +446,8 @@ export function WorkFarmDialog({
       waitOptionTitle={energyOnly ? "Потратить доступную энергию" : undefined}
       footerNote={
         serviceUnavailable ? (
-          <Pill variant="locked" size="xs" title="Сервис работы недоступен">
-            Сервис недоступен
+          <Pill variant="warning" size="xs" title={refreshIssue}>
+            Не удалось обновить работу
           </Pill>
         ) : view?.boostersStatus === "error" ? (
           <Pill variant="warning" size="xs">
@@ -481,6 +485,11 @@ export function WorkFarmDialog({
       intro={
         <>
           <WorkStashCard work={work} stash={view?.stash} />
+          {refreshIssue && (
+            <BaseCard role="alert">
+              <CardDescription>{refreshIssue}</CardDescription>
+            </BaseCard>
+          )}
           {goalTargets.map((item) => {
             const goalTotal = Number.isSafeInteger(item.required)
               ? item.required
@@ -512,11 +521,6 @@ export function WorkFarmDialog({
               </BaseCard>
             );
           })}
-          {view && !goalTargets.length && (
-            <CardDescription>
-              Выполнено: {fmt(completed)} · осталось: {fmt(remaining)}
-            </CardDescription>
-          )}
           {launchError && (
             <BaseCard role="alert">
               <CardDescription title={launchError}>

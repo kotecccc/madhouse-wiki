@@ -216,6 +216,7 @@ test("server snapshot outages are reported once without retrying a handled read"
     lastSuccessAt: null,
     failedFeatures: [],
     successfulFeatures: [],
+    featureCheckedAt: {},
   });
   api.clear();
   assert.equal(readGameHealth().status, "unknown");
@@ -418,12 +419,18 @@ test("observed game errors accept only safe function names and clear on recovery
             "weapons,businesses,weapons,/api/private/123,raw-error",
           "X-Madhouse-Successful-Features":
             "profile,weapons,rooms,/api/private/123",
+          "X-Madhouse-Feature-Checked-At":
+            '{"profile":1000,"weapons":900,"api/private/123":999,"rooms":"invalid"}',
         },
       },
     ),
   );
   assert.deepEqual(readGameHealth().failedFeatures, ["weapons", "businesses"]);
   assert.deepEqual(readGameHealth().successfulFeatures, ["profile", "rooms"]);
+  assert.deepEqual(readGameHealth().featureCheckedAt, {
+    profile: 1000,
+    weapons: 900,
+  });
   observeGameResponse(
     Response.json({}, { headers: { "X-Madhouse-Game-Status": "available" } }),
   );

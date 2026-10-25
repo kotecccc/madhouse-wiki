@@ -31,6 +31,7 @@ export function FloorGroup({
   focusedDepartmentId,
   registerDepartment,
   departmentAvailability,
+  businessStates,
 }) {
   const works = floor.departmentIds
     .map((id) => departmentById[id])
@@ -50,6 +51,7 @@ export function FloorGroup({
               playerLevel={playerLevel}
               collectionState={collectionState}
               available={departmentAvailability?.[department.code]}
+              businessStates={businessStates}
               targets={targets.filter(
                 (target) => target.departmentId === department.id,
               )}

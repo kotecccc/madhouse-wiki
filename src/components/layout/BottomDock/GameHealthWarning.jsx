@@ -126,6 +126,12 @@ export function GameHealthIndicator({ checking }) {
   );
 }
 
+export function healthRefreshLabel(seconds, checking) {
+  if (seconds > 0)
+    return `Обновить ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return checking ? "Проверяем…" : "Обновить";
+}
+
 export function GameHealthWarning() {
   const refreshing = useSyncExternalStore(
     subscribeSessionData,
@@ -146,7 +152,7 @@ export function GameHealthWarning() {
   useEffect(() => {
     if (!open) return;
     const updateCountdown = () =>
-      setRemainingSeconds(retrySeconds(refreshUntil.current));
+      setRemainingSeconds(Math.min(59, retrySeconds(refreshUntil.current)));
     updateCountdown();
     const timer = window.setInterval(updateCountdown, 1000);
     return () => window.clearInterval(timer);
@@ -157,7 +163,7 @@ export function GameHealthWarning() {
     const startedAt = Date.now();
     refreshUntil.current = startedAt + 60000;
     writeRetryStartedAt(HEALTH_RETRY_KEY, startedAt);
-    setRemainingSeconds(60);
+    setRemainingSeconds(59);
     setManualChecking(true);
     try {
       await getSessionJson("/api/me", { fresh: true, serverRefresh: true });
@@ -215,11 +221,7 @@ export function GameHealthWarning() {
               disabled={manualChecking || remainingSeconds > 0}
               aria-busy={manualChecking}
             >
-              {manualChecking
-                ? "Проверяем…"
-                : remainingSeconds > 0
-                  ? `Обновить ${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`
-                  : "Обновить"}
+              {healthRefreshLabel(remainingSeconds, manualChecking)}
             </Button>
           }
           footerNote={

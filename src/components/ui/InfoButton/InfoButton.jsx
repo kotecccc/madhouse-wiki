@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Button } from "../Button/Button.jsx";
 import { Icon } from "../Icon/Icon.jsx";
 import { Popover } from "../Popover/Popover.jsx";
-import { StatusMessage } from "../StatusMessage/StatusMessage.jsx";
+import { CardTitle } from "../CardTitle/CardTitle.jsx";
+import "./InfoButton.css";
 
 export function InfoButton({ label, description }) {
   const [anchor, setAnchor] = useState(null);
@@ -26,12 +27,10 @@ export function InfoButton({ label, description }) {
       </Button>
       {anchor && (
         <Popover anchor={anchor} label={label} onClose={() => setAnchor(null)}>
-          <StatusMessage
-            icon="info"
-            title={label}
-            description={description}
-            compact
-          />
+          <div className="ui-info-content">
+            <CardTitle size="sm">{label}</CardTitle>
+            <p className="ui-info-description">{description}</p>
+          </div>
         </Popover>
       )}
     </>

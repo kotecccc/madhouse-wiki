@@ -316,7 +316,7 @@ test("409 snapshot is adopted, and polling errors retain the last known server s
   assert.equal(h.bossBattle.getSnapshot().battle.id, "new");
   assert.equal(h.bossBattle.getSnapshot().needsRefresh, true);
   assert.equal(h.bossBattle.getSnapshot().errorStatus, 503);
-  assert.equal([...h.tasks.values()][0].delay, 180000);
+  assert.equal([...h.tasks.values()][0].delay, 5000);
 });
 
 test("disconnect invalidates stale replies, cancels polling, and does not stop persisted server state", async () => {
@@ -548,4 +548,43 @@ test("hidden clients stop state polling and resume once when visible", async () 
   remote.disconnect();
   assert.equal(tasks.size, 0);
   assert.equal(onChange, null);
+});
+
+test("a failed boss command does not mark work or businesses unavailable", async () => {
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      throw new Error("Boss action failed");
+    },
+  });
+  await h.connect();
+  await h.workFarm.refresh(7);
+  assert.equal(h.workFarm.getSnapshot().error, "Boss action failed");
+  assert.equal(h.businessAssistant.getSnapshot().error, null);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.workFarm.getSnapshot().error, null);
+  await h.bossBattle.refresh();
+  assert.equal(h.workFarm.getSnapshot().error, null);
+  assert.equal(h.businessAssistant.getSnapshot().error, null);
+  h.disconnect();
+});
+
+test("idle state connection errors retry promptly and clear after recovery", async () => {
+  let fail = true;
+  const h = harness({
+    request: async () => {
+      if (fail) throw new Error("Offline");
+      return initialState();
+    },
+  });
+  await h.connect();
+  assert.equal(h.workFarm.getSnapshot().error, "Offline");
+  assert.equal([...h.tasks.values()][0].delay, 5000);
+  fail = false;
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.workFarm.getSnapshot().error, null);
+  assert.equal([...h.tasks.values()][0].delay, 180000);
+  h.disconnect();
 });

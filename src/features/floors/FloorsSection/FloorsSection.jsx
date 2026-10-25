@@ -14,8 +14,10 @@ import { FloorGroup } from "../FloorGroup/FloorGroup.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Title } from "../../../components/ui/Title/Title.jsx";
 import { Divider } from "../../../components/ui/Divider/Divider.jsx";
+import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { LockIndicator } from "../LockIndicator/LockIndicator.jsx";
 import { useDepartmentAvailability } from "../useDepartmentAvailability.js";
+import { useFloorBusinessStates } from "../../businesses/state/useFloorBusinessStates.js";
 import {
   readSession,
   subscribeSession,
@@ -75,6 +77,13 @@ export function FloorsSection({
     status,
     availability[lastAvailableFloorCode],
     true,
+  );
+  const businessStates = useFloorBusinessStates(
+    selectedFloor?.code,
+    isAuthenticated &&
+      category === "businesses" &&
+      status === "ready" &&
+      availability[selectedFloor?.code] === true,
   );
   useEffect(() => {
     if (departmentState.status === "ready")
@@ -169,6 +178,7 @@ export function FloorsSection({
       targets={targets}
       floorAvailable={status === "ready" ? availability[floor.code] : undefined}
       departmentAvailability={departmentAvailability}
+      businessStates={businessStates ?? {}}
       viewMode="floors"
       onCalculator={onCalculator}
       onUpgradeSelect={onUpgradeSelect}
@@ -271,49 +281,45 @@ export function FloorsSection({
         )}
       </div>
 
-      <div
-        className="floor-category-selector"
-        role="group"
-        aria-label="Категория этажа"
-      >
-        {[
+      <SegmentedControl
+        label="Категория этажа"
+        size="lg"
+        value={category}
+        onChange={setCategory}
+        options={[
           ["work", "Работа"],
           ["bosses", "Боссы"],
           ["businesses", "Бизнесы"],
         ].map(([value, label]) => {
           const isTarget = targets.some((target) => target.category === value);
           if (departmentsLoading)
-            return (
-              <Skeleton
-                key={value}
-                variant="control"
-                className="floor-category-button"
-              />
-            );
-          return (
-            <Button
-              key={value}
-              variant="secondary"
-              size="lg"
-              className="floor-category-button"
-              aria-pressed={category === value}
-              aria-label={`${label}${isTarget ? " — есть задача для открытия" : ""}`}
-              onClick={() => setCategory(value)}
-            >
-              <span>{label}</span>
-              {isTarget && (
-                <span
-                  className="floor-category-target"
-                  role="img"
-                  aria-label="Задача для открытия"
-                >
-                  <Icon type="star" size="medium" />
-                </span>
-              )}
-            </Button>
-          );
+            return {
+              value,
+              ariaLabel: label,
+              label: null,
+              loading: true,
+              disabled: true,
+            };
+          return {
+            value,
+            ariaLabel: `${label}${isTarget ? " — есть задача для открытия" : ""}`,
+            label: (
+              <span className="floor-category-label">
+                <span>{label}</span>
+                {isTarget && (
+                  <span
+                    className="floor-category-target"
+                    role="img"
+                    aria-label="Задача для открытия"
+                  >
+                    <Icon type="star" size="medium" />
+                  </span>
+                )}
+              </span>
+            ),
+          };
         })}
-      </div>
+      />
       {departmentState.status === "loading" && (
         <p className="department-access-status sr-only" role="status">
           Загружаем доступность отделений…

@@ -1,4 +1,5 @@
 import {
+  GAME_HEALTH_FEATURES,
   safeFailedFeatures,
   safeSuccessfulFeatures,
 } from "./game-health-features.js";
@@ -7,7 +8,19 @@ let gameHealth = {
   lastSuccessAt: null,
   failedFeatures: [],
   successfulFeatures: [],
+  featureCheckedAt: {},
 };
+function safeFeatureCheckedAt(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    GAME_HEALTH_FEATURES.flatMap((feature) => {
+      const timestamp = Number(value[feature]);
+      return Number.isFinite(timestamp) && timestamp > 0
+        ? [[feature, timestamp]]
+        : [];
+    }),
+  );
+}
 export function readGameHealth() {
   return gameHealth;
 }
@@ -31,6 +44,7 @@ export function reportGameHealth(value) {
       value.successfulFeatures,
       failedFeatures,
     ),
+    featureCheckedAt: safeFeatureCheckedAt(value.featureCheckedAt),
   };
   if (JSON.stringify(next) === JSON.stringify(gameHealth)) return;
   gameHealth = next;
@@ -51,6 +65,15 @@ export function observeGameResponse(response) {
       successfulFeatures: response.headers
         .get("X-Madhouse-Successful-Features")
         ?.split(","),
+      featureCheckedAt: (() => {
+        try {
+          return JSON.parse(
+            response.headers.get("X-Madhouse-Feature-Checked-At") || "{}",
+          );
+        } catch {
+          return {};
+        }
+      })(),
     });
 }
 

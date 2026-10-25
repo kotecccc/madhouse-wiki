@@ -249,6 +249,140 @@ test("manual profile refresh bypasses TTL once per minute and persists its limit
   assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
 });
 
+test("manual health refresh retries only failed snapshot APIs and returns final health", async () => {
+  let now = 200_000;
+  const store = memoryStore();
+  const initial = createAccountSnapshots({
+    store,
+    now: () => now,
+    fetcher: queueFetcher([
+      reply({ playerId: 82, name: "player" }),
+      reply({ weapon: 7 }, 500),
+      reply({ tattoo: 2 }, 502),
+    ]).fetcher,
+  });
+  const headers = auth("health-refresh-user");
+  await initial.read(`${origin}/api/me`, headers);
+  await initial.read(`${origin}/api/weapons/7`, headers);
+  assert.equal(
+    initial.health("Bearer health-refresh-user").featureCheckedAt.weapons,
+    now,
+  );
+  now += 30_001;
+  await initial.read(`${origin}/api/ornaments/zones/2`, headers);
+
+  now += 1;
+  const retry = queueFetcher([
+    (url, init) => {
+      assert.equal(new URL(url).pathname, "/api/weapons/7");
+      assert.equal(init.method, "GET");
+      return reply({ weapon: 7 });
+    },
+    (url, init) => {
+      assert.equal(new URL(url).pathname, "/api/ornaments/zones/2");
+      assert.equal(init.method, "GET");
+      return reply({ error: "still unavailable" }, 503);
+    },
+  ]);
+  const snapshots = createAccountSnapshots({
+    store,
+    now: () => now,
+    fetcher: retry.fetcher,
+  });
+  const response = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer health-refresh-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.deepEqual(
+    retry.calls.map(({ url }) => new URL(url).pathname),
+    ["/api/weapons/7", "/api/ornaments/zones/2"],
+  );
+  assert.equal(response.headers.get("X-Madhouse-Game-Status"), "unavailable");
+  assert.equal(response.headers.get("X-Madhouse-Failed-Features"), "ornaments");
+  assert.equal(store.readSnapshots()[0].manualHealthRefreshAt, now);
+  assert.equal(
+    snapshots.health("Bearer health-refresh-user").featureCheckedAt.weapons,
+    now,
+  );
+  assert.equal(
+    snapshots.health("Bearer health-refresh-user").featureCheckedAt.ornaments,
+    now,
+  );
+
+  now += 1;
+  const limited = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer health-refresh-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(retry.calls.length, 2);
+  now += 60_000;
+  const recovered = queueFetcher([reply({ tattoo: 2 })]);
+  const restarted = createAccountSnapshots({
+    store,
+    now: () => now,
+    fetcher: recovered.fetcher,
+  });
+  const healthy = await restarted.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer health-refresh-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.deepEqual(
+    recovered.calls.map(({ url }) => new URL(url).pathname),
+    ["/api/ornaments/zones/2"],
+  );
+  assert.equal(healthy.headers.get("X-Madhouse-Game-Status"), "available");
+  assert.equal(healthy.headers.get("X-Madhouse-Failed-Features"), "");
+});
+
+test("manual health refresh stops when a failed endpoint invalidates credentials", async () => {
+  let now = 300_000;
+  const store = memoryStore();
+  const initial = createAccountSnapshots({
+    store,
+    now: () => now,
+    fetcher: queueFetcher([
+      reply({ playerId: 83, name: "player" }),
+      reply({ error: "offline" }, 500),
+      reply({ error: "offline" }, 500),
+    ]).fetcher,
+  });
+  const headers = auth("health-refresh-revoked-user");
+  await initial.read(`${origin}/api/me`, headers);
+  await initial.read(`${origin}/api/weapons/8`, headers);
+  now += 30_001;
+  await initial.read(`${origin}/api/ornaments/zones/3`, headers);
+
+  const retry = queueFetcher([
+    (url) => {
+      assert.equal(new URL(url).pathname, "/api/weapons/8");
+      return reply({ error: "invalid" }, 401);
+    },
+  ]);
+  const snapshots = createAccountSnapshots({
+    store,
+    now: () => now + 30_001,
+    fetcher: retry.fetcher,
+  });
+  const response = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer health-refresh-revoked-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(
+    retry.calls.map(({ url }) => new URL(url).pathname),
+    ["/api/weapons/8"],
+  );
+});
+
 test("manual profile refresh bypasses outage cooldown but is limited after failure", async () => {
   let now = 200_000;
   const store = memoryStore();

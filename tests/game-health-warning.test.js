@@ -21,6 +21,7 @@ test("game health warning keeps error details unmounted until requested", async 
       GameHealthWarning,
       GameHealthDetails,
       GameHealthIndicator,
+      healthRefreshLabel,
       formatLastSuccess,
     } = await server.ssrLoadModule(
       "/src/components/layout/BottomDock/GameHealthWarning.jsx",
@@ -35,6 +36,9 @@ test("game health warning keeps error details unmounted until requested", async 
     );
     assert.match(warningIcon, /ui-icon--pulse/);
     assert.doesNotMatch(warningIcon, /ui-icon--spin/);
+    assert.equal(healthRefreshLabel(59, true), "Обновить 0:59");
+    assert.equal(healthRefreshLabel(0, true), "Проверяем…");
+    assert.equal(healthRefreshLabel(0, false), "Обновить");
     for (const status of ["unavailable", "credentials_invalid"]) {
       reportGameHealth({ status });
       const html = renderToStaticMarkup(createElement(GameHealthWarning));
@@ -74,6 +78,10 @@ test("game health warning keeps error details unmounted until requested", async 
           status: "unavailable",
           failedFeatures: ["profile", "inventory", "profile", "secret-path"],
           successfulFeatures: ["clothing", "profile"],
+          featureCheckedAt: {
+            profile: new Date(2026, 9, 25, 17, 53).getTime(),
+            inventory: new Date(2026, 9, 25, 17, 51).getTime(),
+          },
         },
       }),
     );
@@ -81,12 +89,15 @@ test("game health warning keeps error details unmounted until requested", async 
     assert.match(failures, /base-card ui-status-list-card/);
     assert.match(failures, /Профиль/);
     assert.match(failures, /Инвентарь/);
-    assert.match(failures, /ui-status-list-label">Гардероб/);
+    assert.match(failures, />Гардероб<\/span>/);
     assert.match(failures, /ui-status-list-status">Работает/);
-    assert.match(failures, /ui-status-list-label">Оружие/);
+    assert.match(failures, />Оружие<\/span>/);
     assert.match(failures, /ui-status-list-status">Не проверено/);
-    assert.match(failures, /ui-status-list-label">Профиль/);
+    assert.match(failures, />Профиль<\/span>/);
+    assert.doesNotMatch(failures, /ui-status-list--dated/);
+    assert.doesNotMatch(failures, /ui-status-list-meta/);
     assert.match(failures, /ui-status-list-status">Ошибка/);
+    assert.doesNotMatch(failures, /25\.10\.2026|<time\b/);
     assert.match(failures, /ui-status-list-dot--success/);
     assert.match(failures, /ui-status-list-dot--error/);
     assert.match(failures, /ui-status-list-dot--unknown/);

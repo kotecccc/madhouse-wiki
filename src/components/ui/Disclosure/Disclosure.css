@@ -8,6 +8,24 @@
   cursor: pointer;
 }
 
+.ui-disclosure-summary--leading {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.ui-disclosure-summary--status {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.ui-disclosure-summary--leading.ui-disclosure-summary--status {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.ui-disclosure-copy {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-4);
+}
+
 .ui-disclosure-summary::-webkit-details-marker {
   display: none;
 }

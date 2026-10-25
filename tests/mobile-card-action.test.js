@@ -22,6 +22,37 @@ test("mobile card activation handles keyboard and ignores nested controls and di
     });
     const card = {};
     const text = { closest: () => card };
+    let mouseDownPrevented = 0;
+    props.onMouseDown({
+      button: 0,
+      target: text,
+      currentTarget: card,
+      preventDefault: () => mouseDownPrevented++,
+    });
+    assert.equal(mouseDownPrevented, 1);
+    props.onMouseDown({
+      button: 2,
+      target: text,
+      currentTarget: card,
+      preventDefault: () => mouseDownPrevented++,
+    });
+    assert.equal(mouseDownPrevented, 1);
+    props.onMouseDown({
+      button: 0,
+      target: text,
+      currentTarget: card,
+      defaultPrevented: true,
+      preventDefault: () => mouseDownPrevented++,
+    });
+    assert.equal(mouseDownPrevented, 1);
+    const nestedElement = { closest: () => ({}) };
+    props.onMouseDown({
+      button: 0,
+      target: nestedElement,
+      currentTarget: card,
+      preventDefault: () => mouseDownPrevented++,
+    });
+    assert.equal(mouseDownPrevented, 1);
     props.onClick({ target: text, currentTarget: card });
     assert.equal(opened, 1);
     const nested = { closest: () => ({}) };

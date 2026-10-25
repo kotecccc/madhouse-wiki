@@ -7,6 +7,7 @@ import "./DepartmentBossCard.css";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { BossCardVariant } from "../BossCard/BossCardVariant.jsx";
 import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
+import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 
 export function DepartmentBossCard({
   boss,
@@ -43,9 +44,11 @@ export function DepartmentBossCard({
           : {})}
         showBattleAction={!locked}
         mobileBattleAction
-        mobileBattleStatus
+        mobileBattleStatus={!locked}
         collectionIndicator={
-          !locked ? (
+          locked ? (
+            <LockIndicator variant="locked" label="Босс недоступен" />
+          ) : (
             <>
               {targeted && remainingWins > 0 && (
                 <Pill
@@ -63,7 +66,7 @@ export function DepartmentBossCard({
                 <BossCollectionStatus boss={boss} state={collectionState} />
               )}
             </>
-          ) : null
+          )
         }
         as="li"
         variant="floor-data"

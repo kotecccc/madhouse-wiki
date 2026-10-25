@@ -133,20 +133,12 @@
   }
 }
 
-.floor-category-selector {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--layout-gap-item);
-}
-
-.floor-category-button {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .floor-category-target {
-  position: absolute;
-  right: var(--space-12);
   display: inline-flex;
+}
+
+.floor-category-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
 }

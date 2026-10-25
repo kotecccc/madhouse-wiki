@@ -205,6 +205,7 @@ export function createProductionApi(operations, fetcher = fetch) {
         "X-Madhouse-Game-Status",
         "X-Madhouse-Failed-Features",
         "X-Madhouse-Successful-Features",
+        "X-Madhouse-Feature-Checked-At",
         "X-Madhouse-Last-Success",
         "X-Madhouse-Section-Updated",
         "X-Madhouse-Snapshot",

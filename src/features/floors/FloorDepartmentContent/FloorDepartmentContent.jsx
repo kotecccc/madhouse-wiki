@@ -19,6 +19,7 @@ export function FloorDepartmentContent({
   playerLevel,
   collectionState,
   available,
+  businessStates,
   targets = [],
   onUpgradeSelect,
 }) {
@@ -78,6 +79,8 @@ export function FloorDepartmentContent({
         business={business}
         department={department}
         locked={locked}
+        businessState={businessStates?.[Number(business.apiId)]}
+        businessStateProvided={businessStates !== undefined}
         upgrade={upgrades.find((upgrade) => upgrade.businessId === business.id)}
         onUpgradeSelect={onUpgradeSelect}
         {...targetProps(business.id)}

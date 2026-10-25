@@ -58,6 +58,30 @@ function departmentDetails(response) {
     }));
 }
 
+export function businessStatesFromFloorInfo(body) {
+  return Object.fromEntries(
+    (Array.isArray(body?.businesses) ? body.businesses : [])
+      .filter(
+        (business) => Number.isSafeInteger(business?.id) && business.id > 0,
+      )
+      .map((business) => [
+        business.id,
+        {
+          id: business.id,
+          ...(Number.isSafeInteger(business.level) && business.level >= 0
+            ? { level: business.level }
+            : {}),
+          ...(business.currentIncome !== undefined
+            ? { currentIncome: business.currentIncome }
+            : {}),
+          ...(typeof business.currency === "string"
+            ? { currency: business.currency }
+            : {}),
+        },
+      ]),
+  );
+}
+
 function departmentResult(code, body) {
   return {
     code,
@@ -70,6 +94,7 @@ function departmentResult(code, body) {
           Number.isFinite(business?.id) && Number.isFinite(business?.level),
       )
       .map(({ id, level }) => ({ id, level })),
+    businessStates: businessStatesFromFloorInfo(body),
   };
 }
 

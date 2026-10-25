@@ -137,6 +137,35 @@
     display: grid;
   }
 
+  /* Keep the surface edge-to-edge, with all three rows inside the safe area.
+     Device and Telegram insets describe overlapping exclusions: use the largest
+     rather than adding them. Reserve a kit spacing step at the bottom even when
+     a host reports no inset for its rounded sheet corners. */
+  .shared-modal.ui-dialog {
+    box-sizing: border-box;
+    padding-top: max(
+      env(safe-area-inset-top, 0px),
+      var(--tg-safe-area-inset-top, 0px),
+      var(--tg-content-safe-area-inset-top, 0px)
+    );
+    padding-right: max(
+      env(safe-area-inset-right, 0px),
+      var(--tg-safe-area-inset-right, 0px),
+      var(--tg-content-safe-area-inset-right, 0px)
+    );
+    padding-bottom: max(
+      var(--space-16),
+      env(safe-area-inset-bottom, 0px),
+      var(--tg-safe-area-inset-bottom, 0px),
+      var(--tg-content-safe-area-inset-bottom, 0px)
+    );
+    padding-left: max(
+      env(safe-area-inset-left, 0px),
+      var(--tg-safe-area-inset-left, 0px),
+      var(--tg-content-safe-area-inset-left, 0px)
+    );
+  }
+
   .shared-modal-mobile-footer {
     display: flex;
   }

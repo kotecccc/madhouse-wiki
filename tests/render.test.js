@@ -105,6 +105,20 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
   });
   try {
     const load = (path) => server.ssrLoadModule(`/src/${path}`);
+    const { businessStatesFromFloorInfo } = await load(
+      "features/floors/useDepartmentAvailability.js",
+    );
+    const listedBusinessStates = businessStatesFromFloorInfo({
+      businesses: [
+        { id: 21, level: 0, currentIncome: { gold: 5 } },
+        { id: 22, level: 3, currentIncome: 7, currency: "pills" },
+        { id: "invalid", level: 1 },
+      ],
+    });
+    assert.deepEqual(listedBusinessStates, {
+      21: { id: 21, level: 0, currentIncome: { gold: 5 } },
+      22: { id: 22, level: 3, currentIncome: 7, currency: "pills" },
+    });
     const { WorkStashCard } = await load(
       "features/works/WorkCard/WorkStashCard.jsx",
     );
@@ -129,10 +143,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         },
       }),
     );
-    assert.equal((stashHtml.match(/role="listitem"/g) || []).length, 2);
-    assert.ok(stashHtml.includes("Покупка не разблокирована"));
-    assert.ok(stashHtml.includes("в инвентаре 0"));
-    assert.ok(stashHtml.includes("в инвентаре неизвестно"));
+    assert.equal((stashHtml.match(/role="listitem"/g) || []).length, 0);
+    assert.ok(stashHtml.includes("ui-disclosure-summary"));
+    assert.ok(stashHtml.includes("— / 2"));
     const guestStashHtml = renderToStaticMarkup(
       createElement(WorkStashCard, { work: stashWork }),
     );
@@ -369,6 +382,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!businessMarkup.includes("<details"));
     for (const [category, markup] of [
       ["work", categoryMarkup("work", [], false)],
+      ["bosses", categoryMarkup("bosses", [], false)],
       ["businesses", categoryMarkup("businesses", [], false)],
     ]) {
       assert.ok(
@@ -376,10 +390,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         `${category} cards render the shared locked state`,
       );
       assert.ok(
-        category === "work"
-          ? markup.includes('class="lock-indicator lock-indicator--locked')
-          : !markup.includes('class="lock-indicator'),
-        `${category} cards do not render a lock indicator`,
+        markup.includes('class="lock-indicator lock-indicator--locked'),
+        `${category} cards render a lock indicator where locked`,
       );
       assert.ok(
         !markup.includes(">Заблокировано<"),
@@ -504,7 +516,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!lockedTargetMarkup.includes('aria-label="Получено'));
     const lockedBossMarkup = categoryMarkup("bosses", [], false);
     assert.ok(lockedBossMarkup.includes("base-card--locked"));
-    assert.ok(!lockedBossMarkup.includes('class="lock-indicator'));
+    assert.ok(
+      lockedBossMarkup.includes('class="lock-indicator lock-indicator--locked'),
+    );
     assert.ok(!lockedBossMarkup.includes('aria-label="Бой: Тестовый босс"'));
     // The battle button itself is client-authenticated; SSR verifies its action branch.
     assert.ok(!lockedBossMarkup.includes('class="boss-card-actions"'));
@@ -594,16 +608,26 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       loaded: false,
       error: "Не удалось загрузить работу",
     });
-    assert.ok(!failedFarmMarkup.includes("Не удалось загрузить работу"));
-    assert.ok(failedFarmMarkup.includes("Сервис работы недоступен"));
+    assert.ok(failedFarmMarkup.includes("Не удалось загрузить работу"));
+    assert.ok(!failedFarmMarkup.includes("Сервис недоступен"));
     assert.match(
       failedFarmMarkup,
-      /<footer[\s\S]*Сервис работы недоступен[\s\S]*Закрыть/,
+      /<footer[\s\S]*Закрыть[\s\S]*Не удалось обновить работу[\s\S]*Обновить/,
     );
     assert.ok(failedFarmMarkup.includes("Обновить"));
     assert.ok(failedFarmMarkup.includes("shared-modal-footer--split"));
     assert.ok(!failedFarmMarkup.includes("ui-skeleton"));
     assert.ok(!failedFarmMarkup.includes("ui-border-loader"));
+    const rejectedRefreshMarkup = renderFarmState({
+      ...loadingFarmSnapshot,
+      notice: "Не удалось подтвердить прогресс работёнки.",
+    });
+    assert.ok(
+      rejectedRefreshMarkup.includes(
+        "Не удалось подтвердить прогресс работёнки.",
+      ),
+    );
+    assert.ok(!rejectedRefreshMarkup.includes("Сервис недоступен"));
     const farmSnapshot = {
       loaded: true,
       pending: true,
@@ -1115,6 +1139,14 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     );
     assert.ok(departmentBossMarkup.includes("Трофей"));
     assert.ok(!departmentBossMarkup.includes("Мутаген"));
+    const lockedDepartmentBossMarkup = renderToStaticMarkup(
+      createElement(DepartmentBossCard, { boss, locked: true }),
+    );
+    assert.match(
+      lockedDepartmentBossMarkup,
+      /class="lock-indicator lock-indicator--locked"[^>]*aria-label="Босс недоступен"/,
+    );
+    assert.ok(!lockedDepartmentBossMarkup.includes("boss-battle-status"));
     assert.ok(
       renderToStaticMarkup(
         createElement(DepartmentBossCard, {
@@ -1138,6 +1170,35 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     );
     assert.ok(noBusinessItemMarkup.includes("Добыча не указана"));
     assert.ok(!noBusinessItemMarkup.includes("Мутаген"));
+    const { BusinessCard } = await load(
+      "features/businesses/BusinessCard/BusinessCard.jsx",
+    );
+    const business = kb.businesses[0];
+    const lockedBusinessMarkup = renderToStaticMarkup(
+      createElement(BusinessCard, { business, locked: true }),
+    );
+    assert.match(
+      lockedBusinessMarkup,
+      /class="lock-indicator lock-indicator--locked"[^>]*aria-label="Бизнес недоступен"/,
+    );
+    const listedBusinessMarkup = renderToStaticMarkup(
+      createElement(BusinessCard, {
+        business,
+        businessStateProvided: true,
+        businessState: {
+          id: Number(business.apiId),
+          level: 3,
+          currentIncome: { gold: 15 },
+        },
+      }),
+    );
+    assert.ok(listedBusinessMarkup.includes("Ур. 3"));
+    assert.ok(listedBusinessMarkup.includes("15"));
+    const missingBusinessMarkup = renderToStaticMarkup(
+      createElement(BusinessCard, { business, businessStateProvided: true }),
+    );
+    assert.ok(!missingBusinessMarkup.includes("Ур. 0"));
+    assert.ok(missingBusinessMarkup.includes("Доход неизвестен"));
     for (const boss of kb.bosses)
       assert.ok(
         renderToStaticMarkup(createElement(BossCard, { boss })).includes(

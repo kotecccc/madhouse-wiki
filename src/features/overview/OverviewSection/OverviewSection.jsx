@@ -339,7 +339,7 @@ function ProfileSummary({ state }) {
             `Итого: ${fmt(value)}.`,
             display.temporary > 0
               ? `Без временных эффектов: ${fmt(display.value)}. Наборы: +${fmt(display.temporary)}.`
-              : "Значение из последнего ответа игры.",
+              : "",
             Number.isFinite(derived) ? `${fmt(derived)} ${unit}.` : "",
           ]
             .filter(Boolean)

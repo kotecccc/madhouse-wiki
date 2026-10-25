@@ -1,0 +1,62 @@
+.segmented-control {
+  display: flex;
+  min-width: 0;
+  gap: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--card-border);
+  border-radius: var(--control-radius);
+  background: var(--card-background);
+}
+
+.segmented-control-option.button {
+  min-width: 0;
+  flex: 1 1 0;
+  padding-inline: var(--space-8);
+  border-color: transparent;
+  border-radius: var(--control-radius);
+  background: transparent;
+  white-space: nowrap;
+  transform: none;
+  position: relative;
+}
+
+.segmented-control-option.button + .segmented-control-option.button::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: var(--space-16);
+  border-left: 1px solid var(--card-border);
+  content: "";
+  transform: translateY(-50%);
+}
+
+.segmented-control-option--loading {
+  animation: skeleton-pulse var(--skeleton-animation-duration) ease-in-out
+    infinite;
+}
+
+.segmented-control-option.button:hover:not(:disabled) {
+  transform: none;
+  border-color: transparent;
+}
+
+.segmented-control-option.button[aria-checked="false"]:hover:not(:disabled) {
+  background: transparent;
+}
+
+.segmented-control-option.button[aria-checked="true"] {
+  color: var(--text-primary);
+  background: var(--navigation-selected);
+  box-shadow: none;
+}
+
+.segmented-control-option.button:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented-control-option--loading {
+    animation: none;
+  }
+}

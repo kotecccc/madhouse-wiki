@@ -27,6 +27,19 @@ export function mobileCardActionProps({ onActivate, label }) {
     tabIndex: 0,
     "aria-label": label,
     "aria-haspopup": "dialog",
+    onMouseDown: (event) => {
+      // Keep pointer activation from leaving a keyboard-style focus ring.
+      const interactive = event.target.closest?.(
+        "button, a, input, select, textarea, summary, dialog, [role=button]",
+      );
+      if (
+        !event.defaultPrevented &&
+        event.button === 0 &&
+        (!interactive || interactive === event.currentTarget)
+      ) {
+        event.preventDefault();
+      }
+    },
     onClick: (event) => {
       if (event.defaultPrevented) return;
       const interactive = event.target.closest?.(

@@ -19,6 +19,7 @@ import { NumberStepper } from "../../components/ui/NumberStepper/NumberStepper.j
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
+import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { Title } from "../../components/ui/Title/Title.jsx";
 import { EntityConstructors } from "./EntityConstructors.jsx";
 import "./UIKitPage.css";
@@ -170,6 +171,7 @@ function Property({ name, value }) {
 export function UIKitPage() {
   const [activeKit, setActiveKit] = useState("ui");
   const [toggle, setToggle] = useState(false);
+  const [segment, setSegment] = useState("one");
   const [stepperValue, setStepperValue] = useState(4);
   const [controlSize, setControlSize] = useState("md");
   const [controlDisabled, setControlDisabled] = useState(false);
@@ -335,6 +337,21 @@ export function UIKitPage() {
                       </div>
                     ))}
                   </div>
+                </ExamplePanel>
+                <ExamplePanel>
+                  <div className="ui-kit-panel-heading">
+                    <CardTitle>Segmented control</CardTitle>
+                  </div>
+                  <SegmentedControl
+                    label="Example view"
+                    value={segment}
+                    onChange={setSegment}
+                    options={[
+                      { value: "one", label: "One" },
+                      { value: "two", label: "Two" },
+                      { value: "three", label: "Three" },
+                    ]}
+                  />
                 </ExamplePanel>
                 <ExamplePanel className="ui-kit-control-playground">
                   <div className="ui-kit-control-toolbar">

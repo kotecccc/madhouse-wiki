@@ -1,4 +1,5 @@
 import {
+  GAME_HEALTH_FEATURES,
   featureForGamePath,
   workGameUnavailable,
   safeFailedFeatures,
@@ -129,11 +130,25 @@ export function createAccountSnapshots({
         .map(([path]) => featureForGamePath(path)),
       failedFeatures,
     );
+    const featureCheckedAt = Object.fromEntries(
+      GAME_HEALTH_FEATURES.map((feature) => {
+        const sectionTimes = Object.entries(record?.sections || {})
+          .filter(([path]) => featureForGamePath(path) === feature)
+          .map(([, section]) => section.updatedAt)
+          .filter(Number.isFinite);
+        const failedTimes = Object.entries(record?.health?.failedAt || {})
+          .filter(([path]) => featureForGamePath(path) === feature)
+          .map(([, timestamp]) => timestamp)
+          .filter(Number.isFinite);
+        return [feature, Math.max(0, ...sectionTimes, ...failedTimes) || null];
+      }),
+    );
     return {
       status: record?.health?.status || "unknown",
       lastSuccessAt: record?.lastSuccessAt ?? null,
       failedFeatures,
       successfulFeatures,
+      featureCheckedAt,
     };
   };
   function withMetadata(response, record, section, stale = false) {
@@ -146,6 +161,10 @@ export function createAccountSnapshots({
     headers.set(
       "X-Madhouse-Successful-Features",
       state(record).successfulFeatures.join(","),
+    );
+    headers.set(
+      "X-Madhouse-Feature-Checked-At",
+      JSON.stringify(state(record).featureCheckedAt),
     );
     headers.set("X-Madhouse-Snapshot-TTL", String(ttl));
     if (record?.lastSuccessAt)
@@ -177,13 +196,23 @@ export function createAccountSnapshots({
         status,
         checkedAt: now(),
         retryAt: now() + cooldown,
+        failedAt: Object.fromEntries(
+          Object.entries({
+            ...(record.health?.failedAt || {}),
+            [path]: now(),
+          }).slice(-MAX_SECTIONS),
+        ),
         failedSections: [
           ...new Set([...(record.health?.failedSections || []), path]),
         ].slice(-MAX_SECTIONS),
       },
     });
   }
-  async function execute(url, init, { fallback = true, cache = true } = {}) {
+  async function execute(
+    url,
+    init,
+    { fallback = true, cache = true, forceFailedRefresh = false } = {},
+  ) {
     const path = new URL(url).pathname;
     const authorization = new Headers(init.headers).get("authorization");
     if (
@@ -259,6 +288,7 @@ export function createAccountSnapshots({
       if (
         fallback &&
         !mayManualRefresh &&
+        !forceFailedRefresh &&
         record?.health?.status === "unavailable" &&
         record.health.retryAt > now()
       )
@@ -273,6 +303,7 @@ export function createAccountSnapshots({
       if (
         cache &&
         !mayManualRefresh &&
+        !forceFailedRefresh &&
         section &&
         !section.dirty &&
         !record.health?.failedSections?.includes(path) &&
@@ -380,6 +411,12 @@ export function createAccountSnapshots({
             status: failedSections.length ? "unavailable" : "available",
             checkedAt: now(),
             failedSections,
+            failedAt: Object.fromEntries(
+              Object.entries(record.health?.failedAt || {}).filter(
+                ([failed]) =>
+                  failed !== path && !(path === "/api/me" && failed === "*"),
+              ),
+            ),
             ...(failedSections.length
               ? { retryAt: record.health?.retryAt || now() }
               : {}),
@@ -441,7 +478,98 @@ export function createAccountSnapshots({
       if (reads.get(accountKey) === tail) reads.delete(accountKey);
     }
   }
-  const read = (url, init = {}) => execute(url, init);
+  async function read(url, init = {}) {
+    const requestUrl = new URL(url);
+    const headers = new Headers(init.headers);
+    const requested =
+      requestUrl.pathname === "/api/me" &&
+      (init.method || "GET").toUpperCase() === "GET" &&
+      headers.get("X-Madhouse-Snapshot-Refresh") === "1";
+    const authorization = headers.get("authorization");
+    if (
+      !authorization ||
+      authorization.length > 16384 ||
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
+    )
+      return execute(url, init);
+    const playerId = authorization && credentials.get(hash(authorization));
+    let record = accounts.get(playerId);
+    if (!requested || !record) return execute(url, init);
+    if (record.revokedHashes?.includes(hash(authorization)))
+      return withMetadata(
+        json({ error: "game_credentials_invalid" }, 401),
+        record,
+      );
+
+    const failed = record.health?.failedSections || [];
+    const paths = [
+      ...new Set(
+        failed.flatMap((path) =>
+          path === "*" ? ["/api/me"] : isSnapshotPath(path) ? [path] : [],
+        ),
+      ),
+    ];
+    const savedProfile = record.sections?.["/api/me"];
+    const safeFailures = paths.filter((path) => path !== "/api/me");
+    const needsProfile = paths.includes("/api/me") || !savedProfile;
+    if (
+      !needsProfile &&
+      Number.isFinite(record.manualHealthRefreshAt) &&
+      now() - record.manualHealthRefreshAt < 60_000
+    )
+      return withMetadata(json(savedProfile.data), record, savedProfile, true);
+
+    if (!needsProfile && !safeFailures.length && failed.length)
+      return withMetadata(json(savedProfile.data), record, savedProfile);
+
+    // If identity is already healthy, retry only failed safe GET sections and
+    // leave /api/me untouched. Reserve the account limiter before awaiting.
+    if (!needsProfile && safeFailures.length) {
+      record = { ...record, manualHealthRefreshAt: now() };
+      persist(record);
+      for (const path of safeFailures) {
+        const result = await execute(
+          new URL(path, url),
+          { method: "GET", headers: { Authorization: authorization } },
+          { fallback: false, cache: false, forceFailedRefresh: true },
+        );
+        if (result.status === 401) return result;
+      }
+      record = accounts.get(playerId);
+      return withMetadata(
+        json(record.sections["/api/me"].data),
+        record,
+        record.sections["/api/me"],
+        Boolean(savedProfile.dirty || now() - savedProfile.updatedAt >= ttl),
+      );
+    }
+
+    const response = await execute(url, init);
+    if (
+      !response.ok ||
+      response.headers.get("X-Madhouse-Snapshot") !== "current"
+    )
+      return response;
+    // /api/me was itself failed (or no profile snapshot exists). Recheck its
+    // siblings after the profile request has left the per-account queue.
+    record = accounts.get(playerId);
+    const remaining = record?.health?.failedSections || [];
+    const retryPaths = [
+      ...new Set(
+        remaining.filter((path) => path !== "/api/me" && isSnapshotPath(path)),
+      ),
+    ];
+    for (const path of retryPaths) {
+      const result = await execute(
+        new URL(path, url),
+        { method: "GET", headers: { Authorization: authorization } },
+        { fallback: false, cache: false, forceFailedRefresh: true },
+      );
+      if (result.status === 401) return result;
+    }
+    const current = accounts.get(playerId);
+    return withMetadata(response, current, current?.sections?.["/api/me"]);
+  }
   async function liveFetch(url, init = {}) {
     const method = (init.method || "GET").toUpperCase();
     const path = new URL(url).pathname;

@@ -3,7 +3,7 @@ import { Divider } from "../../../components/ui/Divider/Divider.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
-import { Button } from "../../../components/ui/Button/Button.jsx";
+import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import "./RequirementCalculatorDialog.css";
@@ -213,36 +213,26 @@ export function RequirementCalculatorDialog({
           {intro}
           {beforeCount}
           {countControl?.maxToggle && (
-            <div
-              className="requirement-calculator-mode"
-              role="group"
-              aria-label="Режим выполнения работы"
-            >
-              <Button
-                variant="toggle"
-                liftOnHover={false}
-                disabled={countControl.maxToggle.disabled}
-                aria-pressed={!countControl.maxToggle.active}
-                onClick={() => {
-                  if (countControl.maxToggle.active)
-                    countControl.maxToggle.onToggle();
-                }}
-              >
-                Количество
-              </Button>
-              <Button
-                variant="toggle"
-                liftOnHover={false}
-                disabled={countControl.maxToggle.disabled}
-                aria-pressed={countControl.maxToggle.active}
-                onClick={() => {
-                  if (!countControl.maxToggle.active)
-                    countControl.maxToggle.onToggle();
-                }}
-              >
-                {countControl.maxToggle.label}
-              </Button>
-            </div>
+            <SegmentedControl
+              label="Режим выполнения работы"
+              value={countControl.maxToggle.active ? "max" : "count"}
+              onChange={(value) => {
+                if ((value === "max") !== countControl.maxToggle.active)
+                  countControl.maxToggle.onToggle();
+              }}
+              options={[
+                {
+                  value: "count",
+                  label: "Количество",
+                  disabled: countControl.maxToggle.disabled,
+                },
+                {
+                  value: "max",
+                  label: countControl.maxToggle.label,
+                  disabled: countControl.maxToggle.disabled,
+                },
+              ]}
+            />
           )}
           {countControl &&
             (!countControl.maxToggle || !countControl.maxToggle.active) && (

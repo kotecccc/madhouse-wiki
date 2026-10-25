@@ -68,6 +68,8 @@ export function createRemoteBattleSession({
   const workFarmListeners = new Set();
   let connected = false;
   let transportError = null;
+  let workCommandError = null;
+  let businessCommandError = null;
   let epoch = 0;
   let timer = null;
   let pendingCommands = 0;
@@ -122,7 +124,7 @@ export function createRemoteBattleSession({
       ...(server?.businessAssistant ?? EMPTY_BUSINESS),
       loaded: Boolean(server?.businessAssistant),
       pending: pendingCommands > 0,
-      error: transportError,
+      error: transportError || businessCommandError,
     });
     notify(preferencesListeners, preferencesSnapshot);
     notify(businessListeners, businessSnapshot);
@@ -131,13 +133,15 @@ export function createRemoteBattleSession({
       ...(server?.workFarm ?? {}),
       loaded: Boolean(server),
       pending: pendingCommands > 0,
-      error: transportError,
+      error: transportError || workCommandError,
     });
     notify(workFarmListeners, workFarmSnapshot);
   }
 
   function setServerState(value) {
     transportError = null;
+    workCommandError = null;
+    businessCommandError = null;
     const incomingVersion = value?.version;
     const currentVersion = server?.version;
     if (
@@ -170,7 +174,11 @@ export function createRemoteBattleSession({
     );
   }
   const pollInterval = () =>
-    activelyWatching() ? POLL_INTERVAL : IDLE_POLL_INTERVAL;
+    transportError || workCommandError || businessCommandError
+      ? ERROR_RETRY_INTERVAL
+      : activelyWatching()
+        ? POLL_INTERVAL
+        : IDLE_POLL_INTERVAL;
   function onVisibilityChange() {
     clearTimer();
     if (connected && visibility?.visibilityState !== "hidden") schedulePoll(0);
@@ -228,10 +236,7 @@ export function createRemoteBattleSession({
         },
       };
       publish();
-      schedulePoll(
-        activelyWatching() ? ERROR_RETRY_INTERVAL : IDLE_POLL_INTERVAL,
-        run,
-      );
+      schedulePoll(ERROR_RETRY_INTERVAL, run);
     }
   }
 
@@ -256,10 +261,7 @@ export function createRemoteBattleSession({
         },
       };
       publish();
-      schedulePoll(
-        activelyWatching() ? ERROR_RETRY_INTERVAL : IDLE_POLL_INTERVAL,
-        run,
-      );
+      schedulePoll(ERROR_RETRY_INTERVAL, run);
     }
   }
 
@@ -267,6 +269,8 @@ export function createRemoteBattleSession({
     connected = false;
     visibility?.removeEventListener("visibilitychange", onVisibilityChange);
     transportError = null;
+    workCommandError = null;
+    businessCommandError = null;
     epoch++;
     clearTimer();
     pendingCommands = 0;
@@ -305,7 +309,10 @@ export function createRemoteBattleSession({
       if (error?.status === 409 && error.snapshot)
         setServerState(error.snapshot);
       else {
-        transportError = error?.message || "Не удалось выполнить команду.";
+        const commandError = error?.message || "Не удалось выполнить команду.";
+        if (command.startsWith("work.")) workCommandError = commandError;
+        else if (command.startsWith("business."))
+          businessCommandError = commandError;
         const prior = server ?? {};
         server = {
           ...prior,

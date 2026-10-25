@@ -15,11 +15,13 @@ export function StatusList({ items, label = "Состояние сервисов
           : "unknown";
         return (
           <li className="ui-status-list-row" key={item.id}>
-            <span
-              className={`ui-status-list-dot ui-status-list-dot--${status}`}
-              aria-hidden="true"
-            />
-            <span className="ui-status-list-label">{item.label}</span>
+            <span className="ui-status-list-label">
+              <span
+                className={`ui-status-list-dot ui-status-list-dot--${status}`}
+                aria-hidden="true"
+              />
+              <span>{item.label}</span>
+            </span>
             <span className="ui-status-list-status">{labels[status]}</span>
           </li>
         );
