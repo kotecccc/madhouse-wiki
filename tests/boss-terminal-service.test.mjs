@@ -33,6 +33,8 @@ for (const result of ["timed_out", "lost", "active", "absent"]) {
         calls.push({ path, method: init.method || "GET" });
         if (path === "/api/me")
           return Response.json({ playerId: 101, nickname: "Player" });
+        if (path === "/api/me/bag")
+          return Response.json({ activityItems: [], consumables: [] });
         if (path === "/api/combat")
           return Response.json({ activeBattle: null });
         if (path === "/api/bosses/7")

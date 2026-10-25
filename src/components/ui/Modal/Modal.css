@@ -53,6 +53,10 @@
   background: var(--surface-page);
 }
 
+.shared-modal--no-footer.shared-modal--inset {
+  background: var(--surface-page);
+}
+
 .shared-modal-footer {
   display: flex;
   flex: 0 0 auto;
@@ -90,6 +94,7 @@
   flex: 0 0 auto;
   padding: var(--modal-content-padding);
   border-bottom: 1px solid var(--card-border);
+  background: var(--card-background);
 }
 
 .shared-modal-heading > .dialog-close-button {
@@ -137,6 +142,10 @@
     display: grid;
   }
 
+  .shared-modal--no-footer {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   /* Keep the surface edge-to-edge, with all three rows inside the safe area.
      Device and Telegram insets describe overlapping exclusions: use the largest
      rather than adding them. Reserve a kit spacing step at the bottom even when
@@ -178,7 +187,7 @@
 
 .shared-modal-heading-loader {
   position: absolute;
-  top: 100%;
+  bottom: 0;
   left: 0;
   right: 0;
   z-index: 1;

@@ -4,6 +4,7 @@ import {
   BOSS_GOAL_KINDS,
   goalDropOptions,
   resolveBossGoal,
+  restoredShopDropGoal,
 } from "../src/features/bosses/BossBattle/boss-goal-options.js";
 const boss = {
   id: 7,
@@ -13,6 +14,7 @@ const boss = {
       { type: "activity_item", entityId: 4, name: "Материал" },
       { type: "mutagen", mutagenType: "I", mutagenLevel: 1, name: "Мутаген" },
       { type: "activity_item", entityId: 4, name: "Дубликат" },
+      { type: "room", entityId: 8, name: "Комната" },
       { name: "Без идентификатора" },
     ],
   },
@@ -26,22 +28,19 @@ test("three visible modes resolve identities and authoritative frozen all-drop l
     BOSS_GOAL_KINDS.map((item) => item.label),
     ["Кол-во", "Бизнес", "Дроп"],
   );
-  assert.equal(goalDropOptions(boss.reference).length, 2);
+  assert.equal(goalDropOptions(boss.reference).length, 3);
   const resolved = resolveBossGoal(
     { bossId: 7, kind: "drops", selection: "all", itemKeys: ["forged"] },
     boss,
   );
-  assert.deepEqual(resolved.items, [
-    { key: "activity_item:4", name: "Материал" },
-    { key: "mutagen:I:1", name: "Мутаген" },
-  ]);
-  assert.equal(resolved.targetCount, 2);
+  assert.deepEqual(resolved.items, [{ key: "room:8", name: "Комната" }]);
+  assert.equal(resolved.targetCount, 1);
   const selected = resolveBossGoal(
     {
       bossId: 7,
       kind: "drops",
       selection: "selected",
-      itemKeys: ["mutagen:I:1"],
+      itemKeys: ["room:8"],
     },
     boss,
   );
@@ -128,4 +127,74 @@ test("saved business settings prefill the material and retain a universal durati
   assert.equal(config.maxAttempts, null);
   assert.equal(battleSettingsConfig({ ...settings, kind: "time" }, boss), null);
   assert.equal(battleSettingsConfig({ ...settings, target: "0" }, boss), null);
+});
+
+test("stopped goals keep the configured duration without a running deadline", async () => {
+  const { defaultBattleSettings } =
+    await import("../src/features/bosses/BossBattle/boss-goal-options.js");
+  const settings = defaultBattleSettings(
+    { boss },
+    {
+      boss: { id: 7 },
+      status: "stopped",
+      kind: "battles",
+      targetCount: 12,
+      durationHours: 2,
+      startedAt: null,
+      deadlineAt: null,
+      items: [],
+    },
+  );
+  assert.equal(settings.target, "12");
+  assert.equal(settings.hours, "2");
+});
+
+test("drop goals allow only shop item categories and migrate saved targets without losing receipts", () => {
+  const types = ["room", "weapon", "pet", "clothing_item", "ornament"];
+  const reference = {
+    possibleDrops: [
+      ...types.map((type, index) => ({ type, entityId: index + 1 })),
+      { type: "activity_item", entityId: 9 },
+      { type: "mutagen", mutagenType: "W", mutagenLevel: 14 },
+      { type: "stash_ingredient", setId: 1, ingredientId: 1 },
+    ],
+  };
+  const result = resolveBossGoal(
+    { bossId: 7, kind: "drops", selection: "all" },
+    { ...boss, reference },
+  );
+  assert.equal(result.items.length, 5);
+  assert.deepEqual(
+    result.items.map((i) => i.key.split(":")[0]),
+    types,
+  );
+  assert.throws(
+    () =>
+      resolveBossGoal(
+        {
+          bossId: 7,
+          kind: "drops",
+          selection: "selected",
+          itemKeys: ["activity_item:9"],
+        },
+        { ...boss, reference },
+      ),
+    /Unknown drop item/,
+  );
+  const saved = {
+    settings: {
+      kind: "drops",
+      items: [
+        ...result.items,
+        { key: "activity_item:9" },
+        { key: "mutagen:W:14" },
+      ],
+    },
+    receipts: [["old-fight", []]],
+    deadlineAt: 12345,
+  };
+  const migrated = restoredShopDropGoal(saved);
+  assert.equal(migrated.settings.items.length, 5);
+  assert.equal(migrated.deadlineAt, 12345);
+  assert.deepEqual(migrated.receipts, saved.receipts);
 });

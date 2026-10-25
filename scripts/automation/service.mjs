@@ -12,7 +12,10 @@ import {
 } from "./business-assistant.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { createBossBattleController } from "../../src/features/bosses/BossBattle/boss-battle-controller.js";
-import { resolveBossGoal } from "../../src/features/bosses/BossBattle/boss-goal-options.js";
+import {
+  resolveBossGoal,
+  restoredShopDropGoal,
+} from "../../src/features/bosses/BossBattle/boss-goal-options.js";
 import { createBossBattleGoal } from "../../src/features/bosses/BossBattle/boss-battle-goal.js";
 import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
 import { createWorkFarm } from "./work-farm.mjs";
@@ -191,27 +194,35 @@ export function createAutomationService({
       entry.auto.getSnapshot().enabled ||
       entry.collector.running() ||
       !battle ||
-      isTerminalBossBattle(battle)
+      (isTerminalBossBattle(battle) &&
+        !(battle.status === "won" && !battle.rewardKnown))
     )
       return;
     const reason =
-      battle.expiresAt != null && battle.expiresAt <= now()
-        ? "deadline"
-        : battle.playerHealth === 0 || battle.bossHealth === 0
-          ? "health"
-          : battle.status !== "active"
-            ? "status"
-            : null;
+      battle.status === "won" && !battle.rewardKnown
+        ? "reward"
+        : battle.expiresAt != null && battle.expiresAt <= now()
+          ? "deadline"
+          : battle.playerHealth === 0 || battle.bossHealth === 0
+            ? "health"
+            : battle.status !== "active"
+              ? "status"
+              : null;
     if (!reason) return;
     const key = `${battle.id}:${reason}`;
-    if (entry.finishedBattleChecks.has(key)) return;
-    entry.finishedBattleChecks.add(key);
+    if (reason === "reward") {
+      if (now() < (entry.rewardCheckAt ?? 0)) return;
+      entry.rewardCheckAt = now() + 30000;
+    } else {
+      if (entry.finishedBattleChecks.has(key)) return;
+      entry.finishedBattleChecks.add(key);
+    }
     if (entry.finishedBattleChecks.size > 64)
       entry.finishedBattleChecks.delete(
         entry.finishedBattleChecks.values().next().value,
       );
-    // Event-triggered GET reconciliation, once per battle/condition. No periodic
-    // game scan, surrender or mutation retry, even when the result stays unknown.
+    // Reconcile the existing fight only. Delayed rewards get at most one GET
+    // every 30 seconds; game mutations are never replayed here.
     void entry.controller.refresh();
   }
   function snapshot(entry) {
@@ -319,7 +330,8 @@ export function createAutomationService({
     });
     if (saved?.battle) entry.controller.restoreState(saved.battle);
     entry.goal = createBossBattleGoal({ controller: entry.controller, now });
-    if (saved?.goalRecord) entry.goal.restoreState(saved.goalRecord);
+    const restoredGoal = restoredShopDropGoal(saved?.goalRecord);
+    if (restoredGoal) entry.goal.restoreState(restoredGoal);
     const refreshAvailability = async () => {
       if (accountHealth(entry.credential)?.status === "unavailable")
         await gameJson(entry.credential, "/api/me");
@@ -581,8 +593,6 @@ export function createAutomationService({
     )
       throw failure(409, "active_battle_exists");
     const me = await gameJson(entry.credential, "/api/me");
-    if (!Object.hasOwn(me, "activeBossBattle"))
-      throw failure(409, "active_battle_unknown");
     await refreshInvitations(entry, true);
     const invitation = entry.invitations.items.find(
       (item) => item.invitationId === invitationId,
@@ -591,10 +601,37 @@ export function createAutomationService({
       throw failure(409, "invitation_unavailable");
     const boss = await getBoss(invitation.bossId);
     if (!boss) throw failure(404, "unknown_boss");
-    if (me.activeBossBattle != null) {
+    // /api/me omits activeBossBattle in the current game response. The boss
+    // detail explicitly returns activeBattle:null when this boss has no fight.
+    let activeBossBattle = me.activeBossBattle;
+    if (!Object.hasOwn(me, "activeBossBattle")) {
+      const detail = await gameJson(
+        entry.credential,
+        `/api/bosses/${invitation.bossId}`,
+      );
       if (
-        me.activeBossBattle.battleId !== invitation.battleId ||
-        Number(me.activeBossBattle.bossId) !== invitation.bossId
+        Number(detail?.id) !== invitation.bossId ||
+        !Object.hasOwn(detail, "activeBattle")
+      )
+        throw failure(409, "active_battle_unknown");
+      if (
+        detail.activeBattle !== null &&
+        (typeof detail.activeBattle?.battleId !== "string" ||
+          !detail.activeBattle.battleId)
+      )
+        throw failure(409, "active_battle_unknown");
+      activeBossBattle =
+        detail.activeBattle === null
+          ? null
+          : {
+              battleId: detail.activeBattle.battleId,
+              bossId: invitation.bossId,
+            };
+    }
+    if (activeBossBattle != null) {
+      if (
+        activeBossBattle.battleId !== invitation.battleId ||
+        Number(activeBossBattle.bossId) !== invitation.bossId
       )
         throw failure(409, "active_battle_exists");
       const raw = await gameJson(
@@ -906,6 +943,7 @@ export function createAutomationService({
           break;
         case "raid.stop":
           entry.raidWorker.stop();
+          entry.goal.stop({ clearProgress: true });
           break;
         case "invitations.refresh":
           await refreshInvitations(entry);
@@ -948,12 +986,12 @@ export function createAutomationService({
           if (!positive(args.bossId)) throw failure(400, "invalid_boss");
           const boss = await getBoss(args.bossId);
           if (!boss) throw failure(404, "unknown_boss");
-          // controller.open is UI-oriented and starts a refresh without awaiting it.
-          entry.controller.open(boss, {
+          await entry.controller.open(boss, {
             refresh:
               !entry.auto.getSnapshot().enabled &&
               !entry.raidWorker.getSnapshot().enabled,
           });
+          await entry.controller.refreshMedicineStock();
           break;
         }
         case "refresh":
@@ -1028,6 +1066,7 @@ export function createAutomationService({
           if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
           entry.collector.stop();
           entry.auto.stop();
+          entry.goal.stop({ clearProgress: true });
           break;
         case "goal.configure": {
           if (!state.boss || args.bossId !== state.boss.id)

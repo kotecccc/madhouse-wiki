@@ -35,7 +35,9 @@ async function automationRequest(method, path, body) {
   return value;
 }
 
-const remote = createRemoteBattleSession({ request: automationRequest });
+const remote =
+  import.meta.hot?.data.remote ??
+  createRemoteBattleSession({ request: automationRequest });
 export const {
   bossBattle,
   bossInvitations,
@@ -48,4 +50,8 @@ export const automationPreferences = remote.preferences;
 export const businessAssistant = remote.businessAssistant;
 export const connectBattleSession = remote.connect;
 export const disconnectBattleSession = remote.disconnect;
-if (import.meta.hot) import.meta.hot.dispose(remote.disconnect);
+if (import.meta.hot) {
+  import.meta.hot.dispose((data) => {
+    data.remote = remote;
+  });
+}

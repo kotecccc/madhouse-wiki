@@ -117,7 +117,9 @@ function setup(directory, options = {}) {
       return Response.json({
         playerId: 101,
         nickname: "Alice",
-        activeBossBattle: ownActiveBattle,
+        ...(options.omitActiveBossBattle
+          ? {}
+          : { activeBossBattle: ownActiveBattle }),
       });
     if (url.pathname === "/api/combat")
       return Response.json({ activeBattle: null });
@@ -142,7 +144,9 @@ function setup(directory, options = {}) {
       return Response.json({
         id: 7,
         damageMax: 10,
-        activeBattle: null,
+        ...(options.omitBossActiveBattle
+          ? {}
+          : { activeBattle: options.detailActiveBattle ?? null }),
         state: { canStartFight: true },
       });
     if (
@@ -334,7 +338,7 @@ const raidSettings = {
 
 test("raid command persists waiting intent, accepts with checkpoint, and blocks competing actions", async () => {
   const directory = mkdtempSync(join(tmpdir(), "raid-service-"));
-  const ctx = setup(directory);
+  const ctx = setup(directory, { omitActiveBossBattle: true });
   try {
     const entry = await ctx.service.identify(token);
     await entry.controller.open({ numericId: 7, name: "Boss 7" });
@@ -371,6 +375,9 @@ test("raid command persists waiting intent, accepts with checkpoint, and blocks 
       false,
     );
     await issue(ctx.service, entry, "stop-raid-01", "raid.stop");
+    assert.equal(ctx.service.snapshot(entry).goal.status, "stopped");
+    assert.equal(ctx.service.snapshot(entry).goal.progress, 0);
+    assert.equal(ctx.service.snapshot(entry).goal.remainingSeconds, null);
     assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
     assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
   } finally {
@@ -429,6 +436,54 @@ test("waiting raid survives service restart without a browser and resumes invita
     await entry.raidWorker.tick();
     assert.equal(ctx.service.snapshot(entry).raid.status, "fighting");
     await issue(ctx.service, entry, "stop-raid-03", "raid.stop");
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("accept supports current me response without activeBossBattle using explicit boss detail", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-invitations-current-me-"));
+  const ctx = setup(directory, { omitActiveBossBattle: true });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "accept-current-me", "invitations.accept", {
+      invitationId: "invite-9",
+    });
+    assert.equal(ctx.service.snapshot(entry).battle.battle.id, "battle-9");
+    const postIndex = ctx.calls.findIndex(
+      (c) => c.method === "POST" && c.path.endsWith("/accept"),
+    );
+    assert.ok(postIndex > 0);
+    assert.ok(
+      ctx.calls
+        .slice(0, postIndex)
+        .some((c) => c.method === "GET" && c.path === "/api/bosses/7"),
+    );
+    assert.equal(ctx.pendingBeforePost.length, 1);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("missing me active battle never treats an incomplete boss response as no fight", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "boss-invitations-incomplete-detail-"),
+  );
+  const ctx = setup(directory, {
+    omitActiveBossBattle: true,
+    omitBossActiveBattle: true,
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await assert.rejects(
+      issue(ctx.service, entry, "accept-incomplete", "invitations.accept", {
+        invitationId: "invite-9",
+      }),
+      /active_battle_unknown/,
+    );
+    assert.equal(ctx.calls.filter((c) => c.method === "POST").length, 0);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });

@@ -80,3 +80,21 @@
   min-width: 0;
   min-height: 0;
 }
+
+.boss-battle-panel-heading--with-item {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.boss-battle-panel-item {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+}
+
+.boss-battle-participant-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--space-12);
+  min-width: 0;
+}

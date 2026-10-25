@@ -1,29 +1,36 @@
 .boss-healing-settings {
   display: grid;
-  gap: var(--space-12);
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-12) var(--space-8);
 }
 
-.boss-healing-heading {
-  display: flex;
+.boss-healing-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: var(--space-8);
 }
 
-.boss-healing-item {
+.boss-healing-copy {
   display: grid;
+  min-width: 0;
+  gap: var(--space-4);
+}
+
+.boss-healing-purchase {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
   gap: var(--space-8);
 }
 
-.boss-healing-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-12);
+.boss-healing-purchase > .card-title {
+  grid-column: span 2;
 }
 
-@media (max-width: 650px) {
-  .boss-healing-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.boss-healing-settings > .card-description,
+.boss-healing-settings > .button {
+  grid-column: 1 / -1;
 }

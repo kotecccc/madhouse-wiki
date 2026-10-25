@@ -146,6 +146,7 @@ export function FeedbackWidget({ screen = "floors" }) {
       </Button>
       <Modal
         title="Обратная связь"
+        loading={status.state === "loading"}
         titleId="feedback-title"
         description="Расскажите об ошибке или предложении. Скриншот поможет быстрее разобраться."
         visible={open}

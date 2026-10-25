@@ -27,6 +27,7 @@ export function validateHealingSettings(input) {
   const result = defaultHealingSettings();
   result.enabled = input.enabled;
   result.autoBuy = input.autoBuy;
+  if (input.budgetMode === "item_limits") result.budgetMode = "item_limits";
   for (const type of types) {
     const item = input.items?.[type];
     if (
@@ -95,9 +96,10 @@ export function chooseBattleAction(state, healing, bound) {
     );
     if (
       quote &&
-      quote.total <=
-        healing.settings.budgets[config.currency] -
-          healing.spent[config.currency]
+      (healing.settings.budgetMode === "item_limits" ||
+        quote.total <=
+          healing.settings.budgets[config.currency] -
+            healing.spent[config.currency])
     )
       purchases.push({ kind: "buy", type, quote });
   }
@@ -108,15 +110,16 @@ export function chooseBattleAction(state, healing, bound) {
   };
 }
 
-export function invitationDecision(battle) {
+export function invitationDecision(battle, { initial = false } = {}) {
   if (!battle || battle.status !== "active") return "Бой не активен.";
   if (
-    !battle.quotaFresh ||
-    battle.dropDamageRequired == null ||
-    battle.totalDamage == null
+    !initial &&
+    (!battle.quotaFresh ||
+      battle.dropDamageRequired == null ||
+      battle.totalDamage == null)
   )
     return "Приглашения отложены — норма урона не подтверждена.";
-  if (battle.totalDamage < battle.dropDamageRequired)
+  if (!initial && battle.totalDamage < battle.dropDamageRequired)
     return battle.bossHealth < battle.dropDamageRequired - battle.totalDamage
       ? "Приглашения отложены — HP босса меньше остатка нормы."
       : "Приглашения отложены — набираем норму урона.";
@@ -173,6 +176,8 @@ export function createBattleAssistant({
       used: counts(),
       inviteAt: null,
       inviteBlocked: false,
+      inviteAttempted: false,
+      invitedCount: 0,
     });
   }
   function publish() {
@@ -185,6 +190,12 @@ export function createBattleAssistant({
       spent: { ...record.spent },
       notice: notice ?? record.waiting?.notice ?? null,
       invitationNotice,
+      invitation: {
+        nextAt: battleRecord().inviteAt,
+        attempted: battleRecord().inviteAttempted === true,
+        invitedCount: battleRecord().invitedCount ?? 0,
+        blocked: battleRecord().inviteBlocked === true,
+      },
       uncertain: Boolean(record.pending),
       forecast: forecastQuota(
         controller.getSnapshot().battle,
@@ -335,6 +346,7 @@ export function createBattleAssistant({
           return false;
         if (
           (automatic || hasProfile()) &&
+          config.budgetMode !== "item_limits" &&
           fresh.total >
             config.budgets[fresh.currency] - record.spent[fresh.currency]
         )
@@ -435,23 +447,36 @@ export function createBattleAssistant({
       return buy(choice.quote, true);
     }
     const ledger = battleRecord();
-    invitationNotice = invitationDecision(state.battle);
+    let initialInvite = ledger.inviteAttempted === false;
+    invitationNotice = invitationDecision(state.battle, {
+      initial: initialInvite,
+    });
+    if (initialInvite && invitationNotice) {
+      // A full/unsupported battle must not prevent normal strikes.
+      ledger.inviteAttempted = true;
+      initialInvite = false;
+    }
     const forecast = forecastQuota(state.battle, ledger.samples, now());
-    if (forecast?.atRisk && forecast.remaining > 0)
+    if (!initialInvite && forecast?.atRisk && forecast.remaining > 0)
       invitationNotice =
         "Приглашения отложены — есть риск не успеть набрать норму.";
     if (ledger.inviteAt == null) {
-      ledger.inviteAt = now() + 35000 + Math.floor(random() * 10001);
+      ledger.inviteAt = now();
       publish();
     }
     // Prefer an already-ready strike. Invitations use an otherwise idle cooldown.
-    if (Math.max(state.battle.readyAt, notBefore) > now()) {
+    if (
+      (initialInvite && !ledger.inviteBlocked) ||
+      Math.max(state.battle.readyAt, notBefore) > now()
+    ) {
       if (ledger.inviteBlocked || ledger.inviteAt > now())
         return { kind: "wait" };
       // One bounded fresh read before the mutation; stale quota never authorizes it.
       await controller.refresh();
       state = controller.getSnapshot();
-      invitationNotice = invitationDecision(state.battle);
+      invitationNotice = invitationDecision(state.battle, {
+        initial: initialInvite,
+      });
       ledger.inviteAt = now() + 35000 + Math.floor(random() * 10001);
       publish();
       if (
@@ -462,15 +487,21 @@ export function createBattleAssistant({
         return { kind: "stop" };
       if (
         invitationNotice ||
-        Math.max(state.battle.readyAt, notBefore) <= now()
+        (!initialInvite && Math.max(state.battle.readyAt, notBefore) <= now())
       )
         return { kind: "wait" };
       const result = await controller.inviteAll({
         allowed: stillAllowed,
-        beforeSend: (operation) => reserve({ kind: "invite", ...operation }),
+        beforeSend: (operation) => {
+          ledger.inviteAttempted = true;
+          reserve({ kind: "invite", ...operation });
+        },
       });
       if (result?.known) {
         complete();
+        ledger.inviteAttempted = true;
+        ledger.invitedCount =
+          (ledger.invitedCount ?? 0) + (result.invitedCount ?? 0);
         ledger.inviteBlocked = result.forbidden === true;
         ledger.inviteAt =
           now() +
@@ -578,7 +609,10 @@ export function createBattleAssistant({
       )
         return attackAt;
       if (ledger.inviteAt == null) {
-        ledger.inviteAt = now() + 35000 + Math.floor(random() * 10001);
+        ledger.inviteAt =
+          ledger.inviteAttempted === false
+            ? now()
+            : now() + 35000 + Math.floor(random() * 10001);
         publish();
       }
       return Math.min(attackAt, Math.max(now() + 2000, ledger.inviteAt));

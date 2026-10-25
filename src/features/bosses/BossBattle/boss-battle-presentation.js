@@ -10,6 +10,10 @@ export function formatBattleCountdown(expiresAt, now) {
 
 const eventFields = [
   "localKey",
+  "isSelf",
+  "kind",
+  "invitedCount",
+  "invitedBySelf",
   "confirmed",
   "turn",
   "at",
@@ -33,4 +37,54 @@ export function sameBattleEvents(left, right) {
     (left.length === right.length &&
       left.every((event, index) => sameBattleEvent(event, right[index])))
   );
+}
+
+export function bossExecutionStatus(state, auto = {}) {
+  const raid =
+    state.raid?.enabled &&
+    (state.raid.bossId == null ||
+      Number(state.raid.bossId) === Number(state.boss?.id));
+  if (state.battle?.status === "active")
+    return { label: "Бой идёт", variant: "active" };
+  if (raid && state.raid.status === "joining")
+    return { label: "Вступаем в бой", variant: "scheduled" };
+  if (state.battle?.status === "won")
+    return state.battle.rewardKnown === true
+      ? { label: "Победа", variant: "completed" }
+      : { label: "Получаем награду", variant: "scheduled" };
+  if (raid && state.raid.status === "waiting_confirmation")
+    return {
+      label: state.pendingInvitation ? "Проверяем вступление" : "Обновляем бой",
+      variant: "scheduled",
+    };
+  if (raid) return { label: "Ждём приглашения", variant: "scheduled" };
+  if (auto.enabled)
+    return { label: "Ждём следующего боя", variant: "scheduled" };
+  if (state.battle?.status === "lost")
+    return { label: "Поражение", variant: "locked" };
+  if (state.battle) return { label: "Бой завершён", variant: "unknown" };
+  return null;
+}
+
+export function goalProgressPresentation(goal, now) {
+  if (goal?.status !== "active") return null;
+  const icon =
+    goal.kind === "business_items"
+      ? "business"
+      : goal.kind === "drops"
+        ? "loot"
+        : goal.kind === "time"
+          ? "timer"
+          : "combat";
+  const progress =
+    goal.kind === "time"
+      ? null
+      : `${goal.progress ?? 0} из ${goal.target ?? goal.targetCount ?? 0}`;
+  const timer =
+    goal.deadlineAt != null
+      ? formatBattleCountdown(goal.deadlineAt, now)
+      : goal.remainingSeconds != null
+        ? formatBattleCountdown(goal.remainingSeconds * 1000, 0)
+        : null;
+  return { icon, progress, timer };
 }

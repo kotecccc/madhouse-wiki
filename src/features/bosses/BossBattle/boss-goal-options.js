@@ -10,6 +10,24 @@ export const BOSS_GOAL_KINDS = [
   { id: "drops", value: "drops", label: "Дроп" },
 ];
 
+const SHOP_DROP_TYPES = new Set([
+  "room",
+  "weapon",
+  "pet",
+  "clothing_item",
+  "ornament",
+]);
+export const isShopGoalDrop = (item) =>
+  SHOP_DROP_TYPES.has(item.type ?? item.key?.split(":")[0]);
+
+export function restoredShopDropGoal(record) {
+  if (record?.settings?.kind !== "drops") return record;
+  const items = record.settings.items.filter(isShopGoalDrop);
+  return items.length
+    ? { ...record, settings: { ...record.settings, items } }
+    : null;
+}
+
 export function goalDropOptions(reference) {
   const unique = new Map();
   for (const drop of reference?.possibleDrops || []) {
@@ -28,7 +46,9 @@ export function goalDropOptions(reference) {
 export function resolveBossGoal(config, boss) {
   if (!config || !boss || config.bossId !== boss.id)
     throw new TypeError("Invalid goal boss");
-  const options = goalDropOptions(boss.reference);
+  const allOptions = goalDropOptions(boss.reference);
+  const options =
+    config.kind === "drops" ? allOptions.filter(isShopGoalDrop) : allOptions;
   let items = [];
   if (config.kind === "business_items") {
     const selected = options.find(
@@ -71,6 +91,7 @@ export function resolveBossGoal(config, boss) {
 export function defaultBattleSettings(state, goal) {
   let saved = goal?.boss?.id === state.boss?.id ? goal : null;
   const options = goalDropOptions(state.boss?.reference || state.boss);
+  const shopOptions = options.filter(isShopGoalDrop);
   const requirements = (state.openingRequirements || []).filter(
     (target) => Number.isSafeInteger(target.required) && target.required > 0,
   );
@@ -90,9 +111,10 @@ export function defaultBattleSettings(state, goal) {
   if ((requiredWins !== null || materialTarget) && saved?.status !== "active")
     saved = null;
   const duration =
-    saved?.deadlineAt == null
+    saved?.durationHours ??
+    (saved?.deadlineAt == null
       ? null
-      : (saved.deadlineAt - saved.startedAt) / 3600000;
+      : (saved.deadlineAt - saved.startedAt) / 3600000);
   return {
     kind:
       saved && saved.kind !== "time"
@@ -112,11 +134,14 @@ export function defaultBattleSettings(state, goal) {
       options.find((item) => item.type === "activity_item")?.key ??
       "",
     selection:
-      saved?.kind === "drops" && saved.items.length !== options.length
+      saved?.kind === "drops" &&
+      saved.items.filter(isShopGoalDrop).length !== shopOptions.length
         ? "selected"
         : "all",
     selectedKeys:
-      saved?.kind === "drops" ? saved.items.map((item) => item.key) : [],
+      saved?.kind === "drops"
+        ? saved.items.filter(isShopGoalDrop).map((item) => item.key)
+        : [],
     hours: saved
       ? [1, 2, 4].includes(duration)
         ? String(duration)
@@ -132,11 +157,12 @@ export function battleSettingsConfig(settings, boss) {
     options.find(
       (item) => item.type === "activity_item" && item.key === settings.itemKey,
     ) || options.find((item) => item.type === "activity_item");
+  const shopOptions = options.filter(isShopGoalDrop);
   const itemKeys =
     settings.selection === "all"
-      ? options.map((item) => item.key)
+      ? shopOptions.map((item) => item.key)
       : settings.selectedKeys.filter((key) =>
-          options.some((item) => item.key === key),
+          shopOptions.some((item) => item.key === key),
         );
   if (
     !BOSS_GOAL_KINDS.some((item) => item.value === settings.kind) ||

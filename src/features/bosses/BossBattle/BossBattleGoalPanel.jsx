@@ -1,57 +1,23 @@
+import { goalProgressPresentation } from "./boss-battle-presentation.js";
 import { useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
-import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
+import { Disclosure } from "../../../components/ui/Disclosure/Disclosure.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
-import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { FieldLabel } from "../../../components/ui/FieldLabel/FieldLabel.jsx";
 import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
-import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { canStartAutoSeries } from "./boss-battle-auto.js";
 import {
   BOSS_GOAL_KINDS,
   goalDropOptions,
+  isShopGoalDrop,
   defaultBattleSettings,
   battleSettingsConfig,
 } from "./boss-goal-options.js";
 import "./BossBattleGoalPanel.css";
-
-function executionStatus(state, goal, auto, raid) {
-  if (raid.enabled) {
-    if (raid.status === "joining")
-      return { label: "Вступление", variant: "scheduled" };
-    if (auto.enabled && (auto.phase === "waiting" || state.healing?.notice))
-      return { label: "Ожидание", variant: "scheduled" };
-    if (auto.enabled)
-      return auto.pause
-        ? { label: "На паузе", variant: "warning" }
-        : { label: "Рейд идёт", variant: "active" };
-    return { label: "Ожидание боя", variant: "scheduled" };
-  }
-  if (auto.enabled && (auto.phase === "waiting" || state.healing?.notice))
-    return { label: "Ожидание", variant: "scheduled" };
-  if (auto.enabled)
-    return auto.pause
-      ? { label: "На паузе", variant: "warning" }
-      : { label: "Автобой идёт", variant: "active" };
-  if (state.pending) return { label: "Подготовка", variant: "scheduled" };
-  if (
-    raid.status === "paused" ||
-    state.needsRefresh ||
-    state.error ||
-    state.purchaseUncertain
-  )
-    return { label: "На паузе", variant: "warning" };
-  if (goal?.status === "completed")
-    return { label: "Выполнено", variant: "completed" };
-  if (["expired", "exhausted"].includes(goal?.status))
-    return { label: "Завершено", variant: "completed" };
-  if (goal?.status === "stopped" || raid.notice)
-    return { label: "Остановлено", variant: "unknown" };
-  return { label: "Не запущено", variant: "unknown" };
-}
 
 export function BossBattleGoalPanel({
   state,
@@ -62,16 +28,25 @@ export function BossBattleGoalPanel({
   onStopAuto,
   onStartRaid,
   onStopRaid,
+  actionsTarget,
+  now = Date.now(),
 }) {
+  const bossId = Number(state.boss.id);
+  const current = Number(goal?.boss?.id) === bossId ? goal : null;
+  const foreignGoal = goal?.boss?.id != null && !current;
+  const foreignRaid = raid.bossId != null && Number(raid.bossId) !== bossId;
+  if (foreignRaid) raid = { enabled: false };
+  if (foreignGoal || foreignRaid) auto = { enabled: false };
   const id = useId();
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState(null);
-  const settings = draft ?? defaultBattleSettings(state, goal);
+  const settings = draft ?? defaultBattleSettings(state, current);
   const update = (patch) => {
     setDraft({ ...settings, ...patch });
     setError(null);
   };
   const options = goalDropOptions(state.boss?.reference || state.boss);
+  const shopOptions = options.filter(isShopGoalDrop);
   const config = battleSettingsConfig(settings, state.boss);
   const pending = Boolean(state.pending);
   const busy = auto.enabled || raid.enabled || pending;
@@ -80,9 +55,8 @@ export function BossBattleGoalPanel({
     canStart: true,
     canContinue: true,
   });
-  const current = goal?.boss?.id === state.boss.id ? goal : null;
   const soloEnabled = auto.enabled && !raid.enabled;
-  const status = executionStatus(state, current, auto, raid);
+  const progressStatus = goalProgressPresentation(current, now);
   const toggle = async () => {
     if (soloEnabled) {
       await onStopAuto();
@@ -95,190 +69,199 @@ export function BossBattleGoalPanel({
         "Не удалось включить автобой. Обновите состояние и попробуйте снова.",
       );
   };
-  return (
-    <BaseCard
-      className="boss-battle-goal-panel"
-      aria-label="Цель и условия боя"
-    >
-      <div className="boss-battle-goal-heading">
-        <CardTitle as="h3">Цель и условия боя</CardTitle>
-        <Pill variant={status.variant} role="status" title={status.label}>
-          {status.label}
-        </Pill>
-      </div>
-      <SegmentedControl
-        label="Цель боя"
-        value={settings.kind}
-        options={BOSS_GOAL_KINDS.map((option) => ({
-          ...option,
-          disabled: busy,
-        }))}
-        onChange={(kind) => update({ kind })}
-      />
-      {settings.kind !== "drops" && (
-        <div>
-          <NumberStepper
-            id={`${id}-count`}
-            label={
-              settings.kind === "business_items"
-                ? "Количество предметов"
-                : settings.countWins
-                  ? "Количество побед"
-                  : "Количество боёв"
-            }
-            min={1}
-            max={Number.MAX_SAFE_INTEGER}
-            rangeLabel={null}
-            decrementLabel="Уменьшить количество"
-            incrementLabel="Увеличить количество"
-            value={Number(settings.target)}
-            disabled={busy}
-            onChange={(target) => update({ target: String(target) })}
-          />
-        </div>
-      )}
-      {settings.kind === "drops" && (
-        <>
-          <SegmentedControl
-            label="Что собрать"
-            value={settings.selection}
-            options={[
-              { value: "all", label: "Весь дроп", disabled: busy },
-              { value: "selected", label: "Выбранный", disabled: busy },
-            ]}
-            onChange={(selection) =>
-              update({
-                selection,
-                ...(selection === "selected"
-                  ? { selectedKeys: options.map((item) => item.key) }
-                  : {}),
-              })
-            }
-          />
-          {settings.selection === "selected" && (
-            <div className="boss-battle-actions">
-              {options.map((item) => (
-                <Button
-                  key={item.key}
-                  disabled={busy}
-                  aria-pressed={settings.selectedKeys.includes(item.key)}
-                  onClick={() =>
-                    update({
-                      selectedKeys: settings.selectedKeys.includes(item.key)
-                        ? settings.selectedKeys.filter(
-                            (key) => key !== item.key,
-                          )
-                        : [...settings.selectedKeys, item.key],
-                    })
-                  }
-                >
-                  {item.name}
-                </Button>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-      <div>
-        <FieldLabel>Сколько ходить</FieldLabel>
-        <SegmentedControl
-          label="Сколько ходить"
-          value={settings.hours}
-          options={["infinite", 1, 2, 4].map((hours) =>
-            hours === "infinite"
-              ? {
-                  value: "infinite",
-                  label: <Icon type="infinity-2" size="medium" />,
-                  ariaLabel: "Без ограничений",
-                  disabled: busy,
-                }
-              : {
-                  value: String(hours),
-                  label: `${hours} ч`,
-                  disabled: busy,
-                },
-          )}
-          onChange={(hours) => update({ hours })}
-        />
-      </div>
-      {!config && (
-        <CardDescription role="alert">
-          Проверьте количество и доступный дроп.
-        </CardDescription>
-      )}
-      {error && <CardDescription role="alert">{error}</CardDescription>}
-      <div className="boss-battle-goal-actions">
+  const actions = (
+    <div className="boss-battle-goal-actions">
+      <Button
+        variant={soloEnabled ? "secondary" : "primary"}
+        icon={soloEnabled ? "pause" : "combat"}
+        aria-pressed={soloEnabled}
+        aria-label={soloEnabled ? "Остановить автобой" : "Начать автобой"}
+        disabled={
+          !soloEnabled && (raid.enabled || pending || !config || !eligible)
+        }
+        onClick={() => void toggle()}
+      >
+        {soloEnabled ? "Остановить автобой" : "Начать автобой"}
+      </Button>
+      {raid.enabled ? (
         <Button
           variant="secondary"
-          icon="sword"
-          aria-pressed={soloEnabled}
-          aria-label={soloEnabled ? "Остановить автобой" : "Запустить автобой"}
-          disabled={
-            !soloEnabled && (raid.enabled || pending || !config || !eligible)
-          }
-          onClick={() => void toggle()}
+          icon="pause"
+          aria-pressed="true"
+          aria-label="Остановить рейд"
+          onClick={() => void onStopRaid()}
         >
-          {soloEnabled ? "Остановить автобой" : "Запустить автобой"}
+          Остановить рейд
         </Button>
-        {raid.enabled ? (
-          <Button
-            variant="secondary"
-            icon="combat"
-            aria-pressed="true"
-            aria-label="Остановить рейд"
-            onClick={() => void onStopRaid()}
-          >
-            Остановить рейд
-          </Button>
-        ) : (
-          <Button
-            variant="secondary"
-            icon="combat"
-            aria-pressed="false"
-            aria-label="Запустить рейд"
-            disabled={
-              auto.enabled ||
-              pending ||
-              state.needsRefresh ||
-              state.purchaseUncertain ||
-              Boolean(state.purchase) ||
-              state.medicineOpen ||
-              Boolean(state.error) ||
-              Boolean(state.pendingInvitation) ||
-              state.battle?.status === "active" ||
-              !config
-            }
-            onClick={() => void onStartRaid(config)}
-          >
-            Запустить рейд
-          </Button>
-        )}
-      </div>
-      {current && (
-        <>
-          <CardDescription role="status">
-            Бои: {current.completedBattles} · Победы: {current.wins}
-          </CardDescription>
-          {current.target != null && current.kind !== "time" && (
-            <ProgressBar
-              label="Прогресс цели"
-              displayText={`${current.progress} / ${current.target}`}
-              value={Math.min(current.progress, current.target)}
-              max={current.target}
-            />
-          )}
-          {current.remainingSeconds != null && (
-            <CardDescription>
-              Осталось: {Math.ceil(current.remainingSeconds / 60)} мин
-            </CardDescription>
-          )}
-          {current.rewardUncertain && (
-            <CardDescription>
-              Часть наград не подтверждена сервером.
-            </CardDescription>
-          )}
-        </>
+      ) : (
+        <Button
+          variant="secondary"
+          icon="play"
+          aria-pressed="false"
+          aria-label="Запустить рейд"
+          disabled={
+            auto.enabled ||
+            pending ||
+            state.needsRefresh ||
+            state.purchaseUncertain ||
+            Boolean(state.purchase) ||
+            state.medicineOpen ||
+            Boolean(state.error) ||
+            Boolean(state.pendingInvitation) ||
+            state.battle?.status === "active" ||
+            !config
+          }
+          onClick={() => void onStartRaid(config)}
+        >
+          Запустить рейд
+        </Button>
       )}
-    </BaseCard>
+    </div>
+  );
+  return (
+    <>
+      <Disclosure
+        key={`${auto.enabled || raid.enabled}:${Boolean(state.battle)}`}
+        title="Цель и условия боя"
+        size="sm"
+        leading={<Icon type="target" size="medium" />}
+        defaultOpen={!auto.enabled && !raid.enabled && !state.battle}
+        status={
+          <Pill
+            variant={progressStatus ? "active" : "unknown"}
+            size="xs"
+            dot={false}
+          >
+            {progressStatus ? (
+              <>
+                <Icon type={progressStatus.icon} size="small" />
+                {progressStatus.progress}
+                {progressStatus.timer && (
+                  <>
+                    {progressStatus.progress && " · "}
+                    {progressStatus.timer}
+                  </>
+                )}
+                {!progressStatus.progress && !progressStatus.timer && (
+                  <Icon type="infinity-2" size="small" />
+                )}
+              </>
+            ) : (
+              "Не установлена"
+            )}
+          </Pill>
+        }
+      >
+        <div className="boss-battle-goal-panel">
+          <SegmentedControl
+            size="sm"
+            label="Цель боя"
+            value={settings.kind}
+            options={BOSS_GOAL_KINDS.map((option) => ({
+              ...option,
+              disabled: busy,
+            }))}
+            onChange={(kind) => update({ kind })}
+          />
+          {settings.kind !== "drops" && (
+            <div>
+              <NumberStepper
+                id={`${id}-count`}
+                label={
+                  settings.kind === "business_items"
+                    ? "Количество предметов"
+                    : settings.countWins
+                      ? "Количество побед"
+                      : "Количество боёв"
+                }
+                min={1}
+                max={Number.MAX_SAFE_INTEGER}
+                rangeLabel={null}
+                decrementLabel="Уменьшить количество"
+                incrementLabel="Увеличить количество"
+                value={Number(settings.target)}
+                disabled={busy}
+                onChange={(target) => update({ target: String(target) })}
+              />
+            </div>
+          )}
+          {settings.kind === "drops" && (
+            <>
+              <SegmentedControl
+                size="sm"
+                label="Что собрать"
+                value={settings.selection}
+                options={[
+                  { value: "all", label: "Весь дроп", disabled: busy },
+                  { value: "selected", label: "Выбранный", disabled: busy },
+                ]}
+                onChange={(selection) =>
+                  update({
+                    selection,
+                    ...(selection === "selected"
+                      ? { selectedKeys: shopOptions.map((item) => item.key) }
+                      : {}),
+                  })
+                }
+              />
+              {settings.selection === "selected" && (
+                <div className="boss-battle-actions">
+                  {shopOptions.map((item) => (
+                    <Button
+                      key={item.key}
+                      disabled={busy}
+                      aria-pressed={settings.selectedKeys.includes(item.key)}
+                      onClick={() =>
+                        update({
+                          selectedKeys: settings.selectedKeys.includes(item.key)
+                            ? settings.selectedKeys.filter(
+                                (key) => key !== item.key,
+                              )
+                            : [...settings.selectedKeys, item.key],
+                        })
+                      }
+                    >
+                      {item.name}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <div>
+            <FieldLabel>Сколько ходить</FieldLabel>
+            <SegmentedControl
+              size="sm"
+              label="Сколько ходить"
+              value={settings.hours}
+              options={["infinite", 1, 2, 4].map((hours) =>
+                hours === "infinite"
+                  ? {
+                      value: "infinite",
+                      label: <Icon type="infinity-2" size="medium" />,
+                      ariaLabel: "Без ограничений",
+                      disabled: busy,
+                    }
+                  : {
+                      value: String(hours),
+                      label: `${hours} ч`,
+                      disabled: busy,
+                    },
+              )}
+              onChange={(hours) => update({ hours })}
+            />
+          </div>
+          {!config && (
+            <CardDescription role="alert">
+              Проверьте количество и доступный дроп.
+            </CardDescription>
+          )}
+          {error && <CardDescription role="alert">{error}</CardDescription>}
+        </div>
+      </Disclosure>
+      {actionsTarget === undefined
+        ? actions
+        : actionsTarget && createPortal(actions, actionsTarget)}
+    </>
   );
 }

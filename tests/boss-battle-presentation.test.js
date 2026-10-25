@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   formatBattleCountdown,
+  bossExecutionStatus,
+  goalProgressPresentation,
   sameBattleEvent,
   sameBattleEvents,
 } from "../src/features/bosses/BossBattle/boss-battle-presentation.js";
@@ -49,7 +51,7 @@ test("equal event copies skip rendering while changed and new events stay observ
   );
 });
 
-test("static battle markup separates countdown from the header and journal damage", async () => {
+test("battle header contains countdown, hides automation manual controls and keeps journal damage", async () => {
   const cacheDir = mkdtempSync(join(tmpdir(), "madhouse-battle-presentation-"));
   const server = await createServer({
     configFile: false,
@@ -116,11 +118,11 @@ test("static battle markup separates countdown from the header and journal damag
           possibleDrops: [
             { type: "activity_item", entityId: 1, name: "Материал" },
             {
-              type: "mutagen",
-              mutagenType: "I",
-              mutagenLevel: 1,
-              name: "Мутаген I-1",
+              type: "room",
+              entityId: 8,
+              name: "Комната",
             },
+            { type: "weapon", entityId: 9, name: "Оружие" },
           ],
         },
       },
@@ -131,15 +133,79 @@ test("static battle markup separates countdown from the header and journal damag
         goal,
       }),
     );
-    assert.ok(goalMarkup.includes("Бои: 2 · Победы: 1"));
-    assert.ok(goalMarkup.includes("Запустить автобой"));
+    assert.ok(!goalMarkup.includes("Бои: 2 · Победы: 1"));
+    const progressMarkup = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { boss: { id: 7, name: "Босс", reference: {} } },
+        goal,
+        now: 1000,
+      }),
+    );
+    assert.ok(!progressMarkup.includes("Бои: 2 · Победы: 1"));
+    const invitationState = {
+      boss: { id: 7, name: "Босс", reference: {} },
+      healing: { invitation: { attempted: false, nextAt: null } },
+    };
+    const waitingInvitations = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: invitationState,
+        auto: { enabled: true },
+        now: 1000,
+      }),
+    );
+    assert.ok(!waitingInvitations.includes("Приглашаем друзей"));
+    const activeInvitations = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { ...invitationState, battle: { status: "active" } },
+        auto: { enabled: true },
+        now: 1000,
+      }),
+    );
+    assert.ok(activeInvitations.includes("Приглашаем друзей"));
+    const stoppedProgress = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { boss: { id: 7, name: "Босс", reference: {} } },
+        goal: { ...goal, status: "stopped", remainingSeconds: 2880 },
+        now: 1000,
+      }),
+    );
+    assert.ok(!stoppedProgress.includes('aria-label="Прогресс цели"'));
+    assert.ok(!stoppedProgress.includes("Осталось:"));
+    assert.ok(!stoppedProgress.includes("Бои:"));
+    const timedProgress = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { boss: { id: 7, name: "Босс", reference: {} } },
+        goal: { ...goal, remainingSeconds: 3599 },
+        now: 1000,
+      }),
+    );
+    assert.ok(!timedProgress.includes("Осталось:"));
+    assert.ok(goalMarkup.includes("Начать автобой"));
     assert.ok(goalMarkup.includes("Цель и условия боя"));
-    assert.ok(goalMarkup.includes("ui-pill--unknown"));
+    assert.ok(goalMarkup.includes("ui-pill--active"));
     assert.ok(!goalMarkup.includes("Способ участия в боях"));
     assert.ok(!goalMarkup.includes("Ждёт приглашения друзей"));
-    assert.ok(goalMarkup.includes("tabler-icon-sword"));
-    assert.ok(goalMarkup.includes("tabler-icon-swords"));
+    assert.ok(goalMarkup.includes("tabler-icon-player-play"));
     assert.ok(goalMarkup.includes("Запустить рейд"));
+    const otherBossMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: {
+          ...settingsState,
+          raid: {
+            enabled: false,
+            status: "paused",
+            bossId: 99,
+            notice: "Other boss",
+          },
+        },
+        goal: { ...goal, boss: { id: 99 }, status: "stopped" },
+        auto: { enabled: true, pause: true },
+      }),
+    );
+    assert.ok(otherBossMarkup.includes("Не установлена"));
+    assert.ok(!otherBossMarkup.includes("На паузе"));
+    assert.ok(!otherBossMarkup.includes("Бои: 2"));
+    assert.ok(otherBossMarkup.includes("Начать автобой"));
     const raidMarkup = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
         state: {
@@ -154,10 +220,12 @@ test("static battle markup separates countdown from the header and journal damag
       }),
     );
     assert.ok(raidMarkup.includes("Остановить рейд"));
-    assert.ok(raidMarkup.includes("Ожидание боя"));
-    assert.ok(raidMarkup.includes("ui-pill--scheduled"));
+    assert.ok(!raidMarkup.includes("number-stepper"));
+    assert.ok(raidMarkup.includes("tabler-icon-player-pause"));
+    assert.ok(raidMarkup.includes("2 из 3"));
+    assert.ok(raidMarkup.includes("ui-pill--active"));
     assert.ok(!raidMarkup.includes("Ждём приглашения"));
-    assert.match(raidMarkup, /aria-label="Запустить автобой"[^>]*disabled/);
+    assert.match(raidMarkup, /aria-label="Начать автобой"[^>]*disabled/);
 
     assert.ok(goalMarkup.includes('aria-label="Без ограничений"'));
     assert.ok(goalMarkup.includes("tabler-icon-infinity-2"));
@@ -166,7 +234,7 @@ test("static battle markup separates countdown from the header and journal damag
         goalMarkup.indexOf(">1 ч</button>"),
     );
     assert.ok(!goalMarkup.includes("Остановить цель"));
-    assert.ok(goalMarkup.includes('aria-label="Прогресс цели"'));
+    assert.ok(!progressMarkup.includes('aria-label="Прогресс цели"'));
     const seriesGoal = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
         state: settingsState,
@@ -176,7 +244,7 @@ test("static battle markup separates countdown from the header and journal damag
     );
     assert.ok(seriesGoal.includes("Остановить автобой"));
     assert.ok(!seriesGoal.includes("Остановить цель"));
-    assert.ok(seriesGoal.includes("Автобой идёт"));
+    assert.ok(seriesGoal.includes("2 из 3"));
     assert.ok(seriesGoal.includes("ui-pill--active"));
     const paused = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
@@ -185,8 +253,8 @@ test("static battle markup separates countdown from the header and journal damag
         auto: { enabled: true, pause: true },
       }),
     );
-    assert.ok(paused.includes("На паузе"));
-    assert.ok(paused.includes("ui-pill--warning"));
+    assert.ok(paused.includes("2 из 3"));
+    assert.ok(paused.includes("ui-pill--active"));
     const fightingRaid = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
         state: {
@@ -197,7 +265,7 @@ test("static battle markup separates countdown from the header and journal damag
         auto: { enabled: true },
       }),
     );
-    assert.ok(fightingRaid.includes("Рейд идёт"));
+    assert.ok(fightingRaid.includes("2 из 3"));
     assert.ok(fightingRaid.includes("Остановить рейд"));
     assert.ok(!fightingRaid.includes("Остановить автобой"));
 
@@ -207,8 +275,8 @@ test("static battle markup separates countdown from the header and journal damag
         goal: { ...goal, status: "completed", wins: 3 },
       }),
     );
-    assert.ok(completedGoal.includes("Выполнено"));
-    assert.ok(completedGoal.includes("Запустить автобой"));
+    assert.ok(completedGoal.includes("Не установлена"));
+    assert.ok(completedGoal.includes("Начать автобой"));
     assert.ok(!completedGoal.includes("Новая цель"));
     assert.ok(!completedGoal.includes("Остановить цель"));
     for (const [kind, extra, text] of [
@@ -231,14 +299,14 @@ test("static battle markup separates countdown from the header and journal damag
         {
           items: [
             {
-              key: "mutagen:I:1",
-              name: "Мутаген I-1",
+              key: "room:8",
+              name: "Комната",
               amount: 0,
               received: false,
             },
           ],
         },
-        "Мутаген I-1",
+        "Комната",
       ],
       [
         "time",
@@ -258,7 +326,7 @@ test("static battle markup separates countdown from the header and journal damag
           deadlineAt: 3601000,
           remainingSeconds: 3599,
         },
-        "Осталось:",
+        "Сколько ходить",
       ],
     ]) {
       const variant = renderToStaticMarkup(
@@ -286,6 +354,37 @@ test("static battle markup separates countdown from the header and journal damag
     const panel = renderToStaticMarkup(
       createElement(BossBattlePanel, { state: { boss, battle }, now: 1000 }),
     );
+    const runningSummary = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: {
+          boss: {
+            id: 7,
+            name: "Босс",
+            reference: {
+              maxHp: 11000,
+              damageMin: 40,
+              damageMax: 60,
+              possibleDrops: [
+                {
+                  type: "activity_item",
+                  entityId: 55,
+                  name: "Трофей",
+                  image: "/item.webp",
+                },
+              ],
+            },
+          },
+          raid: { enabled: true, bossId: 7, status: "waiting" },
+          businessInventory: { stock: { 55: 174 }, complete: true },
+        },
+        now: 1000,
+      }),
+    );
+    assert.ok(runningSummary.includes("Ждём приглашения"));
+    assert.ok(runningSummary.includes("Трофей"));
+    assert.ok(!runningSummary.includes("Здоровье 11"));
+    assert.ok(!runningSummary.includes("Урон 40"));
+    assert.ok(!runningSummary.includes("В инвентаре: 174"));
     const largeHealthPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: {
@@ -314,8 +413,44 @@ test("static battle markup separates countdown from the header and journal damag
         now: 1000,
       }),
     );
-    assert.ok(quotaPanel.includes("Норма урона"));
-    assert.ok(quotaPanel.includes("Осталось нанести: 25"));
+    assert.ok(quotaPanel.includes("ui-progress-bar-highlight"));
+    assert.ok(quotaPanel.includes("До нормы урона: 25"));
+    assert.ok(!quotaPanel.includes("Осталось нанести:"));
+    for (const [bossHealth, left, width] of [
+      [50, 25, 25],
+      [40, 15, 25],
+      [10, 0, 10],
+    ]) {
+      const personalQuota = renderToStaticMarkup(
+        createElement(BossBattlePanel, {
+          state: {
+            boss,
+            battle: {
+              ...battle,
+              bossHealth,
+              totalDamage: 75,
+              dropDamageRequired: 100,
+            },
+          },
+          now: 1000,
+        }),
+      );
+      assert.ok(
+        personalQuota.includes(
+          `class="ui-progress-bar-highlight" aria-hidden="true" style="left:${left}%;width:${width}%"`,
+        ),
+      );
+    }
+    const completedQuotaPanel = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: {
+          boss,
+          battle: { ...battle, totalDamage: 100, dropDamageRequired: 100 },
+        },
+        now: 1000,
+      }),
+    );
+    assert.ok(!completedQuotaPanel.includes("ui-progress-bar-highlight"));
     const staleQuotaPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: {
@@ -331,32 +466,61 @@ test("static battle markup separates countdown from the header and journal damag
       }),
     );
     assert.ok(
-      staleQuotaPanel.includes("Последнее подтверждённое значение нормы"),
+      !staleQuotaPanel.includes("Последнее подтверждённое значение нормы"),
     );
+    const healingState = {
+      boss: { id: 7 },
+      pending: null,
+      medicines: [
+        { type: "heal_10", quantity: 7 },
+        { type: "heal_full", quantity: 0 },
+      ],
+      healing: {
+        settings: {
+          enabled: true,
+          autoBuy: true,
+          items: { heal_10: { enabled: true, limit: 2, currency: "gold" } },
+          budgets: { gold: 500 },
+        },
+        used: { heal_10: 1 },
+      },
+    };
     const healingMarkup = renderToStaticMarkup(
+      createElement(BossHealingSettings, { state: healingState, onSave() {} }),
+    );
+    assert.ok(healingMarkup.includes("Использовать аптечки?"));
+    assert.ok(healingMarkup.includes("ui-disclosure ui-disclosure--sm"));
+    assert.ok(healingMarkup.includes("ui-pill--completed"));
+    assert.ok(!healingMarkup.includes("<input"));
+    assert.ok(!healingMarkup.includes('role="radiogroup"'));
+    assert.ok(!healingMarkup.includes("Применить"));
+    const expandedHealing = renderToStaticMarkup(
       createElement(BossHealingSettings, {
         state: {
-          boss: { id: 7 },
-          pending: null,
-          healing: {
-            settings: {
-              enabled: true,
-              autoBuy: true,
-              items: {
-                heal_10: { enabled: true, limit: 2, currency: "gold" },
-              },
-              budgets: { gold: 500 },
-            },
-            used: { heal_10: 1 },
-          },
+          ...healingState,
+          healing: { ...healingState.healing, uncertain: true },
         },
         onSave() {},
       }),
     );
-    assert.ok(healingMarkup.includes("Лимит на бой"));
-    assert.ok(healingMarkup.includes("0 — не использовать"));
-    assert.ok(healingMarkup.includes("Использовано в этом бою: 1 / 2"));
-    assert.ok(healingMarkup.includes("0 — покупки запрещены"));
+    assert.ok(!expandedHealing.includes("Лимит на бой · 0 — не использовать"));
+    assert.ok(!expandedHealing.includes('aria-label="Автолечение"'));
+    assert.ok(expandedHealing.includes("ui-icon--medicine-small"));
+    assert.ok(expandedHealing.includes("ui-icon--medicine-full"));
+    assert.ok(expandedHealing.includes("В наличии: 7"));
+    assert.ok(expandedHealing.includes("В наличии: 0"));
+    assert.ok(!expandedHealing.includes("Использовано:"));
+    assert.ok(
+      expandedHealing.includes('aria-label="Малая аптечка: лимит на бой"'),
+    );
+    assert.ok(
+      expandedHealing.includes('aria-label="Большая аптечка: лимит на бой"'),
+    );
+    assert.equal((expandedHealing.match(/<input/g) || []).length, 2);
+    assert.ok(!expandedHealing.includes("<select"));
+    assert.ok(!expandedHealing.includes("Бюджет на весь запуск"));
+    assert.ok(expandedHealing.includes("Автопокупка"));
+    assert.ok(expandedHealing.includes("Состояние проверено"));
     const referenceHealthPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: { boss, battle: null },
@@ -364,10 +528,18 @@ test("static battle markup separates countdown from the header and journal damag
       }),
     );
     assert.ok(referenceHealthPanel.includes("Здоровье 13,6 млн"));
-    assert.match(
-      panel,
-      /card-description--xs[^>]*>До окончания боя: 00:30<\/span>/,
+    assert.ok(!panel.includes("До окончания боя:"));
+    assert.ok(panel.includes("Идёт · 00:30"));
+    assert.ok(!panel.includes("Норма урона пока неизвестна"));
+    assert.ok(!panel.includes("Аптечки"));
+    const automatedPanel = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { boss, battle },
+        now: 1000,
+        auto: { enabled: true },
+      }),
     );
+    assert.ok(!automatedPanel.includes(">Ударить<"));
     const finished = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: {
@@ -395,6 +567,45 @@ test("static battle markup separates countdown from the header and journal damag
     const details = renderToStaticMarkup(
       createElement(BossBattleDetails, { boss, battle }),
     );
+    const richJournal = renderToStaticMarkup(
+      createElement(BossBattleDetails, {
+        boss,
+        battle: {
+          ...battle,
+          localEvents: [
+            {
+              kind: "invite",
+              localKey: "invite:one",
+              at: 5000,
+              actor: "Игрок",
+              invitedCount: 3,
+            },
+            {
+              kind: "heal",
+              localKey: "medicine:one",
+              at: 6000,
+              actor: "Игрок",
+              itemType: "heal_full",
+              healthRestored: 80,
+            },
+          ],
+          joinEvents: [
+            {
+              kind: "join",
+              localKey: "join:one",
+              at: 7000,
+              actor: "Друг",
+              invitedBySelf: true,
+            },
+          ],
+        },
+      }),
+    );
+    assert.ok(richJournal.includes("Пригласил друзей"));
+    assert.ok(richJournal.includes("Вступил по вашему приглашению"));
+    assert.ok(richJournal.includes("+80 HP"));
+    assert.ok(richJournal.includes("tabler-icon-users-group"));
+    assert.ok(richJournal.includes("tabler-icon-book"));
     assert.ok(details.includes('role="log"'));
     assert.ok(details.includes("boss-battle-journal-viewport"));
     assert.match(
@@ -405,4 +616,85 @@ test("static battle markup separates countdown from the header and journal damag
     await server.close();
     rmSync(cacheDir, { recursive: true, force: true });
   }
+});
+
+test("execution status distinguishes raid waiting, joining, fighting and result", () => {
+  const state = {
+    boss: { id: 7 },
+    raid: { enabled: true, bossId: 7, status: "waiting" },
+  };
+  assert.equal(bossExecutionStatus(state).label, "Ждём приглашения");
+  assert.equal(
+    bossExecutionStatus({
+      ...state,
+      raid: { ...state.raid, status: "joining" },
+    }).label,
+    "Вступаем в бой",
+  );
+  assert.equal(
+    bossExecutionStatus({ ...state, battle: { status: "active" } }).label,
+    "Бой идёт",
+  );
+  assert.equal(
+    bossExecutionStatus({
+      boss: { id: 7 },
+      battle: { status: "won", rewardKnown: true },
+    }).label,
+    "Победа",
+  );
+  assert.equal(bossExecutionStatus({ ...state, boss: { id: 8 } }), null);
+});
+
+test("goal summary has kind icon, progress and deadline clock without a fake infinite timer", () => {
+  const goal = {
+    status: "active",
+    kind: "battles",
+    progress: 4,
+    target: 16,
+    deadlineAt: 3273000,
+  };
+  assert.deepEqual(goalProgressPresentation(goal, 1000), {
+    icon: "combat",
+    progress: "4 из 16",
+    timer: "54:32",
+  });
+  assert.equal(
+    goalProgressPresentation({ ...goal, kind: "business_items" }, 1000).icon,
+    "business",
+  );
+  assert.equal(
+    goalProgressPresentation({ ...goal, kind: "drops" }, 1000).icon,
+    "loot",
+  );
+  assert.equal(
+    goalProgressPresentation({ ...goal, deadlineAt: null }, 1000).timer,
+    null,
+  );
+  assert.equal(
+    goalProgressPresentation(
+      { ...goal, kind: "time", deadlineAt: 3662000 },
+      1000,
+    ).timer,
+    "1:01:01",
+  );
+  assert.equal(
+    goalProgressPresentation({ ...goal, status: "stopped" }, 1000),
+    null,
+  );
+});
+
+test("reward confirmation after victory is never labelled invitation confirmation", () => {
+  const state = {
+    boss: { id: 7 },
+    battle: { status: "won", rewardKnown: false },
+    raid: { enabled: true, bossId: 7, status: "waiting_confirmation" },
+  };
+  assert.equal(bossExecutionStatus(state).label, "Получаем награду");
+  assert.equal(
+    bossExecutionStatus({
+      ...state,
+      battle: { ...state.battle, rewardKnown: true },
+    }).label,
+    "Победа",
+  );
 });

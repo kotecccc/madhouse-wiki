@@ -120,3 +120,12 @@
     animation: none;
   }
 }
+
+.ui-progress-bar-highlight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-pill);
+  background: var(--status-active);
+  pointer-events: none;
+}

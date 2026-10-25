@@ -198,6 +198,7 @@ export function BusinessAssistantDialog({
   return (
     <Modal
       title={`Помощник · ${business.title || "Бизнес"}`}
+      loading={Boolean(busy || (!state.loaded && !state.error))}
       width="var(--page-max-width)"
       onClose={onClose}
       footer={

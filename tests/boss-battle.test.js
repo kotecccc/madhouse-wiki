@@ -577,7 +577,7 @@ test("partial attack reply preserves confirmed participants and journal without 
   const after = store.getSnapshot().battle;
   assert.equal(after.participantCount, before.participantCount);
   assert.equal(after.participants[0].nickname, before.participants[0].nickname);
-  assert.equal(after.participants[0].damageDealt, null);
+  assert.equal(after.participants[0].damageDealt, 20);
   assert.equal(after.participantsStale, true);
   assert.equal(after.events.length, before.events.length + 1);
   assert.equal(after.events[0].confirmed, true);
@@ -908,4 +908,79 @@ test("failed reconciliation never discards an uncertain old fight for a new targ
   assert.equal(store.getSnapshot().boss.id, 7);
   assert.equal(store.getSnapshot().needsRefresh, true);
   assert.equal(calls.length, 1);
+});
+
+test("quota damage comes from the verified player's row, never the team damage", () => {
+  const normalize = (ownDamage, otherDamage, myDamage = 0) =>
+    normalizeBattle(
+      rawBattle({
+        myDamage,
+        dropDamageRequired: 100,
+        participants: [
+          { playerId: 101, damageDealt: ownDamage },
+          { playerId: 202, damageDealt: otherDamage },
+        ],
+      }),
+      7,
+      1000,
+      { playerId: 101 },
+    );
+  assert.equal(normalize(25, 500).totalDamage, 25);
+  assert.equal(normalize(25, 1000).totalDamage, 25);
+  assert.equal(normalize(50, 1000).totalDamage, 50);
+  assert.equal(normalize(50, 1000, 1050).totalDamage, 50);
+  assert.equal(normalize(25, 500).quotaFresh, true);
+});
+
+test("confirmed bulk invite is journalled once and survives subsequent battle refresh", async () => {
+  const { store, calls } = setup(
+    (method, path) => {
+      if (path === "/api/bosses/7")
+        return detail({ activeBattle: rawBattle() });
+      if (path === "/api/bosses/battles/battle-1/invitations/bulk")
+        return { invitedCount: 3 };
+      if (path === "/api/bosses/battles/battle-1") return rawBattle();
+      throw Error("unexpected_route");
+    },
+    { now: () => 1000 },
+  );
+  await store.open(boss);
+  const result = await store.inviteAll();
+  assert.equal(result.invitedCount, 3);
+  assert.equal(store.getSnapshot().battle.localEvents[0].kind, "invite");
+  assert.equal(store.getSnapshot().battle.localEvents[0].invitedCount, 3);
+  const sent = calls.find(
+    ([method, path]) => method === "POST" && path.endsWith("/invitations/bulk"),
+  );
+  assert.equal(sent[2].onlyOnline, false);
+  await store.refresh();
+  assert.equal(store.getSnapshot().battle.localEvents.length, 1);
+});
+
+test("join journal uses server join timestamps and verified inviter identity", () => {
+  const battle = normalizeBattle(
+    rawBattle({
+      participants: [
+        {
+          playerId: 202,
+          nickname: "Friend",
+          invitedByPlayerId: 101,
+          joinedAtUtc: "2026-10-26T00:00:00Z",
+        },
+        {
+          playerId: 303,
+          nickname: "Other",
+          joinedAtUtc: "2026-10-26T00:00:01Z",
+        },
+        { playerId: 404, nickname: "Unknown time" },
+      ],
+    }),
+    7,
+    1000,
+    { playerId: 101 },
+  );
+  assert.equal(battle.joinEvents.length, 2);
+  assert.equal(battle.joinEvents[0].invitedBySelf, true);
+  assert.equal(battle.joinEvents[1].invitedBySelf, false);
+  assert.equal(battle.joinEvents[0].at, Date.parse("2026-10-26T00:00:00Z"));
 });

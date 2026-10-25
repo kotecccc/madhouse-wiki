@@ -1,5 +1,5 @@
 import { getWorkById } from "../../../model/knowledge-base.js";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   readSession,
   subscribeSession,
@@ -21,7 +21,6 @@ import {
 } from "../../bosses/BossBattle/boss-battle-session.js";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
-import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { BossPortrait } from "../../bosses/BossPortrait/BossPortrait.jsx";
 import { fmt } from "../../../lib/format.js";
 import { activeBattleEntries } from "./active-battle-state.js";
@@ -157,18 +156,20 @@ export function ActiveBattleControl() {
   const collection = business.run?.status === "running" ? business.run : null;
   const [now, setNow] = useState(Date.now);
   const [choosing, setChoosing] = useState(false);
+  const disconnectTimer = useRef(null);
   useEffect(() => {
+    window.clearTimeout(disconnectTimer.current);
     const sync = () => {
       disconnectBattleSession();
       if (readSession().status === "ready") void connectBattleSession();
     };
-    sync();
+    if (readSession().status === "ready") void connectBattleSession();
     const unsubscribe = subscribeSession(sync);
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       unsubscribe();
       window.clearInterval(timer);
-      disconnectBattleSession();
+      disconnectTimer.current = window.setTimeout(disconnectBattleSession, 0);
     };
   }, []);
   const entries = activeBattleEntries(boss, pvp, now, auto);
@@ -192,6 +193,16 @@ export function ActiveBattleControl() {
     entries.length === 1 ? open(entries[0]) : setChoosing(true);
   const bossEntry = entries.find((entry) => entry.kind === "boss");
   const pvpEntry = entries.find((entry) => entry.kind === "pvp");
+  const bossMode = boss.raid?.enabled
+    ? "Рейд"
+    : auto.enabled
+      ? "Автобой"
+      : "Бой";
+  const bossModeIcon = boss.raid?.enabled
+    ? "combat"
+    : auto.enabled
+      ? "robot"
+      : "combat";
   return (
     <>
       {farmRun && (
@@ -260,19 +271,12 @@ export function ActiveBattleControl() {
               <BaseCard variant="glass-nav" className="active-battle-mobile">
                 <Button
                   variant="nav-tab"
-                  aria-label={`Открыть бой с боссом: ${boss.boss.name}`}
-                  title={boss.boss.name}
+                  aria-label={`${bossMode}: ${boss.boss.name}`}
+                  title={`${bossMode}: ${boss.boss.name}`}
                   aria-haspopup="dialog"
                   onClick={() => open(bossEntry)}
                 >
-                  <ImageCard
-                    src={boss.boss.reference?.image}
-                    alt=""
-                    size={32}
-                    imageSize={32}
-                  >
-                    <Icon type="boss" size="large" />
-                  </ImageCard>
+                  <Icon type={bossModeIcon} size="large" motion="pulse" />
                 </Button>
               </BaseCard>
             </>
@@ -328,6 +332,7 @@ export function ActiveBattleControl() {
       {pvp.visible && (
         <Modal
           title="Текущий бой PvP"
+          loading={Boolean(pvp.pending)}
           onClose={pvpBattle.close}
           footer={
             <>

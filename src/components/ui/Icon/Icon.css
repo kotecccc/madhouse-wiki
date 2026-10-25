@@ -54,10 +54,12 @@
   clip-path: polygon(0 2.5%, 97.5% 100%, 0 100%);
 }
 
+.ui-icon--medicine-small,
 .ui-icon--defibrillator-small {
   color: var(--green);
 }
 
+.ui-icon--medicine-full,
 .ui-icon--defibrillator-large {
   color: var(--red-bright);
 }

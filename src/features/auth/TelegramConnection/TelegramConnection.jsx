@@ -249,6 +249,11 @@ export function TelegramConnection({
   return (
     <Modal
       title="Вход через Telegram"
+      loading={Boolean(
+        open &&
+        !error &&
+        (!uiState || uiState.busy || uiState.stage === "loading"),
+      )}
       titleId="telegram-connection-title"
       width={440}
       contentScrollable={uiState?.stage !== "consent"}

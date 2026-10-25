@@ -944,7 +944,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         }),
       );
     const preview = panel();
-    assert.ok(preview.includes("Начать бой"));
+    assert.ok(!preview.includes("Начать бой"));
     assert.ok(preview.includes("F1 •"));
     assert.ok(!preview.includes("Подготовка"));
     assert.ok(!preview.includes('role="progressbar"'));
@@ -974,7 +974,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(activePanel.includes('aria-label="Здоровье: Вы"'));
     assert.match(
       activePanel,
-      /<span class="card-description[^"]*">Уровень 1\+ · Урон 10–20<\/span>/,
+      /<span class="card-description[^"]*">Уровень 1\+<\/span>/,
     );
     assert.ok(
       activePanel.indexOf("Аптечки") < activePanel.indexOf("Ударить"),
@@ -995,10 +995,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     );
     assert.ok(!autoPanel.includes(">Авто</button>"));
     assert.ok(!autoPanel.includes("Авто включено"));
-    assert.ok(autoPanel.includes("button-secondary"));
+    assert.ok(!autoPanel.includes("boss-battle-panel-controls"));
     assert.ok(!autoPanel.includes("Зевок"));
     assert.ok(!autoPanel.includes("7 с"));
-    assert.match(autoPanel, /disabled=""[^>]*>.*?Ударить/s);
+    assert.ok(!autoPanel.includes("Ударить"));
     assert.ok(!autoPanel.includes("Остановить автоудары"));
     const { BossBattleGoalPanel } = await load(
       "features/bosses/BossBattle/BossBattleGoalPanel.jsx",
@@ -1046,8 +1046,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(invitationsHtml.includes("Зовёт: Друг"));
     assert.match(invitationsHtml, /disabled=""[^>]*>Принять и открыть бой/);
     const settingsHtml = settingsPanel();
-    assert.ok(settingsHtml.includes('aria-label="Цель и условия боя"'));
-    assert.ok(settingsHtml.includes(">Цель и условия боя</h3>"));
+    assert.ok(settingsHtml.includes("Цель и условия боя"));
+    assert.ok(settingsHtml.includes("ui-disclosure ui-disclosure--sm"));
+    assert.ok(settingsHtml.includes(">Цель и условия боя</span>"));
     assert.ok(settingsHtml.includes("number-stepper"));
     assert.ok(settingsHtml.includes('aria-label="Увеличить количество"'));
     assert.ok(settingsHtml.includes('aria-label="Цель боя"'));
@@ -1067,7 +1068,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       "Для открытия",
     ])
       assert.ok(!settingsHtml.includes(removed), removed);
-    assert.ok(settingsHtml.includes('aria-label="Запустить автобой"'));
+    assert.ok(settingsHtml.includes('aria-label="Начать автобой"'));
     assert.ok(
       settingsPanel({}, { enabled: true }).includes(
         'aria-label="Остановить автобой"',
@@ -1130,13 +1131,26 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         rewards: ["Золото: 10"],
       },
     });
-    assert.ok(wonPanel.includes("Результат: Победа"));
+    assert.ok(!wonPanel.includes("Результат: Победа"));
+    assert.ok(!wonPanel.includes('aria-label="Здоровье: Босс"'));
     assert.ok(!wonPanel.includes("Золото: 10"));
     assert.ok(!wonPanel.includes("Ударить"));
     assert.ok(!wonPanel.includes("Включить автоудары"));
     const { BossBattleReceivedDrops } = await load(
       "features/bosses/BossBattle/BossBattleReference.jsx",
     );
+    for (const [rewardKnown, message] of [
+      [true, "Предметы не выпали."],
+      [false, "Получаем данные о награде…"],
+    ]) {
+      const rewardMarkup = renderToStaticMarkup(
+        createElement(BossBattleReceivedDrops, {
+          boss: { reference: {} },
+          battle: { rewardKnown, grantedDrops: [] },
+        }),
+      );
+      assert.ok(rewardMarkup.includes(message));
+    }
     const receivedMarkup = renderToStaticMarkup(
       createElement(BossBattleReceivedDrops, {
         boss: {
@@ -1182,7 +1196,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!battleDetails.includes("Характеристики босса"));
     const disclosures = [
       ...battleDetails.matchAll(
-        /<details class="base-card ui-disclosure"[^>]*>[\s\S]*?<\/details>/g,
+        /<details class="base-card[^"]*ui-disclosure[^"]*"[^>]*>[\s\S]*?<\/details>/g,
       ),
     ].map(([markup]) => markup);
     const participantDisclosure = disclosures.find((markup) =>

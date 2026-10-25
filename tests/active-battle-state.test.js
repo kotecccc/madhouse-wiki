@@ -210,3 +210,18 @@ test("boss dock remains available to stop a series between fights and during its
     assert.equal(entries[0].kind, "boss");
   }
 });
+
+test("raid indicator remains visible while waiting for a battle", () => {
+  const entries = activeBattleEntries(
+    {
+      boss: { id: 7, name: "Босс" },
+      battle: null,
+      raid: { enabled: true, status: "waiting", bossId: 7 },
+    },
+    { battle: null },
+    1000,
+    { enabled: false },
+  );
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].kind, "boss");
+});

@@ -347,10 +347,19 @@ test("service automation proceeds from danger through stock, buy, heal and attac
     assert.deepEqual(mutations, [
       "/api/me/bag/combat-items/buy",
       "/api/bosses/battles/battle-1/items/use",
+      "/api/bosses/battles/battle-1/invitations/bulk",
       "/api/bosses/battles/battle-1/attack",
     ]);
     const snapshot = ctx.service.snapshot(entry);
     assert.equal(snapshot.battle.healing.used.heal_10, 1);
+    assert.ok(
+      snapshot.battle.battle.localEvents.some((event) => event.kind === "heal"),
+    );
+    assert.ok(
+      snapshot.battle.battle.localEvents.some(
+        (event) => event.kind === "invite",
+      ),
+    );
     assert.equal(snapshot.battle.healing.spent.gold, 5);
     assert.equal(snapshot.battle.needsRefresh, false);
     assert.equal(snapshot.auto.enabled, true);
@@ -562,7 +571,7 @@ for (const status of [403, 429])
     }
   });
 
-test("a missing quota defers sends and advances the check deadline instead of polling tightly", async () => {
+test("a missing quota permits the first invitation and defers repeats without polling tightly", async () => {
   const ctx = createHarness({
     health: 80,
     readyAt: start + 90000,
@@ -576,8 +585,11 @@ test("a missing quota defers sends and advances the check deadline instead of po
     await ctx.advance(2000);
     assert.equal(ctx.calls.length, reads);
     assert.equal(
-      ctx.calls.some((call) => call.method === "POST"),
-      false,
+      ctx.calls.filter(
+        (call) =>
+          call.method === "POST" && call.path.endsWith("/invitations/bulk"),
+      ).length,
+      1,
     );
     assert.ok(
       ctx.store.read("101").assistant.battles["battle-1"].inviteAt > ctx.now,

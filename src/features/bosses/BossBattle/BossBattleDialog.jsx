@@ -5,13 +5,9 @@ import {
 } from "../../../../shared/auth-session.js";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
-import {
-  BossBattleDrops,
-  BossBattleReceivedDrops,
-} from "./BossBattleReference.jsx";
+import { BossBattleReceivedDrops } from "./BossBattleReference.jsx";
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
 import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
-import { BossMedicinePanel } from "./BossMedicinePanel.jsx";
 import { BossHealingSettings } from "./BossHealingSettings.jsx";
 import { isTerminalBossBattle } from "./boss-battle-status.js";
 import { battleActionHint } from "./boss-battle-controller.js";
@@ -72,6 +68,7 @@ export function BossBattleDialog() {
     bossBattleGoal.getSnapshot,
   );
   const [now, setNow] = useState(Date.now);
+  const [actionsTarget, setActionsTarget] = useState(null);
   useEffect(() => {
     const unsubscribe = subscribeSession(() => bossBattle.close());
     const timer = window.setInterval(() => {
@@ -81,7 +78,6 @@ export function BossBattleDialog() {
     return () => {
       unsubscribe();
       window.clearInterval(timer);
-      bossBattle.reset();
     };
   }, []);
   useEffect(() => {
@@ -101,6 +97,7 @@ export function BossBattleDialog() {
   }, [needsDetails]);
   if (!state.visible || !state.boss) return null;
   const battle = state.battle;
+  const showBattleDetails = Boolean(battle && !isTerminalBossBattle(battle));
   const catalogueBoss = Object.values(bossById).find(
     (boss) => Number(boss.numericId ?? boss.apiId) === Number(state.boss.id),
   );
@@ -122,34 +119,33 @@ export function BossBattleDialog() {
       onStart={bossBattleAuto.start}
       onStartRaid={bossBattleAuto.startRaid}
       onStopRaid={bossBattleAuto.stopRaid}
+      actionsTarget={actionsTarget}
+      now={now}
     />
   );
   return (
     <Modal
       title={`Босс «${state.boss.name}»`}
+      loading={Boolean(state.pending)}
       width="var(--page-max-width)"
       contentVariant="inset"
       onClose={bossBattle.close}
-      footer={false}
+      footer={<div className="boss-battle-footer" ref={setActionsTarget} />}
     >
-      <div className="boss-battle-layout">
+      <div
+        className={`boss-battle-layout${showBattleDetails ? " boss-battle-layout--battle" : ""}`}
+      >
         <div className="boss-battle-column">
           <BossBattlePanel
             state={state}
             departmentCode={departmentCode}
-            startBlocked={Boolean(goal && !bossBattleGoal.canStart())}
+            goal={goal}
             now={Math.max(now, Date.now())}
-            onStart={() => void bossBattle.start()}
-            auto={{ ...auto, enabled: auto.enabled || state.raid?.enabled }}
+            auto={auto}
             onAttack={() => {
               if (!bossBattleAuto.getSnapshot().enabled)
                 void bossBattle.attack();
             }}
-            onMedicines={() =>
-              state.medicineOpen
-                ? bossBattle.closeMedicines()
-                : void bossBattle.openMedicines()
-            }
           />
           {showNext && (
             <div className="boss-battle-actions">
@@ -178,28 +174,27 @@ export function BossBattleDialog() {
               )}
             </div>
           )}
+          {battle?.outcome && (
+            <BossBattleReceivedDrops boss={state.boss} battle={battle} />
+          )}
+        </div>
+        {showBattleDetails && (
+          <div className="boss-battle-column boss-battle-details-column">
+            <BossBattleDetails boss={state.boss} battle={battle} />
+          </div>
+        )}
+        <div className="boss-battle-column boss-battle-settings-column">
           {goalPanel}
           <BossHealingSettings
             key={`healing-${state.boss.id}`}
             state={state}
+            collapsed={auto.enabled || Boolean(state.raid?.enabled)}
             onSave={(settings) =>
               settings === null
                 ? bossBattle.acknowledgeHealing()
                 : bossBattle.configureHealing(settings)
             }
           />
-          {state.medicineOpen && (
-            <BossMedicinePanel state={state} now={Math.max(now, Date.now())} />
-          )}
-          {battle?.outcome && (
-            <BossBattleReceivedDrops boss={state.boss} battle={battle} />
-          )}
-          {battle?.status !== "active" && (
-            <BossBattleDrops boss={state.boss} battle={battle} />
-          )}
-        </div>
-        <div className="boss-battle-column">
-          {battle && <BossBattleDetails boss={state.boss} battle={battle} />}
         </div>
       </div>
     </Modal>

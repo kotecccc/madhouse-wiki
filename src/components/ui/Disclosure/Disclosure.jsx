@@ -10,6 +10,7 @@ export function Disclosure({
   count,
   countLabel,
   description,
+  size = "md",
   titleSize,
   descriptionSize,
   leading,
@@ -21,7 +22,8 @@ export function Disclosure({
   return (
     <BaseCard
       as="details"
-      className="ui-disclosure"
+      className={`ui-disclosure${size === "sm" ? " ui-disclosure--sm" : ""}`}
+      padding={size === "sm" ? "12" : undefined}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
@@ -31,12 +33,15 @@ export function Disclosure({
         {leading}
         {leading || status ? (
           <span className="ui-disclosure-copy">
-            <CardTitle as="span" size={titleSize}>
+            <CardTitle
+              as="span"
+              size={titleSize ?? (size === "sm" ? "sm" : undefined)}
+            >
               {title}
             </CardTitle>
             {(count != null || description) && (
               <CardDescription
-                size={descriptionSize}
+                size={descriptionSize ?? (size === "sm" ? "xs" : undefined)}
                 title={countLabel}
                 aria-label={countLabel}
               >
@@ -46,11 +51,14 @@ export function Disclosure({
           </span>
         ) : (
           <>
-            <CardTitle as="span" size={titleSize}>
+            <CardTitle
+              as="span"
+              size={titleSize ?? (size === "sm" ? "sm" : undefined)}
+            >
               {title}
             </CardTitle>
             <CardDescription
-              size={descriptionSize}
+              size={descriptionSize ?? (size === "sm" ? "xs" : undefined)}
               title={countLabel}
               aria-label={countLabel}
             >

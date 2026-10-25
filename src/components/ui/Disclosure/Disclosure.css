@@ -44,3 +44,16 @@
   gap: var(--space-12);
   padding-top: var(--space-12);
 }
+
+.ui-disclosure--sm > .ui-disclosure-summary {
+  min-height: var(--control-height-sm);
+  gap: var(--space-8);
+}
+
+.ui-disclosure--sm > .ui-disclosure-content {
+  padding-top: var(--space-8);
+}
+
+.ui-disclosure--sm {
+  padding-inline: var(--card-padding);
+}

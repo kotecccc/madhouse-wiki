@@ -1,3 +1,4 @@
+import { normalizeBusinessInventory } from "../../../lib/business-assistant.js";
 import {
   bossBattleReference,
   grantedBattleDrops,
@@ -68,6 +69,21 @@ export function normalizeBattle(
   }
   // The documented actions array has no battle-wide attack total, so keep this
   // statistic unavailable instead of inferring it from a possibly partial log.
+  // Match the verified account by ID before removing private participant fields.
+  // Some battle responses report myDamage:0 despite a populated own row.
+  const ownParticipants =
+    identity?.playerId != null && Array.isArray(raw.participants)
+      ? raw.participants.filter(
+          (p) =>
+            p?.playerId != null &&
+            String(p.playerId) === String(identity.playerId),
+        )
+      : [];
+  const ownDamage =
+    ownParticipants.length === 1
+      ? number(ownParticipants[0].damageDealt)
+      : null;
+  const personalDamage = ownDamage ?? number(raw.myDamage);
   const participants = Array.isArray(raw.participants)
     ? raw.participants.slice(0, 50).flatMap((participant) => {
         if (!participant || typeof participant !== "object") return [];
@@ -106,6 +122,10 @@ export function normalizeBattle(
       const occurredAt = Date.parse(action.occurredAtUtc);
       return [
         {
+          ...(identity?.playerId != null &&
+          String(action.playerId) === String(identity.playerId)
+            ? { isSelf: true }
+            : {}),
           turn: action.turn,
           at: Number.isFinite(occurredAt) ? occurredAt : null,
           actor:
@@ -125,10 +145,33 @@ export function normalizeBattle(
               ? action.itemType.slice(0, 80)
               : null,
           healthRestored: number(action.healthRestored),
+          ...(action.itemType && typeof action.operationId === "string"
+            ? { localKey: `medicine:${action.operationId}` }
+            : {}),
         },
       ];
     })
     .sort((a, b) => b.turn - a.turn || (b.at ?? 0) - (a.at ?? 0));
+  const joinEvents = (Array.isArray(raw.participants) ? raw.participants : [])
+    .slice(0, 50)
+    .flatMap((p) => {
+      const at = Date.parse(p?.joinedAtUtc);
+      if (!Number.isFinite(at) || typeof p.nickname !== "string") return [];
+      const actor = p.nickname.trim().slice(0, 80) || "Участник";
+      return [
+        {
+          kind: "join",
+          localKey: `join:${at}:${actor}`,
+          at,
+          actor,
+          turn: null,
+          invitedBySelf:
+            identity?.playerId != null &&
+            p.invitedByPlayerId != null &&
+            String(p.invitedByPlayerId) === String(identity.playerId),
+        },
+      ];
+    });
   return {
     id: raw.battleId,
     status,
@@ -152,10 +195,10 @@ export function normalizeBattle(
     grantedDrops: grantedBattleDrops(reward),
     rewardKnown: Array.isArray(reward?.drops),
     attackCount: null,
-    totalDamage: number(raw.myDamage),
+    totalDamage: personalDamage,
     dropDamageRequired: number(raw.dropDamageRequired),
     quotaFresh:
-      number(raw.dropDamageRequired) !== null && number(raw.myDamage) !== null,
+      number(raw.dropDamageRequired) !== null && personalDamage !== null,
     maxParticipants: number(raw.maxParticipants),
     myRewardEligible:
       typeof raw.myRewardEligible === "boolean" ? raw.myRewardEligible : null,
@@ -173,6 +216,8 @@ export function normalizeBattle(
     participantsStale: false,
     participants,
     events,
+    joinEvents,
+    localEvents: [],
   };
 }
 
@@ -187,6 +232,9 @@ const sortEvents = (a, b) =>
 function mergeBattleReply(previous, raw, bossId, now, identity = null) {
   const next = normalizeBattle(raw, bossId, now, identity);
   if (!previous || previous.id !== next.id) return next;
+  next.localEvents = previous.localEvents ?? [];
+  if (!Array.isArray(raw.participants))
+    next.joinEvents = previous.joinEvents ?? [];
   for (const key of [
     "status",
     "playerHealth",
@@ -197,7 +245,9 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
     if (!Object.hasOwn(raw, key)) next[key] = previous[key];
   if (!Object.hasOwn(raw, "expiresAtUtc")) next.expiresAt = previous.expiresAt;
   next.readyAt = Math.max(next.readyAt, previous.readyAt);
-  if (!Object.hasOwn(raw, "myDamage")) next.totalDamage = previous.totalDamage;
+  if (next.totalDamage == null) next.totalDamage = previous.totalDamage;
+  else if (previous.totalDamage != null)
+    next.totalDamage = Math.max(next.totalDamage, previous.totalDamage);
   if (!Object.hasOwn(raw, "dropDamageRequired"))
     next.dropDamageRequired = previous.dropDamageRequired;
   if (!Object.hasOwn(raw, "maxParticipants"))
@@ -208,10 +258,7 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
   if (number(raw.participantCount) === null)
     next.participantCount = previous.participantCount;
   if (!Array.isArray(raw.participants)) {
-    next.participants = previous.participants.map((participant) => ({
-      ...participant,
-      damageDealt: null,
-    }));
+    next.participants = previous.participants;
     next.participantsStale = true;
     next.detailsLoaded = previous.detailsLoaded;
   } else if (
@@ -313,6 +360,7 @@ const emptyState = () => ({
   canStart: false,
   medicineOpen: false,
   medicines: null,
+  businessInventory: null,
   purchase: null,
   purchaseUncertain: false,
   invitationOnly: false,
@@ -358,8 +406,32 @@ export function createBossBattleController({
     return currentIdentity()?.nickname || "Игрок";
   }
   function publish(patch) {
+    if (patch.battle && patch.battle.id === state.battle?.id) {
+      for (const field of ["localEvents", "joinEvents"]) {
+        const events = new Map(
+          (state.battle[field] ?? []).map((e) => [e.localKey, e]),
+        );
+        for (const event of patch.battle[field] ?? [])
+          events.set(event.localKey, event);
+        patch.battle[field] = [...events.values()].slice(-100);
+      }
+    }
     state = { ...state, ...patch };
     for (const listener of listeners) listener();
+  }
+  function journalEvent(event) {
+    event = { ...event, isSelf: true };
+    if (!state.battle) return;
+    const localEvents = new Map(
+      (state.battle.localEvents ?? []).map((e) => [e.localKey, e]),
+    );
+    localEvents.set(event.localKey, event);
+    publish({
+      battle: {
+        ...state.battle,
+        localEvents: [...localEvents.values()].slice(-100),
+      },
+    });
   }
   async function run(kind, task) {
     if (state.pending) return;
@@ -475,9 +547,11 @@ export function createBossBattleController({
         canStart = detail.state.canStartFight === true;
       }
     }
-    const medicines = withMedicines
-      ? normalizeMedicines(await call("GET", "/api/me/bag"))
-      : state.medicines;
+    const bag = withMedicines ? await call("GET", "/api/me/bag") : null;
+    const medicines = withMedicines ? normalizeMedicines(bag) : state.medicines;
+    const businessInventory = withMedicines
+      ? normalizeBusinessInventory(bag)
+      : state.businessInventory;
     return {
       battle: battle
         ? {
@@ -490,6 +564,7 @@ export function createBossBattleController({
         : null,
       canStart,
       medicines,
+      businessInventory,
       damageLimit,
       needsRefresh: false,
     };
@@ -528,6 +603,18 @@ export function createBossBattleController({
   }
   function applyCurrent(current, version, extra = {}) {
     if (version !== generation) return;
+    if (
+      current.battle?.id === state.battle?.id &&
+      current.battle &&
+      state.battle?.totalDamage != null
+    ) {
+      current.battle.totalDamage = Math.max(
+        current.battle.totalDamage ?? 0,
+        state.battle.totalDamage,
+      );
+    }
+    if (current.battle?.id === state.battle?.id && current.battle)
+      current.battle.localEvents = state.battle?.localEvents ?? [];
     publish({
       ...current,
       ...(state.invitationOnly ? { canStart: false } : {}),
@@ -657,6 +744,7 @@ export function createBossBattleController({
           const event = {
             turn,
             at: now(),
+            isSelf: true,
             actor: ownNickname(),
             damage,
             critical: playerHits.some((hit) => hit.critical === true),
@@ -819,6 +907,18 @@ export function createBossBattleController({
           ? "Здоровье и запас аптечек обновлены."
           : "Использование аптечки не подтверждено. Обновите состояние.",
       });
+      if (confirmed)
+        journalEvent({
+          kind: "heal",
+          localKey: `medicine:${actionId}`,
+          turn: null,
+          at: now(),
+          actor: ownNickname(),
+          itemType: type,
+          healthRestored:
+            receipt?.healthRestored ??
+            Math.max(0, after.battle.playerHealth - before.battle.playerHealth),
+        });
       return { confirmed };
     });
   }
@@ -1165,6 +1265,17 @@ export function createBossBattleController({
       if (!state.pending) publish({ medicineOpen: false, purchase: null });
     },
     useMedicine,
+    refreshMedicineStock() {
+      if (!state.boss) return;
+      return run("stock", async (call, version) => {
+        const bag = await call("GET", "/api/me/bag");
+        if (version === generation)
+          publish({
+            medicines: normalizeMedicines(bag),
+            businessInventory: normalizeBusinessInventory(bag),
+          });
+      });
+    },
     loadMedicines() {
       if (!state.boss || !state.battle) return;
       return run("stock", async (call, version) => {
@@ -1185,13 +1296,22 @@ export function createBossBattleController({
           const reply = await call(
             "POST",
             `/api/bosses/battles/${encodeURIComponent(id)}/invitations/bulk`,
-            { operationId: actionId, onlyAvailable: true, onlyOnline: true },
+            { operationId: actionId, onlyAvailable: true, onlyOnline: false },
           );
           if (
             !Number.isSafeInteger(reply?.invitedCount) ||
             reply.invitedCount < 0
           )
             throw new Error("invalid_invitation_result");
+          journalEvent({
+            kind: "invite",
+            localKey: `invite:${actionId}`,
+            turn: null,
+            at: now(),
+            isSelf: true,
+            actor: ownNickname(),
+            invitedCount: reply.invitedCount,
+          });
           return {
             known: true,
             invitedCount: reply.invitedCount,

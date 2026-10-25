@@ -22,9 +22,10 @@ function LootGrid({ rows, showReceived }) {
   return (
     <div className="boss-battle-loot-grid">
       {sortLootRows(rows).map(({ key, item, amount, received }) => (
-        <BaseCard key={key} className="boss-battle-loot-tile">
+        <BaseCard key={key} padding="8" className="boss-battle-loot-tile">
           <ImageCard
             src={item.image}
+            size={48}
             alt={item.name || "Предмет босса"}
             title={item.name || "Предмет босса"}
           />
@@ -33,7 +34,7 @@ function LootGrid({ rows, showReceived }) {
           </CardTitle>
           {showReceived && received && (
             <Pill variant="completed" size="xs" dot={false}>
-              Получено{amount != null ? ` ×${fmt(amount)}` : ""}
+              {amount != null ? `×${fmt(amount)}` : "Получено"}
             </Pill>
           )}
         </BaseCard>
@@ -57,6 +58,7 @@ export function BossBattleDrops({ boss, battle }) {
   return (
     <Disclosure
       title="Дроп босса"
+      leading={<Icon type="loot" size="large" />}
       count={fmt(rows.length)}
       countLabel={`Предметов: ${rows.length}`}
     >
@@ -75,28 +77,46 @@ export function BossBattleReceivedDrops({ boss, battle }) {
   );
   return (
     <BaseCard className="boss-battle-received-drops">
-      <CardTitle>Полученный дроп</CardTitle>
+      <div className="boss-battle-panel-row">
+        <div className="boss-battle-panel-reward">
+          <Icon type="loot" size="medium" />
+          <CardTitle size="sm">Полученный дроп</CardTitle>
+        </div>
+        <Pill variant="completed" size="xs" dot={false}>
+          {fmt(rows.length)}
+        </Pill>
+      </div>
       {rows.length ? (
         <LootGrid rows={rows} showReceived />
       ) : (
-        <CardDescription>Нет данных о выпавших предметах.</CardDescription>
+        <CardDescription>
+          {battle?.rewardKnown === true
+            ? "Предметы не выпали."
+            : "Получаем данные о награде…"}
+        </CardDescription>
       )}
-      {battle?.currencyRewards?.map(({ type, amount }) => {
-        const reward = {
-          gold: ["coin", "Монеты"],
-          pills: ["pill", "Пилюли"],
-          dollar: ["banknote", "Купюры"],
-          exp: [null, "Опыт"],
-        }[type];
-        if (!reward) return null;
-        const [icon, label] = reward;
-        return (
-          <CardDescription key={type}>
-            {icon && <Icon type={icon} size="small" />}
-            {label}: {fmt(amount)}
-          </CardDescription>
-        );
-      })}
+      <div className="boss-battle-panel-rewards">
+        {battle?.currencyRewards?.map(({ type, amount }) => {
+          const reward = {
+            gold: ["coin", "Монеты"],
+            pills: ["pill", "Пилюли"],
+            dollar: ["banknote", "Купюры"],
+            exp: [null, "Опыт"],
+          }[type];
+          if (!reward) return null;
+          const [icon, label] = reward;
+          return (
+            <CardDescription
+              size="xs"
+              className="boss-battle-panel-reward"
+              key={type}
+            >
+              {icon && <Icon type={icon} size="small" />}
+              {label}: {fmt(amount)}
+            </CardDescription>
+          );
+        })}
+      </div>
     </BaseCard>
   );
 }

@@ -35,6 +35,7 @@ import {
   IconPackage,
   IconRobot,
   IconUsersGroup,
+  IconPlayerPlay,
   IconPlayerPause,
   IconPlayerStop,
   IconPillFilled,
@@ -43,6 +44,7 @@ import {
   IconStopwatch,
   IconSwords,
   IconSword,
+  IconTarget,
   IconTreasureChest,
   IconUser,
   IconVaccine,
@@ -55,6 +57,24 @@ function iconSizeVariant(size) {
   if (size <= 14) return "small";
   if (size <= 16) return "medium";
   return "large";
+}
+
+// Both medicine variants share the same broad, equal-arm cross silhouette.
+function MedicineCross({ filled = false, ...props }) {
+  return (
+    <svg viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} {...props}>
+      <path
+        d="M9 3H15V9H21V15H15V21H9V15H3V9H9Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MedicineCrossFilled(props) {
+  return <MedicineCross filled {...props} />;
 }
 
 const iconComponents = {
@@ -81,9 +101,11 @@ const iconComponents = {
   department: IconBuildingHospital,
   floor: IconBuilding,
   combat: IconSwords,
+  target: IconTarget,
   sword: IconSword,
   robot: IconRobot,
   group: IconUsersGroup,
+  play: IconPlayerPlay,
   pause: IconPlayerPause,
   stop: IconPlayerStop,
   fist: IconHandGrab,
@@ -98,6 +120,9 @@ const iconComponents = {
   coin: IconCoin,
   pill: IconPillFilled,
   banknote: IconCashBanknote,
+  "medical-cross": MedicineCross,
+  "medicine-small": MedicineCross,
+  "medicine-full": MedicineCrossFilled,
   "defibrillator-small": IconVaccine,
   "defibrillator-large": IconBatteryVerticalCharging,
   "arrow-left": IconArrowLeft,
@@ -123,6 +148,8 @@ export function Icon({ type, size, motion, className = "" }) {
       "coin",
       "pill",
       "banknote",
+      "medicine-small",
+      "medicine-full",
       "defibrillator-small",
       "defibrillator-large",
     ].includes(type) && `ui-icon--${type}`,

@@ -121,6 +121,7 @@ export function BossInvitationsButton({ preferredBossId }) {
       {open && (
         <Modal
           title="Приглашения на босса"
+          loading={Boolean(state.pending)}
           contentVariant="inset"
           onClose={close}
           footer={

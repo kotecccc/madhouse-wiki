@@ -172,6 +172,26 @@ test("small healing is chosen when it safely clears the bound; full healing is c
   });
 });
 
+test("item-limit purchase mode needs no money budget and still respects battle limits", () => {
+  const state = baseState({
+    medicines: baseState().medicines.map((item) => ({ ...item, quantity: 0 })),
+  });
+  const settings = enabledSettings({
+    autoBuy: true,
+    budgetMode: "item_limits",
+    budgets: { gold: 0, dollar: 0, pills: 0 },
+  });
+  const healing = {
+    settings,
+    used: { heal_10: 0, heal_full: 0 },
+    spent: { gold: 0, dollar: 0, pills: 0 },
+  };
+  assert.equal(settings.budgetMode, "item_limits");
+  assert.equal(chooseBattleAction(state, healing, 90).kind, "buy");
+  healing.used = { heal_10: 3, heal_full: 3 };
+  assert.equal(chooseBattleAction(state, healing, 90).kind, "stop");
+});
+
 test("zero item limit and zero purchase budget disable those paths; quote currency is honored", () => {
   const state = baseState({
     medicines: baseState().medicines.map((item) => ({ ...item, quantity: 0 })),
@@ -276,7 +296,7 @@ test("battle use counts reset by battle identity; run budgets persist until a ne
   assert.equal(assistant.projection().spent.gold, 0);
 });
 
-test("invitation requires fresh quota, an idle cooldown and persists its next cooldown", async () => {
+test("first invitation is immediate; repeats require fresh quota and persist their cooldown", async () => {
   let time = 100_000;
   const controller = fakeController(
     baseState({
@@ -295,7 +315,7 @@ test("invitation requires fresh quota, an idle cooldown and persists its next co
   });
   assistant.configure(enabledSettings());
   assistant.begin("goal-1");
-  assert.equal((await assistant.step()).kind, "wait");
+  assert.equal((await assistant.step()).kind, "invite");
   controller.setSnapshot(
     baseState({
       damageLimit: { bossId: 7, value: 40 },
@@ -493,4 +513,22 @@ test("stop during outage recovery cannot submit a late attack", async () => {
     controller.calls.some(([kind]) => kind === "attack"),
     false,
   );
+});
+
+test("joining a battle invites before the first ready strike even before personal quota", async () => {
+  const controller = fakeController(
+    baseState({ damageLimit: { bossId: 7, value: 40 } }),
+  );
+  const assistant = createBattleAssistant({
+    controller,
+    now: () => 100000,
+    random: () => 0,
+  });
+  assistant.begin("new-raid");
+  const result = await assistant.step();
+  assert.equal(result.kind, "invite");
+  assert.ok(!controller.calls.some(([kind]) => kind === "attack"));
+  assert.equal(assistant.projection().invitation.invitedCount, 1);
+  assert.equal(assistant.projection().invitation.nextAt, 135000);
+  assert.equal((await assistant.step()).kind, "attack");
 });

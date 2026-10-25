@@ -17,6 +17,7 @@ export function ProgressBar({
   className = "",
   animateLoss = false,
   animationKey = null,
+  highlightAmount = 0,
 }) {
   const safeMax = Number.isFinite(max) && max > 0 ? max : 1;
   const safeValue = Number.isFinite(value)
@@ -101,7 +102,22 @@ export function ProgressBar({
             aria-hidden="true"
           />
         );
-        if (!animateLoss)
+        // Anchor the remaining personal target to the current fill's right
+        // edge, clipping it only when the boss has less health left.
+        const highlightStart = Math.max(
+          0,
+          safeValue - Math.max(0, highlightAmount),
+        );
+        const highlightLeft = Math.max(segmentStart, highlightStart);
+        const highlightWidth = Math.max(
+          0,
+          Math.min(safeValue, segmentStart + segmentMax) - highlightLeft,
+        );
+        const highlighted =
+          Number.isFinite(highlightAmount) &&
+          highlightAmount > 0 &&
+          highlightWidth > 0;
+        if (!animateLoss && !highlighted)
           return (
             <progress
               className="ui-progress-bar-segment"
@@ -129,6 +145,16 @@ export function ProgressBar({
               />
             )}
             {progress}
+            {highlighted && (
+              <span
+                className="ui-progress-bar-highlight"
+                aria-hidden="true"
+                style={{
+                  left: `${((highlightLeft - segmentStart) / segmentMax) * 100}%`,
+                  width: `${(highlightWidth / segmentMax) * 100}%`,
+                }}
+              />
+            )}
           </span>
         );
       })}

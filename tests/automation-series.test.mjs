@@ -56,6 +56,8 @@ function setup({
     calls.push({ method, path: url.pathname });
     if (url.pathname === "/api/me")
       return Response.json({ playerId: 101, nickname: "Player" });
+    if (url.pathname === "/api/me/bag")
+      return Response.json({ activityItems: [], consumables: [] });
     if (url.pathname === "/api/combat")
       return Response.json({ activeBattle: null });
     if (url.pathname === bossPath && method === "GET") {

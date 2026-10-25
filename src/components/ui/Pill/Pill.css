@@ -84,3 +84,24 @@
   height: 1em;
   flex-basis: 1em;
 }
+
+.ui-pill-text--pulse {
+  animation: ui-pill-text-pulse var(--skeleton-animation-duration) ease-in-out
+    infinite;
+}
+
+@keyframes ui-pill-text-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--skeleton-opacity-min);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-pill-text--pulse {
+    animation: none;
+  }
+}

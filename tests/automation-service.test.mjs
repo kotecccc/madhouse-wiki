@@ -31,7 +31,7 @@ function battle(now, id = "battle-1", status = "active", bossHealth = 40) {
   };
 }
 
-function fakeGame({ now = 1_000_000 } = {}) {
+function fakeGame({ now = 1_000_000, finalReward } = {}) {
   const calls = [];
   let currentBattle = null;
   let holdAttack = false;
@@ -45,6 +45,14 @@ function fakeGame({ now = 1_000_000 } = {}) {
       path: url.pathname,
       authorization,
     });
+    if (url.pathname === "/api/me/bag")
+      return Response.json({
+        activityItems: [{ itemId: 55, quantity: 12 }],
+        combatItems: [
+          { type: "heal_10", quantity: 4 },
+          { type: "heal_full", quantity: 2 },
+        ],
+      });
     if (url.pathname === "/api/me") {
       const playerId = authorization.includes("tokenB") ? 202 : 101;
       return Response.json({
@@ -63,7 +71,11 @@ function fakeGame({ now = 1_000_000 } = {}) {
       url.pathname === "/api/bosses/battles/battle-1" &&
       (init.method || "GET") === "GET"
     )
-      return Response.json(currentBattle || battle(now));
+      return Response.json(
+        currentBattle?.status === "won" && finalReward
+          ? { ...currentBattle, reward: finalReward }
+          : currentBattle || battle(now),
+      );
     if (url.pathname === "/api/bosses/7/battles" && init.method === "POST") {
       currentBattle = battle(now);
       return Response.json({ battle: currentBattle });
@@ -144,6 +156,35 @@ async function openBoss(service, authorization = tokenA) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   return entry;
 }
+
+test("opening the boss dialog refreshes medicine stock before any battle exists", async () => {
+  await withContext(async ({ service, game }) => {
+    const entry = await openBoss(service);
+    const state = service.snapshot(entry).battle;
+    assert.equal(state.battle, null);
+    assert.deepEqual(state.businessInventory, {
+      stock: { 55: 12 },
+      complete: true,
+    });
+    assert.deepEqual(
+      state.medicines.map(({ type, quantity }) => ({ type, quantity })),
+      [
+        { type: "heal_10", quantity: 4 },
+        { type: "heal_full", quantity: 2 },
+      ],
+    );
+    await service.command(
+      entry,
+      command("reopen-stock", "open", service.snapshot(entry).version, {
+        bossId: 7,
+      }),
+    );
+    assert.equal(
+      game.calls.filter(({ path }) => path === "/api/me/bag").length,
+      2,
+    );
+  });
+});
 
 test("verified upstream identities partition records across users and token rotations", async () => {
   await withContext(async ({ store, service, game }) => {
@@ -228,6 +269,8 @@ test("goal counters survive service restart and duplicate command receipts do no
       [1, 1, 0],
     );
 
+    await new Promise((resolve) => setImmediate(resolve));
+    snap = service.snapshot(entry);
     const receipt = command("favorite1", "favorites.set", snap.version, {
       bossIds: [7],
     });
@@ -620,7 +663,7 @@ test("quantitative goal enforces its server deadline before every POST and survi
   }
 });
 
-test("one enable command saves settings and starts automation; unchanged settings resume earned progress", async () => {
+test("explicit stop clears goal progress and deadline while retaining next-run settings", async () => {
   await withContext(async ({ service, game, now }) => {
     const entry = await openBoss(service);
     const settings = {
@@ -644,12 +687,53 @@ test("one enable command saves settings and starts automation; unchanged setting
     assert.equal(service.snapshot(entry).goal.deadlineAt, now + 3600000);
     assert.equal(game.calls.filter((call) => call.method === "POST").length, 0);
     await send("disable-settings-01", "auto.stop");
+    assert.equal(service.snapshot(entry).goal.status, "stopped");
+    assert.equal(service.snapshot(entry).goal.remainingSeconds, null);
+    assert.equal(service.snapshot(entry).goal.progress, 0);
+    assert.equal(service.snapshot(entry).goal.durationHours, 1);
     await send("manual-start-001", "start");
     await send("manual-attack-01", "attack");
-    assert.equal(service.snapshot(entry).goal.wins, 1);
+    assert.equal(service.snapshot(entry).goal.wins, 0);
     await send("enable-settings-02", "auto.start", { settings });
-    assert.equal(service.snapshot(entry).goal.wins, 1);
+    assert.equal(service.snapshot(entry).goal.wins, 0);
     assert.equal(service.snapshot(entry).auto.enabled, true);
     await send("disable-settings-02", "auto.stop");
   });
+});
+
+test("terminal victory without reward is reconciled by GET and records the returned drop", async () => {
+  await withContext(
+    async ({ service, game }) => {
+      const entry = await openBoss(service);
+      await service.command(
+        entry,
+        command("reward-start", "start", service.snapshot(entry).version),
+      );
+      await service.command(
+        entry,
+        command("reward-attack", "attack", service.snapshot(entry).version),
+      );
+      service.snapshot(entry);
+      await new Promise((resolve) => setImmediate(resolve));
+      const result = service.snapshot(entry).battle.battle;
+      assert.equal(result.rewardKnown, true);
+      assert.equal(result.grantedDrops[0].amount, 1);
+      assert.equal(result.grantedDrops[0].mutagenType, "W");
+      assert.equal(game.calls.filter((c) => c.method === "POST").length, 2);
+    },
+    {
+      finalReward: {
+        guaranteed: {},
+        drops: [
+          {
+            type: "mutagen",
+            mutagenType: "W",
+            mutagenLevel: 14,
+            amount: 1,
+            granted: true,
+          },
+        ],
+      },
+    },
+  );
 });

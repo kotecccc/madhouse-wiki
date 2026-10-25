@@ -5,7 +5,7 @@ import "./MobileNavigation.css";
 
 const screens = [
   { id: "overview", label: "Главная", icon: "character" },
-  { id: "raids", label: "Рейды", icon: "combat" },
+  { id: "raids", label: "Рейды", icon: "boss" },
 ];
 
 export function MobileNavigation({ activeScreen, onScreenChange }) {

@@ -6,20 +6,42 @@
 
 .boss-battle-layout {
   display: grid;
-  gap: var(--space-16);
+  gap: var(--space-12);
   align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: "main ." "settings .";
 }
 
 .boss-battle-column {
   display: grid;
   align-content: start;
-  gap: var(--space-16);
+  gap: var(--space-12);
   min-width: 0;
+}
+
+.boss-battle-layout > .boss-battle-column:first-child {
+  grid-area: main;
+}
+.boss-battle-details-column {
+  grid-area: details;
+}
+.boss-battle-settings-column {
+  grid-area: settings;
+}
+.boss-battle-layout--battle {
+  grid-template-areas: "main details" ". settings";
 }
 
 @media (max-width: 650px) {
   .boss-battle-layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "main" "settings";
   }
+  .boss-battle-layout--battle {
+    grid-template-areas: "main" "details" "settings";
+  }
+}
+
+.boss-battle-footer {
+  width: 100%;
 }

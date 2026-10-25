@@ -20,7 +20,10 @@ export function activeBattleEntries(
   const rememberedBoss =
     bossState.battle &&
     isActiveBattle({ ...bossState.battle, expiresAt: null }, now);
-  if (bossState.boss && (rememberedBoss || auto?.enabled))
+  if (
+    bossState.boss &&
+    (rememberedBoss || auto?.enabled || bossState.raid?.enabled)
+  )
     entries.push({
       kind: "boss",
       title: bossState.boss.name,

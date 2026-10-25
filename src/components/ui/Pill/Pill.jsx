@@ -6,6 +6,7 @@ export function Pill({
   size = "sm",
   dot = true,
   compact = false,
+  motion,
   editKey,
   className = "",
   children,
@@ -30,7 +31,12 @@ export function Pill({
       {...editing.targetProps}
     >
       {(compact || dot) && <span className="ui-pill-dot" aria-hidden="true" />}
-      {!compact && children}
+      {!compact &&
+        (motion === "pulse" ? (
+          <span className="ui-pill-text--pulse">{children}</span>
+        ) : (
+          children
+        ))}
     </span>
   );
 }

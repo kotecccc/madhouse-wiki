@@ -32,7 +32,7 @@ export function Modal({
       modal
       visible={visible}
       surface="modal"
-      className={`shared-modal ${className}`.trim()}
+      className={`shared-modal${footer === false ? " shared-modal--no-footer" : ""}${contentVariant === "inset" ? " shared-modal--inset" : ""} ${className}`.trim()}
       aria-labelledby={id}
       aria-busy={loading || undefined}
       onClose={onClose}

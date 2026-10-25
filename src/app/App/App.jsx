@@ -162,12 +162,12 @@ export function App() {
         </SiteFooter>
       </div>
       <BottomDock>
-        <ActiveBattleControl />
         <GameHealthWarning />
         <MobileNavigation
           activeScreen={activeScreen}
           onScreenChange={changeScreen}
         />
+        <ActiveBattleControl />
       </BottomDock>
       <RequirementCalculatorDialog
         conditionDialog={conditionDialog}

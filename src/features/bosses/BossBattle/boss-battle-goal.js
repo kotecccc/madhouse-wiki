@@ -55,7 +55,11 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       progress = items[0]?.amount || 0;
     else if (settings.kind === "drops")
       progress = items.filter((x) => x.received).length;
-    else progress = Math.max(0, Math.floor((now() - startedAt) / 1000));
+    else
+      progress =
+        startedAt == null
+          ? 0
+          : Math.max(0, Math.floor((now() - startedAt) / 1000));
     const deadlineReached = deadlineAt != null && now() >= deadlineAt;
     const complete =
       settings.kind === "time" ? deadlineReached : progress >= target;
@@ -100,6 +104,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
         open &&
         (settings.maxAttempts == null || attempts.size < settings.maxAttempts),
       ),
+      durationHours: settings.durationHours,
       startedAt,
       deadlineAt,
       items: Object.freeze(items),
@@ -294,12 +299,15 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       clear();
       settings = { ...valid, ...(legacy ? { legacyMigration: true } : {}) };
       stopped = legacy || Boolean(saved.stopped);
-      startedAt = saved.startedAt ?? now();
+      startedAt =
+        stopped && saved.startedAt == null ? null : (saved.startedAt ?? now());
       deadlineAt =
-        saved.deadlineAt ??
-        (settings.durationHours != null
-          ? startedAt + settings.durationHours * 3600000
-          : null);
+        startedAt == null
+          ? null
+          : (saved.deadlineAt ??
+            (settings.durationHours != null
+              ? startedAt + settings.durationHours * 3600000
+              : null));
       for (const id of saved.attempts || []) attempts.add(id);
       for (const [id, result] of saved.results || [])
         if (attempts.has(id) && TERMINAL.has(result)) results.set(id, result);
@@ -335,8 +343,15 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       }
       publish();
     },
-    stop() {
-      if (settings && !stopped) {
+    stop({ clearProgress = false } = {}) {
+      if (settings && (!stopped || clearProgress)) {
+        if (clearProgress) {
+          startedAt = deadlineAt = null;
+          attempts.clear();
+          results.clear();
+          receipts.clear();
+          excluded.clear();
+        }
         stopped = true;
         publish();
       }
