@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { resolve, relative, extname } from "node:path";
 import { productionConnectorConfig } from "./connector-release-config.mjs";
+import { listApiOperations } from "../api-operations.mjs";
 const root = process.cwd();
 const commit = process.env.MADHOUSE_RELEASE_SHA;
 if (!/^[a-f0-9]{40}$/.test(commit || ""))
@@ -58,14 +59,15 @@ files["/release.json"] = {
   ).toString("base64"),
 };
 const contract = JSON.parse(
-  readFileSync("public/api-docs/openapi.readonly.json", "utf8"),
+  readFileSync("public/api-docs/openapi.json", "utf8"),
 );
+const apiOperations = listApiOperations(contract);
 let transport = readFileSync("scripts/deploy/production-api.mjs", "utf8");
 transport = transport.replace(
   "export function createProductionApi",
   "function createProductionApi",
 );
-const worker = `${transport}\nconst assets=${JSON.stringify(files)};\nconst api=createProductionApi(${JSON.stringify(Object.keys(contract.paths).filter((p) => contract.paths[p].get))});\nexport default {async fetch(request){const url=new URL(request.url);if(url.pathname.startsWith('/api/'))return api(request);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});if(url.pathname==='/api-docs'||url.pathname==='/api-docs/')return Response.redirect(new URL('/api-docs/index.html',url),302);let file=assets[url.pathname];if(!file&&!url.pathname.includes('.'))file=assets['/index.html'];if(!file)return new Response('Not found',{status:404});return new Response(request.method==='HEAD'?null:Uint8Array.from(atob(file.body),c=>c.charCodeAt(0)),{headers:{'Content-Type':file.type,'X-Content-Type-Options':'nosniff','Cache-Control':url.pathname.startsWith('/assets/')?'public, max-age=31536000, immutable':'no-cache'}});}};\n`;
+const worker = `${transport}\nconst assets=${JSON.stringify(files)};\nconst api=createProductionApi(${JSON.stringify(apiOperations)});\nexport default {async fetch(request){const url=new URL(request.url);if(url.pathname.startsWith('/api/'))return api(request);if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});if(url.pathname==='/api-docs'||url.pathname==='/api-docs/')return Response.redirect(new URL('/api-docs/index.html',url),302);let file=assets[url.pathname];if(!file&&!url.pathname.includes('.'))file=assets['/index.html'];if(!file)return new Response('Not found',{status:404});return new Response(request.method==='HEAD'?null:Uint8Array.from(atob(file.body),c=>c.charCodeAt(0)),{headers:{'Content-Type':file.type,'X-Content-Type-Options':'nosniff','Cache-Control':url.pathname.startsWith('/assets/')?'public, max-age=31536000, immutable':'no-cache'}});}};\n`;
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(resolve(dist, "server"), { recursive: true });
 mkdirSync(resolve(dist, ".openai"), { recursive: true });

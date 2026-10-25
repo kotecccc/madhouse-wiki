@@ -26,12 +26,27 @@ export function RequirementCalculatorDialog({
   conditionDialog,
   onClose,
   countControl,
+  title,
+  intro,
+  showCloseButton = false,
+  accountState,
+  energyOverride,
+  recoveryPlan,
+  optionActions,
+  afterOptions,
+  loading = false,
 }) {
   const [energyLimit, setEnergyLimit] = useState("");
-  const [profileEnergy, setProfileEnergy] = useState(null);
-  const [profileStatus, setProfileStatus] = useState("idle");
+  const [localProfileEnergy, setProfileEnergy] = useState(null);
+  const [localProfileStatus, setProfileStatus] = useState("idle");
+
+  const profileEnergy =
+    accountState === undefined ? localProfileEnergy : accountState.energy;
+  const profileStatus =
+    accountState === undefined ? localProfileStatus : accountState.status;
 
   useEffect(() => {
+    if (accountState !== undefined) return;
     if (!conditionDialog) {
       setEnergyLimit("");
       setProfileEnergy(null);
@@ -82,7 +97,7 @@ export function RequirementCalculatorDialog({
       controller?.abort();
       unsubscribe();
     };
-  }, [conditionDialog]);
+  }, [conditionDialog, accountState]);
 
   if (!conditionDialog) return null;
   const countValue =
@@ -93,9 +108,12 @@ export function RequirementCalculatorDialog({
     countControl && countValue !== null
       ? calculateCycleEnergy(countControl.unitEnergy, countValue)
       : null;
-  const requirementCalc = countControl
-    ? (countResult?.total ?? null)
-    : conditionDialog.energy;
+  const requirementCalc =
+    energyOverride !== undefined
+      ? energyOverride
+      : countControl
+        ? (countResult?.total ?? null)
+        : conditionDialog.energy;
   const requirement = conditionDialog.requirement;
   const targetWork = requirement?.targetDepartmentId
     ? departmentById[requirement.targetDepartmentId]?.work
@@ -115,18 +133,21 @@ export function RequirementCalculatorDialog({
       : null);
   const currentEnergy = profileEnergy?.currentEnergy ?? maxEnergy;
   const energyPlan =
-    requirementCalc != null && maxEnergy != null && currentEnergy != null
-      ? calculateRequirementEnergy(requirementCalc, maxEnergy, currentEnergy)
-      : null;
+    recoveryPlan !== undefined
+      ? recoveryPlan
+      : requirementCalc != null && maxEnergy != null && currentEnergy != null
+        ? calculateRequirementEnergy(requirementCalc, maxEnergy, currentEnergy)
+        : null;
 
   return (
     <Modal
       className="requirement-calculator-dialog"
-      title={calculatorTitle}
+      title={title || calculatorTitle}
       titleId="requirement-calc-title"
       width={620}
-      showCloseButton={false}
+      showCloseButton={showCloseButton}
       contentVariant="inset"
+      loading={loading}
       onClose={onClose}
     >
       <form
@@ -136,19 +157,22 @@ export function RequirementCalculatorDialog({
           onClose();
         }}
       >
+        {intro}
         {countControl && (
           <NumberStepper
             id="work-calculator-count"
-            label="Количество выполнений"
+            label={countControl.label || "Количество выполнений"}
             hideLabel
             compact
-            min={1}
-            max={Number.MAX_SAFE_INTEGER}
+            min={countControl.min ?? 1}
+            max={countControl.max ?? Number.MAX_SAFE_INTEGER}
             value={Number(countControl.value)}
             onChange={(value) => countControl.onChange(String(value))}
             decrementLabel="Уменьшить количество выполнений"
             incrementLabel="Увеличить количество выполнений"
-            rangeLabel="Количество полных выполнений работы"
+            rangeLabel={
+              countControl.rangeLabel || "Количество полных выполнений работы"
+            }
           />
         )}
         {(requirementCalc != null || profileStatus === "loading") && (
@@ -237,9 +261,12 @@ export function RequirementCalculatorDialog({
                   <div className="requirement-calculator-banknotes">
                     <CardDescription size="sm">Итого</CardDescription>
                     <CardTitle as="span" size="sm">
-                      {restoreTime(energyPlan.minutes)}
+                      {energyPlan.minutes == null
+                        ? "—"
+                        : restoreTime(energyPlan.minutes)}
                     </CardTitle>
                   </div>
+                  {optionActions?.wait}
                 </BaseCard>
                 <BaseCard
                   variant="floor-data"
@@ -264,22 +291,8 @@ export function RequirementCalculatorDialog({
                       <Icon type="defibrillator-small" size="large" />
                       <span className="requirement-calculator-refill-copy">
                         <CardTitle size="sm">Малый</CardTitle>
-                        <CardDescription size="2xs">10% лимита</CardDescription>
-                      </span>
-                      <CardTitle
-                        as="span"
-                        size="sm"
-                        className="requirement-calculator-refill-count"
-                      >
-                        ×{fmt(energyPlan.smallRefills)}
-                      </CardTitle>
-                    </div>
-                    <div className="requirement-calculator-refill">
-                      <Icon type="defibrillator-large" size="large" />
-                      <span className="requirement-calculator-refill-copy">
-                        <CardTitle size="sm">Большой</CardTitle>
                         <CardDescription size="2xs">
-                          100% лимита
+                          {energyPlan.smallLabel || "10% лимита"}
                         </CardDescription>
                       </span>
                       <CardTitle
@@ -287,7 +300,29 @@ export function RequirementCalculatorDialog({
                         size="sm"
                         className="requirement-calculator-refill-count"
                       >
-                        ×{fmt(energyPlan.largeRefills)}
+                        ×
+                        {energyPlan.smallRefills == null
+                          ? "—"
+                          : fmt(energyPlan.smallRefills)}
+                      </CardTitle>
+                    </div>
+                    <div className="requirement-calculator-refill">
+                      <Icon type="defibrillator-large" size="large" />
+                      <span className="requirement-calculator-refill-copy">
+                        <CardTitle size="sm">Большой</CardTitle>
+                        <CardDescription size="2xs">
+                          {energyPlan.largeLabel || "100% лимита"}
+                        </CardDescription>
+                      </span>
+                      <CardTitle
+                        as="span"
+                        size="sm"
+                        className="requirement-calculator-refill-count"
+                      >
+                        ×
+                        {energyPlan.largeRefills == null
+                          ? "—"
+                          : fmt(energyPlan.largeRefills)}
                       </CardTitle>
                     </div>
                   </div>
@@ -303,16 +338,24 @@ export function RequirementCalculatorDialog({
                         size="sm"
                         className="requirement-calculator-inline"
                       >
-                        {fmt(energyPlan.banknotes)}
+                        {energyPlan.banknotes == null
+                          ? "—"
+                          : fmt(energyPlan.banknotes)}
                       </CardTitle>{" "}
                       купюр
                     </CardDescription>
                   </div>
+                  {optionActions?.purchase && (
+                    <div className="requirement-calculator-action">
+                      {optionActions.purchase}
+                    </div>
+                  )}
                 </BaseCard>
               </>
             )}
           </div>
         )}
+        {afterOptions}
       </form>
     </Modal>
   );

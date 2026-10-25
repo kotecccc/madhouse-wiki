@@ -38,6 +38,9 @@ test("boss fields retain stable IDs, preserve the full block code, and format ra
     hp: "HP 4 500",
     damage: "DMG 40–80",
     drop: "",
+    experience: "",
+    fightDuration: "",
+    participants: "",
   });
 });
 
@@ -169,5 +172,22 @@ test("legacy currency IDs migrate to one drop at the first selected position", (
       RAID_DISPLAY_FIELD_IDS,
     ),
     ["drop", "time"],
+  );
+});
+
+test("battle facts retain rewards and format fight length in hours, minutes and seconds", () => {
+  const result = values(
+    bossDisplayFields({
+      maxFightDurationSeconds: 3600,
+      maxParticipants: 20,
+      rewardPreview: { exp: 50 },
+    }),
+  );
+  assert.equal(result.fightDuration, "Бой: 1 ч");
+  assert.equal(result.participants, "Участников: до 20");
+  assert.equal(result.experience, "Опыт: 50");
+  assert.equal(
+    values(bossDisplayFields({ maxFightDurationSeconds: 77 })).fightDuration,
+    "Бой: 1 мин 17 с",
   );
 });

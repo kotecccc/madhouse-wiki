@@ -16,6 +16,7 @@ export function BaseCard({
   as: Tag = "div",
   className = "",
   variant,
+  state,
   padding,
   editKey,
   children,
@@ -34,6 +35,8 @@ export function BaseCard({
       className={[
         "base-card",
         variant && `base-card--${variant}`,
+        state === "locked" && "base-card--locked",
+        state === "target" && "base-card--target",
         paddingClass,
         editing.className,
         className,

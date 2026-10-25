@@ -96,6 +96,7 @@ export function TelegramConnection({
         result.playerLevel,
         result.currentExp,
         result.expToNextLevel,
+        result.activeBossBattle,
       );
     else if (result.status === "login-required") callbacks.current.onEmpty?.();
     else if (result.status === "pending") callbacks.current.onPending?.();

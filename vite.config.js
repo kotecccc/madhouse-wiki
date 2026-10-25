@@ -1,3 +1,8 @@
+import {
+  devServerOptions,
+  dockerSourceHmrPlugin,
+} from "./scripts/dev/vite-server.mjs";
+import { automationPlugin } from "./scripts/automation/runtime.mjs";
 import { authSessionPlugin } from "./scripts/auth-session-plugin.mjs";
 import { cataloguePlugin } from "./scripts/catalogue/vite-plugin.mjs";
 import { defineConfig } from "vite";
@@ -7,6 +12,7 @@ import { installCatalogueCapture } from "./scripts/catalogue/proxy-capture.mjs";
 import { raidsFixturePlugin } from "./scripts/raids-fixture-plugin.mjs";
 import { catalogueSyncPlugin } from "./scripts/catalogue/dev-sync-plugin.mjs";
 import { inlineCardsPlugin } from "./scripts/telegram/inline-cards-vite-plugin.mjs";
+import { apiDocsProxyGuard } from "./scripts/api-docs-proxy-guard.mjs";
 
 function redirectApiDocs(server) {
   server.middlewares.use((request, response, next) => {
@@ -21,12 +27,15 @@ function redirectApiDocs(server) {
 
 export default defineConfig({
   plugins: [
+    dockerSourceHmrPlugin(),
     react(),
     raidsFixturePlugin(fileURLToPath(new URL(".", import.meta.url))),
     authSessionPlugin(),
+    automationPlugin(fileURLToPath(new URL(".", import.meta.url))),
     catalogueSyncPlugin(fileURLToPath(new URL(".", import.meta.url))),
     cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
     inlineCardsPlugin(fileURLToPath(new URL(".", import.meta.url))),
+    apiDocsProxyGuard(),
     {
       name: "api-docs-entry",
       configureServer: redirectApiDocs,
@@ -34,10 +43,7 @@ export default defineConfig({
     },
   ],
   server: {
-    // Keep the dev URL stable so the browser's HMR WebSocket uses this origin.
-    host: "127.0.0.1",
-    port: 4174,
-    strictPort: true,
+    ...devServerOptions(4174),
     proxy: {
       "^/api/": {
         target: "https://cargohustle.online",
@@ -48,6 +54,9 @@ export default defineConfig({
             proxy,
             fileURLToPath(new URL(".", import.meta.url)),
           );
+          proxy.on("proxyReq", (proxyRequest) => {
+            proxyRequest.removeHeader("x-madhouse-allow-mutations");
+          });
         },
       },
     },

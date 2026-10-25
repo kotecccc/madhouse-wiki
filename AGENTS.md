@@ -58,3 +58,10 @@ Keep all floor opening-condition wording intact, including notes that conditions
 ## React and build
 
 The entire application renders through React and the production build uses Vite. Do not add imperative DOM rendering, injected HTML templates, or parallel legacy behavior. Reusable UI belongs in React components, while styling variants belong in the shared design system. Use `BaseCard` for independent cards and shared components for repeated visual elements; do not solve card cases with local CSS overrides.
+
+## Server-owned automation state
+
+- Store active battle references and confirmed state, goals and counters, automation settings, favorite selections, command receipts and execution checkpoints on the server, scoped to a verified game account. The browser is a view and command sender; it must not be the durable source of this information.
+- Execute background automation on the server so closing, reloading or disconnecting a browser does not stop it. Keep only presentation state such as an open modal on the client. Do not add localStorage, IndexedDB or client timers as an automation persistence/execution fallback.
+- Keep personal automation data separate from the public reference catalogue. Encrypt saved game credentials, never return them through state APIs, serialize game actions and durably record pending operations before submitting them. An uncertain operation must not be replayed automatically after restart.
+- Use the shared server state/command API for new automations and settings. Tests must use fake game responses; live game traffic requires the explicit runtime gate and user authorization for verification.

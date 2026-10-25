@@ -1,0 +1,9 @@
+.floor-entity-placeholder {
+  display: grid;
+  gap: var(--card-content-gap);
+}
+
+.floor-goal-details {
+  display: grid;
+  gap: var(--card-content-gap);
+}

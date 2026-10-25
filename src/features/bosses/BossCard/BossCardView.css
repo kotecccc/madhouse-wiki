@@ -122,3 +122,15 @@
 .boss-card-view--indicators > .boss-all-drops-button {
   grid-column: -2 / -1;
 }
+
+.boss-card-actions {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  justify-self: end;
+  gap: var(--space-8);
+}
+
+.boss-card-view:has(> .boss-card-actions) {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}

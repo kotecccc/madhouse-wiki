@@ -89,11 +89,24 @@ export function createSessionApi({
           await response.body?.cancel();
           await pause(Math.max(interval, 1000) * (attempt + 1));
         }
-        if (!response.ok) throw new Error("Не удалось загрузить данные");
+        if (!response.ok) {
+          const error = new Error("Не удалось загрузить данные");
+          error.status = response.status;
+          const retryAfter = response.headers?.get?.("Retry-After");
+          if (retryAfter) {
+            const delay = /^\d+$/.test(retryAfter)
+              ? Number(retryAfter) * 1000
+              : Date.parse(retryAfter) - now();
+            if (Number.isFinite(delay) && delay >= 0)
+              error.retryAfterMilliseconds = delay;
+          }
+          throw error;
+        }
         const data = await response.json();
         if (generation !== requestGeneration || controller.signal.aborted)
           throw new Error("Сессия изменилась");
         entry.until = now() + ttl;
+        entry.value = data;
         return data;
       } finally {
         clearTimeout(timeout);
@@ -117,6 +130,21 @@ export function createSessionApi({
   return {
     get: (path, options) => request("GET", path, undefined, options),
     post: (path, body, options) => request("POST", path, body, options),
+    peek(path, { allowStale = false } = {}) {
+      try {
+        if (authorize({ url: path }).headers.Authorization !== identity) {
+          clear();
+          return null;
+        }
+      } catch {
+        clear();
+        return null;
+      }
+      const entry = entries.get(path);
+      return entry && !entry.pending && (allowStale || now() < entry.until)
+        ? entry.value
+        : null;
+    },
     clear,
   };
 }
@@ -166,4 +194,23 @@ export function postSessionJson(path, body, { signal } = {}) {
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", abort));
   });
+}
+
+// The nickname is already loaded for the account overview; this accessor never
+// issues an API request and never exposes an identity from another session.
+export function readCachedPlayerIdentity() {
+  if (readSession().status !== "ready") return null;
+  const profile = sessionApi?.peek("/api/me", { allowStale: true });
+  if (!profile) return null;
+  const nickname = [profile.nickname, profile.username, profile.firstName].find(
+    (value) => typeof value === "string" && value.trim(),
+  );
+  return nickname
+    ? {
+        playerId: Number.isSafeInteger(profile.playerId)
+          ? profile.playerId
+          : null,
+        nickname: nickname.trim().slice(0, 80),
+      }
+    : null;
 }

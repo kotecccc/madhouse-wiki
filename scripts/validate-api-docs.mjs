@@ -13,6 +13,7 @@ const environment = await readJson(
 );
 const coverage = await readJson("../docs/api-response-coverage.json");
 const readonly = await readJson("../public/api-docs/openapi.readonly.json");
+const swagger = await readJson("../public/api-docs/openapi.swagger.json");
 const methods = new Set([
   "get",
   "post",
@@ -194,26 +195,61 @@ for (const [path, item] of Object.entries(readonly.paths)) {
     );
   }
 }
+assert.deepEqual(
+  Object.keys(swagger.paths).sort(),
+  Object.keys(spec.paths).sort(),
+  "Swagger path inventory differs from the full source specification",
+);
+const swaggerOperations = new Map();
+for (const [path, item] of Object.entries(swagger.paths)) {
+  for (const [method, operation] of Object.entries(item)) {
+    const key = `${method.toUpperCase()} ${normalize(path)}`;
+    assert(operations.has(key), `Swagger operation absent from source: ${key}`);
+    swaggerOperations.set(key, operation);
+    if (method !== "get")
+      assert.equal(
+        operation["x-madhouse-mutation-gate"],
+        "X-Madhouse-Allow-Mutations: true",
+        `Missing mutation gate declaration: ${key}`,
+      );
+  }
+}
+assert.equal(
+  swaggerOperations.size,
+  operations.size,
+  "Swagger operation inventory differs from the full source specification",
+);
+assert.deepEqual(
+  swagger.servers.map((server) => server.url),
+  ["/"],
+);
 const html = await readFile(
   new URL("../public/api-docs/index.html", import.meta.url),
   "utf8",
 );
 assert(html.includes('src="./wiki-auth.js"'));
+assert(html.includes('id="api-mutations-enabled"'));
+assert(html.includes('href="./realtime.json"'));
 const authScript = await readFile(
   new URL("../public/api-docs/wiki-auth.js", import.meta.url),
   "utf8",
 );
 let swaggerConfig;
 let authorized = false;
+const mutationToggle = { checked: false, addEventListener() {} };
 runInNewContext(authScript.replace(/^import[\s\S]*?;\n/, ""), {
+  URL,
   window: {
+    location: { origin: "https://wiki.invalid" },
     SwaggerUIBundle(config) {
       swaggerConfig = config;
     },
   },
   document: {
-    getElementById() {
-      return { textContent: "" };
+    getElementById(id) {
+      return id === "api-mutations-enabled"
+        ? mutationToggle
+        : { textContent: "" };
     },
   },
   readSession() {
@@ -229,19 +265,48 @@ runInNewContext(authScript.replace(/^import[\s\S]*?;\n/, ""), {
     return request;
   },
 });
-assert.equal(swaggerConfig.url, "./openapi.readonly.json");
-assert.equal(Array.from(swaggerConfig.supportedSubmitMethods).join(","), "get");
-for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
-  assert.throws(() => swaggerConfig.requestInterceptor({ method }), /GET/);
-}
-const getRequest = { method: "GET" };
+assert.equal(swaggerConfig.url, "./openapi.swagger.json");
+assert.equal(
+  Array.from(swaggerConfig.supportedSubmitMethods).join(","),
+  "get,post,put,patch,delete",
+);
+const blockedMutation = {
+  method: "POST",
+  url: "/api/works/tasks/perform",
+  headers: {},
+};
+assert.throws(
+  () => swaggerConfig.requestInterceptor(blockedMutation),
+  /переключатель/,
+);
+mutationToggle.checked = true;
+const allowedMutation = {
+  method: "POST",
+  url: "/api/works/tasks/perform",
+  headers: {},
+};
+assert.equal(
+  swaggerConfig.requestInterceptor(allowedMutation),
+  allowedMutation,
+);
+assert.equal(allowedMutation.headers["X-Madhouse-Allow-Mutations"], "true");
+const getRequest = { method: "GET", url: "/api/me", headers: {} };
 assert.equal(swaggerConfig.requestInterceptor(getRequest), getRequest);
 assert(authorized, "Swagger must use the shared Wiki JWT interceptor");
+const unauthenticatedRequest = {
+  method: "POST",
+  url: "/api/auth/telegram",
+  headers: {},
+};
+assert.equal(
+  swaggerConfig.requestInterceptor(unauthenticatedRequest),
+  unauthenticatedRequest,
+);
 console.log(
   `${Object.keys(spec.paths).length} paths; ${operations.size}/${seen.size} OpenAPI/Postman operations; ${observed.size} operations with captured JSON response structures.`,
 );
 console.log(
-  `${getPaths.length} Russian GET methods; Swagger mutation blocking passed.`,
+  `${getPaths.length} Russian GET methods; ${swaggerOperations.size} Swagger operations; mutations require the page toggle.`,
 );
 console.log(
   "Structural consistency passed. This does not establish completeness of the server contract.",

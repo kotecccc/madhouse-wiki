@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import {
+  readSession,
+  subscribeSession,
+} from "../../../../shared/auth-session.js";
+import { BusinessAssistantDialog } from "../BusinessAssistant/BusinessAssistantDialog.jsx";
 import "./UpgradeDialog.css";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
@@ -12,6 +17,24 @@ import {
 } from "../../../lib/business-upgrades.js";
 
 export function UpgradeDialog({ data, onClose }) {
+  const status = useSyncExternalStore(
+    subscribeSession,
+    () => readSession().status,
+    () => "empty",
+  );
+  return status === "ready" ? (
+    <BusinessAssistantDialog
+      key={data.business.id}
+      business={data.business}
+      upgrade={data.upgrade}
+      onClose={onClose}
+    />
+  ) : (
+    <BusinessReferenceUpgradeDialog data={data} onClose={onClose} />
+  );
+}
+
+function BusinessReferenceUpgradeDialog({ data, onClose }) {
   const { business, upgrade } = data;
   const items = upgrade?.items || [];
   const levelCount = Math.max(

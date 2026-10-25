@@ -1,3 +1,4 @@
+import { BorderLoader } from "../BorderLoader/BorderLoader.jsx";
 import { useId } from "react";
 import { Dialog } from "../Dialog/Dialog.jsx";
 import { Title } from "../Title/Title.jsx";
@@ -18,6 +19,7 @@ export function Modal({
   contentScrollable = true,
   contentVariant = "default",
   visible = true,
+  loading = false,
 }) {
   const generatedId = useId();
   const id = titleId || generatedId;
@@ -28,6 +30,7 @@ export function Modal({
       surface="modal"
       className={`shared-modal ${className}`.trim()}
       aria-labelledby={id}
+      aria-busy={loading || undefined}
       onClose={onClose}
       style={
         width
@@ -48,6 +51,11 @@ export function Modal({
           )}
         </div>
         {showCloseButton && <DialogCloseButton onClick={onClose} />}
+        {loading && (
+          <span className="shared-modal-heading-loader">
+            <BorderLoader />
+          </span>
+        )}
       </header>
       <div
         className={`shared-modal-content${

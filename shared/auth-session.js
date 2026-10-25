@@ -1,10 +1,12 @@
 import { telegramContext } from "./telegram-context.js";
+import { normalizeActiveBossBattle } from "./active-boss-battle.js";
 export const TOKEN_KEY = "madhouse.wiki.jwt";
 export const TOKEN_OWNER_KEY = "madhouse.wiki.jwt-owner";
 let volatileToken = null;
 let volatileOwner = null;
 let volatilePlayerLevel = null;
 let volatileExperience = null;
+let volatileActiveBossBattle = null;
 const CHANGE_EVENT = "madhouse:auth-change";
 let authRestoreSettled = false;
 export const AUTH_RESTORE_SETTLED_EVENT = "madhouse:auth-restore-settled";
@@ -106,9 +108,10 @@ export function readSession(now = Date.now()) {
       (context.isTelegram && !expected))
   ) {
     clearToken();
-    return { status: "empty", expiresAt: null };
+    return { status: "empty", expiresAt: null, activeBossBattle: null };
   }
-  if (!token) return { status: "empty", expiresAt: null };
+  if (!token)
+    return { status: "empty", expiresAt: null, activeBossBattle: null };
   try {
     const { status, expiresAt, notBefore } = inspectToken(token, now);
     return {
@@ -123,14 +126,18 @@ export function readSession(now = Date.now()) {
         status === "ready" && token === volatileToken && owner === volatileOwner
           ? volatileExperience
           : null,
+      activeBossBattle:
+        status === "ready" && token === volatileToken && owner === volatileOwner
+          ? volatileActiveBossBattle
+          : null,
     };
   } catch {
-    return { status: "invalid", expiresAt: null };
+    return { status: "invalid", expiresAt: null, activeBossBattle: null };
   }
 }
 export function saveToken(
   value,
-  { playerLevel, currentExp, expToNextLevel } = {},
+  { playerLevel, currentExp, expToNextLevel, activeBossBattle } = {},
 ) {
   const session = inspectToken(value);
   if (session.status === "expired")
@@ -145,18 +152,23 @@ export function saveToken(
     expToNextLevel > 0
       ? { current: currentExp, toNextLevel: expToNextLevel }
       : null;
+  const normalizedActiveBossBattle =
+    normalizeActiveBossBattle(activeBossBattle);
   if (
     volatileToken === session.token &&
     volatileOwner === owner &&
     volatilePlayerLevel === normalizedLevel &&
     volatileExperience?.current === normalizedExperience?.current &&
-    volatileExperience?.toNextLevel === normalizedExperience?.toNextLevel
+    volatileExperience?.toNextLevel === normalizedExperience?.toNextLevel &&
+    JSON.stringify(volatileActiveBossBattle) ===
+      JSON.stringify(normalizedActiveBossBattle)
   )
     return;
   volatileToken = session.token;
   volatileOwner = owner;
   volatilePlayerLevel = normalizedLevel;
   volatileExperience = normalizedExperience;
+  volatileActiveBossBattle = normalizedActiveBossBattle;
   try {
     if (telegramContext().isTelegram) {
       window.localStorage.removeItem(TOKEN_KEY);
@@ -175,6 +187,7 @@ export function clearToken() {
   volatileOwner = null;
   volatilePlayerLevel = null;
   volatileExperience = null;
+  volatileActiveBossBattle = null;
   try {
     window.localStorage.removeItem(TOKEN_KEY);
     window.localStorage.removeItem(TOKEN_OWNER_KEY);

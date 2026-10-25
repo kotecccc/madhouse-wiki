@@ -67,9 +67,24 @@ test("one persisted token is reused for same-origin API requests, expiry and log
     });
     let changes = 0;
     const unsubscribe = subscribeSession(() => changes++);
-    saveToken("Bearer " + token);
+    saveToken("Bearer " + token, {
+      activeBossBattle: {
+        battleId: "battle_1",
+        bossId: "42",
+        expiresAtUtc: "2026-10-24T12:00:00Z",
+        remainingSeconds: 60,
+        participants: [{ playerId: 7 }],
+      },
+    });
     assert.equal(values.get(TOKEN_KEY), token);
     assert.equal(readSession().status, "ready");
+    assert.deepEqual(readSession().activeBossBattle, {
+      battleId: "battle_1",
+      bossId: 42,
+      expiresAtUtc: "2026-10-24T12:00:00Z",
+      remainingSeconds: 60,
+    });
+    assert.equal(values.has("madhouse.wiki.active-boss-battle"), false);
     assert.equal(Object.hasOwn(readSession(), "token"), false);
     const request = authorizeRequest({
       url: "/api/floors",
@@ -91,6 +106,7 @@ test("one persisted token is reused for same-origin API requests, expiry and log
     assert.throws(() => authorizeRequest({ url: "/api/floors" }));
     clearToken();
     assert.equal(readSession().status, "empty");
+    assert.equal(readSession().activeBossBattle, null);
     assert.equal(changes, 2);
     assert.throws(() => authorizeRequest({ url: "/api/floors" }));
     unsubscribe();

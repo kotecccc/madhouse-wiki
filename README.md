@@ -4,12 +4,41 @@
 
 ## Запуск
 
+Локальная разработка работает в Docker Desktop. Первый запуск собирает образ Node.js 24 с Linux-зависимостями и Chromium:
+
 ```sh
-npm ci
 npm run dev
 ```
 
-Локальный адрес: http://127.0.0.1:4174/. `npm run build` собирает сайт в `dist/`, `npm run preview` показывает сборку на http://127.0.0.1:4175/.
+Wiki: http://127.0.0.1:4174/. Локальный Telegram connector: http://127.0.0.1:4199/. Контейнеры запускаются в фоне и не зависят от открытого терминала. Исходники подключены из текущего checkout, изменения подхватывает HMR; Linux `node_modules` находятся в отдельных Docker volumes. В Docker включён polling исходников с интервалом 500 мс; HMR WebSocket работает через `/__vite_hmr` на том же опубликованном порту (4174 для Wiki, 4199 для connector). Новые загружаемые модули явно регистрируются в watcher, чтобы Docker не пропускал файлы, созданные после старта. Папки `research/`, `artifacts/` и `.sites-release/` исключены из наблюдения. После изменения JSX/CSS пересборка образа не требуется; после изменения Compose запустите `npm run docker:up` для применения конфигурации. Текущая SQLite остаётся в `local-data/` на Mac. Зависимости пересинхронизируются при следующем запуске контейнера после изменения `package.json` или lock-файла.
+
+```sh
+npm run docker:status     # состояние и healthcheck
+npm run docker:logs       # логи
+npm run docker:up         # собрать/обновить и поднять
+npm run docker:down       # явно остановить локальное окружение
+npm run docker:autostart  # включить запуск после входа в macOS
+```
+
+Автозапуск регистрирует `~/Library/LaunchAgents/com.madhouse-wiki.dev.plist`: при входе он запускает Docker Desktop, дожидается движка и поднимает Compose. `restart: unless-stopped` восстанавливает упавшие процессы и сервисы после перезапуска Docker. Явная остановка сохраняется до следующего `docker:up` или входа в macOS. Healthcheck показывает доступность; ошибки исходников требуют исправления кода.
+
+Удалить автозапуск:
+
+```sh
+launchctl bootout "gui/$(id -u)/com.madhouse-wiki.dev"
+rm "$HOME/Library/LaunchAgents/com.madhouse-wiki.dev.plist"
+```
+
+Каталог должен существовать перед стартом: используйте текущий `local-data/madhouse.sqlite` или восстановите справочный seed штатным скриптом `node scripts/catalogue/restore-seed.mjs`. Конфигурации production не подключаются через `env_file`; Docker build context содержит только manifests и entrypoint. Игровые запросы при запуске контейнера и healthcheck не выполняются. Открытый авторизованный клиент сохраняет обычное поведение Wiki и может обращаться к игровому API.
+
+Для выполнения команд в том же окружении:
+
+```sh
+docker compose -f compose.dev.yml exec wiki npm run lint:ui
+docker compose -f compose.dev.yml exec wiki npm run build
+```
+
+`npm run dev:local` оставлен для запуска Vite непосредственно на хосте при диагностике. `npm run build` собирает сайт в `dist/`, `npm run preview` показывает сборку на http://127.0.0.1:4175/.
 
 ## Архитектура
 
@@ -82,7 +111,7 @@ npm run check
 
 Вход расположен в шапке основной Wiki. JWT сохраняется в localStorage браузера под ключом `madhouse.wiki.jwt`, отдельно от справочной SQLite. Wiki и Swagger используют общий модуль `shared/auth-session.js`; открытые вкладки синхронизируются через storage events. В интерфейсе показываются срок из `exp`, оставшееся время и истечение; просроченный JWT не отправляется. Декодирование срока не проверяет подпись — действительность определяет API. `Выйти` удаляет сохранённый токен. Токен не попадает в каталог, отчёты, исходники или логи.
 
-Swagger по-прежнему позволяет выполнять только GET и добавляет Authorization только для `/api/` на том же origin через локальный прокси. Модуль авторизации поставляется и в production-сборку.
+Swagger показывает все документированные REST-операции и отправляет их через same-origin API-прокси. GET работает с JWT Wiki. POST, PUT, PATCH и DELETE требуют включить переключатель изменяющих запросов на странице Swagger; прокси проверяет отдельный заголовок и по умолчанию отклоняет такие запросы. Переключатель не сохраняется. Модуль авторизации поставляется и в production-сборку.
 
 ## Сессионные запросы Wiki
 

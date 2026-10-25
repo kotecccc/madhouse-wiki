@@ -5,6 +5,7 @@ import {
   VERSION,
   connectorOrigin,
 } from "../connector/protocol.js";
+import { normalizeActiveBossBattle } from "./active-boss-battle.js";
 
 export const AUTO_CONNECT_KEY = "madhouse.wiki.telegram-connected";
 export const CONNECTION_EPOCH_KEY = "madhouse.wiki.connection-generation";
@@ -141,6 +142,7 @@ export function createConnectorBridge({
           "playerLevel",
           "currentExp",
           "expToNextLevel",
+          "activeBossBattle",
           "remoteRevoked",
           "localCleared",
         ].includes(key),
@@ -206,6 +208,7 @@ export function createConnectorBridge({
       return;
     if (data.currentExp != null && data.status !== "connected") return;
     if (data.expToNextLevel != null && data.status !== "connected") return;
+    if (data.activeBossBattle != null && data.status !== "connected") return;
     if (pending.message.action !== "connect-game" && data.accessToken) return;
     if (data.status === "failed") finish(new Error("connection_failed"));
     else
@@ -215,6 +218,7 @@ export function createConnectorBridge({
         playerLevel: data.playerLevel,
         currentExp: data.currentExp,
         expToNextLevel: data.expToNextLevel,
+        activeBossBattle: normalizeActiveBossBattle(data.activeBossBattle),
         remoteRevoked: data.remoteRevoked === true,
         localCleared: data.localCleared === true,
       });

@@ -468,6 +468,8 @@ export function ConnectionApp() {
               playerLevel: result.playerLevel ?? shared?.playerLevel,
               currentExp: result.currentExp ?? shared?.currentExp,
               expToNextLevel: result.expToNextLevel ?? shared?.expToNextLevel,
+              activeBossBattle:
+                result.activeBossBattle ?? shared?.activeBossBattle,
             }
           : shared?.status === "connected"
             ? shared
@@ -498,6 +500,9 @@ export function ConnectionApp() {
           status: "connected",
           accessToken: connectedProfile.accessToken,
           ...levelProgressFields(connectedProfile),
+          ...(connectedProfile.activeBossBattle
+            ? { activeBossBattle: connectedProfile.activeBossBattle }
+            : {}),
         });
       } else {
         const pending = readPendingLogin(request.data.expectedUserId);
@@ -589,6 +594,7 @@ export function ConnectionApp() {
               playerLevel: data.playerLevel,
               currentExp: data.currentExp,
               expToNextLevel: data.expToNextLevel,
+              activeBossBattle: data.activeBossBattle,
             };
           },
           onState: (value) => {

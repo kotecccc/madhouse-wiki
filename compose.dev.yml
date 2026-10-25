@@ -1,0 +1,84 @@
+name: madhouse-wiki-dev
+
+x-dev: &dev
+  image: madhouse-wiki-dev:local
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
+  init: true
+  restart: unless-stopped
+  working_dir: /app
+  environment: &dev-environment
+    MADHOUSE_DOCKER_DEV: "1"
+    CHOKIDAR_USEPOLLING: "true"
+    CHOKIDAR_INTERVAL: "500"
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  wiki:
+    <<: *dev
+    environment:
+      <<: *dev-environment
+      VITE_TELEGRAM_CONNECTOR_ORIGIN: "http://127.0.0.1:4199"
+      MADHOUSE_AUTOMATION_STATE_DIR: "/data/automation"
+      MADHOUSE_AUTOMATION_GAME_ENABLED: "${MADHOUSE_AUTOMATION_GAME_ENABLED:-1}"
+      MADHOUSE_RAIDS_FIXTURE: "${MADHOUSE_RAIDS_FIXTURE:-}"
+    ports:
+      - "127.0.0.1:4174:4174"
+    volumes:
+      - .:/app
+      - wiki_node_modules:/app/node_modules
+      - automation_state:/data/automation
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:4174/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
+
+  connector:
+    <<: *dev
+    command:
+      [
+        npm,
+        run,
+        dev:connector:local,
+        --,
+        --host,
+        0.0.0.0,
+        --port,
+        "4199",
+        --strictPort,
+      ]
+    ports:
+      - "127.0.0.1:4199:4199"
+    volumes:
+      - .:/app
+      - connector_node_modules:/app/node_modules
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:4199/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
+
+volumes:
+  automation_state:
+  wiki_node_modules:
+  connector_node_modules:

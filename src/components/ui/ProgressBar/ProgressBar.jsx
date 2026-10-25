@@ -1,3 +1,9 @@
+import { useLayoutEffect, useRef, useState } from "react";
+import {
+  nextProgressLoss,
+  progressLossSegment,
+  finishProgressLoss,
+} from "./progress-loss.js";
 import "./ProgressBar.css";
 
 export function ProgressBar({
@@ -9,6 +15,8 @@ export function ProgressBar({
   size = "sm",
   displayText,
   className = "",
+  animateLoss = false,
+  animationKey = null,
 }) {
   const safeMax = Number.isFinite(max) && max > 0 ? max : 1;
   const safeValue = Number.isFinite(value)
@@ -19,6 +27,55 @@ export function ProgressBar({
   const renderedSegments = segmentCount <= 100 ? segmentCount : 1;
   const segmentMax = safeMax / renderedSegments;
   const safeSize = size === "lg" ? "lg" : "sm";
+
+  const [loss, setLoss] = useState(null);
+  const previous = useRef(null);
+  const revision = useRef(0);
+  const motion = useRef(null);
+  useLayoutEffect(() => {
+    if (!animateLoss || typeof window === "undefined" || !window.matchMedia)
+      return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    motion.current = query;
+    const changed = () => {
+      if (query.matches) setLoss(null);
+    };
+    changed();
+    if (query.addEventListener) query.addEventListener("change", changed);
+    else query.addListener?.(changed);
+    return () => {
+      if (query.removeEventListener)
+        query.removeEventListener("change", changed);
+      else query.removeListener?.(changed);
+      motion.current = null;
+    };
+  }, [animateLoss]);
+  useLayoutEffect(() => {
+    const current = {
+      value: safeValue,
+      max: safeMax,
+      segments: renderedSegments,
+      key: animationKey,
+      enabled:
+        animateLoss &&
+        !motion.current?.matches &&
+        Number.isFinite(value) &&
+        Number.isFinite(max) &&
+        max > 0,
+    };
+    const before = previous.current;
+    previous.current = current;
+    const id = ++revision.current;
+    setLoss((active) => nextProgressLoss(before, current, active, id));
+  }, [
+    safeValue,
+    safeMax,
+    renderedSegments,
+    animationKey,
+    animateLoss,
+    value,
+    max,
+  ]);
 
   return (
     <div
@@ -36,14 +93,43 @@ export function ProgressBar({
           segmentMax,
           Math.max(0, safeValue - segmentStart),
         );
-        return (
+        const progress = (
           <progress
             className="ui-progress-bar-segment"
-            key={index}
             value={segmentValue}
             max={segmentMax}
             aria-hidden="true"
           />
+        );
+        if (!animateLoss)
+          return (
+            <progress
+              className="ui-progress-bar-segment"
+              key={index}
+              value={segmentValue}
+              max={segmentMax}
+              aria-hidden="true"
+            />
+          );
+        const damaged = progressLossSegment(loss, segmentStart, segmentMax);
+        return (
+          <span className="ui-progress-bar-segment-shell" key={index}>
+            {damaged && (
+              <span
+                key={loss.id}
+                className="ui-progress-bar-loss"
+                aria-hidden="true"
+                style={{
+                  "--progress-loss-from": `${damaged.left + damaged.width}%`,
+                  "--progress-loss-to": `${damaged.left}%`,
+                }}
+                onAnimationEnd={() =>
+                  setLoss((active) => finishProgressLoss(active, loss.id))
+                }
+              />
+            )}
+            {progress}
+          </span>
         );
       })}
       {safeSize === "lg" && displayText != null && (

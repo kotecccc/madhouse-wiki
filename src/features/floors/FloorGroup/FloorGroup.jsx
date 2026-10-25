@@ -1,3 +1,4 @@
+import { FloorDepartmentContent } from "../FloorDepartmentContent/FloorDepartmentContent.jsx";
 import { EditableValue } from "../../../components/ui/CardEditing/EditableValue.jsx";
 import "./FloorGroup.css";
 import { departmentById } from "../../../model/knowledge-base.js";
@@ -18,6 +19,8 @@ const departmentCodeOrder = new Intl.Collator("en", {
 
 export function FloorGroup({
   floor,
+  category,
+  targets = [],
   floorAvailable,
   viewMode,
   onCalculator,
@@ -33,6 +36,26 @@ export function FloorGroup({
     .sort((left, right) =>
       departmentCodeOrder.compare(String(left.code), String(right.code)),
     );
+  if (category) {
+    return (
+      <article className="floor-group">
+        <ul className="floor-work-list">
+          {works.map((department) => (
+            <FloorDepartmentContent
+              key={department.id}
+              department={department}
+              category={category}
+              available={departmentAvailability?.[department.code]}
+              targets={targets.filter(
+                (target) => target.departmentId === department.id,
+              )}
+              onUpgradeSelect={onUpgradeSelect}
+            />
+          ))}
+        </ul>
+      </article>
+    );
+  }
   const openingConditions =
     floor.openingConditions ||
     (floor.code === "A" ? [] : works[0]?.openingConditions || []);

@@ -372,8 +372,21 @@ test("bridge timeout cancels the child flow and a failed exchange can start with
     kind: "result",
     status: "connected",
     accessToken: "fresh-game-token",
+    activeBossBattle: {
+      battleId: "battle_1",
+      bossId: "42",
+      expiresAtUtc: "2026-10-24T12:00:00Z",
+      remainingSeconds: 60,
+    },
   });
-  assert.equal((await next).accessToken, "fresh-game-token");
+  const connected = await next;
+  assert.equal(connected.accessToken, "fresh-game-token");
+  assert.deepEqual(connected.activeBossBattle, {
+    battleId: "battle_1",
+    bossId: 42,
+    expiresAtUtc: "2026-10-24T12:00:00Z",
+    remainingSeconds: 60,
+  });
   bridge.destroy();
 });
 test("auth relay has one fixed POST destination, strips old credentials, returns no profile", async () => {
@@ -386,6 +399,13 @@ test("auth relay has one fixed POST destination, strips old credentials, returns
       return new Response(
         JSON.stringify({
           accessToken: "header.payload.signature",
+          activeBossBattle: {
+            battleId: "battle_1",
+            bossId: "42",
+            expiresAtUtc: "2026-10-24T12:00:00Z",
+            remainingSeconds: 60,
+            participants: [{ playerId: 1 }],
+          },
           player: { private: true },
           wallet: {},
         }),
@@ -420,6 +440,12 @@ test("auth relay has one fixed POST destination, strips old credentials, returns
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     accessToken: "header.payload.signature",
+    activeBossBattle: {
+      battleId: "battle_1",
+      bossId: 42,
+      expiresAtUtc: "2026-10-24T12:00:00Z",
+      remainingSeconds: 60,
+    },
   });
   assert.equal(call.url, "https://cargohustle.online/api/auth/telegram");
   assert.equal(call.options.redirect, "error");

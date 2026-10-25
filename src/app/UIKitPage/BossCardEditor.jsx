@@ -64,11 +64,13 @@ const defaultSettings = {
   drops: {},
 };
 const sourceVariantNames = {
+  "boss-battle": "Бой",
   "boss-main": "Основная",
   "boss-raid": "Рейд",
   "boss-business": "Бизнес",
 };
 const sourceCardVariants = {
+  "boss-battle": "floor-data",
   "boss-main": "floor-data",
   "boss-raid": "raid",
   "boss-business": "floor-data",

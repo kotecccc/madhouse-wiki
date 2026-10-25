@@ -1,0 +1,83 @@
+.active-battle-control {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-16);
+  min-width: 0;
+}
+
+.active-battle-auto,
+.active-battle-metrics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.active-battle-boss-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  flex: 1 1 100%;
+  gap: var(--space-16);
+  min-width: 0;
+  cursor: pointer;
+}
+
+.active-battle-boss-open {
+  display: grid;
+  grid-template-columns: auto repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: var(--space-16);
+  min-width: 0;
+  cursor: pointer;
+}
+
+.active-battle-pvp-card {
+  min-width: 0;
+}
+
+.active-battle-health {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.active-battle-desktop {
+  display: flex;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.active-battle-boss-desktop {
+  flex: 1 1 100%;
+}
+
+.active-battle-copy {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.active-battle-mobile {
+  display: none;
+}
+
+@media (max-width: 650px) {
+  .active-battle-desktop {
+    display: none;
+  }
+
+  .active-battle-mobile {
+    display: block;
+    min-width: 0;
+  }
+
+  .active-battle-control {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: var(--space-8);
+  }
+}

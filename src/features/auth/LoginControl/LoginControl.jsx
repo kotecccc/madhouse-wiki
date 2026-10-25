@@ -354,8 +354,19 @@ export function LoginControl() {
             setError("");
             setOpen(true);
           }}
-          onToken={(value, playerLevel, currentExp, expToNextLevel) => {
-            saveToken(value, { playerLevel, currentExp, expToNextLevel });
+          onToken={(
+            value,
+            playerLevel,
+            currentExp,
+            expToNextLevel,
+            activeBossBattle,
+          ) => {
+            saveToken(value, {
+              playerLevel,
+              currentExp,
+              expToNextLevel,
+              activeBossBattle,
+            });
             try {
               window.localStorage.setItem(
                 accountStorageKey(AUTO_CONNECT_KEY),

@@ -1,0 +1,31 @@
+.business-assistant-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-16);
+  align-items: start;
+}
+
+.business-assistant-column {
+  display: grid;
+  gap: var(--space-12);
+  align-content: start;
+  min-width: 0;
+}
+
+.business-assistant-item-heading,
+.business-assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.business-assistant-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 650px) {
+  .business-assistant-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -2,25 +2,23 @@
   display: none;
 }
 
+.mobile-navigation-items {
+  display: flex;
+  justify-content: space-around;
+  gap: var(--space-4);
+}
+
 @media (max-width: 650px) {
   .mobile-navigation {
-    position: fixed;
-    z-index: 30;
-    left: 50%;
-    bottom: calc(var(--space-16) + env(safe-area-inset-bottom, 0px));
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-4);
-    width: min(320px, calc(100% - 2 * var(--page-gutter)));
-    transform: translateX(-50%);
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    container-type: inline-size;
   }
+}
 
-  .mobile-navigation > .button-nav-tab {
-    width: 100%;
-  }
-
-  .mobile-navigation--authenticated {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: min(420px, calc(100% - 2 * var(--page-gutter)));
+@container (max-width: 400px) {
+  .mobile-navigation-label {
+    display: none;
   }
 }

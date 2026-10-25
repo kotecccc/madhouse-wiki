@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import prettier from "prettier";
+const httpMethods = new Set(["get", "post", "put", "patch", "delete"]);
 
 const readJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
@@ -360,8 +362,61 @@ for (const scheme of Object.values(result.components.securitySchemes ?? {}))
     "Access token текущего аккаунта. Вставьте только токен, без префикса Bearer.";
 await writeFile(
   new URL("../public/api-docs/openapi.readonly.json", import.meta.url),
-  `${JSON.stringify(result, null, 2)}\n`,
+  await prettier.format(`${JSON.stringify(result, null, 2)}\n`, {
+    parser: "json",
+  }),
+);
+
+const swagger = structuredClone(source);
+swagger.servers = [
+  {
+    url: "/",
+    description: "API-прокси этого сайта",
+  },
+];
+swagger.info.description =
+  "Полный список REST-операций, найденных в доступном клиентском коде и сетевых наблюдениях. Это рабочая клиентская спецификация, а не подтверждённый серверный контракт. Изменяющие состояние запросы доступны из Swagger только после включения переключателя над списком.";
+swagger.paths = {};
+let swaggerCount = 0;
+for (const [path, methods] of Object.entries(source.paths)) {
+  const operations = {};
+  for (const [method, sourceOperation] of Object.entries(methods)) {
+    if (!httpMethods.has(method)) continue;
+    const operation =
+      method === "get" && result.paths[path]?.get
+        ? structuredClone(result.paths[path].get)
+        : structuredClone(sourceOperation);
+    if (method !== "get") {
+      operation["x-madhouse-mutation-gate"] =
+        "X-Madhouse-Allow-Mutations: true";
+      operation.description = [
+        operation.description,
+        "Изменяющий запрос. В Swagger он отправляется только при включённом переключателе над списком операций. Точная серверная валидация запроса независимо не подтверждена.",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    operations[method] = operation;
+    swaggerCount++;
+  }
+  if (Object.keys(operations).length) swagger.paths[path] = operations;
+}
+assert.equal(
+  swaggerCount,
+  Object.values(source.paths).reduce(
+    (total, methods) =>
+      total +
+      Object.keys(methods).filter((method) => httpMethods.has(method)).length,
+    0,
+  ),
+  "Swagger routes differ from the complete discovered operation inventory",
+);
+await writeFile(
+  new URL("../public/api-docs/openapi.swagger.json", import.meta.url),
+  await prettier.format(`${JSON.stringify(swagger, null, 2)}\n`, {
+    parser: "json",
+  }),
 );
 console.log(
-  `Собрана спецификация только для чтения: ${count} GET-метода, ${result.tags.length} раздела.`,
+  `Собраны спецификации: ${count} GET-методов только для чтения и ${swaggerCount} REST-операций Swagger в ${result.tags.length} разделах.`,
 );

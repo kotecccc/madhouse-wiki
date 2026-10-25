@@ -5,6 +5,7 @@ import {
   IconArrowUp,
   IconBatteryVerticalCharging,
   IconBook,
+  IconBrain,
   IconBolt,
   IconBugFilled,
   IconBuilding,
@@ -25,9 +26,11 @@ import {
   IconLock,
   IconLockOpen,
   IconMessage,
+  IconMenu2,
   IconPackage,
   IconPillFilled,
   IconSkull,
+  IconStar,
   IconStopwatch,
   IconSwords,
   IconTreasureChest,
@@ -45,11 +48,14 @@ function iconSizeVariant(size) {
 }
 
 const iconComponents = {
+  brain: IconBrain,
+  star: IconStar,
   boss: IconSkull,
   character: IconUser,
   chevron: IconChevronDown,
   "external-link": IconExternalLink,
   message: IconMessage,
+  menu: IconMenu2,
   copy: IconCopy,
   loot: IconPackage,
   levels: IconChartBar,
@@ -88,6 +94,7 @@ export function Icon({ type, size, className = "" }) {
     "ui-icon",
     [
       "energy",
+      "star",
       "coin",
       "pill",
       "banknote",

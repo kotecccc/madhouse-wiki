@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:raids": "MADHOUSE_RAIDS_FIXTURE=1 vite",
-    "dev:connector": "vite --config connector/vite.config.mjs",
+    "dev": "docker compose -f compose.dev.yml up -d --build --wait --wait-timeout 180",
+    "dev:raids": "MADHOUSE_RAIDS_FIXTURE=1 docker compose -f compose.dev.yml up -d --build --wait --wait-timeout 180",
+    "dev:connector": "docker compose -f compose.dev.yml up -d --build --wait --wait-timeout 180 connector",
     "build:connector": "vite build --config connector/vite.config.mjs",
     "build": "vite build",
     "build:hosted": "node scripts/catalogue/restore-seed.mjs && vite build",
@@ -22,7 +22,14 @@
     "check": "npm run validate:data && npm run lint && npm run lint:ui && npm run format:check && npm test && npm run build",
     "build:vercel": "node scripts/deploy/build-vercel.mjs",
     "lint:ui": "node scripts/validate-ui-styles.mjs",
-    "build:raids-worker": "node scripts/deploy/build-raid-worker.mjs"
+    "build:raids-worker": "node scripts/deploy/build-raid-worker.mjs",
+    "dev:local": "vite",
+    "docker:up": "docker compose -f compose.dev.yml up -d --build --wait --wait-timeout 180",
+    "docker:down": "docker compose -f compose.dev.yml down",
+    "docker:logs": "docker compose -f compose.dev.yml logs -f --tail=100",
+    "docker:status": "docker compose -f compose.dev.yml ps",
+    "docker:autostart": "node scripts/dev/install-autostart.mjs",
+    "dev:connector:local": "vite --config connector/vite.config.mjs"
   },
   "engines": {
     "node": "24.x"

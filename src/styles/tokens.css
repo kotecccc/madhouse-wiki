@@ -85,17 +85,17 @@
   --control-locked-color: var(--red-bright);
   --control-locked-border: color-mix(
     in srgb,
-    var(--red-bright) 32%,
+    var(--red-bright) 40%,
     var(--card-border)
   );
   --control-locked-background: color-mix(
     in srgb,
-    var(--red-bright) 10%,
+    var(--red-bright) 5%,
     var(--surface-raised)
   );
   --control-locked-background-hover: color-mix(
     in srgb,
-    var(--red-bright) 16%,
+    var(--red-bright) 8%,
     var(--surface-raised)
   );
   --icon-energy: #e2b63f;

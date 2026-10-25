@@ -86,13 +86,17 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
       stage = "open_database";
       const db = new DatabaseSync(downloaded.file, { readOnly: true });
       stage = "read_completeness";
-      const completeFloors = db
-        .prepare(
-          "SELECT json_extract(f.data_json,'$.code') AS code FROM entities f WHERE f.kind='floor' AND EXISTS(SELECT 1 FROM captures c WHERE c.path='/api/floors/'||json_extract(f.data_json,'$.code')||'/info' AND c.status=200 AND c.entity_count>0) AND NOT EXISTS(SELECT 1 FROM route_discovery r LEFT JOIN captures c ON c.path=CASE WHEN r.kind='work' THEN '/api/works/open?workId='||r.id ELSE '/api/'||CASE WHEN r.kind='boss' THEN 'bosses' ELSE 'businesses' END||'/'||r.id END WHERE r.floor_code=json_extract(f.data_json,'$.code') AND (coalesce(c.status,0)<>200 OR coalesce(c.entity_count,0)=0))",
-        )
-        .all()
-        .map((row) => row.code);
-      db.close();
+      let completeFloors;
+      try {
+        completeFloors = db
+          .prepare(
+            "SELECT json_extract(f.data_json,'$.code') AS code FROM entities f WHERE f.kind='floor' AND EXISTS(SELECT 1 FROM captures c WHERE c.path='/api/floors/'||json_extract(f.data_json,'$.code')||'/info' AND c.status=200 AND c.entity_count>0) AND NOT EXISTS(SELECT 1 FROM route_discovery r LEFT JOIN captures c ON c.path=CASE WHEN r.kind='work' THEN '/api/works/open?workId='||r.id ELSE '/api/'||CASE WHEN r.kind='boss' THEN 'bosses' ELSE 'businesses' END||'/'||r.id END WHERE r.floor_code=json_extract(f.data_json,'$.code') AND (coalesce(c.status,0)<>200 OR coalesce(c.entity_count,0)=0))",
+          )
+          .all()
+          .map((row) => row.code);
+      } finally {
+        db.close();
+      }
       return json({ ...publicData(kb), completeFloors });
     } catch {
       return json({ error: "catalogue_unavailable", stage }, 503);

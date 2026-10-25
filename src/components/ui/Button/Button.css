@@ -234,3 +234,8 @@
     white-space: nowrap;
   }
 }
+
+.button--accent-gold,
+.button--accent-gold:hover:not(:disabled) {
+  border-color: var(--status-business);
+}

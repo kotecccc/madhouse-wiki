@@ -1,0 +1,4 @@
+.boss-battle-error-banner {
+  display: grid;
+  gap: var(--card-content-gap);
+}

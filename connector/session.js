@@ -1,4 +1,5 @@
 import { connectionFailure } from "./diagnostics.js";
+import { normalizeActiveBossBattle } from "../shared/active-boss-battle.js";
 import {
   normalizePhoneNumber,
   requestPhoneCode,
@@ -187,6 +188,9 @@ export function createConnection({
         exchanged.expToNextLevel > 0
           ? exchanged.expToNextLevel
           : null;
+      const activeBossBattle = normalizeActiveBossBattle(
+        exchanged?.activeBossBattle,
+      );
       if (started !== generation) throw new Error("cancelled");
       return {
         status: "connected",
@@ -195,6 +199,7 @@ export function createConnection({
         ...(currentExp == null || expToNextLevel == null
           ? {}
           : { currentExp, expToNextLevel }),
+        ...(activeBossBattle ? { activeBossBattle } : {}),
       };
     })();
     const entry = { promise: task, identity };

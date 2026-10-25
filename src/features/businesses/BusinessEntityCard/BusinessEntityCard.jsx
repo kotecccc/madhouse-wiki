@@ -197,7 +197,7 @@ export function BusinessEntityCard({
           icon="levels"
           title={isUpgrade ? "Требования выбранного уровня" : "Уровни бизнеса"}
           className="business-entity-card__action"
-          disabled={isUpgrade ? !levelCount : !upgrade}
+          disabled={isUpgrade && !levelCount}
           aria-label={
             isUpgrade
               ? `Требования для бизнеса «${business.title}», уровень ${resolvedLevel}`

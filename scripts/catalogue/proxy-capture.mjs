@@ -1,18 +1,39 @@
 import { gunzipSync, brotliDecompressSync, inflateSync } from "node:zlib";
 import { CatalogueStore, catalogueRoute } from "./store.mjs";
 
-export function installCatalogueCapture(proxy, root) {
-  const store = new CatalogueStore(root);
-  store.initialize();
+export function installCatalogueCapture(
+  proxy,
+  root,
+  { createStore = (directory) => new CatalogueStore(directory) } = {},
+) {
+  // A long-lived WAL writer can retain stale shared-memory/file handles across
+  // Docker Desktop bind-mount changes. Keep the connection local to a capture.
+  let initialized = false;
+  const capture = (path, status, value) => {
+    let store;
+    try {
+      store = createStore(root);
+      if (!initialized) {
+        store.initialize();
+        initialized = true;
+      }
+      store.capture(path, status, value);
+    } catch {
+      // Do not expose response bodies or exception messages in diagnostics.
+      console.error("[catalogue] Reference capture failed:", path);
+    } finally {
+      store?.close();
+    }
+  };
   // Ordinary Wiki navigation captures only the requested reference projection.
   // Bulk import is an explicit operation, never a side effect of /api/floors.
-  proxy.on("proxyRes", (upstream, request) => {
+  const onResponse = (upstream, request) => {
     if (request.method !== "GET") return;
     const path = catalogueRoute(request.url);
     if (!path) return;
     const status = upstream.statusCode ?? 0;
     if (status !== 200) {
-      store.capture(path, status, null);
+      capture(path, status, null);
       return;
     }
     if (!String(upstream.headers["content-type"] ?? "").includes("json"))
@@ -26,7 +47,7 @@ export function installCatalogueCapture(proxy, root) {
     });
     upstream.on("end", () => {
       if (size > maxBytes) {
-        store.capture(path, 413, null);
+        capture(path, 413, null);
         return;
       }
       try {
@@ -36,12 +57,13 @@ export function installCatalogueCapture(proxy, root) {
         else if (encoding === "br") data = brotliDecompressSync(data);
         else if (encoding === "deflate") data = inflateSync(data);
         const value = JSON.parse(data.toString("utf8"));
-        store.capture(path, status, value);
+        capture(path, status, value);
       } catch {
         // Never log response bodies or exception messages: both can contain account data.
         console.error("[catalogue] Reference capture failed:", path);
       }
     });
-  });
-  return store;
+  };
+  proxy.on("proxyRes", onResponse);
+  return { close: () => proxy.off("proxyRes", onResponse) };
 }

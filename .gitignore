@@ -18,3 +18,7 @@ dist/
 /.sites-release/
 .vercel
 .env*
+
+/local-data/automation/
+
+/research/

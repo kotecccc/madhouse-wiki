@@ -9,8 +9,18 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
 
-export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
+export function BusinessCard({
+  business,
+  upgrade,
+  onUpgradeSelect,
+  children,
+  targeted = false,
+  goalAction,
+  department,
+  locked = false,
+}) {
   const fields = [
+    { id: "block", label: "Отделение", value: department?.code || "" },
     { id: "name", label: "Название бизнеса", value: business.title },
     { id: "income", label: "Доход", value: "Доход не указан" },
   ];
@@ -19,6 +29,7 @@ export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
       <BaseCard
         editKey="card"
         variant="floor-data"
+        state={locked ? "locked" : targeted ? "target" : undefined}
         as="li"
         className="floor-business-card"
       >
@@ -33,11 +44,14 @@ export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
         </ImageCard>
         <EditableLayout editKey="copy-layout" className="floor-business-copy">
           <CardTitle
-            composition={{ fields, defaultFields: ["name"] }}
+            composition={{
+              fields,
+              defaultFields: department ? ["block", "name"] : ["name"],
+            }}
             editKey="title"
             className="floor-work-business-name"
           >
-            {business.title}
+            {[department?.code, business.title].filter(Boolean).join(" • ")}
           </CardTitle>
           <CardDescription
             composition={{ fields, defaultFields: ["income"] }}
@@ -47,26 +61,29 @@ export function BusinessCard({ business, upgrade, onUpgradeSelect }) {
           >
             Доход не указан
           </CardDescription>
+          {children}
         </EditableLayout>
-        <Button
-          editKey="action"
-          variant="card-action"
-          icon="levels"
-          title="Уровни бизнеса"
-          className="business-upgrade-open"
-          disabled={!upgrade}
-          aria-label={`Требования по предметам для бизнеса «${business.title}»`}
-          onClick={() => {
-            trackProductEvent("business_upgrades_open", {
-              section: "businesses",
-              feature: "business_upgrades",
-              subject: business.id,
-            });
-            onUpgradeSelect({ business, upgrade });
-          }}
-        >
-          Уровни
-        </Button>
+        <div className="floor-business-actions">
+          <Button
+            editKey="action"
+            variant="card-action"
+            icon="levels"
+            title="Уровни бизнеса"
+            className="business-upgrade-open"
+            aria-label={`Требования по предметам для бизнеса «${business.title}»`}
+            onClick={() => {
+              trackProductEvent("business_upgrades_open", {
+                section: "businesses",
+                feature: "business_upgrades",
+                subject: business.id,
+              });
+              onUpgradeSelect({ business, upgrade });
+            }}
+          >
+            Уровни
+          </Button>
+          {goalAction}
+        </div>
       </BaseCard>
     </CardEditScope>
   );

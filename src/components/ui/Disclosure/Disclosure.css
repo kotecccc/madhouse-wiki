@@ -1,0 +1,28 @@
+.ui-disclosure-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--control-height-md);
+  list-style: none;
+  cursor: pointer;
+}
+
+.ui-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ui-disclosure-chevron {
+  display: grid;
+  place-items: center;
+}
+
+.ui-disclosure[open] > .ui-disclosure-summary > .ui-disclosure-chevron {
+  transform: rotate(180deg);
+}
+
+.ui-disclosure-content {
+  display: grid;
+  gap: var(--space-12);
+  padding-top: var(--space-12);
+}
