@@ -16,6 +16,7 @@ const variants = new Set([
 export function Button({
   type = "button",
   variant = "secondary",
+  accent,
   size = "md",
   className = "",
   children,
@@ -41,6 +42,7 @@ export function Button({
     "button",
     safeVariant === "icon-copy-inline" && "button-icon-copy",
     `button-${safeVariant}`,
+    accent === "gold" && "button--accent-gold",
     `button-size-${safeSize}`,
     !liftOnHover && "button--no-lift",
     className,

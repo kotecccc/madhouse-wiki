@@ -50,6 +50,10 @@ assert.match(wikiPage.headers.get("content-type") || "", /text\/html/u);
 assert.match(await wikiPage.text(), /<div id="root">/u);
 const privateApi = await fetchReady(`${wikiOrigin}/api/achievements`);
 assert.equal(privateApi.status, 401);
+const privateAutomation = await fetchReady(
+  `${wikiOrigin}/api/automation/state`,
+);
+assert.equal(privateAutomation.status, 401);
 
 const connectorHealth = await getJson(`${connectorOrigin}/healthz`);
 assert.equal(connectorHealth.response.status, 200);

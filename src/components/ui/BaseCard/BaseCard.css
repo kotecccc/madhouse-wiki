@@ -103,3 +103,13 @@
 .base-card--padding-64 {
   --card-padding: var(--space-64);
 }
+
+/* Unavailable cards share the subtle locked-control tint without recoloring text. */
+.base-card--locked {
+  --card-background: var(--control-locked-background);
+  border-color: var(--control-locked-border);
+}
+
+.base-card--target {
+  border-color: var(--status-business);
+}

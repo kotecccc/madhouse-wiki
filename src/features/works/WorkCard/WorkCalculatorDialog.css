@@ -1,0 +1,17 @@
+.work-calculator-goal {
+  display: grid;
+  gap: var(--card-content-gap);
+}
+
+.work-calculator-goal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--card-content-gap);
+}
+
+.work-calculator-goal-copy {
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}

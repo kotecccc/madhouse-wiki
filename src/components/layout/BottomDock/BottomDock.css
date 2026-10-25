@@ -1,0 +1,19 @@
+.bottom-dock {
+  position: fixed;
+  z-index: 30;
+  right: var(--page-gutter);
+  left: var(--page-gutter);
+  bottom: calc(var(--space-16) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  max-width: calc(100% - 2 * var(--page-gutter));
+}
+
+@media (max-width: 650px) {
+  .bottom-dock {
+    left: var(--page-gutter);
+    max-width: none;
+  }
+}

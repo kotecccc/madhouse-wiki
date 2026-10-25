@@ -1,3 +1,4 @@
+import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 import { useState, useSyncExternalStore } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
@@ -22,15 +23,29 @@ function subscribe(onChange) {
 const getMobile = () => window.matchMedia(mobileQuery).matches;
 const getServerMobile = () => false;
 
-export function WorkCard({ work, department, onCalculator, preset }) {
+export function WorkCard({
+  work,
+  department,
+  preset,
+  children,
+  targeted = false,
+  goalTargets = [],
+  as = "div",
+  locked = false,
+  placeholder = false,
+}) {
   const [open, setOpen] = useState(false);
   const mobile = useSyncExternalStore(subscribe, getMobile, getServerMobile);
   const variant = getWorkCardVariantProps(preset, mobile);
-  if (!work) return null;
-  const energy = department?.energyCycle?.full;
+  if (!work && !placeholder) return null;
+  const energy = placeholder ? null : department?.energyCycle?.full;
   const departmentWork = department?.work;
   const fields = [
-    { id: "name", label: "Работёнка", value: work.title || "" },
+    {
+      id: "name",
+      label: "Работёнка",
+      value: work?.title || (placeholder ? "Работёнка" : ""),
+    },
     { id: "block", label: "Блок", value: department?.code || "" },
     { id: "department", label: "Отделение", value: department?.name || "" },
     { id: "stash", label: "Тайник", value: departmentWork?.stash || "" },
@@ -40,13 +55,25 @@ export function WorkCard({ work, department, onCalculator, preset }) {
       value: energy == null ? "" : `Энергия ${fmt(energy)}`,
     },
   ];
-  const showCalculator = (mode) => {
-    if (onCalculator) onCalculator({ work, mode });
-    else setOpen(true);
+  const showFarm = () => {
+    if (!work) return;
+    setOpen(true);
   };
   return (
-    <CardEditScope scope={`work:${work.id}`}>
-      <BaseCard editKey="card" className="work-card" variant="floor-data">
+    <CardEditScope
+      scope={
+        work
+          ? `work:${work.id}`
+          : `department:${department?.id}:work-placeholder`
+      }
+    >
+      <BaseCard
+        as={as}
+        state={locked ? "locked" : targeted ? "target" : undefined}
+        editKey="card"
+        className="work-card"
+        variant="floor-data"
+      >
         <div className="work-card-heading">
           <ImageCard
             editKey="image"
@@ -66,7 +93,12 @@ export function WorkCard({ work, department, onCalculator, preset }) {
               size={variant?.titleSize}
               composition={{ fields, defaultFields: ["block", "name"] }}
             >
-              {[department?.code, work.title].filter(Boolean).join(" • ")}
+              {[
+                department?.code,
+                work?.title || (placeholder ? "Работёнка" : ""),
+              ]
+                .filter(Boolean)
+                .join(" • ")}
             </CardTitle>
             <CardDescription
               editKey="description"
@@ -82,31 +114,44 @@ export function WorkCard({ work, department, onCalculator, preset }) {
               {composeDisplayFields(
                 fields,
                 variant?.descriptionFields || ["department", "stash"],
-              )}
+              ) || (placeholder ? "Данные работёнки пока недоступны" : "")}
             </CardDescription>
+            {children}
           </div>
         </div>
         <div className="work-card-footer">
           <span className="work-card-energy">
-            <EditableValue editKey="energy">
-              {energy == null ? "—" : fmt(energy)}
-            </EditableValue>{" "}
-            <Icon type="energy" size="small" />
+            {locked ? (
+              <LockIndicator variant="locked" size="small" />
+            ) : (
+              <>
+                <EditableValue editKey="energy">
+                  {energy == null ? "—" : fmt(energy)}
+                </EditableValue>{" "}
+                <Icon type="energy" size="small" />
+              </>
+            )}
           </span>
           <Button
             editKey="calculator-button"
             size={variant?.buttonSize}
             variant="card-action"
-            icon="calc"
-            onClick={() => showCalculator("cycle")}
+            accent={targeted ? "gold" : undefined}
+            icon="brain"
+            disabled={placeholder}
+            aria-haspopup="dialog"
+            aria-label={`Настроить фарм: ${work?.title || "Работёнка"}`}
+            title="Настроить количество выполнений и рассчитать энергию"
+            onClick={showFarm}
           >
-            Калькулятор
+            Фарм
           </Button>
         </div>
       </BaseCard>
       <WorkCalculatorDialog
         work={work}
         energy={energy}
+        goalTargets={goalTargets}
         visible={open}
         onClose={() => setOpen(false)}
       />

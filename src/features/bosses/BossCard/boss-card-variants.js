@@ -1,4 +1,35 @@
+const battleCardSettings = Object.freeze({
+  cardPadding: "16",
+  contentGap: "8",
+  columnGap: "16",
+  titleSize: "md",
+  infoSize: "sm",
+  titleFields: ["name"],
+  descriptionFields: [
+    "accessLevel",
+    "hp",
+    "damage",
+    "drop",
+    "experience",
+    "fightDuration",
+    "participants",
+  ],
+  descriptionBreakBefore: ["hp", "drop", "fightDuration"],
+  showPortrait: true,
+  showInfo: true,
+  showDrops: false,
+  showAction: false,
+  showStatus: false,
+  showAvailability: false,
+  actionSize: "md",
+  statusSize: "sm",
+  statusCompact: false,
+  availabilitySize: "sm",
+  actionText: "Дроп",
+});
+
 export const bossCardVariants = Object.freeze({
+  "boss-battle": { desktop: battleCardSettings, mobile: battleCardSettings },
   "boss-raid": {
     desktop: {
       cardPadding: "12",

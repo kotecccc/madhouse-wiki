@@ -18,24 +18,23 @@ export function MobileNavigation({
     ? screens
     : screens.filter((screen) => screen.id !== "overview");
   return (
-    <BaseCard
-      as="nav"
-      variant="glass-nav"
-      className={`mobile-navigation${isAuthenticated ? " mobile-navigation--authenticated" : ""}`}
-      aria-label="Разделы Wiki"
-    >
-      {visibleScreens.map(({ id, label, icon }) => (
-        <Button
-          key={id}
-          variant="nav-tab"
-          aria-pressed={activeScreen === id}
-          aria-controls={`screen-${id}`}
-          onClick={() => onScreenChange(id)}
-        >
-          <Icon type={icon} size="large" />
-          <span>{label}</span>
-        </Button>
-      ))}
+    <BaseCard variant="glass-nav" className="mobile-navigation">
+      <nav className="mobile-navigation-items" aria-label="Разделы Wiki">
+        {visibleScreens.map(({ id, label, icon }) => (
+          <Button
+            key={id}
+            variant="nav-tab"
+            aria-label={label}
+            title={label}
+            aria-pressed={activeScreen === id}
+            aria-controls={`screen-${id}`}
+            onClick={() => onScreenChange(id)}
+          >
+            <Icon type={icon} size="large" />
+            <span className="mobile-navigation-label">{label}</span>
+          </Button>
+        ))}
+      </nav>
     </BaseCard>
   );
 }

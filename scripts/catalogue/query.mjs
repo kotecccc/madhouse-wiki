@@ -1,6 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
-import { bossPreviewUrl, itemImageUrl } from "./public-assets.mjs";
+import {
+  bossPreviewUrl,
+  itemImageUrl,
+  mutagenImageUrl,
+} from "./public-assets.mjs";
 import { PUBLIC_ASSETS_CDN } from "./public-assets.mjs";
 import { itemFacts } from "./item-facts.mjs";
 
@@ -341,8 +345,7 @@ export function readKnowledgeBase(
       }
       if (drop.type === "mutagen" && entity?.type) {
         const level = entity.level ?? (entity.rank === "Special" ? 21 : null);
-        if (level != null)
-          return `${PUBLIC_ASSETS_CDN}/V3/mutogen/${entity.type}/${level}.webp`;
+        if (level != null) return mutagenImageUrl(entity.type, level);
       }
       if (drop.type === "room" && entity) {
         const asset = entity.asset ?? entity.apiId ?? entity.id;

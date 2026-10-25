@@ -1,4 +1,5 @@
 import { renderDisplayFields } from "../../../components/ui/CardEditing/DisplayFields.jsx";
+import { BossBattleButton } from "../BossBattle/BossBattleDialog.jsx";
 import { BossStatus } from "./BossStatus.jsx";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { bossDisplayFields } from "../../../lib/card-display-fields.js";
@@ -37,16 +38,20 @@ export function BossCardView({
   boss,
   as = "article",
   variant,
+  cardState,
   titleAs = "strong",
   title = boss.name,
   className = "",
   showInfo = true,
+  showBattleAction = false,
   showStats = false,
   showDropList = true,
   action,
   actionText = "Весь дроп",
   actionSize,
   children,
+  goalAction,
+  openingRequirements,
   hasPortrait = true,
   imageLoading = "lazy",
   titleSize,
@@ -137,12 +142,41 @@ export function BossCardView({
     .join(" ");
   const outerGap = spacingValue(columnGap);
   const mainGap = spacingValue(contentGap);
+  const dropAction = action ?? (
+    <Button
+      editKey="action"
+      variant="card-action"
+      icon="loot"
+      aria-label={`${actionText}: ${boss.name}`}
+      title={actionText}
+      {...editableTargetProps(Boolean(onSelectPart), "boss-all-drops-button")}
+      size={actionSize}
+      aria-haspopup="dialog"
+      onFocus={onSelectPart ? (event) => event.stopPropagation() : undefined}
+      onClick={(event) => {
+        if (onSelectPart) {
+          event.stopPropagation();
+          onSelectPart("action", event.currentTarget, event);
+          return;
+        }
+        trackProductEvent("boss_details_open", {
+          section: "bosses",
+          feature: "boss_drops",
+          subject: boss.id,
+        });
+        setShowDrops(true);
+      }}
+    >
+      {actionText}
+    </Button>
+  );
   return (
     <BaseCard
       ref={cardRef}
       editKey="card"
       as={as}
       variant={cardVariant}
+      state={cardState}
       padding={cardPadding}
       tabIndex={onSelectPart ? 0 : undefined}
       aria-label={
@@ -281,38 +315,20 @@ export function BossCardView({
             </CardDescription>
           ))}
       </EditableLayout>
-      {action ?? (
-        <Button
-          editKey="action"
-          variant="card-action"
-          icon="loot"
-          aria-label={`${actionText}: ${boss.name}`}
-          title={actionText}
-          {...editableTargetProps(
-            Boolean(onSelectPart),
-            "boss-all-drops-button",
+      {(showBattleAction || goalAction) && !onSelectPart ? (
+        <div className="boss-card-actions">
+          {showBattleAction && (
+            <BossBattleButton
+              boss={referenceBoss}
+              size={actionSize}
+              openingRequirements={openingRequirements}
+            />
           )}
-          size={actionSize}
-          aria-haspopup="dialog"
-          onFocus={
-            onSelectPart ? (event) => event.stopPropagation() : undefined
-          }
-          onClick={(event) => {
-            if (onSelectPart) {
-              event.stopPropagation();
-              onSelectPart("action", event.currentTarget, event);
-              return;
-            }
-            trackProductEvent("boss_details_open", {
-              section: "bosses",
-              feature: "boss_drops",
-              subject: boss.id,
-            });
-            setShowDrops(true);
-          }}
-        >
-          {actionText}
-        </Button>
+          {dropAction}
+          {goalAction}
+        </div>
+      ) : (
+        dropAction
       )}
       {showDrops && (
         <Modal

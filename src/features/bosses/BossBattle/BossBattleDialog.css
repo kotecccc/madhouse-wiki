@@ -1,0 +1,25 @@
+.boss-battle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.boss-battle-layout {
+  display: grid;
+  gap: var(--space-16);
+  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.boss-battle-column {
+  display: grid;
+  align-content: start;
+  gap: var(--space-16);
+  min-width: 0;
+}
+
+@media (max-width: 650px) {
+  .boss-battle-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -9,6 +9,9 @@ export const BOSS_DISPLAY_FIELD_IDS = Object.freeze([
   "hp",
   "damage",
   "drop",
+  "experience",
+  "fightDuration",
+  "participants",
 ]);
 
 export const RAID_DISPLAY_FIELD_IDS = Object.freeze([
@@ -41,9 +44,24 @@ function currencyReward(label, amount) {
     : "";
 }
 
+function fightDurationLabel(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  return [
+    hours ? `${fmt(hours)} ч` : "",
+    minutes ? `${fmt(minutes)} мин` : "",
+    rest || (!hours && !minutes) ? `${fmt(rest)} с` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function bossDisplayFields(boss = {}, department = {}) {
   const code = text(department.code || department.blockCode || boss.blockCode);
   const floorCode = text(department.floorCode || code.match(/^[A-Z]/iu)?.[0]);
+  const fightDuration = fightDurationLabel(boss.maxFightDurationSeconds);
   const damage =
     boss.damageMin != null && boss.damageMax != null
       ? `${fmt(boss.damageMin)}–${fmt(boss.damageMax)}`
@@ -77,6 +95,23 @@ export function bossDisplayFields(boss = {}, department = {}) {
           typeof amount === "number" && Number.isFinite(amount) && amount >= 0,
       ),
     },
+    field(
+      "experience",
+      "Опыт",
+      currencyReward("Опыт", boss.rewardPreview?.exp),
+    ),
+    field(
+      "fightDuration",
+      "Длительность боя",
+      fightDuration ? `Бой: ${fightDuration}` : "",
+    ),
+    field(
+      "participants",
+      "Участники",
+      Number.isSafeInteger(boss.maxParticipants) && boss.maxParticipants > 0
+        ? `Участников: до ${fmt(boss.maxParticipants)}`
+        : "",
+    ),
   ];
 }
 

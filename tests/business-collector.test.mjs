@@ -1,0 +1,382 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createBusinessCollector } from "../scripts/automation/business-collector.mjs";
+
+const businessId = "business:1";
+const expectedPlan = {
+  targetLevel: 2,
+  currentLevelOverride: 1,
+  maxAttempts: 4,
+  durationHours: 2,
+  bossChoices: { 51: 901, 52: 902 },
+};
+
+function harness({
+  inventory = { 51: 0, 52: 0 },
+  config = expectedPlan,
+  now = 1000,
+  getImpl,
+  run,
+  goalStatus = null,
+} = {}) {
+  const helper = {
+    configs: { [businessId]: structuredClone(config) },
+    resources: {
+      details: { [businessId]: { level: 1 } },
+      inventory: { stock: { ...inventory }, complete: true },
+      updatedAt: null,
+    },
+    run: run ? structuredClone(run) : null,
+  };
+  const catalogue = {
+    businesses: [
+      { id: businessId, apiId: "1", title: "Workshop", maxLevel: 2 },
+    ],
+    businessUpgrades: [
+      {
+        businessId,
+        items: [
+          { entityId: 51, name: "Bolt", levels: [0, 2] },
+          { entityId: 52, name: "Key", levels: [0, 1] },
+        ],
+      },
+    ],
+    bosses: [
+      {
+        id: "boss:901",
+        numericId: 901,
+        name: "Assembler",
+        dropItems: [{ entityId: 51 }],
+      },
+      {
+        id: "boss:902",
+        numericId: 902,
+        name: "Watcher",
+        possibleDrops: [{ type: "activity_item", entityId: 52 }],
+      },
+    ],
+  };
+  const listeners = () => new Set();
+  const controllerListeners = listeners();
+  const goalListeners = listeners();
+  const autoListeners = listeners();
+  const state = {
+    boss: null,
+    battle: null,
+    pending: null,
+    needsRefresh: false,
+    error: null,
+    purchaseUncertain: false,
+    canStart: true,
+  };
+  const controller = {
+    opens: [],
+    getSnapshot: () => state,
+    subscribe(fn) {
+      controllerListeners.add(fn);
+      return () => controllerListeners.delete(fn);
+    },
+    emit() {
+      for (const fn of [...controllerListeners]) fn();
+    },
+    async open(boss) {
+      this.opens.push(boss);
+      Object.assign(state, {
+        boss,
+        battle: null,
+        pending: null,
+        needsRefresh: false,
+        error: null,
+      });
+      this.emit();
+    },
+  };
+  let currentGoal = goalStatus
+    ? { status: goalStatus, rewardUncertain: false }
+    : null;
+  const goal = {
+    configurations: [],
+    stops: 0,
+    getSnapshot: () => currentGoal,
+    subscribe(fn) {
+      goalListeners.add(fn);
+      return () => goalListeners.delete(fn);
+    },
+    configure(value) {
+      this.configurations.push(value);
+      currentGoal = { status: "active", rewardUncertain: false };
+      this.emit();
+    },
+    stop() {
+      this.stops++;
+      currentGoal = { ...(currentGoal ?? {}), status: "stopped" };
+      this.emit();
+    },
+    emit() {
+      for (const fn of [...goalListeners]) fn();
+    },
+  };
+  const autoState = { enabled: false };
+  const auto = {
+    starts: [],
+    stops: 0,
+    getSnapshot: () => autoState,
+    subscribe(fn) {
+      autoListeners.add(fn);
+      return () => autoListeners.delete(fn);
+    },
+    start(checkpoint) {
+      this.starts.push(checkpoint);
+      autoState.enabled = true;
+      this.emit();
+      return true;
+    },
+    stop() {
+      this.stops++;
+      autoState.enabled = false;
+      this.emit();
+    },
+    emit() {
+      for (const fn of [...autoListeners]) fn();
+    },
+  };
+  const timers = [];
+  const gets = [];
+  const get = async (path) => {
+    gets.push(path);
+    return getImpl
+      ? getImpl(path)
+      : path === "/api/me/bag"
+        ? {
+            activityItems: Object.entries(helper.resources.inventory.stock).map(
+              ([itemId, quantity]) => ({ itemId: Number(itemId), quantity }),
+            ),
+          }
+        : { id: 1, level: 1 };
+  };
+  const bossRecords = new Map(
+    catalogue.bosses.map((record) => [
+      record.numericId,
+      {
+        id: record.numericId,
+        name: record.name,
+        reference: {
+          possibleDrops:
+            record.possibleDrops ??
+            record.dropItems.map((item) => ({
+              ...item,
+              type: "activity_item",
+            })),
+        },
+      },
+    ]),
+  );
+  const collector = createBusinessCollector({
+    helper,
+    controller,
+    goal,
+    auto,
+    getCatalogue: () => catalogue,
+    getBoss: async (id) => bossRecords.get(id),
+    get,
+    now: () => now,
+    schedule(fn, delay) {
+      const timer = { fn, delay, canceled: false };
+      timers.push(timer);
+      return timer;
+    },
+    cancel(timer) {
+      timer.canceled = true;
+    },
+  });
+  const next = async () => {
+    const timer = timers.find((item) => !item.canceled);
+    if (!timer) return false;
+    timer.canceled = true;
+    timer.fn();
+    await new Promise((resolve) => setImmediate(resolve));
+    return true;
+  };
+  const drain = async () => {
+    for (let index = 0; index < 12; index++) {
+      if (!(await next())) break;
+    }
+  };
+  const start = () =>
+    collector.start({
+      businessId,
+      expectedPlan: structuredClone(config),
+      expectedMissing: [
+        ...(inventory[51] < 2
+          ? [{ itemId: 51, amount: 2 - inventory[51] }]
+          : []),
+        ...(inventory[52] < 1
+          ? [{ itemId: 52, amount: 1 - inventory[52] }]
+          : []),
+      ],
+    });
+  return {
+    helper,
+    catalogue,
+    controller,
+    goal,
+    auto,
+    state,
+    timers,
+    gets,
+    collector,
+    next,
+    drain,
+    start,
+    setNow(value) {
+      now = value;
+    },
+  };
+}
+
+test("farms materials sequentially and switches to the next material boss after verification", async () => {
+  const h = harness();
+  h.start();
+  await h.drain();
+  assert.deepEqual(
+    h.controller.opens.map((boss) => boss.id),
+    [901],
+  );
+  assert.equal(h.goal.configurations[0].items[0].key, "activity_item:51");
+  assert.equal(h.helper.run.phase, "farming");
+
+  h.helper.resources.inventory.stock[51] = 2;
+  h.state.battle = { id: "battle-a", status: "won" };
+  h.controller.emit();
+  Object.assign(h.goal.getSnapshot(), { status: "completed" });
+  h.goal.emit();
+  await h.drain();
+
+  assert.deepEqual(
+    h.controller.opens.map((boss) => boss.id),
+    [901, 902],
+  );
+  assert.deepEqual(
+    h.goal.configurations.map((item) => item.items[0].key),
+    ["activity_item:51", "activity_item:52"],
+  );
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.currentItemId, 52);
+});
+
+test("verification skips material collected incidentally before its stage", async () => {
+  const h = harness({ inventory: { 51: 2, 52: 0 } });
+  h.start();
+  await h.drain();
+  assert.deepEqual(
+    h.controller.opens.map((boss) => boss.id),
+    [902],
+  );
+  assert.deepEqual(
+    h.goal.configurations.map((item) => item.items[0].key),
+    ["activity_item:52"],
+  );
+});
+
+test("global battle cap applies across material stages", async () => {
+  const config = { ...expectedPlan, maxAttempts: 1 };
+  const h = harness({ config });
+  h.start();
+  await h.drain();
+  h.state.battle = { id: "battle-cap", status: "won" };
+  h.controller.emit();
+  Object.assign(h.goal.getSnapshot(), { status: "completed" });
+  h.goal.emit();
+  await h.drain();
+  assert.equal(h.helper.run.status, "limited");
+  assert.equal(h.helper.run.battlesStarted, 1);
+  assert.deepEqual(
+    h.controller.opens.map((boss) => boss.id),
+    [901],
+  );
+});
+
+test("deadline stops the collector without opening another boss", async () => {
+  const h = harness();
+  h.start();
+  await h.drain();
+  h.setNow(h.helper.run.deadlineAt);
+  h.collector.tick();
+  assert.equal(h.helper.run.status, "limited");
+  assert.equal(h.helper.run.reason, "Истекло время сбора.");
+  assert.deepEqual(
+    h.controller.opens.map((boss) => boss.id),
+    [901],
+  );
+});
+
+test("urgent stop during held inventory refresh invalidates the step", async () => {
+  let release;
+  const h = harness({
+    getImpl: (path) =>
+      new Promise((resolve) => {
+        release = () =>
+          resolve(
+            path === "/api/me/bag"
+              ? { activityItems: [] }
+              : { id: 1, level: 1 },
+          );
+      }),
+  });
+  h.start();
+  const work = h.next();
+  assert.equal(h.helper.run.phase, "verifying");
+  h.collector.stop();
+  assert.equal(h.helper.run.status, "stopped");
+  release();
+  await work;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.controller.opens.length, 0);
+  assert.equal(h.goal.configurations.length, 0);
+});
+
+test("safe restart resumes an active farming goal without reopening or refreshing", async () => {
+  const run = {
+    id: "run-1",
+    status: "running",
+    phase: "farming",
+    businessId,
+    config: structuredClone(expectedPlan),
+    deadlineAt: 7200001,
+    maxBattles: 4,
+    battlesStarted: 1,
+    battlesCompleted: 0,
+    attemptIds: ["battle-restored"],
+    completedIds: [],
+    materials: [],
+    bossId: 901,
+    currentItemId: 51,
+    ownsGoal: true,
+  };
+  const h = harness({ run, goalStatus: "active" });
+  h.collector.resume({ nextAttackAt: 2000 });
+  assert.equal(h.auto.starts.length, 1);
+  assert.deepEqual(h.auto.starts[0], { checkpoint: { nextAttackAt: 2000 } });
+  assert.equal(h.controller.opens.length, 0);
+  assert.equal(h.gets.length, 0);
+  assert.equal(h.helper.run.status, "running");
+});
+
+test("unsafe restart checkpoint stops without replaying a battle", () => {
+  const run = {
+    id: "run-unsafe",
+    status: "running",
+    phase: "farming",
+    businessId,
+    ownsGoal: true,
+  };
+  const h = harness({ run });
+  h.collector.resume(null, true);
+  assert.equal(h.helper.run.status, "error");
+  assert.equal(
+    h.helper.run.reason,
+    "Бой требует проверки. Сбор остановлен без повторения игрового действия.",
+  );
+  assert.equal(h.auto.starts.length, 0);
+  assert.equal(h.controller.opens.length, 0);
+});

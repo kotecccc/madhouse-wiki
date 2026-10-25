@@ -1,0 +1,9 @@
+.boss-medicine-panel {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.boss-medicine-fields {
+  display: grid;
+  gap: var(--space-8);
+}

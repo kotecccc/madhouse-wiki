@@ -47,6 +47,7 @@
 }
 
 .shared-modal-heading {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-16);
@@ -107,4 +108,12 @@
     min-height: 0;
     align-content: start;
   }
+}
+
+.shared-modal-heading-loader {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1;
 }

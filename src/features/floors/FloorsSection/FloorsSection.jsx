@@ -1,3 +1,6 @@
+import { knowledgeBase } from "virtual:madhouse-catalogue";
+import { progressionTargets } from "../progression-targets.js";
+import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { useEffect, useRef, useState } from "react";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import "./FloorsSection.css";
@@ -18,6 +21,7 @@ import {
 import { trackProductEvent } from "../../analytics/analytics-client.js";
 export function FloorsSection({
   availability,
+  floorDetails,
   status,
   onCalculator,
   onUpgradeSelect,
@@ -25,6 +29,9 @@ export function FloorsSection({
   selectedFloorCode,
   isAuthenticated = false,
 }) {
+  const [categorySelection, setCategorySelection] = useState(null);
+  const [confirmedDepartmentState, setConfirmedDepartmentState] =
+    useState(null);
   const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
   const departmentRefs = useRef({});
@@ -42,15 +49,21 @@ export function FloorsSection({
   useEffect(() => {
     if (!selectedFloorCode) return;
     const floor = orderedFloors.find((item) => item.code === selectedFloorCode);
-    if (floor) setSelectedFloorId(floor.id);
+    if (floor) {
+      setSelectedFloorId(floor.id);
+      setCategorySelection(null);
+    }
   }, [selectedFloorCode]);
 
   useEffect(() => {
     let previousStatus = readSession().status;
     return subscribeSession(() => {
       const nextStatus = readSession().status;
-      if (previousStatus !== "ready" && nextStatus === "ready")
+      if (previousStatus !== "ready" && nextStatus === "ready") {
         setSelectedFloorId(null);
+        setCategorySelection(null);
+      }
+      setConfirmedDepartmentState(null);
       previousStatus = nextStatus;
     });
   }, []);
@@ -60,6 +73,28 @@ export function FloorsSection({
     status,
     availability[selectedFloor?.code],
     selectedFloor?.code === lastAvailableFloorCode,
+  );
+  useEffect(() => {
+    if (departmentState.status === "ready")
+      setConfirmedDepartmentState(departmentState);
+  }, [departmentState]);
+  const category =
+    categorySelection?.floorId === selectedFloor?.id
+      ? categorySelection.category
+      : "work";
+  const targets = progressionTargets({
+    floors: orderedFloors,
+    departments: knowledgeBase.departments,
+    bosses: knowledgeBase.bosses,
+    businesses: knowledgeBase.businesses,
+    availability,
+    floorDetails,
+    departmentState:
+      departmentState.status === "ready"
+        ? departmentState
+        : confirmedDepartmentState || {},
+  }).filter((target) =>
+    (selectedFloor?.departmentIds || []).includes(target.departmentId),
   );
   useEffect(() => {
     if (
@@ -78,12 +113,21 @@ export function FloorsSection({
         )
       : selectedFloor?.code === lastAvailableFloorCode
         ? departmentState.availability
-        : {};
+        : availability[selectedFloor?.code] === true
+          ? Object.fromEntries(
+              (selectedFloor?.departmentIds || []).map((id) => [
+                departmentById[id]?.code,
+                true,
+              ]),
+            )
+          : {};
 
   const renderFloor = (floor) => (
     <FloorGroup
       key={floor.id}
       floor={floor}
+      category={category}
+      targets={targets}
       floorAvailable={status === "ready" ? availability[floor.code] : undefined}
       departmentAvailability={departmentAvailability}
       viewMode="floors"
@@ -140,6 +184,7 @@ export function FloorsSection({
               .join(" — ")}
             aria-pressed={floor.id === selectedFloor?.id}
             onClick={() => {
+              if (floor.id !== selectedFloor?.id) setCategorySelection(null);
               setSelectedFloorId(floor.id);
               trackProductEvent("floor_select", {
                 section: "floors",
@@ -164,6 +209,46 @@ export function FloorsSection({
         ))}
       </div>
 
+      <div
+        className="floor-category-selector"
+        role="group"
+        aria-label="Категория этажа"
+      >
+        {[
+          ["work", "Работа"],
+          ["bosses", "Боссы"],
+          ["businesses", "Бизнесы"],
+        ].map(([value, label]) => {
+          const isTarget = targets.some((target) => target.category === value);
+          return (
+            <Button
+              key={value}
+              variant="secondary"
+              size="lg"
+              className="floor-category-button"
+              aria-pressed={category === value}
+              aria-label={`${label}${isTarget ? " — есть задача для открытия" : ""}`}
+              onClick={() =>
+                setCategorySelection({
+                  floorId: selectedFloor.id,
+                  category: value,
+                })
+              }
+            >
+              <span>{label}</span>
+              {isTarget && (
+                <span
+                  className="floor-category-target"
+                  role="img"
+                  aria-label="Задача для открытия"
+                >
+                  <Icon type="star" size="medium" />
+                </span>
+              )}
+            </Button>
+          );
+        })}
+      </div>
       {departmentState.status === "loading" && (
         <p className="department-access-status sr-only" role="status">
           Загружаем доступность отделений…

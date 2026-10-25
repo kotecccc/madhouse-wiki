@@ -21,11 +21,14 @@ services:
       - /opt/madhouse-wiki/raid.env
     environment:
       MADHOUSE_SERVICE: wiki
+      MADHOUSE_AUTOMATION_STATE_DIR: /data/automation
       MADHOUSE_RELEASE_SHA: ${MADHOUSE_RELEASE_SHA}
       PORT: 9092
       WIKI_PUBLIC_ORIGIN: https://madhouse-wiki.ru
       CONNECTOR_PUBLIC_ORIGIN: https://connect.madhouse-wiki.ru
       MADHOUSE_STORAGE_ORIGIN: https://storage.madhouse-wiki.ru/_madhouse-storage
+    volumes:
+      - automation_state:/data/automation
     healthcheck:
       test:
         - CMD
@@ -63,3 +66,6 @@ services:
       WIKI_PUBLIC_ORIGIN: https://madhouse-wiki.ru
       CONNECTOR_PUBLIC_ORIGIN: https://connect.madhouse-wiki.ru
       MADHOUSE_STORAGE_ORIGIN: https://storage.madhouse-wiki.ru/_madhouse-storage
+
+volumes:
+  automation_state:

@@ -1,5 +1,6 @@
 import { connectionFailure } from "./diagnostics.js";
 import { authErrorCategory } from "./auth-trace.js";
+import { normalizeActiveBossBattle } from "../shared/active-boss-battle.js";
 
 const PHONE_CODE_DELIVERY_TYPES = new Set([
   "app",
@@ -237,6 +238,9 @@ export function createConnection({
         exchanged.expToNextLevel > 0
           ? exchanged.expToNextLevel
           : null;
+      const activeBossBattle = normalizeActiveBossBattle(
+        exchanged?.activeBossBattle,
+      );
       if (started !== generation) throw new Error("cancelled");
       return {
         status: "connected",
@@ -245,6 +249,7 @@ export function createConnection({
         ...(currentExp == null || expToNextLevel == null
           ? {}
           : { currentExp, expToNextLevel }),
+        ...(activeBossBattle ? { activeBossBattle } : {}),
       };
     })();
     const entry = { promise: task, identity };

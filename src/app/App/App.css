@@ -43,12 +43,19 @@
     flex: 1 0 auto;
   }
 
+  .app-content--overview > .app-screen--overview + .app-screen--floors {
+    margin-top: var(--space-16);
+  }
+
   .app-content--floors > .app-screen--raids,
   .app-content--raids > .app-screen--floors,
   .app-content--floors > .app-screen--overview,
   .app-content--raids > .app-screen--overview,
-  .app-content--overview > .app-screen--floors,
   .app-content--overview > .app-screen--raids {
     display: none;
   }
+}
+
+#top.app-content--profile-loading {
+  padding-top: 0;
 }

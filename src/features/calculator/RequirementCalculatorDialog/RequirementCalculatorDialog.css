@@ -146,3 +146,8 @@
 .requirement-calculator-inline {
   display: inline;
 }
+
+.requirement-calculator-action {
+  display: grid;
+  grid-column: 1 / -1;
+}

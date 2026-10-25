@@ -157,3 +157,30 @@ test("account changes stop a paused GET retry before another request", async () 
   await assert.rejects(api.get("/api/me"), /Сессия изменилась/);
   assert.equal(calls, 1);
 });
+
+test("cached profile identity can be read without another request and never crosses accounts", async () => {
+  let account = "account-a";
+  let clock = 0;
+  let calls = 0;
+  const api = createSessionApi({
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: account },
+    }),
+    now: () => clock,
+    interval: 0,
+    fetcher: async () => {
+      calls++;
+      return { ok: true, json: async () => ({ nickname: "Игрок A" }) };
+    },
+  });
+  assert.equal(api.peek("/api/me"), null);
+  await api.get("/api/me");
+  clock = 180001;
+  assert.equal(api.peek("/api/me"), null);
+  assert.equal(api.peek("/api/me", { allowStale: true }).nickname, "Игрок A");
+  assert.equal(calls, 1);
+  account = "account-b";
+  assert.equal(api.peek("/api/me", { allowStale: true }), null);
+  assert.equal(calls, 1);
+});

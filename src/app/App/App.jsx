@@ -1,3 +1,6 @@
+import { BossBattleDialog } from "../../features/bosses/BossBattle/BossBattleDialog.jsx";
+import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/ActiveBattleDock.jsx";
+import { BottomDock } from "../../components/layout/BottomDock/BottomDock.jsx";
 import { knowledgeBase as kb } from "virtual:madhouse-catalogue";
 import "./App.css";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -35,6 +38,8 @@ export function App() {
     () => readSession().status,
   );
   const authenticated = sessionStatus === "ready";
+  const profileLoading =
+    authenticated && ["idle", "loading"].includes(profileState.status);
   const [activeScreen, setActiveScreen] = useState(() =>
     typeof window === "undefined"
       ? "floors"
@@ -122,6 +127,7 @@ export function App() {
   return (
     <div className="site-shell">
       <SiteHeader
+        showDivider={!profileLoading}
         loading={
           profileState.status === "loading" ||
           floorAvailability.status === "loading" ||
@@ -129,7 +135,10 @@ export function App() {
         }
       />
       <div className="app-scroll-region" ref={scrollRegionRef} data-page-scroll>
-        <main id="top" className={`app-content app-content--${activeScreen}`}>
+        <main
+          id="top"
+          className={`app-content app-content--${activeScreen}${profileLoading ? " app-content--profile-loading" : ""}`}
+        >
           {authenticated && (
             <div
               id="screen-overview"
@@ -171,11 +180,14 @@ export function App() {
           <FeedbackWidget screen={activeScreen} />
         </SiteFooter>
       </div>
-      <MobileNavigation
-        activeScreen={activeScreen}
-        onScreenChange={changeScreen}
-        isAuthenticated={authenticated}
-      />
+      <BottomDock>
+        <ActiveBattleControl />
+        <MobileNavigation
+          activeScreen={activeScreen}
+          onScreenChange={changeScreen}
+          isAuthenticated={authenticated}
+        />
+      </BottomDock>
       <RequirementCalculatorDialog
         conditionDialog={conditionDialog}
         onClose={() => setConditionDialog(null)}
@@ -186,6 +198,7 @@ export function App() {
           onClose={() => setUpgradeDialog(null)}
         />
       )}
+      <BossBattleDialog />
       <TelegramLaunchScreen />
     </div>
   );

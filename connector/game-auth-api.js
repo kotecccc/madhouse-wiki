@@ -1,3 +1,5 @@
+import { normalizeActiveBossBattle } from "../shared/active-boss-battle.js";
+
 const UPSTREAM = "https://cargohustle.online";
 const responseHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -153,6 +155,7 @@ export function createConnectorApi({
       const playerLevel = body.exp?.level;
       const currentExp = body.exp?.currentExp;
       const expToNextLevel = body.exp?.expToNextLevel;
+      const activeBossBattle = normalizeActiveBossBattle(body.activeBossBattle);
       const experience =
         Number.isSafeInteger(currentExp) &&
         currentExp >= 0 &&
@@ -160,14 +163,15 @@ export function createConnectorApi({
         expToNextLevel > 0
           ? { currentExp, expToNextLevel }
           : {};
-      // Only the token and the validated level progress needed by the Wiki
-      // leave this handler. The rest of the account profile stays private.
+      // Only the token, level progress, and minimal active-battle reference
+      // needed by the Wiki leave this handler. Other profile data stays private.
       return json({
         accessToken: body.accessToken,
         ...(Number.isSafeInteger(playerLevel) && playerLevel > 0
           ? { playerLevel }
           : {}),
         ...experience,
+        ...(activeBossBattle ? { activeBossBattle } : {}),
       });
     } catch {
       return json({ error: "game_unavailable" }, 502);

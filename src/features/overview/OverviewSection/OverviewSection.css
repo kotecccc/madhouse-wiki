@@ -1,6 +1,6 @@
 .overview-section {
   display: grid;
-  gap: var(--layout-gap-section);
+  gap: var(--layout-gap-group);
 }
 
 .overview-card {
@@ -11,7 +11,6 @@
 
 .overview-player-heading,
 .overview-card-heading,
-.overview-goal-heading,
 .overview-requirement,
 .overview-raid {
   display: flex;
@@ -137,7 +136,7 @@
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
-  gap: var(--layout-gap-section);
+  gap: var(--layout-gap-group);
   align-items: start;
 }
 
@@ -145,18 +144,13 @@
   align-items: start;
 }
 
-.overview-goal-heading > div,
 .overview-card-heading > div {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
 }
 
-.overview-requirements,
-.overview-raid-list,
-.overview-goal-requirements,
-.overview-goal-boss-list,
-.overview-goal-unassigned-items {
+.overview-raid-list {
   display: grid;
   gap: var(--space-8);
   margin: 0;
@@ -169,90 +163,6 @@
   align-items: flex-start;
   padding-top: var(--space-8);
   border-top: 1px solid var(--line);
-}
-
-.overview-goal-requirements {
-  gap: var(--space-12);
-}
-
-.overview-goal-requirement {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-12);
-  padding-top: var(--space-12);
-  border-top: 1px solid var(--line);
-}
-
-.overview-goal-requirements > .overview-goal-requirement:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.overview-goal-requirement--business_level {
-  display: block;
-}
-
-.overview-goal-requirement--business_level .overview-goal-requirement-copy {
-  width: 100%;
-}
-
-.overview-goal-requirement-copy {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-4);
-}
-
-.overview-goal-boss-list {
-  gap: var(--space-8);
-  margin-top: 0;
-}
-
-.overview-goal-boss-disclosure {
-  width: 100%;
-}
-
-.floor-work-summary.floor-opening-summary.overview-goal-boss-summary {
-  grid-template-columns: minmax(0, 1fr) auto 18px;
-}
-
-.overview-goal-boss-summary::after {
-  grid-column: 3;
-  grid-row: 1;
-}
-
-.overview-goal-business-status {
-  grid-column: 2;
-}
-
-.overview-goal-unassigned-items li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-}
-
-.overview-goal-unassigned-items {
-  gap: var(--space-8);
-}
-
-.overview-goal-unassigned-items li {
-  flex-wrap: wrap;
-}
-
-.overview-goal-unassigned-items strong {
-  color: var(--paper-bright);
-}
-
-.overview-goal-energy {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.overview-goal-energy strong {
-  color: var(--paper-bright);
-  font-size: var(--font-size-sm);
 }
 
 .overview-requirement-copy,
@@ -300,7 +210,6 @@
   }
 
   .overview-requirement,
-  .overview-goal-requirement,
   .overview-raid {
     flex-wrap: wrap;
   }

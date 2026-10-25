@@ -1,0 +1,82 @@
+.boss-battle-panel {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.boss-battle-panel-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-12);
+}
+
+.boss-battle-panel-copy {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.boss-battle-panel-stack {
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.boss-battle-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.boss-battle-panel-rewards,
+.boss-battle-panel-reward {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.boss-battle-panel-rewards {
+  flex-wrap: wrap;
+}
+
+.boss-battle-panel-controls {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--space-8);
+}
+
+.boss-battle-panel-event {
+  display: grid;
+  grid-template-columns: var(--space-64) minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+@media (max-width: 650px) {
+  .boss-battle-panel-controls {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.boss-battle-journal-viewport {
+  display: grid;
+  grid-template-rows: repeat(8, var(--control-height-sm));
+  min-width: 0;
+}
+
+.boss-battle-journal-records {
+  grid-row: 1 / -1;
+  display: grid;
+  grid-auto-rows: var(--control-height-sm);
+  align-content: start;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  min-width: 0;
+  min-height: 0;
+}

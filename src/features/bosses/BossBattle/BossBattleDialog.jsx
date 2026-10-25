@@ -1,0 +1,203 @@
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  readSession,
+  subscribeSession,
+} from "../../../../shared/auth-session.js";
+import { BossBattleOpeningRequirements } from "./BossBattleOpeningRequirements.jsx";
+import { Button } from "../../../components/ui/Button/Button.jsx";
+import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import {
+  BossBattleDrops,
+  BossBattleReceivedDrops,
+} from "./BossBattleReference.jsx";
+import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
+import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
+import { BossMedicinePanel } from "./BossMedicinePanel.jsx";
+import { BossBattleErrorBanner } from "./BossBattleErrorBanner.jsx";
+import { isTerminalBossBattle } from "./boss-battle-status.js";
+import { battleActionHint } from "./boss-battle-controller.js";
+import {
+  bossBattle,
+  bossBattleAuto,
+  bossBattleGoal,
+} from "./boss-battle-session.js";
+import "./BossBattleDialog.css";
+
+const useBattle = () =>
+  useSyncExternalStore(
+    bossBattle.subscribe,
+    bossBattle.getSnapshot,
+    bossBattle.getSnapshot,
+  );
+
+export function BossBattleButton({ boss, size = "md", openingRequirements }) {
+  const sessionStatus = useSyncExternalStore(
+    subscribeSession,
+    () => readSession().status,
+    () => "empty",
+  );
+  if (sessionStatus !== "ready") return null;
+  return (
+    <Button
+      variant="card-action"
+      size={size}
+      icon="combat"
+      title="Открыть ручной бой"
+      onClick={() =>
+        bossBattle.open(boss, {
+          refresh: !bossBattleAuto.getSnapshot().enabled,
+          openingRequirements,
+        })
+      }
+      aria-haspopup="dialog"
+      aria-label={`Бой: ${boss.name}`}
+    >
+      Бой
+    </Button>
+  );
+}
+
+export function BossBattleDialog() {
+  const state = useBattle();
+  const auto = useSyncExternalStore(
+    bossBattleAuto.subscribe,
+    bossBattleAuto.getSnapshot,
+    bossBattleAuto.getSnapshot,
+  );
+  const goal = useSyncExternalStore(
+    bossBattleGoal.subscribe,
+    bossBattleGoal.getSnapshot,
+    bossBattleGoal.getSnapshot,
+  );
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const unsubscribe = subscribeSession(() => bossBattle.close());
+    const timer = window.setInterval(() => {
+      if (bossBattle.getSnapshot().boss && readSession().status !== "ready")
+        bossBattle.reset();
+    }, 1000);
+    return () => {
+      unsubscribe();
+      window.clearInterval(timer);
+      bossBattle.reset();
+    };
+  }, []);
+  useEffect(() => {
+    if (!state.visible) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [state.visible]);
+  const needsDetails = Boolean(
+    state.visible &&
+    state.battle &&
+    !state.pending &&
+    !state.battle.detailsLoaded,
+  );
+  useEffect(() => {
+    if (needsDetails) void bossBattle.hydrateDetails();
+  }, [needsDetails]);
+  if (!state.visible || !state.boss) return null;
+  const battle = state.battle;
+  const actionHint = battleActionHint(state);
+  const goalPanel = (
+    <BossBattleGoalPanel
+      key={state.boss.id}
+      state={state}
+      goal={goal}
+      auto={auto}
+      onStopAuto={() => void bossBattleAuto.stop()}
+      onConfigure={bossBattleGoal.configure}
+      onStop={() => void bossBattleGoal.stop()}
+      onReset={bossBattleGoal.reset}
+    />
+  );
+  return (
+    <Modal
+      title={`Бой: ${state.boss.name}`}
+      width="var(--page-max-width)"
+      onClose={bossBattle.close}
+      footer={
+        <div className="boss-battle-actions">
+          <Button onClick={bossBattle.close}>Закрыть</Button>
+          <Button
+            disabled={Boolean(state.pending)}
+            title={actionHint}
+            onClick={() => void bossBattle.refresh()}
+          >
+            {state.pending === "refresh" ? "Обновление…" : "Обновить"}
+          </Button>
+          {(goal
+            ? goal.status === "active" &&
+              ["won", "lost", "expired", "surrendered"].includes(battle?.status)
+            : isTerminalBossBattle(battle)) && (
+            <Button
+              variant="primary"
+              icon="combat"
+              disabled={
+                auto.enabled ||
+                Boolean(state.pending) ||
+                state.needsRefresh ||
+                state.purchaseUncertain ||
+                Boolean(state.purchase) ||
+                Boolean(goal && !goal.canContinue)
+              }
+              title={actionHint || state.notice}
+              onClick={() => void bossBattle.startNextBattle()}
+            >
+              {state.pending === "restart"
+                ? "Запуск…"
+                : goal
+                  ? "Следующий бой"
+                  : "Напасть"}
+            </Button>
+          )}
+        </div>
+      }
+    >
+      <BossBattleErrorBanner state={state} />
+      <div className="boss-battle-layout">
+        <div className="boss-battle-column">
+          <BossBattleOpeningRequirements targets={state.openingRequirements} />
+          <BossBattlePanel
+            state={state}
+            startBlocked={Boolean(goal && !bossBattleGoal.canStart())}
+            now={Math.max(now, Date.now())}
+            onStart={() => void bossBattle.start()}
+            auto={auto}
+            goal={goal}
+            onAuto={() =>
+              auto.enabled ? bossBattleAuto.stop() : bossBattleAuto.start()
+            }
+            onAttack={() => {
+              if (!bossBattleAuto.getSnapshot().enabled)
+                void bossBattle.attack();
+            }}
+            onMedicines={() =>
+              state.medicineOpen
+                ? bossBattle.closeMedicines()
+                : void bossBattle.openMedicines()
+            }
+          />
+          {battle && goalPanel}
+          {state.medicineOpen && (
+            <BossMedicinePanel state={state} now={Math.max(now, Date.now())} />
+          )}
+          {battle?.outcome && (
+            <BossBattleReceivedDrops boss={state.boss} battle={battle} />
+          )}
+          {battle?.status !== "active" && (
+            <BossBattleDrops boss={state.boss} battle={battle} />
+          )}
+        </div>
+        <div className="boss-battle-column">
+          {battle ? (
+            <BossBattleDetails boss={state.boss} battle={battle} />
+          ) : (
+            goalPanel
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}

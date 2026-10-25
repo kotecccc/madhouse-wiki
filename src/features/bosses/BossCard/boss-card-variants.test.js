@@ -78,3 +78,18 @@ test("registry omits persisted status and availability values", () => {
 test("unknown variant keys return undefined", () => {
   assert.equal(getBossCardVariantProps("unknown"), undefined);
 });
+
+test("battle preset uses the standard boss portrait and grouped facts without drop/action duplication", () => {
+  const props = getBossCardVariantProps("boss-battle");
+  assert.equal(props.hasPortrait, true);
+  assert.equal(props.showDropList, false);
+  assert.equal(props.action, false);
+  assert.deepEqual(props.descriptionBreakBefore, [
+    "hp",
+    "drop",
+    "fightDuration",
+  ]);
+  assert.ok(props.descriptionFields.includes("experience"));
+  assert.ok(props.descriptionFields.includes("participants"));
+  assert.deepEqual(getBossCardVariantProps("boss-battle", true), props);
+});

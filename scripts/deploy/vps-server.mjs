@@ -68,6 +68,7 @@ const json = (body, status = 200, headers = {}) =>
   });
 
 let apiHandlers;
+let automationRuntime;
 if (role === "wiki") {
   const [
     proxy,
@@ -88,7 +89,11 @@ if (role === "wiki") {
     import("../../api/telegram/bot-webhook.js"),
     import("../../api/telegram/raids-sync.js"),
   ]);
+  const { createAutomationRuntime } = await import("../automation/runtime.mjs");
+  automationRuntime = await createAutomationRuntime({ root });
   apiHandlers = new Map([
+    ["/api/automation/state", automationRuntime.nodeHandler],
+    ["/api/automation/commands", automationRuntime.nodeHandler],
     ["/api", proxy.default],
     ["/api/catalogue", catalogue.default],
     ["/api/raids", raids.default],
@@ -215,7 +220,9 @@ const server = createServer(async (request, response) => {
         await handler(request, response);
         return;
       }
-      const handler = apiHandlers.get(url.pathname) || apiHandlers.get("/api");
+      const handler = /^\/api\/automation(?:\/|$)/.test(url.pathname)
+        ? automationRuntime.nodeHandler
+        : apiHandlers.get(url.pathname) || apiHandlers.get("/api");
       await handler(request, response);
       return;
     }
@@ -280,3 +287,5 @@ server.listen(
   Number(process.env.PORT || (role === "wiki" ? 9092 : 9093)),
   "0.0.0.0",
 );
+
+server.once("close", () => automationRuntime?.close());

@@ -1,0 +1,34 @@
+/* Shared indicator extracted from the existing site-header loading line. */
+.ui-border-loader {
+  display: block;
+  width: 100%;
+  height: 1px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, var(--red-bright), transparent) 0 0 /
+      var(--space-64) 100% no-repeat,
+    var(--line);
+  animation: border-loader-progress 1.2s linear infinite;
+}
+
+@keyframes border-loader-progress {
+  from {
+    background-position:
+      0 0,
+      0 0;
+  }
+  to {
+    background-position:
+      100% 0,
+      0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-border-loader {
+    animation: none;
+    background-position:
+      50% 0,
+      0 0;
+  }
+}

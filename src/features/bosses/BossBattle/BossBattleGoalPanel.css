@@ -1,0 +1,4 @@
+.boss-battle-goal-panel {
+  display: grid;
+  gap: var(--space-12);
+}

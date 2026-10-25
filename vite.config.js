@@ -1,3 +1,8 @@
+import {
+  devServerOptions,
+  dockerSourceHmrPlugin,
+} from "./scripts/dev/vite-server.mjs";
+import { automationPlugin } from "./scripts/automation/runtime.mjs";
 import { authSessionPlugin } from "./scripts/auth-session-plugin.mjs";
 import { cataloguePlugin } from "./scripts/catalogue/vite-plugin.mjs";
 import { defineConfig } from "vite";
@@ -22,9 +27,11 @@ function redirectApiDocs(server) {
 
 export default defineConfig({
   plugins: [
+    dockerSourceHmrPlugin(),
     react(),
     raidsFixturePlugin(fileURLToPath(new URL(".", import.meta.url))),
     authSessionPlugin(),
+    automationPlugin(fileURLToPath(new URL(".", import.meta.url))),
     catalogueSyncPlugin(fileURLToPath(new URL(".", import.meta.url))),
     cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
     inlineCardsPlugin(fileURLToPath(new URL(".", import.meta.url))),
@@ -36,10 +43,7 @@ export default defineConfig({
     },
   ],
   server: {
-    // Keep the dev URL stable so the browser's HMR WebSocket uses this origin.
-    host: "127.0.0.1",
-    port: 4174,
-    strictPort: true,
+    ...devServerOptions(4174),
     proxy: {
       "^/api/": {
         target: "https://cargohustle.online",

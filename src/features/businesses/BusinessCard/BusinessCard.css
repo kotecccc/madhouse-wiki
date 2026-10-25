@@ -32,3 +32,11 @@
   --card-title-size: var(--font-size-xs);
   --card-description-size: var(--font-size-2xs);
 }
+
+.floor-business-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  grid-column: 3;
+  grid-row: 1;
+}

@@ -1,7 +1,7 @@
 import {
   departmentCardFilename,
   floorCardFilename,
-} from "./inline-card-assets.mjs";
+} from "./inline-card-paths.mjs";
 
 const bossKillConditions = (record) =>
   (Array.isArray(record?.openingConditions)

@@ -1,0 +1,7 @@
+**
+!Dockerfile.dev
+!package.json
+!package-lock.json
+!scripts/
+!scripts/dev/
+!scripts/dev/docker-entrypoint.sh

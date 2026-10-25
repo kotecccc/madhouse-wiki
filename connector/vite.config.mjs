@@ -1,3 +1,7 @@
+import {
+  devServerOptions,
+  dockerSourceHmrPlugin,
+} from "../scripts/dev/vite-server.mjs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { readFile } from "node:fs/promises";
@@ -8,6 +12,7 @@ export default defineConfig({
   cacheDir: fileURLToPath(new URL("node_modules/.vite", import.meta.url)),
   resolve: { dedupe: ["react", "react-dom"] },
   plugins: [
+    dockerSourceHmrPlugin(),
     react(),
     {
       name: "isolated-connection-api",
@@ -63,9 +68,7 @@ export default defineConfig({
   ],
   optimizeDeps: { exclude: ["@mtcute/wasm"] },
   server: {
-    host: "127.0.0.1",
-    port: 4199,
-    strictPort: true,
+    ...devServerOptions(4199),
     fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
   build: { outDir: "dist", emptyOutDir: true },

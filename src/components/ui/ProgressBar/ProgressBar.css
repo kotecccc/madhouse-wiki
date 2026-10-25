@@ -68,3 +68,55 @@
   background: var(--surface-page);
   text-overflow: ellipsis;
 }
+
+.ui-progress-bar-segment-shell {
+  position: relative;
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--surface-page);
+}
+
+/* Share one track: the red fill extends under the rounded current fill so
+   their junction never reveals the empty track. */
+.ui-progress-bar-segment-shell > .ui-progress-bar-segment {
+  position: relative;
+  background: transparent;
+}
+
+.ui-progress-bar-segment-shell
+  > .ui-progress-bar-segment::-webkit-progress-bar {
+  background: transparent;
+}
+
+.ui-progress-bar-loss {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--progress-loss-to);
+  border-radius: var(--radius-pill);
+  background: var(--red-bright);
+  pointer-events: none;
+  animation: ui-progress-bar-loss var(--control-transition-duration) ease-out
+    var(--control-transition-duration) both;
+}
+
+@keyframes ui-progress-bar-loss {
+  from {
+    width: var(--progress-loss-from);
+  }
+  to {
+    width: var(--progress-loss-to);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-progress-bar-loss {
+    display: none;
+    animation: none;
+  }
+}
