@@ -78,9 +78,10 @@ test("live IDs resolve all three categories and exclude confirmed completed requ
               type: "work_completions",
               workId: 28,
               required: 25,
+              current: 12,
               label: "Оригинальный текст",
             },
-            { type: "boss_kills", bossId: 8, required: 4 },
+            { type: "boss_kills", bossId: 8, required: 4, current: 2 },
             { type: "business_level", businessId: 5, required: 6 },
             { type: "boss_kills", bossId: 8, required: 1, met: true },
             { type: "boss_kills", bossId: 999, label: "Босс" },
@@ -94,6 +95,40 @@ test("live IDs resolve all three categories and exclude confirmed completed requ
     ["work", "bosses", "businesses"],
   );
   assert.equal(targets[0].label, "Оригинальный текст");
+  assert.equal(targets[0].current, 12);
+  assert.equal(targets[1].current, 2);
+});
+
+test("progression targets only retain validated current counts", () => {
+  const targets = progressionTargets({
+    ...fixture,
+    departmentState: {
+      ...fixture.departmentState,
+      departments: [
+        { blockCode: "J1", unlocked: true },
+        {
+          blockCode: "J2",
+          unlocked: false,
+          requirements: [
+            { type: "boss_kills", bossId: 8, required: 4, current: 2 },
+            { type: "boss_kills", bossId: 8, required: 4, current: -1 },
+            { type: "boss_kills", bossId: 8, required: 4, current: 1.5 },
+            {
+              type: "boss_kills",
+              bossId: 8,
+              required: 4,
+              current: Number.MAX_SAFE_INTEGER + 1,
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    targets.map(({ current }) => current),
+    [2, undefined, undefined, undefined],
+  );
 });
 
 test("next floor is targeted only after confirmed department access", () => {

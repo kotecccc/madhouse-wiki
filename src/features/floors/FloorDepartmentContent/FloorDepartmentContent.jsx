@@ -39,7 +39,11 @@ export function FloorDepartmentContent({
           }),
     };
   };
-  const bosses = getDepartmentBosses(department.id);
+  const bosses = collectionState?.bosses
+    ? collectionState.bosses.filter(
+        (boss) => boss.departmentId === department.id,
+      )
+    : getDepartmentBosses(department.id);
   const businesses = getDepartmentBusinesses(department.id);
   if (category === "work") {
     return (

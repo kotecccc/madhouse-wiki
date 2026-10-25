@@ -174,7 +174,12 @@ export function readKnowledgeBase(
         };
       })
       .filter(Boolean);
-    const stashSets = of("stash_set");
+    const stashSets = of("stash_set").map((set) => ({
+      ...set,
+      ingredients: of("stash_ingredient").filter(
+        (item) => String(item.setId) === String(set.setId),
+      ),
+    }));
     const stashSetForRequirement = (r) => {
       if (r.type !== "stash_medallion" || typeof r.label !== "string")
         return null;
@@ -248,6 +253,9 @@ export function readKnowledgeBase(
     const works = of("work").map((w) => ({
       ...w,
       title: text(w.title),
+      stashSet:
+        stashSets.find((set) => String(set.setId) === String(w.stashSetId)) ??
+        null,
       departmentId: inDepartment(w),
     }));
     const departments = [...departmentsById.values()].map((d) => {

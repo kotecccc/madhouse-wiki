@@ -1,3 +1,4 @@
+import { createBossCardsHttp } from "../account/boss-cards.mjs";
 import { createAccountSnapshots } from "../account/snapshots.mjs";
 import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { resolve } from "node:path";
@@ -23,6 +24,7 @@ export async function createAutomationRuntime({
   const service = createAutomationService({
     store,
     fetcher: snapshots.liveFetch,
+    snapshotFetch: snapshots.fetch,
     accountHealth: snapshots.health,
     identifyPlayer: async (authorization) => {
       const response = await snapshots.read(
@@ -55,11 +57,21 @@ export async function createAutomationRuntime({
   });
   // Normal runtime serves authenticated commands. Explicit 0 is an operator kill switch.
   if (enabled) await service.boot();
-  const handle = createAutomationHttp({
+  const automationHandle = createAutomationHttp({
     service,
     enabled,
     origin: env.WIKI_PUBLIC_ORIGIN || null,
   });
+  const bossCardsHandle = createBossCardsHttp({
+    identify: service.identify,
+    snapshots,
+    getCatalogue,
+    origin: env.WIKI_PUBLIC_ORIGIN || null,
+  });
+  const handle = (request) =>
+    new URL(request.url).pathname === "/api/automation/bosses"
+      ? bossCardsHandle(request)
+      : automationHandle(request);
   return {
     handle,
     proxy,

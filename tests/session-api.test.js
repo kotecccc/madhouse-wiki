@@ -214,6 +214,8 @@ test("server snapshot outages are reported once without retrying a handled read"
   assert.deepEqual(readGameHealth(), {
     status: "unavailable",
     lastSuccessAt: null,
+    failedFeatures: [],
+    successfulFeatures: [],
   });
   api.clear();
   assert.equal(readGameHealth().status, "unknown");
@@ -352,4 +354,134 @@ test("a queued refresh waits for the app to become visible again", async () => {
   api.refreshExpired();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(calls, 2);
+});
+
+test("event-driven wardrobe lists never poll on TTL, reopening, or background sweeps", async () => {
+  let clock = 1000;
+  let account = "account-a";
+  let calls = 0;
+  const headers = [];
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 0,
+    ttl: 10,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: account },
+    }),
+    fetcher: async (_url, options) => {
+      headers.push(options.headers["X-Madhouse-Snapshot-Only"] ?? null);
+      return Response.json(
+        { items: [{ weaponId: 1, owned: true }], revision: ++calls },
+        {
+          headers: {
+            "X-Madhouse-Section-Updated": "1",
+            "X-Madhouse-Snapshot-TTL": "10",
+          },
+        },
+      );
+    },
+  });
+  const path = "/api/clothing/by-category/1";
+  await Promise.all([
+    api.get(path, { revalidate: false }),
+    api.get(path, { revalidate: false }),
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
+  clock += 3600000;
+  for (let index = 0; index < 10; index++) {
+    api.refreshExpired();
+    assert.equal((await api.get(path, { revalidate: false })).revision, 1);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
+  assert.equal(
+    (await api.get(path, { fresh: true, revalidate: false })).revision,
+    2,
+  );
+  assert.deepEqual(headers, ["1", null]);
+  account = "account-b";
+  assert.equal((await api.get(path, { revalidate: false })).revision, 3);
+});
+
+test("observed game errors accept only safe function names and clear on recovery", async () => {
+  const { observeGameResponse, readGameHealth } =
+    await import("../shared/session-api.js");
+  observeGameResponse(
+    Response.json(
+      {},
+      {
+        headers: {
+          "X-Madhouse-Game-Status": "unavailable",
+          "X-Madhouse-Failed-Features":
+            "weapons,businesses,weapons,/api/private/123,raw-error",
+          "X-Madhouse-Successful-Features":
+            "profile,weapons,rooms,/api/private/123",
+        },
+      },
+    ),
+  );
+  assert.deepEqual(readGameHealth().failedFeatures, ["weapons", "businesses"]);
+  assert.deepEqual(readGameHealth().successfulFeatures, ["profile", "rooms"]);
+  observeGameResponse(
+    Response.json({}, { headers: { "X-Madhouse-Game-Status": "available" } }),
+  );
+  assert.deepEqual(readGameHealth().failedFeatures, []);
+  assert.deepEqual(readGameHealth().successfulFeatures, []);
+});
+
+test("manual health refresh sends the internal force header for profile only", async () => {
+  const calls = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "account" },
+    }),
+    fetcher: async (url, options) => {
+      calls.push({ url, headers: options.headers });
+      return Response.json({ ok: true });
+    },
+  });
+  await api.get("/api/me", { fresh: true, serverRefresh: true });
+  await api.get("/api/clothing", { fresh: true, serverRefresh: true });
+  assert.equal(calls[0].headers["X-Madhouse-Snapshot-Refresh"], "1");
+  assert.equal(calls[1].headers["X-Madhouse-Snapshot-Refresh"], undefined);
+});
+
+test("combined boss cards use one cache key and scope refresh to the winning boss", async () => {
+  const headers = [];
+  let clock = 1000;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 0,
+    ttl: 10,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "account" },
+    }),
+    fetcher: async (_url, options) => {
+      headers.push(options.headers);
+      return Response.json({
+        bosses: [{ id: "boss-7", collection: { collected: headers.length } }],
+      });
+    },
+  });
+  const path = "/api/automation/bosses";
+  await api.get(path, { revalidate: false });
+  clock += 100000;
+  api.refreshExpired();
+  await api.get(path, { revalidate: false });
+  assert.equal(headers.length, 1);
+  const updated = await api.get(path, {
+    fresh: true,
+    refreshBoss: 7,
+    revalidate: false,
+  });
+  assert.equal(headers[1]["X-Madhouse-Refresh-Boss"], "7");
+  assert.equal(
+    (await api.get(path, { revalidate: false })).bosses[0].collection.collected,
+    updated.bosses[0].collection.collected,
+  );
 });

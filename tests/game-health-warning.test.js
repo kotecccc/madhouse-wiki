@@ -17,10 +17,24 @@ test("game health warning keeps error details unmounted until requested", async 
     const { reportGameHealth } = await server.ssrLoadModule(
       "/shared/session-api.js",
     );
-    const { GameHealthWarning, GameHealthDetails, formatLastSuccess } =
-      await server.ssrLoadModule(
-        "/src/components/layout/BottomDock/GameHealthWarning.jsx",
-      );
+    const {
+      GameHealthWarning,
+      GameHealthDetails,
+      GameHealthIndicator,
+      formatLastSuccess,
+    } = await server.ssrLoadModule(
+      "/src/components/layout/BottomDock/GameHealthWarning.jsx",
+    );
+    const checkingIcon = renderToStaticMarkup(
+      createElement(GameHealthIndicator, { checking: true }),
+    );
+    assert.match(checkingIcon, /ui-icon--spin/);
+    assert.doesNotMatch(checkingIcon, /ui-icon--pulse/);
+    const warningIcon = renderToStaticMarkup(
+      createElement(GameHealthIndicator, { checking: false }),
+    );
+    assert.match(warningIcon, /ui-icon--pulse/);
+    assert.doesNotMatch(warningIcon, /ui-icon--spin/);
     for (const status of ["unavailable", "credentials_invalid"]) {
       reportGameHealth({ status });
       const html = renderToStaticMarkup(createElement(GameHealthWarning));
@@ -43,7 +57,10 @@ test("game health warning keeps error details unmounted until requested", async 
         }),
       );
     const unavailable = details("unavailable");
-    assert.match(unavailable, /Игровой сервер не отвечает/);
+    assert.match(
+      unavailable,
+      /При обращении к игровому серверу возникли ошибки/,
+    );
     assert.doesNotMatch(
       unavailable,
       /Wiki продолжает работать|О сохранённых данных|Последнее успешное обновление/,
@@ -51,6 +68,46 @@ test("game health warning keeps error details unmounted until requested", async 
     const invalid = details("credentials_invalid");
     assert.match(invalid, /Требуется повторный вход/);
     assert.doesNotMatch(invalid, /Игровой сервер не отвечает/);
+    const failures = renderToStaticMarkup(
+      createElement(GameHealthDetails, {
+        health: {
+          status: "unavailable",
+          failedFeatures: ["profile", "inventory", "profile", "secret-path"],
+          successfulFeatures: ["clothing", "profile"],
+        },
+      }),
+    );
+    assert.match(failures, /Состояние сервисов/);
+    assert.match(failures, /base-card ui-status-list-card/);
+    assert.match(failures, /Профиль/);
+    assert.match(failures, /Инвентарь/);
+    assert.match(failures, /ui-status-list-label">Гардероб/);
+    assert.match(failures, /ui-status-list-status">Работает/);
+    assert.match(failures, /ui-status-list-label">Оружие/);
+    assert.match(failures, /ui-status-list-status">Не проверено/);
+    assert.match(failures, /ui-status-list-label">Профиль/);
+    assert.match(failures, /ui-status-list-status">Ошибка/);
+    assert.match(failures, /ui-status-list-dot--success/);
+    assert.match(failures, /ui-status-list-dot--error/);
+    assert.match(failures, /ui-status-list-dot--unknown/);
+    assert.doesNotMatch(failures, /Игровые функции на паузе/);
+    assert.doesNotMatch(failures, /secret-path/);
+    assert.equal((failures.match(/Профиль/g) || []).length, 1);
+    const noFailures = renderToStaticMarkup(
+      createElement(GameHealthDetails, {
+        health: { status: "unavailable", failedFeatures: [] },
+      }),
+    );
+    assert.doesNotMatch(noFailures, /Ошибки при обращении к игре/);
+    const invalidWithFailures = renderToStaticMarkup(
+      createElement(GameHealthDetails, {
+        health: { status: "credentials_invalid", failedFeatures: ["profile"] },
+      }),
+    );
+    assert.doesNotMatch(
+      invalidWithFailures,
+      /Ошибки при обращении к игре|Профиль/,
+    );
     assert.equal(
       formatLastSuccess(new Date(2026, 9, 25, 14, 51).getTime()),
       "14:51 25.10.2026",

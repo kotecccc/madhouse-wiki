@@ -57,6 +57,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     {
       workId: 31,
       title: "Тестовая работа",
+      stashSetId: 3,
       tasks: [{ id: 1, title: "Тестовая задача", required: 5, energyCost: 2 }],
     },
     "POST",
@@ -75,8 +76,27 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       "dept-A1",
       "api:/api/floors/A/info",
     );
+  store.capture("/api/stash/sets", 200, {
+    sets: [
+      {
+        setId: 3,
+        title: "Тестовый набор",
+        ingredients: [
+          { ingredientId: 1, imageUrl: "/one.webp", owned: 10 },
+          { ingredientId: 2, imageUrl: "/two.webp", owned: 0 },
+        ],
+      },
+    ],
+  });
   store.close();
   const kb = readKnowledgeBase(fixtureRoot);
+  assert.equal(kb.works[0].stashSet.ingredients.length, 2);
+  assert.equal(kb.departments[0].work.stashSet.setId, 3);
+  assert.ok(
+    kb.works[0].stashSet.ingredients.every(
+      (item) => !Object.hasOwn(item, "owned"),
+    ),
+  );
   const server = await createServer({
     configFile: false,
     plugins: [react(), cataloguePlugin(fixtureRoot)],
@@ -85,6 +105,39 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
   });
   try {
     const load = (path) => server.ssrLoadModule(`/src/${path}`);
+    const { WorkStashCard } = await load(
+      "features/works/WorkCard/WorkStashCard.jsx",
+    );
+    const stashWork = {
+      stashSet: {
+        setId: 3,
+        title: "Набор",
+        ingredients: [
+          { ingredientId: 1, imageUrl: "/one.webp" },
+          { ingredientId: 2, imageUrl: "/two.webp" },
+        ],
+      },
+    };
+    const stashHtml = renderToStaticMarkup(
+      createElement(WorkStashCard, {
+        work: stashWork,
+        stash: {
+          setId: 3,
+          ingredients: [
+            { ingredientId: 1, quantity: 0, purchaseUnlocked: false },
+          ],
+        },
+      }),
+    );
+    assert.equal((stashHtml.match(/role="listitem"/g) || []).length, 2);
+    assert.ok(stashHtml.includes("Покупка не разблокирована"));
+    assert.ok(stashHtml.includes("в инвентаре 0"));
+    assert.ok(stashHtml.includes("в инвентаре неизвестно"));
+    const guestStashHtml = renderToStaticMarkup(
+      createElement(WorkStashCard, { work: stashWork }),
+    );
+    assert.ok(!guestStashHtml.includes("не разблокирован"));
+
     const { App } = await load("app/App/App.jsx");
     const html = renderToStaticMarkup(createElement(App));
     assert.ok(html.includes("floor-group"));
@@ -349,13 +402,13 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         }),
       );
     const overlevelBossMarkup = renderBossLevel(16);
-    assert.ok(overlevelBossMarkup.includes("Переросли"));
+    assert.ok(!overlevelBossMarkup.includes("Переросли"));
     for (const amount of [10, 20, 30])
       assert.ok(overlevelBossMarkup.includes(`<s>${amount}</s>`));
     assert.ok(overlevelBossMarkup.includes("награда по уровню недоступна"));
     assert.ok(!renderBossLevel(15).includes("<s>"));
     assert.ok(!renderBossLevel(null).includes("<s>"));
-    assert.ok(overlevelBossMarkup.includes("Предел награды: 15 ур. · ваш: 16"));
+    assert.ok(!overlevelBossMarkup.includes("Предел награды"));
     assert.ok(overlevelBossMarkup.includes('class="boss-card-actions"'));
     assert.ok(renderBossLevel(6).includes("Нужен 7 уровень"));
     assert.ok(!renderBossLevel(15).includes("Переросли"));
@@ -389,23 +442,66 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     );
     assert.ok(completeCollectionMarkup.includes("ui-icon--medium"));
     assert.ok(completeCollectionMarkup.includes("ui-pill--completed"));
+    for (const status of ["idle", "loading", "partial"]) {
+      assert.equal(renderCollection({ status, responses: {} }), "");
+      assert.equal(
+        renderCollection({
+          status,
+          responses: {
+            "/api/rooms": { catalog: { rooms: [{ id: 7, unlocked: true }] } },
+          },
+        }),
+        "",
+      );
+    }
+    assert.equal(renderCollection({ status: "ready", responses: {} }), "");
+    const uncollectedMarkup = renderCollection({
+      status: "ready",
+      responses: {
+        "/api/rooms": {
+          catalog: { rooms: [{ id: 7, unlocked: false, owned: false }] },
+        },
+      },
+    });
+    assert.ok(uncollectedMarkup.includes(">0 из 1<"));
+    assert.ok(uncollectedMarkup.includes("ui-pill--scheduled"));
+    const renderTargetBoss = (extra = {}) =>
+      renderToStaticMarkup(
+        createElement(LevelBossCard, {
+          boss: {
+            ...kb.bosses[0],
+            possibleDrops: collectionBoss.possibleDrops,
+          },
+          targeted: true,
+          goalTargets: [{ required: 10, current: 6 }],
+          collectionState: {
+            status: "ready",
+            responses: {
+              "/api/rooms": {
+                catalog: { rooms: [{ id: 7, unlocked: false, owned: false }] },
+              },
+            },
+          },
+          ...extra,
+        }),
+      );
+    const targetBossMarkup = renderTargetBoss();
     assert.ok(
-      renderCollection({ status: "partial", responses: {} }).includes(
-        "ui-pill--scheduled",
+      targetBossMarkup.includes('aria-label="Осталось побед для задания: 4"'),
+    );
+    assert.ok(
+      targetBossMarkup.indexOf('aria-label="Осталось побед') <
+        targetBossMarkup.indexOf('aria-label="Получено'),
+    );
+    assert.ok(targetBossMarkup.includes("0 из 1"));
+    assert.ok(
+      !renderTargetBoss({ goalTargets: [{ required: 10 }] }).includes(
+        'aria-label="Осталось побед',
       ),
     );
-    assert.ok(!completeCollectionMarkup.includes("Всё собрано"));
-    assert.ok(!completeCollectionMarkup.includes("Вещи"));
-    assert.ok(
-      renderCollection({ status: "partial", responses: {} }).includes("? из 1"),
-    );
-    assert.ok(
-      renderCollection({ status: "loading", responses: {} }).includes("… из 1"),
-    );
-    assert.ok(
-      !renderCollection({ status: "partial", responses: {} }).includes("loot"),
-    );
-    assert.equal(renderCollection({ status: "idle", responses: {} }), "");
+    const lockedTargetMarkup = renderTargetBoss({ locked: true });
+    assert.ok(!lockedTargetMarkup.includes('aria-label="Осталось побед'));
+    assert.ok(!lockedTargetMarkup.includes('aria-label="Получено'));
     const lockedBossMarkup = categoryMarkup("bosses", [], false);
     assert.ok(lockedBossMarkup.includes("base-card--locked"));
     assert.ok(!lockedBossMarkup.includes('class="lock-indicator'));
@@ -444,7 +540,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       workEnergyDialogMarkup,
       /class="requirement-calculator-energy-value">50\s/,
     );
-    assert.ok(workEnergyDialogMarkup.includes("Фарм · Тестовая работа"));
+    assert.ok(workEnergyDialogMarkup.includes("Работа · Тестовая работа"));
     const { WorkFarmDialog } = await load(
       "features/works/WorkCard/WorkFarmDialog.jsx",
     );
@@ -457,7 +553,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     const renderFarmState = (snapshot) =>
       renderToStaticMarkup(
         createElement(WorkFarmDialog, {
-          work: { workId: 7, title: "Блиндаж" },
+          work: { workId: 7, title: "Блиндаж", energyCycle: { full: 10 } },
+          profileSnapshot: { energy: { current: 360, max: 360 } },
           onClose() {},
           farmStore: { subscribe: () => () => {}, getSnapshot: () => snapshot },
         }),
@@ -468,8 +565,27 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     ]) {
       const markup = renderFarmState(snapshot);
       assert.ok(markup.includes("ui-border-loader"));
-      assert.ok(markup.includes("ui-skeleton"));
-      assert.ok(!markup.includes("work-calculator-count"));
+      assert.ok(!markup.includes("ui-skeleton"));
+      assert.ok(markup.includes("work-calculator-count"));
+      assert.ok(markup.includes("Необходимо энергии"));
+      assert.ok(markup.includes("Вариант 1: ждать энергию"));
+      assert.ok(markup.includes("Вариант 2: купить дефибрилляторы"));
+      assert.ok(markup.includes("Есть 360"));
+      assert.ok(markup.includes("Количество выполнений"));
+      assert.match(markup, /id="work-calculator-count"[^>]*min="1"/);
+      assert.ok(markup.includes("MAX"));
+      assert.ok(markup.includes('aria-label="Режим выполнения работы"'));
+      assert.ok(
+        markup.indexOf('aria-label="Режим выполнения работы"') <
+          markup.indexOf('id="work-calculator-count"'),
+      );
+      assert.ok(markup.includes('aria-pressed="false"'));
+      assert.ok(!markup.includes("Предварительный расчёт по справочнику"));
+      assert.ok(markup.includes('aria-pressed="true"'));
+      assert.match(
+        markup,
+        /<footer[\s\S]*<button[^>]*disabled[^>]*>Начать фарм/,
+      );
       assert.ok(!markup.includes("стоимость энергии"));
       assert.ok(!markup.includes("Целевое количество выполнений достигнуто"));
     }
@@ -478,7 +594,14 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       loaded: false,
       error: "Не удалось загрузить работу",
     });
-    assert.ok(failedFarmMarkup.includes("Не удалось загрузить работу"));
+    assert.ok(!failedFarmMarkup.includes("Не удалось загрузить работу"));
+    assert.ok(failedFarmMarkup.includes("Сервис работы недоступен"));
+    assert.match(
+      failedFarmMarkup,
+      /<footer[\s\S]*Сервис работы недоступен[\s\S]*Закрыть/,
+    );
+    assert.ok(failedFarmMarkup.includes("Обновить"));
+    assert.ok(failedFarmMarkup.includes("shared-modal-footer--split"));
     assert.ok(!failedFarmMarkup.includes("ui-skeleton"));
     assert.ok(!failedFarmMarkup.includes("ui-border-loader"));
     const farmSnapshot = {
@@ -507,6 +630,45 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         spentDollar: 0,
       },
     };
+    const energyModeMarkup = renderToStaticMarkup(
+      createElement(WorkFarmDialog, {
+        work: { workId: 7, title: "Блиндаж", energyCycle: { full: 420 } },
+        onClose() {},
+        farmStore: {
+          subscribe: () => () => {},
+          getSnapshot: () => ({
+            ...farmSnapshot,
+            pending: false,
+            view: {
+              ...farmSnapshot.view,
+              energy: { current: 360, max: 360 },
+              tasks: [
+                {
+                  id: 1,
+                  required: 42,
+                  progress: 0,
+                  energyCost: 10,
+                  canPerform: true,
+                },
+              ],
+            },
+            run: {
+              ...farmSnapshot.run,
+              config: { mode: "energy" },
+              energyBudget: 360,
+              energySpent: 0,
+            },
+          }),
+        },
+      }),
+    );
+    assert.ok(energyModeMarkup.includes('aria-pressed="true"'));
+    assert.ok(!energyModeMarkup.includes('id="work-calculator-count"'));
+    assert.ok(
+      energyModeMarkup.includes('aria-label="Режим выполнения работы"'),
+    );
+    assert.ok(energyModeMarkup.includes("Потратить доступную энергию"));
+    assert.ok(!energyModeMarkup.includes("Вариант 2: купить дефибрилляторы"));
     const farmMarkup = renderToStaticMarkup(
       createElement(WorkFarmDialog, {
         work: { workId: 7, title: "Блиндаж" },
@@ -527,16 +689,19 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(farmMarkup.includes('aria-label="20 из 25, осталось 5"'));
     assert.match(farmMarkup, /class="ui-pill[^"]*"[^>]*>20 из 25<\/span>/);
     assert.match(farmMarkup, /id="work-calculator-count"[^>]*value="5"/);
-    assert.ok(farmMarkup.includes("Осталось выполнений работы"));
+    assert.ok(farmMarkup.includes("Количество выполнений"));
+    assert.ok(!farmMarkup.includes("Проверка состояния"));
+    assert.ok(!farmMarkup.includes("Предварительный расчёт по справочнику"));
     assert.ok(!farmMarkup.includes("Итого (оценка)"));
-    assert.ok(farmMarkup.includes('class="requirement-calculator-action"'));
+    assert.ok(!farmMarkup.includes('class="requirement-calculator-action"'));
     assert.match(
       farmMarkup,
       /class="requirement-calculator-energy-value">44\s/,
     );
     assert.ok(farmMarkup.includes("Вариант 1: ждать энергию"));
     assert.ok(farmMarkup.includes("Вариант 2: купить дефибрилляторы"));
-    assert.ok(farmMarkup.includes("Начать фарм"));
+    assert.ok(!farmMarkup.includes("Начать фарм"));
+    assert.match(farmMarkup, /<footer[\s\S]*>Остановить<\/button>/);
     assert.ok(!farmMarkup.includes("Максимум действий"));
     assert.ok(!farmMarkup.includes("Ограничение времени"));
     assert.ok(!farmMarkup.includes("Настройки фарма"));
@@ -556,7 +721,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       waitProgressIndex > farmMarkup.indexOf("Вариант 1: ждать энергию"),
     );
     assert.ok(
-      waitProgressIndex <
+      waitProgressIndex >
         farmMarkup.indexOf("Вариант 2: купить дефибрилляторы"),
     );
     assert.ok(!farmMarkup.includes("Фарм идёт · 20 / 25"));
@@ -599,6 +764,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         ...farmSnapshot,
         pending: false,
         run: null,
+        configs: { 7: { mode: "boosters" } },
         view: {
           ...farmSnapshot.view,
           boosters: [
@@ -635,13 +801,25 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       );
     };
     const paidFarmMarkup = farmPurchaseMarkup(0);
-    assert.ok(paidFarmMarkup.includes("Купить за 14 купюр и начать фарм"));
+    assert.ok(paidFarmMarkup.includes("Фарм за 14 купюр"));
     assert.ok(!paidFarmMarkup.includes("Итого (оценка)"));
+    const paidForm = paidFarmMarkup.slice(
+      paidFarmMarkup.indexOf("<form"),
+      paidFarmMarkup.indexOf("</form>"),
+    );
+    assert.ok(!paidForm.includes("Начать фарм"));
+    assert.ok(!paidForm.includes("Фарм за 14 купюр"));
+    assert.match(paidFarmMarkup, /<footer[\s\S]*Фарм за 14 купюр/);
+    assert.match(
+      paidFarmMarkup,
+      /class="base-card[^"]*base-card--target[^"]*requirement-calculator-option--purchase"[^>]*role="button"[^>]*aria-pressed="true"/,
+    );
+
     const freeFarmMarkup = farmPurchaseMarkup(5);
     assert.ok(!freeFarmMarkup.includes("Купить за"));
     assert.match(
       freeFarmMarkup,
-      /class="requirement-calculator-action"><button[^>]*>Начать фарм<\/button>/,
+      /<footer[\s\S]*<button[^>]*>Начать фарм<\/button>/,
     );
     assert.ok(!freeFarmMarkup.includes('class="shared-modal-heading-loader"'));
     const { Modal } = await load("components/ui/Modal/Modal.jsx");
@@ -671,7 +849,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         onClose() {},
       }),
     );
-    assert.ok(regularWorkEnergyDialogMarkup.includes("Фарм · Тестовая работа"));
+    assert.ok(
+      regularWorkEnergyDialogMarkup.includes("Работа · Тестовая работа"),
+    );
     const missingWorkMarkup = renderToStaticMarkup(
       createElement(FloorDepartmentContent, {
         department: { ...departmentById["dept-A1"], work: null },

@@ -194,6 +194,104 @@ test("TTL cache and concurrent demand deduplicate upstream section reads", async
   assert.equal(queue.calls.length, 3);
 });
 
+test("manual profile refresh bypasses TTL once per minute and persists its limiter", async () => {
+  let now = 100_000;
+  const store = memoryStore();
+  const first = queueFetcher([reply({ playerId: 18, name: "old" })]);
+  let snapshots = createAccountSnapshots({
+    store,
+    fetcher: first.fetcher,
+    now: () => now,
+    ttl: 10,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("manual-refresh-user"));
+  now += 11;
+  const refresh = queueFetcher([
+    (url, init) => {
+      assert.equal(
+        new Headers(init.headers).has("X-Madhouse-Snapshot-Refresh"),
+        false,
+      );
+      return reply({ playerId: 18, name: "fresh" });
+    },
+  ]);
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: refresh.fetcher,
+    now: () => now,
+    ttl: 10,
+  });
+  const headers = {
+    headers: {
+      Authorization: "Bearer manual-refresh-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  };
+  assert.deepEqual(
+    await payload(await snapshots.read(`${origin}/api/me`, headers)),
+    {
+      playerId: 18,
+      name: "fresh",
+    },
+  );
+  assert.equal(refresh.calls.length, 1);
+  assert.equal(store.readSnapshots()[0].manualHealthRefreshAt, now);
+
+  now += 1;
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: queueFetcher([]).fetcher,
+    now: () => now,
+    ttl: 10,
+  });
+  const limited = await snapshots.read(`${origin}/api/me`, headers);
+  assert.deepEqual(await payload(limited), { playerId: 18, name: "fresh" });
+  assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
+});
+
+test("manual profile refresh bypasses outage cooldown but is limited after failure", async () => {
+  let now = 200_000;
+  const store = memoryStore();
+  const seed = queueFetcher([reply({ playerId: 19, name: "saved" })]);
+  let snapshots = createAccountSnapshots({
+    store,
+    fetcher: seed.fetcher,
+    now: () => now,
+    ttl: 10,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("manual-outage-user"));
+  now += 11;
+  const failure = queueFetcher([
+    reply({ error: "down" }, 503),
+    reply({ error: "still down" }, 503),
+  ]);
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: failure.fetcher,
+    now: () => now,
+    ttl: 10,
+    cooldown: 60_000,
+  });
+  const headers = {
+    headers: {
+      Authorization: "Bearer manual-outage-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  };
+  const regular = await snapshots.read(
+    `${origin}/api/me`,
+    auth("manual-outage-user"),
+  );
+  assert.deepEqual(await payload(regular), { playerId: 19, name: "saved" });
+  assert.equal(failure.calls.length, 1);
+  const stale = await snapshots.read(`${origin}/api/me`, headers);
+  assert.deepEqual(await payload(stale), { playerId: 19, name: "saved" });
+  assert.equal(failure.calls.length, 2);
+  const repeat = await snapshots.read(`${origin}/api/me`, headers);
+  assert.deepEqual(await payload(repeat), { playerId: 19, name: "saved" });
+  assert.equal(failure.calls.length, 2);
+});
+
 test("snapshot-only reads immediately serve persisted data without disturbing refreshes", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "madhouse-snapshot-only-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -634,4 +732,170 @@ test("stash buff clears survive snapshot restart and retire the alternate API sh
     activeStashBuff: null,
     activeStashBuffs: [],
   });
+});
+
+test("bulk wardrobe categories persist and snapshot-only reads survive restart without upstream requests", async () => {
+  assert.equal(isSnapshotPath("/api/clothing/by-category/1"), true);
+  assert.equal(isSnapshotPath("/api/clothing/by-category/9"), true);
+  assert.equal(isSnapshotPath("/api/clothing/by-category/99"), false);
+  const store = memoryStore();
+  const first = queueFetcher([
+    reply({ playerId: 41 }),
+    reply({ categoryId: 1, items: [{ weaponId: 7, owned: true }] }),
+  ]);
+  const snapshots = createAccountSnapshots({ store, fetcher: first.fetcher });
+  await snapshots.read(`${origin}/api/me`, auth("wardrobe-user"));
+  await snapshots.read(
+    `${origin}/api/clothing/by-category/1`,
+    auth("wardrobe-user"),
+  );
+  const offline = queueFetcher([]);
+  const restarted = createAccountSnapshots({ store, fetcher: offline.fetcher });
+  const result = await restarted.read(`${origin}/api/clothing/by-category/1`, {
+    headers: {
+      Authorization: "Bearer wardrobe-user",
+      "X-Madhouse-Snapshot-Only": "1",
+    },
+  });
+  assert.deepEqual(await result.json(), {
+    categoryId: 1,
+    items: [{ weaponId: 7, owned: true }],
+  });
+  assert.equal(offline.calls.length, 0);
+});
+
+test("health exposes safe failing functions and removes only recovered functions", async () => {
+  let clock = 1000;
+  const fake = queueFetcher([
+    reply({ playerId: 41 }),
+    reply({ error: "private raw error" }, 503),
+    reply({ error: "down" }, 429),
+    reply({ id: 7, level: 2 }),
+    reply({ categoryId: 1, items: [] }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: fake.fetcher,
+    now: () => clock,
+    cooldown: 0,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("health-user"));
+  await snapshots.read(`${origin}/api/businesses/7`, auth("health-user"));
+  const failed = await snapshots.read(
+    `${origin}/api/clothing/by-category/1`,
+    auth("health-user"),
+  );
+  assert.equal(
+    failed.headers.get("X-Madhouse-Failed-Features"),
+    "weapons,businesses",
+  );
+  assert.deepEqual(snapshots.health("Bearer health-user").failedFeatures, [
+    "weapons",
+    "businesses",
+  ]);
+  assert.deepEqual(snapshots.health("Bearer health-user").successfulFeatures, [
+    "profile",
+  ]);
+  clock++;
+  await snapshots.read(`${origin}/api/businesses/7`, auth("health-user"));
+  assert.deepEqual(snapshots.health("Bearer health-user").failedFeatures, [
+    "weapons",
+  ]);
+  const recovered = await snapshots.read(
+    `${origin}/api/clothing/by-category/1`,
+    auth("health-user"),
+  );
+  assert.equal(recovered.headers.get("X-Madhouse-Failed-Features"), "");
+  assert.deepEqual(
+    recovered.headers.get("X-Madhouse-Successful-Features")?.split(","),
+    ["profile", "weapons", "businesses"],
+  );
+  assert.equal(snapshots.health("Bearer health-user").status, "available");
+  assert.deepEqual(snapshots.health("Bearer other-account").failedFeatures, []);
+});
+
+test("successful features require fresh clean sections and exclude failed functions", async () => {
+  let clock = 1000;
+  const fake = queueFetcher([
+    reply({ playerId: 42 }),
+    reply({ id: 1 }),
+    reply({ error: "down" }, 503),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: fake.fetcher,
+    now: () => clock,
+    ttl: 200,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("fresh-health"));
+  await snapshots.read(`${origin}/api/businesses/1`, auth("fresh-health"));
+  assert.deepEqual(snapshots.health("Bearer fresh-health").successfulFeatures, [
+    "profile",
+    "businesses",
+  ]);
+  clock += 201;
+  assert.deepEqual(
+    snapshots.health("Bearer fresh-health").successfulFeatures,
+    [],
+  );
+  await snapshots.read(`${origin}/api/businesses/1`, auth("fresh-health"));
+  assert.deepEqual(
+    snapshots.health("Bearer fresh-health").successfulFeatures,
+    [],
+  );
+});
+
+test("work state POST is a reader: optional wardrobe outage cannot block it or dirty snapshots", async () => {
+  const queue = queueFetcher([
+    reply({ playerId: 15 }),
+    reply({}, 503),
+    reply({ workId: 7 }),
+    reply({ success: true }),
+  ]);
+  const store = memoryStore();
+  const snapshots = createAccountSnapshots({ store, fetcher: queue.fetcher });
+  await snapshots.read(`${origin}/api/me`, auth("a"));
+  await snapshots.read(`${origin}/api/ornaments/zones/14`, auth("a"));
+  assert.equal(snapshots.health("Bearer a").status, "unavailable");
+  const open = await snapshots.liveFetch(`${origin}/api/works/open`, {
+    ...auth("a"),
+    method: "POST",
+    body: JSON.stringify({ workId: 7 }),
+  });
+  assert.equal(open.status, 200);
+  assert.ok(!store.readSnapshots()[0].sections["/api/me"].dirty);
+  const perform = await snapshots.liveFetch(
+    `${origin}/api/works/tasks/perform`,
+    { ...auth("a"), method: "POST" },
+  );
+  assert.equal(perform.status, 200);
+  assert.equal(store.readSnapshots()[0].sections["/api/me"].dirty, true);
+});
+
+test("work actions remain blocked on inventory/global outage while state reads can recover", async () => {
+  for (const failedPath of ["/api/me/bag", "/api/me"]) {
+    const queue = queueFetcher([
+      reply({ playerId: 15 }),
+      reply({}, 503),
+      reply({ workId: 7 }),
+    ]);
+    const snapshots = createAccountSnapshots({
+      store: memoryStore(),
+      fetcher: queue.fetcher,
+      ttl: 0,
+    });
+    await snapshots.read(`${origin}/api/me`, auth("a"));
+    await snapshots.liveFetch(`${origin}${failedPath}`, auth("a"));
+    const perform = await snapshots.liveFetch(
+      `${origin}/api/works/tasks/perform`,
+      { ...auth("a"), method: "POST" },
+    );
+    assert.equal(perform.status, 503);
+    const open = await snapshots.liveFetch(`${origin}/api/works/open`, {
+      ...auth("a"),
+      method: "POST",
+    });
+    assert.equal(open.status, 200);
+    assert.equal(queue.calls.length, 3);
+  }
 });

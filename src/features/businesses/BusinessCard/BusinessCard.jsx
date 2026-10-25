@@ -1,3 +1,6 @@
+import { useBusinessState } from "../state/useBusinessState.js";
+import { fmt } from "../../../lib/format.js";
+import { renderDisplayFields } from "../../../components/ui/CardEditing/DisplayFields.jsx";
 import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
 import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
@@ -5,10 +8,12 @@ import "./BusinessCard.css";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
+import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
+import { businessIncomeField } from "../state/business-state.js";
 
 export function BusinessCard({
   business,
@@ -20,6 +25,12 @@ export function BusinessCard({
   department,
   locked = false,
 }) {
+  const current = useBusinessState(business, !locked);
+  const incomeField = businessIncomeField(current?.income ?? []);
+  const levelText =
+    current?.level != null
+      ? `Уровень ${fmt(current.level)}`
+      : "Уровень неизвестен";
   const openLevels = () => {
     trackProductEvent("business_upgrades_open", {
       section: "businesses",
@@ -36,7 +47,8 @@ export function BusinessCard({
   const fields = [
     { id: "block", label: "Отделение", value: department?.code || "" },
     { id: "name", label: "Название бизнеса", value: business.title },
-    { id: "income", label: "Доход", value: "Доход не указан" },
+    { id: "level", label: "Уровень", value: levelText },
+    incomeField,
   ];
   return (
     <CardEditScope scope={`business:${business.id}`}>
@@ -58,23 +70,35 @@ export function BusinessCard({
           <Icon type="business" />
         </ImageCard>
         <EditableLayout editKey="copy-layout" className="floor-business-copy">
-          <CardTitle
-            composition={{
-              fields,
-              defaultFields: department ? ["block", "name"] : ["name"],
-            }}
-            editKey="title"
-            className="floor-work-business-name"
-          >
-            {[department?.code, business.title].filter(Boolean).join(" • ")}
-          </CardTitle>
+          <div className="floor-business-heading">
+            <CardTitle
+              composition={{
+                fields,
+                defaultFields: department ? ["block", "name"] : ["name"],
+              }}
+              editKey="title"
+              className="floor-work-business-name"
+            >
+              {[department?.code, business.title].filter(Boolean).join(" • ")}
+            </CardTitle>
+            {!locked && current?.level != null && (
+              <Pill
+                variant="scheduled"
+                size="xs"
+                dot={false}
+                aria-label={levelText}
+              >
+                Ур. {fmt(current.level)}
+              </Pill>
+            )}
+          </div>
           <CardDescription
             composition={{ fields, defaultFields: ["income"] }}
             editKey="income"
             as="small"
             className="floor-business-income"
           >
-            Доход не указан
+            {renderDisplayFields(fields, ["income"])}
           </CardDescription>
           {children}
         </EditableLayout>

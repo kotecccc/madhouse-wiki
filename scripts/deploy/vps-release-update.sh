@@ -285,6 +285,9 @@ write_previous_release_env "${previous_sha}"
 write_release_env "${candidate_sha}"
 if compose up --detach --wait --wait-timeout 120; then
   echo "madhouse-wiki release activated: ${candidate_sha}"
+  if ! compose exec --no-TTY wiki node scripts/deploy/release-notification.mjs; then
+    echo "Release is healthy; administrator notification requires attention" >&2
+  fi
   protected_release_sha="${candidate_sha}"
   protected_previous_sha="${previous_sha}"
   retention_known=1

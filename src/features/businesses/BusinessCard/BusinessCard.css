@@ -19,7 +19,15 @@
 .floor-business-copy {
   display: grid;
   grid-column: 2;
-  gap: var(--card-content-gap);
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.floor-business-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-8);
   min-width: 0;
 }
 

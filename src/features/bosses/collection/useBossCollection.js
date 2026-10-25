@@ -1,154 +1,77 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   getSessionJson,
   peekSessionJson,
+  reportGameHealth,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
 import { readSession } from "../../../../shared/auth-session.js";
 import { bossBattle } from "../BossBattle/boss-battle-session.js";
-import { isTerminalBossBattle } from "../BossBattle/boss-battle-status.js";
-import {
-  getBossCollectibleDrops,
-  getCollectionRequests,
-} from "./boss-collection.js";
 
+const path = "/api/automation/bosses";
 const battleRevision = () => {
   const battle = bossBattle.getSnapshot().battle;
-  return battle && isTerminalBossBattle(battle)
-    ? `${battle.id}:${battle.status}`
-    : "";
+  return battle?.status === "won" ? `${battle.id}:won` : "";
 };
+const result = (data) => ({ status: "ready", bosses: data.bosses });
 
-// Account-only view data. Never merged into the public reference catalogue.
-export function useBossCollection(bosses, enabled) {
-  const [sessionRevision, setSessionRevision] = useState(0);
+// The private server response contains each reference card and its collection together.
+export function useBossCollection(_bosses, enabled) {
   const revision = useSyncExternalStore(
     bossBattle.subscribe,
     battleRevision,
     () => "",
   );
-  const [state, setState] = useState({ status: "idle", responses: {} });
-  const requestKey = JSON.stringify(
-    enabled
-      ? [
-          ...new Set(
-            getCollectionRequests(bosses.flatMap(getBossCollectibleDrops)),
-          ),
-        ].sort()
-      : [],
-  );
-  const paths = useMemo(() => JSON.parse(requestKey), [requestKey]);
-  const previousBattleRevision = useRef(revision);
+  const previousRevision = useRef(revision);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const [state, setState] = useState({ status: "idle" });
   useEffect(
     () =>
       subscribeSessionData((event) => {
         if (event.cleared) {
-          setState({ status: "idle", responses: {} });
+          setState({ status: "idle" });
           setSessionRevision((value) => value + 1);
+        } else if (event.path === path && Array.isArray(event.data?.bosses)) {
+          if (event.data.gameHealth) reportGameHealth(event.data.gameHealth);
+          setState(result(event.data));
         }
       }),
     [],
   );
-  const readCachedResponses = () => {
-    const responses = {};
-    for (const path of paths) {
-      const response = peekSessionJson(path, { allowStale: true });
-      if (response !== null) responses[path] = response;
-    }
-    return responses;
-  };
-  const cachedResponses = readCachedResponses();
-  useEffect(() => {
-    const activePaths = new Set(paths);
-    return subscribeSessionData((event) => {
-      if (!event.path || !activePaths.has(event.path)) return;
-      setState((current) => {
-        if (
-          current.key !== requestKey ||
-          current.revision !== revision ||
-          current.sessionRevision !== sessionRevision
-        )
-          return current;
-        return {
-          ...current,
-          responses: { ...current.responses, [event.path]: event.data },
-        };
-      });
-    });
-  }, [requestKey, paths, revision, sessionRevision]);
   useEffect(() => {
     if (!enabled || readSession().status !== "ready") return;
-    const refreshAfterBattle =
-      Boolean(revision) && previousBattleRevision.current !== revision;
-    previousBattleRevision.current = revision;
+    const fresh = Boolean(revision) && previousRevision.current !== revision;
+    previousRevision.current = revision;
+    const boss = bossBattle.getSnapshot().boss;
+    const refreshBoss = fresh
+      ? Number(boss?.numericId ?? boss?.apiId ?? boss?.id)
+      : undefined;
     const controller = new AbortController();
-    const cachedResponses = {};
-    for (const path of paths) {
-      const response = peekSessionJson(path, { allowStale: true });
-      if (response !== null) cachedResponses[path] = response;
-    }
-    setState((current) => ({
-      status: "loading",
-      responses: {
-        ...(current.key === requestKey && current.responses),
-        ...cachedResponses,
-      },
-      key: requestKey,
-      revision,
-      sessionRevision,
-    }));
-    const load = async () => {
-      const responses = { ...cachedResponses };
-      let failed = false;
-      for (const path of JSON.parse(requestKey)) {
+    const cached = peekSessionJson(path, { allowStale: true });
+    if (Array.isArray(cached?.bosses)) setState(result(cached));
+    else setState({ status: "loading" });
+    void getSessionJson(path, {
+      signal: controller.signal,
+      fresh,
+      refreshBoss,
+      revalidate: false,
+    })
+      .then((data) => {
         if (controller.signal.aborted) return;
-        try {
-          responses[path] = await getSessionJson(path, {
-            fresh: refreshAfterBattle,
-          });
-          if (!controller.signal.aborted)
-            setState((current) =>
-              current.key === requestKey &&
-              current.revision === revision &&
-              current.sessionRevision === sessionRevision
-                ? {
-                    ...current,
-                    responses: {
-                      ...current.responses,
-                      [path]: responses[path],
-                    },
-                  }
-                : current,
-            );
-        } catch {
-          if (controller.signal.aborted) return;
-          failed = true;
-        }
-      }
-      if (!controller.signal.aborted)
-        setState({
-          status: failed ? "partial" : "ready",
-          responses,
-          key: requestKey,
-          revision,
-          sessionRevision,
-        });
-    };
-    void load();
+        if (!Array.isArray(data?.bosses)) throw new Error("invalid_boss_cards");
+        if (data.gameHealth) reportGameHealth(data.gameHealth);
+        setState(result(data));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setState((current) =>
+            current.bosses ? current : { status: "error" },
+          );
+      });
     return () => controller.abort();
-  }, [requestKey, enabled, revision, sessionRevision, paths]);
-  if (!enabled) return { status: "idle", responses: {} };
-  if (
-    state.key !== requestKey ||
-    state.revision !== revision ||
-    state.sessionRevision !== sessionRevision
-  )
-    return { status: "loading", responses: cachedResponses };
+  }, [enabled, revision, sessionRevision]);
+  if (!enabled) return { status: "idle" };
+  if (state.status === "idle" && readSession().status === "ready")
+    return { status: "loading" };
   return state;
 }

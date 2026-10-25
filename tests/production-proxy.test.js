@@ -188,6 +188,8 @@ test("personal snapshot metadata survives the fixed-origin transport without pub
     return new Response('{"playerId":7}', {
       headers: {
         "X-Madhouse-Game-Status": "unavailable",
+        "X-Madhouse-Failed-Features": "weapons,businesses",
+        "X-Madhouse-Successful-Features": "profile,rooms",
         "X-Madhouse-Last-Success": "1000",
         "X-Madhouse-Section-Updated": "900",
         "X-Madhouse-Snapshot": "stale",
@@ -209,6 +211,8 @@ test("personal snapshot metadata survives the fixed-origin transport without pub
   );
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["x-madhouse-game-status"], "unavailable");
+  assert.equal(res.headers["x-madhouse-failed-features"], "weapons,businesses");
+  assert.equal(res.headers["x-madhouse-successful-features"], "profile,rooms");
   assert.equal(res.headers["x-madhouse-last-success"], "1000");
   assert.equal(res.headers["x-madhouse-section-updated"], "900");
   assert.equal(res.headers["x-madhouse-snapshot"], "stale");

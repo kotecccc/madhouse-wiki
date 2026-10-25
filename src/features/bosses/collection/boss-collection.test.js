@@ -46,8 +46,8 @@ test("collection request paths are stable and deduplicated", () => {
     [
       "/api/clothing",
       "/api/rooms",
-      "/api/weapons/7",
-      "/api/pets/8",
+      "/api/clothing/by-category/1",
+      "/api/clothing/by-category/9",
       "/api/ornaments/zones/2",
     ],
   );
@@ -63,7 +63,9 @@ test("partial or missing responses and undefined flags remain unknown", () => {
   };
   const result = summarizeBossCollection(boss, {
     "/api/rooms": { catalog: { rooms: [{ id: 1 }] } },
-    "/api/weapons/2": { weapon: { weaponId: 2, owned: false } },
+    "/api/clothing/by-category/1": {
+      items: [{ kind: "weapon", weaponId: 2, owned: false }],
+    },
   });
   assert.deepEqual(result, {
     total: 3,
@@ -100,7 +102,9 @@ test("unlock_for_purchase counts unlock or ownership, while grant requires owned
       items: [{ elementId: 12, unlocked: false, owned: true }],
     },
     "/api/rooms": { catalog: { rooms: [{ id: 13, owned: false }] } },
-    "/api/weapons/14": { weapon: { weaponId: 14, unlocked: true } },
+    "/api/clothing/by-category/1": {
+      items: [{ kind: "weapon", weaponId: 14, unlocked: true }],
+    },
   });
   assert.deepEqual(result, {
     total: 4,
@@ -108,6 +112,58 @@ test("unlock_for_purchase counts unlock or ownership, while grant requires owned
     known: 3,
     complete: false,
   });
+});
+
+test("many weapons and pets share two category requests and match correct kinds", () => {
+  const drops = [
+    ...[1, 2, 3].map((itemId) => ({ type: "weapon", itemId, mode: "grant" })),
+    ...[4, 5, 6].map((itemId) => ({ type: "pet", itemId, mode: "grant" })),
+  ];
+  const requests = getCollectionRequests(drops);
+  assert.deepEqual(requests, [
+    "/api/clothing/by-category/1",
+    "/api/clothing/by-category/9",
+  ]);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(
+    summarizeBossCollection(
+      { possibleDrops: drops },
+      {
+        "/api/clothing/by-category/1": {
+          items: [
+            { kind: "weapon", weaponId: 1, owned: true },
+            { kind: "weapon", weaponId: 2, owned: false },
+            { kind: "pet", petId: 3, owned: true },
+          ],
+        },
+        "/api/clothing/by-category/9": {
+          items: [
+            { kind: "pet", petId: 4, owned: true },
+            { kind: "pet", petId: 5 },
+            { kind: "pet", petId: 6, owned: false },
+          ],
+        },
+      },
+    ),
+    { total: 6, collected: 2, known: 4, complete: false },
+  );
+});
+
+test("conflicting category ownership flags remain unknown", () => {
+  const boss = {
+    possibleDrops: [{ type: "weapon", itemId: 7, mode: "grant" }],
+  };
+  assert.deepEqual(
+    summarizeBossCollection(boss, {
+      "/api/clothing/by-category/1": {
+        items: [
+          { kind: "weapon", weaponId: 7, owned: true },
+          { kind: "weapon", weaponId: 7, owned: false },
+        ],
+      },
+    }),
+    { total: 1, collected: 0, known: 0, complete: false },
+  );
 });
 
 test("complete requires at least one drop and every drop known and collected", () => {

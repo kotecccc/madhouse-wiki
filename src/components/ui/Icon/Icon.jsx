@@ -26,6 +26,7 @@ import {
   IconHandGrab,
   IconHeart,
   IconInfoCircle,
+  IconLoader2,
   IconLock,
   IconLockOpen,
   IconMessage,
@@ -92,11 +93,12 @@ const iconComponents = {
   "arrow-up": IconArrowUp,
   "arrow-down": IconArrowDown,
   "corner-down-left": IconCornerDownLeft,
+  loader: IconLoader2,
   check: IconCheck,
   close: IconX,
 };
 
-export function Icon({ type, size, className = "" }) {
+export function Icon({ type, size, motion, className = "" }) {
   const IconComponent = iconComponents[type] || IconMessage;
   const iconClasses = [
     "ui-icon",
@@ -113,6 +115,7 @@ export function Icon({ type, size, className = "" }) {
       "defibrillator-large",
     ].includes(type) && `ui-icon--${type}`,
     size && `ui-icon--${iconSizeVariant(size)}`,
+    ["pulse", "spin"].includes(motion) && `ui-icon--${motion}`,
     className,
   ]
     .filter(Boolean)

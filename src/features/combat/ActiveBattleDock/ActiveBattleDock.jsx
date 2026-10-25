@@ -1,3 +1,4 @@
+import { getWorkById } from "../../../model/knowledge-base.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   readSession,
@@ -218,11 +219,13 @@ export function ActiveBattleControl() {
       )}
       {farmOpen && farm.run && (
         <WorkFarmDialog
-          work={{
-            workId: farm.run.workId,
-            id: `work:${farm.run.workId}`,
-            title: farm.run.title,
-          }}
+          work={
+            getWorkById(`work:${farm.run.workId}`) || {
+              workId: farm.run.workId,
+              id: `work:${farm.run.workId}`,
+              title: farm.run.title,
+            }
+          }
           onClose={() => setFarmOpen(false)}
         />
       )}

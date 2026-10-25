@@ -81,9 +81,7 @@ export function FloorsSection({
       setConfirmedDepartmentState(departmentState);
   }, [departmentState]);
   const collectionState = useBossCollection(
-    knowledgeBase.bosses.filter((boss) =>
-      (selectedFloor?.departmentIds || []).includes(boss.departmentId),
-    ),
+    knowledgeBase.bosses,
     isAuthenticated && category === "bosses",
   );
   const floorsLoading =
@@ -329,9 +327,12 @@ export function FloorsSection({
       <div
         className="floor-grid"
         aria-live="polite"
-        aria-busy={departmentsLoading}
+        aria-busy={departmentsLoading || collectionState.status === "loading"}
       >
-        {departmentsLoading ? (
+        {departmentsLoading ||
+        (category === "bosses" &&
+          collectionState.status === "loading" &&
+          !collectionState.bosses) ? (
           <>
             <span className="sr-only" role="status">
               Загружаем этажи, отделения и цели…

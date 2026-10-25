@@ -1,9 +1,15 @@
+import {
+  featureForGamePath,
+  workGameUnavailable,
+  safeFailedFeatures,
+  safeSuccessfulFeatures,
+} from "../../shared/game-health-features.js";
 import { createHash } from "node:crypto";
 
 // Bounded, demand-driven personal sections. Battle state is deliberately live-only:
 // stale battle reads must never become inputs to an automated mutation.
 export function isSnapshotPath(path) {
-  return /^\/api\/(?:me(?:\/bag)?|floors(?:\/(?:[A-Za-z0-9_-]+|%24|\$)\/info)?|rooms|clothing|ornaments\/zones\/\d+|(?:weapons|pets|businesses|bosses)\/\d+)$/.test(
+  return /^\/api\/(?:me(?:\/bag)?|stash\/sets|floors(?:\/(?:[A-Za-z0-9_-]+|%24|\$)\/info)?|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/\d+|(?:weapons|pets|businesses|bosses)\/\d+)$/.test(
     path,
   );
 }
@@ -103,13 +109,44 @@ export function createAccountSnapshots({
     store.writeSnapshot(record.playerId, record);
     accounts.set(record.playerId, record);
   };
-  const state = (record) => ({
-    status: record?.health?.status || "unknown",
-    lastSuccessAt: record?.lastSuccessAt ?? null,
-  });
+  const state = (record) => {
+    const failedFeatures = safeFailedFeatures(
+      (record?.health?.failedSections || []).map(featureForGamePath),
+    );
+    const successfulFeatures = safeSuccessfulFeatures(
+      Object.entries(record?.sections || {})
+        .filter(
+          ([path, section]) =>
+            !section.dirty &&
+            Number.isFinite(section.updatedAt) &&
+            now() - section.updatedAt < ttl &&
+            !record?.health?.failedSections?.includes(path) &&
+            !(
+              path === "/api/me" &&
+              record?.health?.failedSections?.includes("*")
+            ),
+        )
+        .map(([path]) => featureForGamePath(path)),
+      failedFeatures,
+    );
+    return {
+      status: record?.health?.status || "unknown",
+      lastSuccessAt: record?.lastSuccessAt ?? null,
+      failedFeatures,
+      successfulFeatures,
+    };
+  };
   function withMetadata(response, record, section, stale = false) {
     const headers = new Headers(response.headers);
     headers.set("X-Madhouse-Game-Status", state(record).status);
+    headers.set(
+      "X-Madhouse-Failed-Features",
+      state(record).failedFeatures.join(","),
+    );
+    headers.set(
+      "X-Madhouse-Successful-Features",
+      state(record).successfulFeatures.join(","),
+    );
     headers.set("X-Madhouse-Snapshot-TTL", String(ttl));
     if (record?.lastSuccessAt)
       headers.set("X-Madhouse-Last-Success", String(record.lastSuccessAt));
@@ -166,6 +203,11 @@ export function createAccountSnapshots({
     const requestHeaders = new Headers(init.headers);
     const snapshotOnly = requestHeaders.get("X-Madhouse-Snapshot-Only") === "1";
     requestHeaders.delete("X-Madhouse-Snapshot-Only");
+    const manualRefreshRequested =
+      path === "/api/me" &&
+      (init.method || "GET").toUpperCase() === "GET" &&
+      requestHeaders.get("X-Madhouse-Snapshot-Refresh") === "1";
+    requestHeaders.delete("X-Madhouse-Snapshot-Refresh");
     const upstreamInit = { ...init, headers: requestHeaders };
     if (!playerId && path !== "/api/me") {
       const identity = await read("https://cargohustle.online/api/me", {
@@ -176,6 +218,14 @@ export function createAccountSnapshots({
       record = accounts.get(playerId);
     }
     const savedSection = record?.sections?.[path];
+    const manualRefresh = Boolean(manualRefreshRequested && playerId && record);
+    if (
+      manualRefresh &&
+      Number.isFinite(record.manualHealthRefreshAt) &&
+      now() - (record.manualHealthRefreshAt || 0) < 60_000 &&
+      savedSection
+    )
+      return withMetadata(json(savedSection.data), record, savedSection, true);
     if (snapshotOnly && savedSection)
       return withMetadata(
         json(savedSection.data),
@@ -196,8 +246,19 @@ export function createAccountSnapshots({
     const run = async () => {
       record = playerId ? accounts.get(playerId) : null;
       let section = record?.sections?.[path];
+      const mayManualRefresh = Boolean(
+        manualRefresh &&
+        record &&
+        (!Number.isFinite(record.manualHealthRefreshAt) ||
+          now() - record.manualHealthRefreshAt >= 60_000),
+      );
+      if (mayManualRefresh) {
+        record = { ...record, manualHealthRefreshAt: now() };
+        persist(record);
+      }
       if (
         fallback &&
+        !mayManualRefresh &&
         record?.health?.status === "unavailable" &&
         record.health.retryAt > now()
       )
@@ -211,6 +272,7 @@ export function createAccountSnapshots({
         );
       if (
         cache &&
+        !mayManualRefresh &&
         section &&
         !section.dirty &&
         !record.health?.failedSections?.includes(path) &&
@@ -382,12 +444,28 @@ export function createAccountSnapshots({
   const read = (url, init = {}) => execute(url, init);
   async function liveFetch(url, init = {}) {
     const method = (init.method || "GET").toUpperCase();
+    const path = new URL(url).pathname;
+    // The game's open endpoint is a state reader using POST transport.
+    const workRead = method === "POST" && path === "/api/works/open";
+    const workAction =
+      method === "POST" &&
+      [
+        "/api/works/tasks/perform",
+        "/api/me/bag/boosters/use",
+        "/api/me/bag/boosters/buy",
+      ].includes(path);
     const authorization = new Headers(init.headers).get("authorization");
     const playerId = authorization && credentials.get(hash(authorization));
     const record = accounts.get(playerId);
     if (
       method !== "GET" &&
-      ["unavailable", "credentials_invalid"].includes(record?.health?.status)
+      (workRead
+        ? record?.health?.status === "credentials_invalid"
+        : workAction
+          ? workGameUnavailable(state(record))
+          : ["unavailable", "credentials_invalid"].includes(
+              record?.health?.status,
+            ))
     )
       return withMetadata(
         json({ error: "game_unavailable_actions_paused" }, 503),
@@ -400,7 +478,7 @@ export function createAccountSnapshots({
     )
       return execute(url, init, { fallback: false, cache: false });
     const response = await upstream(url, init);
-    if (method !== "GET" && record && response.ok) {
+    if (method !== "GET" && !workRead && record && response.ok) {
       const current = accounts.get(playerId);
       persist({
         ...current,

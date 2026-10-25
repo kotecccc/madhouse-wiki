@@ -68,7 +68,7 @@ test("connect reads server state once, publishes stable snapshots, and polls loc
   );
   assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
   assert.equal(h.tasks.size, 1);
-  assert.equal([...h.tasks.values()][0].delay, 2000);
+  assert.equal([...h.tasks.values()][0].delay, 180000);
   await h.connect();
   assert.equal(h.calls.length, 1);
 });
@@ -316,7 +316,7 @@ test("409 snapshot is adopted, and polling errors retain the last known server s
   assert.equal(h.bossBattle.getSnapshot().battle.id, "new");
   assert.equal(h.bossBattle.getSnapshot().needsRefresh, true);
   assert.equal(h.bossBattle.getSnapshot().errorStatus, 503);
-  assert.equal([...h.tasks.values()][0].delay, 5000);
+  assert.equal([...h.tasks.values()][0].delay, 180000);
 });
 
 test("disconnect invalidates stale replies, cancels polling, and does not stop persisted server state", async () => {
@@ -493,4 +493,59 @@ test("boss opening requirements stay in dialog context without becoming a game g
   assert.deepEqual(h.bossBattle.getSnapshot().openingRequirements, []);
   h.disconnect();
   assert.deepEqual(h.bossBattle.getSnapshot().openingRequirements, []);
+});
+
+test("idle state polls slowly while active server automation keeps short updates", async () => {
+  const idle = harness({
+    state: { ...initialState(), battle: { battle: null } },
+  });
+  await idle.connect();
+  assert.equal([...idle.tasks.values()][0].delay, 180000);
+  const active = harness({
+    state: { ...initialState(), auto: { enabled: true } },
+  });
+  await active.connect();
+  assert.equal([...active.tasks.values()][0].delay, 2000);
+  idle.disconnect();
+  active.disconnect();
+});
+
+test("hidden clients stop state polling and resume once when visible", async () => {
+  let onChange;
+  const visibility = {
+    visibilityState: "visible",
+    addEventListener(type, callback) {
+      onChange = callback;
+    },
+    removeEventListener() {
+      onChange = null;
+    },
+  };
+  const tasks = new Map();
+  let id = 0;
+  let calls = 0;
+  const remote = createRemoteBattleSession({
+    request: async () => {
+      calls++;
+      return initialState();
+    },
+    schedule: (fn, delay) => {
+      tasks.set(++id, { fn, delay });
+      return id;
+    },
+    cancel: (key) => tasks.delete(key),
+    visibility,
+  });
+  await remote.connect();
+  visibility.visibilityState = "hidden";
+  onChange();
+  assert.equal(tasks.size, 0);
+  visibility.visibilityState = "visible";
+  onChange();
+  assert.equal(tasks.size, 1);
+  assert.equal([...tasks.values()][0].delay, 0);
+  assert.equal(calls, 1);
+  remote.disconnect();
+  assert.equal(tasks.size, 0);
+  assert.equal(onChange, null);
 });

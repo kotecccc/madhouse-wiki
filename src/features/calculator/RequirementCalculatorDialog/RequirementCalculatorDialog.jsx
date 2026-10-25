@@ -3,6 +3,7 @@ import { Divider } from "../../../components/ui/Divider/Divider.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
+import { Button } from "../../../components/ui/Button/Button.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import "./RequirementCalculatorDialog.css";
@@ -29,14 +30,22 @@ export function RequirementCalculatorDialog({
   countControl,
   title,
   intro,
+  beforeCount,
+  footerNote,
+  footerStart,
+  footer,
+  showPurchaseOption = true,
+  waitOptionTitle,
   showCloseButton = false,
   accountState,
   energyOverride,
   recoveryPlan,
   optionActions,
+  optionSelection,
   afterOptions,
   loading = false,
   contentLoading = false,
+  boostersLoading = false,
 }) {
   const [energyLimit, setEnergyLimit] = useState("");
   const [localProfileEnergy, setProfileEnergy] = useState(null);
@@ -140,12 +149,44 @@ export function RequirementCalculatorDialog({
       : requirementCalc != null && maxEnergy != null && currentEnergy != null
         ? calculateRequirementEnergy(requirementCalc, maxEnergy, currentEnergy)
         : null;
+  const optionSelectionProps = (value) => {
+    if (!optionSelection) return {};
+    const disabled = Boolean(optionSelection.disabled);
+    const selected = optionSelection.value === value;
+    return {
+      role: "button",
+      tabIndex: disabled ? -1 : 0,
+      "aria-pressed": selected,
+      "aria-disabled": disabled,
+      state: selected ? "target" : undefined,
+      onClick: disabled
+        ? undefined
+        : (event) => {
+            if (event.target.closest("button, a, input, select, textarea"))
+              return;
+            optionSelection.onChange?.(value);
+          },
+      onKeyDown: disabled
+        ? undefined
+        : (event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              optionSelection.onChange?.(value);
+            }
+          },
+    };
+  };
 
   return (
     <Modal
       className="requirement-calculator-dialog"
       title={title || calculatorTitle}
       titleId="requirement-calc-title"
+      footerNote={footerNote}
+      footerStart={footerStart}
+      footer={footer}
       width={620}
       showCloseButton={showCloseButton}
       contentVariant="inset"
@@ -170,23 +211,62 @@ export function RequirementCalculatorDialog({
           }}
         >
           {intro}
-          {countControl && (
-            <NumberStepper
-              id="work-calculator-count"
-              label={countControl.label || "Количество выполнений"}
-              hideLabel
-              compact
-              min={countControl.min ?? 1}
-              max={countControl.max ?? Number.MAX_SAFE_INTEGER}
-              value={Number(countControl.value)}
-              onChange={(value) => countControl.onChange(String(value))}
-              decrementLabel="Уменьшить количество выполнений"
-              incrementLabel="Увеличить количество выполнений"
-              rangeLabel={
-                countControl.rangeLabel || "Количество полных выполнений работы"
-              }
-            />
+          {beforeCount}
+          {countControl?.maxToggle && (
+            <div
+              className="requirement-calculator-mode"
+              role="group"
+              aria-label="Режим выполнения работы"
+            >
+              <Button
+                variant="toggle"
+                liftOnHover={false}
+                disabled={countControl.maxToggle.disabled}
+                aria-pressed={!countControl.maxToggle.active}
+                onClick={() => {
+                  if (countControl.maxToggle.active)
+                    countControl.maxToggle.onToggle();
+                }}
+              >
+                Количество
+              </Button>
+              <Button
+                variant="toggle"
+                liftOnHover={false}
+                disabled={countControl.maxToggle.disabled}
+                aria-pressed={countControl.maxToggle.active}
+                onClick={() => {
+                  if (!countControl.maxToggle.active)
+                    countControl.maxToggle.onToggle();
+                }}
+              >
+                {countControl.maxToggle.label}
+              </Button>
+            </div>
           )}
+          {countControl &&
+            (!countControl.maxToggle || !countControl.maxToggle.active) && (
+              <NumberStepper
+                id="work-calculator-count"
+                label={countControl.label || "Количество выполнений"}
+                hideLabel
+                compact
+                {...(!countControl.maxToggle
+                  ? { showMaxButton: countControl.showMaxButton }
+                  : {})}
+                disabled={countControl.disabled}
+                min={countControl.min ?? 1}
+                max={countControl.max ?? Number.MAX_SAFE_INTEGER}
+                value={Number(countControl.value)}
+                onChange={(value) => countControl.onChange(String(value))}
+                decrementLabel="Уменьшить количество выполнений"
+                incrementLabel="Увеличить количество выполнений"
+                rangeLabel={
+                  countControl.rangeLabel ||
+                  "Количество полных выполнений работы"
+                }
+              />
+            )}
           {(requirementCalc != null || profileStatus === "loading") && (
             <BaseCard
               variant="floor-data"
@@ -263,10 +343,11 @@ export function RequirementCalculatorDialog({
                   <BaseCard
                     variant="floor-data"
                     className="requirement-calculator-option"
+                    {...optionSelectionProps("wait")}
                   >
                     <div className="requirement-calculator-option-heading">
                       <CardTitle as="h3" size="sm">
-                        Вариант 1: ждать энергию
+                        {waitOptionTitle || "Вариант 1: ждать энергию"}
                       </CardTitle>
                       <Icon
                         type="timer"
@@ -285,89 +366,104 @@ export function RequirementCalculatorDialog({
                     </div>
                     {optionActions?.wait}
                   </BaseCard>
-                  <BaseCard
-                    variant="floor-data"
-                    className="requirement-calculator-option requirement-calculator-option--purchase"
-                  >
-                    <div className="requirement-calculator-option-heading">
-                      <CardTitle as="h3" size="sm">
-                        Вариант 2: купить дефибрилляторы
-                      </CardTitle>
-                      <Icon
-                        type="banknote"
-                        size="medium"
-                        className="requirement-calculator-option-icon"
-                      />
-                    </div>
-                    <Divider fullWidth />
-                    <div
-                      className="requirement-calculator-refills"
-                      aria-label="Дефибрилляторы для восстановления энергии"
+                  {showPurchaseOption && (
+                    <BaseCard
+                      variant="floor-data"
+                      className="requirement-calculator-option requirement-calculator-option--purchase"
+                      {...optionSelectionProps("purchase")}
                     >
-                      <div className="requirement-calculator-refill">
-                        <Icon type="defibrillator-small" size="large" />
-                        <span className="requirement-calculator-refill-copy">
-                          <CardTitle size="sm">Малый</CardTitle>
-                          <CardDescription size="2xs">
-                            {energyPlan.smallLabel || "10% лимита"}
-                          </CardDescription>
-                        </span>
-                        <CardTitle
-                          as="span"
-                          size="sm"
-                          className="requirement-calculator-refill-count"
-                        >
-                          ×
-                          {energyPlan.smallRefills == null
-                            ? "—"
-                            : fmt(energyPlan.smallRefills)}
+                      <div className="requirement-calculator-option-heading">
+                        <CardTitle as="h3" size="sm">
+                          Вариант 2: купить дефибрилляторы
                         </CardTitle>
+                        <Icon
+                          type="banknote"
+                          size="medium"
+                          className="requirement-calculator-option-icon"
+                        />
                       </div>
-                      <div className="requirement-calculator-refill">
-                        <Icon type="defibrillator-large" size="large" />
-                        <span className="requirement-calculator-refill-copy">
-                          <CardTitle size="sm">Большой</CardTitle>
-                          <CardDescription size="2xs">
-                            {energyPlan.largeLabel || "100% лимита"}
-                          </CardDescription>
-                        </span>
-                        <CardTitle
-                          as="span"
-                          size="sm"
-                          className="requirement-calculator-refill-count"
-                        >
-                          ×
-                          {energyPlan.largeRefills == null
-                            ? "—"
-                            : fmt(energyPlan.largeRefills)}
-                        </CardTitle>
-                      </div>
-                    </div>
-                    <Divider fullWidth />
-                    <div className="requirement-calculator-banknotes">
-                      <CardDescription size="sm">Итого</CardDescription>
-                      <CardDescription
-                        size="sm"
-                        className="requirement-calculator-banknotes-value"
+                      <Divider fullWidth />
+                      <div
+                        className="requirement-calculator-refills"
+                        aria-label="Дефибрилляторы для восстановления энергии"
                       >
-                        <CardTitle
-                          as="span"
-                          size="sm"
-                          className="requirement-calculator-inline"
-                        >
-                          {energyPlan.banknotes == null
-                            ? "—"
-                            : fmt(energyPlan.banknotes)}
-                        </CardTitle>{" "}
-                        купюр
-                      </CardDescription>
-                    </div>
-                    {optionActions?.purchase && (
-                      <div className="requirement-calculator-action">
-                        {optionActions.purchase}
+                        <div className="requirement-calculator-refill">
+                          <Icon type="defibrillator-small" size="large" />
+                          <span className="requirement-calculator-refill-copy">
+                            <CardTitle size="sm">Малый</CardTitle>
+                            <CardDescription size="2xs">
+                              {energyPlan.smallLabel || "10% лимита"}
+                            </CardDescription>
+                          </span>
+                          <CardTitle
+                            as="span"
+                            size="sm"
+                            className="requirement-calculator-refill-count"
+                          >
+                            {boostersLoading ? (
+                              <LoadingStatus as="span">Загрузка…</LoadingStatus>
+                            ) : (
+                              <>
+                                ×
+                                {energyPlan.smallRefills == null
+                                  ? "—"
+                                  : fmt(energyPlan.smallRefills)}
+                              </>
+                            )}
+                          </CardTitle>
+                        </div>
+                        <div className="requirement-calculator-refill">
+                          <Icon type="defibrillator-large" size="large" />
+                          <span className="requirement-calculator-refill-copy">
+                            <CardTitle size="sm">Большой</CardTitle>
+                            <CardDescription size="2xs">
+                              {energyPlan.largeLabel || "100% лимита"}
+                            </CardDescription>
+                          </span>
+                          <CardTitle
+                            as="span"
+                            size="sm"
+                            className="requirement-calculator-refill-count"
+                          >
+                            {boostersLoading ? (
+                              <LoadingStatus as="span">Загрузка…</LoadingStatus>
+                            ) : (
+                              <>
+                                ×
+                                {energyPlan.largeRefills == null
+                                  ? "—"
+                                  : fmt(energyPlan.largeRefills)}
+                              </>
+                            )}
+                          </CardTitle>
+                        </div>
                       </div>
-                    )}
-                  </BaseCard>
+                      <Divider fullWidth />
+                      <div className="requirement-calculator-banknotes">
+                        <CardDescription size="sm">Итого</CardDescription>
+                        <CardDescription
+                          size="sm"
+                          className="requirement-calculator-banknotes-value"
+                        >
+                          <CardTitle
+                            as="span"
+                            size="sm"
+                            className="requirement-calculator-inline"
+                          >
+                            {energyPlan.banknotes == null
+                              ? "—"
+                              : fmt(energyPlan.banknotes)}
+                          </CardTitle>{" "}
+                          купюр
+                        </CardDescription>
+                      </div>
+                      {optionActions?.purchase && (
+                        <div className="requirement-calculator-action">
+                          {optionActions.purchase}
+                        </div>
+                      )}
+                    </BaseCard>
+                  )}
                 </>
               )}
             </div>

@@ -77,3 +77,35 @@
 .ui-icon--rage {
   color: var(--icon-rage);
 }
+
+.ui-icon--pulse {
+  animation: ui-icon-pulse var(--skeleton-animation-duration) ease-in-out
+    infinite;
+}
+
+.ui-icon--spin {
+  animation: ui-icon-spin var(--skeleton-animation-duration) linear infinite;
+}
+
+@keyframes ui-icon-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--skeleton-opacity-min);
+  }
+}
+
+@keyframes ui-icon-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-icon--pulse,
+  .ui-icon--spin {
+    animation: none;
+  }
+}

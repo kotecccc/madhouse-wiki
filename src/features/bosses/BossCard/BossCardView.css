@@ -151,9 +151,10 @@
 }
 
 .boss-card-indicator-group {
-  display: grid;
-  justify-items: end;
-  align-content: start;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: center;
   gap: var(--space-4);
   min-width: 0;
 }

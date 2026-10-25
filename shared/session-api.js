@@ -1,4 +1,13 @@
-let gameHealth = { status: "unknown", lastSuccessAt: null };
+import {
+  safeFailedFeatures,
+  safeSuccessfulFeatures,
+} from "./game-health-features.js";
+let gameHealth = {
+  status: "unknown",
+  lastSuccessAt: null,
+  failedFeatures: [],
+  successfulFeatures: [],
+};
 export function readGameHealth() {
   return gameHealth;
 }
@@ -10,9 +19,18 @@ export function reportGameHealth(value) {
     )
   )
     return;
+  const failedFeatures =
+    value.status === "unavailable"
+      ? safeFailedFeatures(value.failedFeatures)
+      : [];
   const next = {
     status: value.status,
     lastSuccessAt: Number(value.lastSuccessAt) || null,
+    failedFeatures,
+    successfulFeatures: safeSuccessfulFeatures(
+      value.successfulFeatures,
+      failedFeatures,
+    ),
   };
   if (JSON.stringify(next) === JSON.stringify(gameHealth)) return;
   gameHealth = next;
@@ -27,6 +45,12 @@ export function observeGameResponse(response) {
     reportGameHealth({
       status,
       lastSuccessAt: response.headers.get("X-Madhouse-Last-Success"),
+      failedFeatures: response.headers
+        .get("X-Madhouse-Failed-Features")
+        ?.split(","),
+      successfulFeatures: response.headers
+        .get("X-Madhouse-Successful-Features")
+        ?.split(","),
     });
 }
 
@@ -46,9 +70,10 @@ export function createSessionApi({
   interval = 1100,
   ttl = 180000,
   shouldRefresh = () => true,
-  failureCooldown = 30000,
+  failureCooldown = ttl,
 }) {
   const entries = new Map();
+  const eventDrivenPaths = new Set();
   const pending = new Map();
   const snapshotOnlyPending = new Set();
   const controllers = new Set();
@@ -59,7 +84,7 @@ export function createSessionApi({
   let lastStarted = -Infinity;
   let refreshing = 0;
   const isSnapshotPath = (path) =>
-    /^\/api\/(?:me|me\/bag|floors|floors\/[^/?]+\/info|rooms|clothing|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
+    /^\/api\/(?:automation\/bosses|me|me\/bag|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
     );
   function publish(event) {
@@ -82,6 +107,7 @@ export function createSessionApi({
     generation++;
     identity = null;
     entries.clear();
+    eventDrivenPaths.clear();
     pending.clear();
     snapshotOnlyPending.clear();
     tail = Promise.resolve();
@@ -94,7 +120,14 @@ export function createSessionApi({
     method,
     path,
     body,
-    { fresh = false, signal, background = false, snapshotOnly = false } = {},
+    {
+      fresh = false,
+      signal,
+      background = false,
+      snapshotOnly = false,
+      serverRefresh = false,
+      refreshBoss,
+    } = {},
   ) {
     if (!/^\/api\/[\w/?.=&%+-]+$/.test(path))
       return Promise.reject(new Error("Недопустимый API-запрос"));
@@ -121,6 +154,8 @@ export function createSessionApi({
               signal,
               background,
               snapshotOnly: false,
+              serverRefresh,
+              refreshBoss,
             }),
           );
       return active;
@@ -150,6 +185,14 @@ export function createSessionApi({
           headers: {
             ...request.headers,
             ...(snapshotOnly ? { "X-Madhouse-Snapshot-Only": "1" } : {}),
+            ...(serverRefresh && path === "/api/me"
+              ? { "X-Madhouse-Snapshot-Refresh": "1" }
+              : {}),
+            ...(path === "/api/automation/bosses" &&
+            Number.isSafeInteger(refreshBoss) &&
+            refreshBoss > 0
+              ? { "X-Madhouse-Refresh-Boss": String(refreshBoss) }
+              : {}),
             ...(body === undefined
               ? {}
               : { "Content-Type": "application/json" }),
@@ -257,7 +300,13 @@ export function createSessionApi({
   }
   function refreshPath(path) {
     const entry = entries.get(path);
-    if (!entry?.value || pending.has(path) || !shouldRefresh()) return;
+    if (
+      eventDrivenPaths.has(path) ||
+      !entry?.value ||
+      pending.has(path) ||
+      !shouldRefresh()
+    )
+      return;
     if (
       entry.lastFailureAt != null &&
       now() - entry.lastFailureAt < failureCooldown
@@ -288,6 +337,7 @@ export function createSessionApi({
         clear();
         return Promise.reject(error);
       }
+      if (options.revalidate === false) eventDrivenPaths.add(path);
       const cached = entries.get(path);
       if (
         !options.fresh &&
@@ -357,7 +407,16 @@ function ensureSessionApi() {
   }
   return sessionApi;
 }
-export function getSessionJson(path, { signal, fresh = false } = {}) {
+export function getSessionJson(
+  path,
+  {
+    signal,
+    fresh = false,
+    revalidate,
+    serverRefresh = false,
+    refreshBoss,
+  } = {},
+) {
   ensureSessionApi();
   if (readSession().status !== "ready") {
     sessionApi.clear();
@@ -365,7 +424,13 @@ export function getSessionJson(path, { signal, fresh = false } = {}) {
   }
   if (signal?.aborted)
     return Promise.reject(new DOMException("Aborted", "AbortError"));
-  const promise = sessionApi.get(path, { fresh, signal });
+  const promise = sessionApi.get(path, {
+    fresh,
+    signal,
+    revalidate,
+    serverRefresh,
+    refreshBoss,
+  });
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
     const abort = () => reject(new DOMException("Aborted", "AbortError"));

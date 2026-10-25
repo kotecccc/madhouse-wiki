@@ -33,6 +33,7 @@ const EMPTY_WORK_FARM = Object.freeze({
   error: null,
 });
 const POLL_INTERVAL = 2000;
+const IDLE_POLL_INTERVAL = 180000;
 const ERROR_RETRY_INTERVAL = 5000;
 
 function numericId(boss) {
@@ -54,6 +55,7 @@ export function createRemoteBattleSession({
   schedule = setTimeout,
   cancel = clearTimeout,
   makeId = () => crypto.randomUUID(),
+  visibility = typeof document === "undefined" ? null : document,
 } = {}) {
   if (typeof request !== "function") throw new TypeError("request is required");
 
@@ -69,6 +71,7 @@ export function createRemoteBattleSession({
   let epoch = 0;
   let timer = null;
   let pendingCommands = 0;
+  let stateRead = null;
   let visible = false;
   let pvpVisible = false;
   let localBoss = null;
@@ -155,9 +158,28 @@ export function createRemoteBattleSession({
     timer = null;
   }
 
-  function schedulePoll(delay = POLL_INTERVAL, run = epoch) {
+  function activelyWatching() {
+    return (
+      visible ||
+      pvpVisible ||
+      server?.auto?.enabled ||
+      server?.goal?.status === "running" ||
+      server?.goal?.status === "active" ||
+      server?.businessAssistant?.run?.status === "running" ||
+      server?.workFarm?.run?.status === "running"
+    );
+  }
+  const pollInterval = () =>
+    activelyWatching() ? POLL_INTERVAL : IDLE_POLL_INTERVAL;
+  function onVisibilityChange() {
     clearTimer();
-    if (!connected || run !== epoch) return;
+    if (connected && visibility?.visibilityState !== "hidden") schedulePoll(0);
+  }
+
+  function schedulePoll(delay = pollInterval(), run = epoch) {
+    clearTimer();
+    if (!connected || run !== epoch || visibility?.visibilityState === "hidden")
+      return;
     timer = schedule(() => {
       timer = null;
       void poll(run);
@@ -165,17 +187,32 @@ export function createRemoteBattleSession({
   }
 
   async function readState(run) {
-    const result = await request("GET", "/api/automation/state");
-    if (!connected || run !== epoch) return false;
-    setServerState(result);
-    return true;
+    if (stateRead?.run === run) return stateRead.promise;
+    const entry = { run, promise: null };
+    entry.promise = (async () => {
+      const result = await request("GET", "/api/automation/state");
+      if (!connected || run !== epoch) return false;
+      setServerState(result);
+      return true;
+    })();
+    stateRead = entry;
+    try {
+      return await entry.promise;
+    } finally {
+      if (stateRead === entry) stateRead = null;
+    }
   }
 
   async function poll(run) {
-    if (!connected || run !== epoch) return;
+    if (!connected || run !== epoch || visibility?.visibilityState === "hidden")
+      return;
+    if (pendingCommands > 0) {
+      schedulePoll(undefined, run);
+      return;
+    }
     try {
       await readState(run);
-      schedulePoll(POLL_INTERVAL, run);
+      schedulePoll(undefined, run);
     } catch (error) {
       if (!connected || run !== epoch) return;
       transportError =
@@ -191,17 +228,21 @@ export function createRemoteBattleSession({
         },
       };
       publish();
-      schedulePoll(ERROR_RETRY_INTERVAL, run);
+      schedulePoll(
+        activelyWatching() ? ERROR_RETRY_INTERVAL : IDLE_POLL_INTERVAL,
+        run,
+      );
     }
   }
 
   async function connect() {
     if (connected) return;
     connected = true;
+    visibility?.addEventListener("visibilitychange", onVisibilityChange);
     const run = ++epoch;
     try {
       await readState(run);
-      schedulePoll(POLL_INTERVAL, run);
+      schedulePoll(undefined, run);
     } catch (error) {
       if (!connected || run !== epoch) return;
       transportError = error?.message || "Не удалось подключиться к серверу.";
@@ -215,12 +256,16 @@ export function createRemoteBattleSession({
         },
       };
       publish();
-      schedulePoll(ERROR_RETRY_INTERVAL, run);
+      schedulePoll(
+        activelyWatching() ? ERROR_RETRY_INTERVAL : IDLE_POLL_INTERVAL,
+        run,
+      );
     }
   }
 
   function disconnect() {
     connected = false;
+    visibility?.removeEventListener("visibilitychange", onVisibilityChange);
     transportError = null;
     epoch++;
     clearTimer();
@@ -278,6 +323,7 @@ export function createRemoteBattleSession({
       if (connected && run === epoch) {
         pendingCommands = Math.max(0, pendingCommands - 1);
         publish();
+        schedulePoll();
       }
     }
   }
@@ -286,6 +332,7 @@ export function createRemoteBattleSession({
     localBoss = boss ?? localBoss;
     visible = true;
     publish();
+    schedulePoll();
   }
   async function open(
     boss,
@@ -314,6 +361,7 @@ export function createRemoteBattleSession({
   function close() {
     visible = false;
     publish();
+    schedulePoll();
   }
   function reset() {
     disconnect();
@@ -381,6 +429,7 @@ export function createRemoteBattleSession({
     close: () => {
       pvpVisible = false;
       publish();
+      schedulePoll();
     },
     refresh: () => send("pvp.refresh"),
   };
@@ -413,7 +462,8 @@ export function createRemoteBattleSession({
       return () => workFarmListeners.delete(listener);
     },
     getSnapshot: () => workFarmSnapshot,
-    refresh: (workId) => send("work.refresh", { workId }),
+    refresh: (workId, options = {}) =>
+      send("work.refresh", { workId, ...options }),
     plan: (args) => send("work.plan", args),
     start: (args) => send("work.start", args),
     stop: () => send("work.stop"),

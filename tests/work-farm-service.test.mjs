@@ -11,6 +11,7 @@ test("account-owned work runner persists before POST, resumes without browser an
   const store = createAutomationStateStore({ directory });
   const timers = [],
     calls = [];
+  let failBag = false;
   let cycles = 4,
     progress = 1,
     energy = 10;
@@ -46,6 +47,8 @@ test("account-owned work runner persists before POST, resumes without browser an
         wallet: { dollar: 100 },
       });
     if (path === "/api/combat") return Response.json({ activeBattle: null });
+    if (path === "/api/me/bag" && failBag)
+      return new Response("bag unavailable", { status: 503 });
     if (path === "/api/me/bag")
       return Response.json({
         boosters: Object.fromEntries(
@@ -79,6 +82,10 @@ test("account-owned work runner persists before POST, resumes without browser an
     createAutomationService({
       store,
       fetcher,
+      accountHealth: () => ({
+        status: "unavailable",
+        failedFeatures: ["ornaments", "weapons"],
+      }),
       getBoss: () => null,
       getBusinessCatalogue: () => ({
         businesses: [],
@@ -116,6 +123,39 @@ test("account-owned work runner persists before POST, resumes without browser an
         args,
       });
     await command("work.refresh", { workId: 7 });
+    failBag = true;
+    await command("work.refresh", { workId: 7 });
+    const partialView = service.snapshot(entry).workFarm.view;
+    assert.equal(partialView.workId, 7);
+    assert.equal(partialView.tasks[0].progress, progress);
+    assert.equal(partialView.energy.current, energy);
+    assert.deepEqual(partialView.boosters, []);
+    assert.equal(partialView.boostersStatus, "error");
+    const mutationCount = calls.filter(
+      (path) =>
+        path.startsWith("/api/works/tasks/") || path.includes("/boosters/"),
+    ).length;
+    await assert.rejects(
+      command("work.start", {
+        workId: 7,
+        targetCycles: 5,
+        mode: "boosters",
+        maxActions: 10,
+        durationHours: 1,
+        maxBoosters: 10,
+        allowPurchase: true,
+        maxDollar: 100,
+      }),
+      (error) => error.status === 409,
+    );
+    assert.equal(
+      calls.filter(
+        (path) =>
+          path.startsWith("/api/works/tasks/") || path.includes("/boosters/"),
+      ).length,
+      mutationCount,
+    );
+    failBag = false;
     const args = {
       workId: 7,
       targetCycles: 5,
@@ -132,7 +172,9 @@ test("account-owned work runner persists before POST, resumes without browser an
     await command("work.start", args);
     await assert.rejects(
       command("auto.start", {}),
-      (error) => error.status === 409,
+      (error) =>
+        error.status === 503 &&
+        error.message === "game_unavailable_actions_paused",
     );
     await drainOne();
     assert.equal(progress, 2);

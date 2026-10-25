@@ -40,8 +40,9 @@ function requestPath(drop) {
     case "room":
       return "/api/rooms";
     case "weapon":
+      return "/api/clothing/by-category/1";
     case "pet":
-      return `/api/${drop.type === "pet" ? "pets" : "weapons"}/${id}`;
+      return "/api/clothing/by-category/9";
     case "ornament": {
       const zoneId = positiveId(drop.zoneId);
       return zoneId ? `/api/ornaments/zones/${zoneId}` : null;
@@ -65,8 +66,11 @@ function responseItems(drop, body) {
   }
   if (drop.type === "ornament")
     return Array.isArray(body.items) ? body.items : [];
-  const detail = body[drop.type];
-  return detail && typeof detail === "object" ? [detail] : [];
+  if (drop.type === "weapon" || drop.type === "pet")
+    return Array.isArray(body.items)
+      ? body.items.filter((item) => !item?.kind || item.kind === drop.type)
+      : [];
+  return [];
 }
 
 function itemId(drop, item) {

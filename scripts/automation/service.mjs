@@ -1,3 +1,4 @@
+import { workGameUnavailable } from "../../shared/game-health-features.js";
 import {
   emptyBusinessHelper,
   selectBusiness,
@@ -75,6 +76,7 @@ export function createAutomationService({
   fetcher = fetch,
   identifyPlayer,
   accountHealth = () => null,
+  snapshotFetch = fetcher,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -305,6 +307,14 @@ export function createAutomationService({
     });
     entry.workFarm = createWorkFarm({
       saved: saved?.workFarm,
+      getStash: async () => {
+        const response = await snapshotFetch(
+          "https://cargohustle.online/api/stash/sets",
+          { headers: { Authorization: entry.credential } },
+        );
+        if (!response.ok) throw new Error("stash_unavailable");
+        return response.json();
+      },
       getWork: (id) =>
         (getBusinessCatalogue().works || []).find(
           (work) => Number(work.workId ?? work.numericId ?? work.apiId) === id,
@@ -481,9 +491,11 @@ export function createAutomationService({
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
     if (
-      ["unavailable", "credentials_invalid"].includes(
-        accountHealth(entry.credential)?.status,
-      ) &&
+      (input.command === "work.start"
+        ? workGameUnavailable(accountHealth(entry.credential))
+        : ["unavailable", "credentials_invalid"].includes(
+            accountHealth(entry.credential)?.status,
+          )) &&
       [
         "start",
         "next",
@@ -583,7 +595,9 @@ export function createAutomationService({
         case "work.start":
           try {
             if (input.command === "work.refresh")
-              await entry.workFarm.refresh(args.workId);
+              await entry.workFarm.refresh(args.workId, {
+                manual: args.manual === true,
+              });
             else if (input.command === "work.plan")
               await entry.workFarm.plan(args);
             else entry.workFarm.start(args);

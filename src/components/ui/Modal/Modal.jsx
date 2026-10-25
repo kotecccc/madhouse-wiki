@@ -15,6 +15,7 @@ export function Modal({
   contentBottom,
   footer,
   footerNote,
+  footerStart,
   className = "",
   width,
   showCloseButton = true,
@@ -77,8 +78,15 @@ export function Modal({
         )}
       </div>
       {footerNote != null ? (
-        <footer className="shared-modal-footer shared-modal-footer--with-note">
-          <p className="shared-modal-footer-note">{footerNote}</p>
+        <footer
+          className={`shared-modal-footer shared-modal-footer--with-note${footerStart ? " shared-modal-footer--split" : ""}`}
+        >
+          {footerStart}
+          <p
+            className={`shared-modal-footer-note${footerStart ? " shared-modal-footer-note--center" : ""}`}
+          >
+            {footerNote}
+          </p>
           {footer || <Button onClick={onClose}>Закрыть</Button>}
         </footer>
       ) : footer ? (

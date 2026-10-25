@@ -7,6 +7,7 @@ export const bossById = indexById(kb.bosses);
 export const businessById = indexById(kb.businesses);
 export const stashSetById = indexById(kb.stashSets || []);
 const workById = indexById(kb.works);
+export const getWorkById = (id) => workById[id] ?? null;
 const businessUpgradeById = indexById(kb.businessUpgrades);
 function mergeRecords(current, incoming, index) {
   for (const record of incoming || []) {

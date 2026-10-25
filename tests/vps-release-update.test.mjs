@@ -33,6 +33,7 @@ function fixture({
   freeAfterCleanupKb = null,
   freeAfterDownloadKb = null,
   flockFailure = false,
+  notificationFailure = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "vps-release-update-test-"));
   const root = join(directory, "root");
@@ -129,6 +130,7 @@ case " ${sleepFailures.join(" ") || "-1"} " in *" $count "*) exit 1 ;; esac`,
     "docker",
     `
 printf 'docker %s\\n' "$*" >>'${log}'
+case "$*" in *release-notification.mjs*) [ '${notificationFailure}' = true ] && exit 1; exit 0 ;; esac
 action=
 for arg do
   case "$arg" in stop|up|ls|inspect|create|rm|info|load) action=$arg ;; esac
@@ -518,5 +520,47 @@ test("malformed retention marker fails before download, cleanup, or stopping", (
     assert.ok(!lifecycle(f.calls).includes("stop"));
   } finally {
     f.cleanup();
+  }
+});
+
+test("notifies once after healthy activation and notification failure cannot roll it back", () => {
+  for (const notificationFailure of [false, true]) {
+    const f = fixture({
+      notificationFailure,
+      priorPreviousSha: "c".repeat(40),
+    });
+    try {
+      assert.equal(f.run.status, 0, f.run.stderr);
+      const notifications = f.calls.filter((call) =>
+        call.includes("release-notification.mjs"),
+      );
+      assert.equal(notifications.length, 1);
+      assert.ok(
+        f.calls.indexOf(notifications[0]) >
+          f.calls.findIndex((call) => call.includes(" up ")),
+      );
+      assert.ok(f.calls.some((call) => call.includes("image rm")));
+      assert.deepEqual(lifecycle(f.calls), ["stop", "sleep 16", "up"]);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+test("does not notify on no-op, check-space, rollback or failed activation", () => {
+  for (const options of [
+    { priorSha: candidate },
+    { checkSpace: true },
+    { upFailures: [0] },
+    { stopFailures: [0] },
+  ]) {
+    const f = fixture(options);
+    try {
+      assert.ok(
+        !f.calls.some((call) => call.includes("release-notification.mjs")),
+      );
+    } finally {
+      f.cleanup();
+    }
   }
 });

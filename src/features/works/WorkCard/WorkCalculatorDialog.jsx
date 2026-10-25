@@ -1,3 +1,4 @@
+import { WorkStashCard } from "./WorkStashCard.jsx";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -38,7 +39,7 @@ export function WorkEnergyDialog({ work, energy, onClose, goalTargets = [] }) {
     <RequirementCalculatorDialog
       showCloseButton
       conditionDialog={conditionDialog}
-      title={`Фарм · ${work.title || work.name || "Работёнка"}`}
+      title={`Работа · ${work.title || work.name || "Работёнка"}`}
       intro={
         goalTargets.length
           ? goalTargets.map((target) => (
@@ -54,7 +55,15 @@ export function WorkEnergyDialog({ work, energy, onClose, goalTargets = [] }) {
             ))
           : undefined
       }
-      countControl={{ value: count, onChange: setCount, unitEnergy: energy }}
+      beforeCount={<WorkStashCard work={work} />}
+      countControl={{
+        value: count,
+        onChange: setCount,
+        unitEnergy: energy,
+        min: 1,
+        max: 1000,
+        showMaxButton: false,
+      }}
       onClose={onClose}
     />
   );
@@ -77,6 +86,7 @@ export function WorkCalculatorDialog({
     <WorkFarmDialog
       key={work.id}
       work={work}
+      energy={energy}
       goalTargets={goalTargets}
       onClose={onClose}
     />

@@ -4,6 +4,9 @@ const sameId = (entity, value) =>
     (id) => id != null && String(id) === String(value),
   );
 
+const isNonnegativeSafeInteger = (value) =>
+  Number.isSafeInteger(value) && value >= 0;
+
 /** Resolve the next locked destination to catalogue entities without name guesses. */
 export function progressionTargets({
   floors,
@@ -106,6 +109,9 @@ export function progressionTargets({
           departmentId,
           label,
           required: requirement.required,
+          ...(isNonnegativeSafeInteger(requirement.current)
+            ? { current: requirement.current }
+            : {}),
           destination: destination.code,
           ...(requirement.note ? { note: requirement.note } : {}),
           ...(requirement.verification

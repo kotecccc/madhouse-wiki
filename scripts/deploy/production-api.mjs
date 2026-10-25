@@ -149,6 +149,12 @@ export function createProductionApi(operations, fetcher = fetch) {
       request.headers.get("x-madhouse-snapshot-only") === "1"
     )
       upstreamHeaders["X-Madhouse-Snapshot-Only"] = "1";
+    if (
+      method === "GET" &&
+      path === "/api/me" &&
+      request.headers.get("x-madhouse-snapshot-refresh") === "1"
+    )
+      upstreamHeaders["X-Madhouse-Snapshot-Refresh"] = "1";
     if (body?.byteLength) upstreamHeaders["Content-Type"] = "application/json";
     if (matchingRoute.allowsDevKey) {
       const devKey = request.headers.get("x-cargohustle-dev-key");
@@ -197,6 +203,8 @@ export function createProductionApi(operations, fetcher = fetch) {
       }
       for (const name of [
         "X-Madhouse-Game-Status",
+        "X-Madhouse-Failed-Features",
+        "X-Madhouse-Successful-Features",
         "X-Madhouse-Last-Success",
         "X-Madhouse-Section-Updated",
         "X-Madhouse-Snapshot",

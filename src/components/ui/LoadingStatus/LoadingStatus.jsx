@@ -1,12 +1,12 @@
 import { CardDescription } from "../CardDescription/CardDescription.jsx";
 import "./LoadingStatus.css";
 
-export function LoadingStatus({ children }) {
+export function LoadingStatus({ children, as: Tag = "div" }) {
   return (
-    <div className="ui-loading-status" role="status" aria-live="polite">
+    <Tag className="ui-loading-status" role="status" aria-live="polite">
       <CardDescription as="span" size="md">
         {children}
       </CardDescription>
-    </div>
+    </Tag>
   );
 }

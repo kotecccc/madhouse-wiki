@@ -111,6 +111,7 @@ export function createProxy(fetcher = fetch) {
       "content-type",
       "x-madhouse-allow-mutations",
       "x-madhouse-snapshot-only",
+      "x-madhouse-snapshot-refresh",
       "x-cargohustle-dev-key",
     ]) {
       const value = request.headers?.[name];

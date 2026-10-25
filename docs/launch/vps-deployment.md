@@ -66,6 +66,18 @@ release, loading an image or stopping/starting containers. This is an operationa
 maintenance command and can delete eligible image tags; it is not a read-only
 check. The normal no-op when the latest SHA is already active remains quiet.
 
+## Release notification
+
+After a new release passes Compose startup checks, the updater runs
+`scripts/deploy/release-notification.mjs` inside the Wiki container. It verifies
+that Wiki and connector health endpoints both report the activated source SHA,
+then sends one Telegram message to the existing `WIKI_ADMIN_TELEGRAM_ID` using
+`TELEGRAM_BOT_TOKEN`. The message confirms service availability, not upstream game
+API functionality. No message is sent for an unchanged release, space-only check,
+or rollback. Notification failure is reported without rolling back a healthy
+release; it is not retried automatically to avoid duplicates after a lost reply.
+The host updater must be installed from the release source for this hook to run.
+
 ## Runtime layout
 
 - `wiki` serves the React build and the existing Vercel-compatible API

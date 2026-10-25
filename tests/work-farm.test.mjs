@@ -168,6 +168,35 @@ function makeHarness({
 async function refresh(harness) {
   await harness.farm.refresh(7);
 }
+
+test("manual refresh retry persists a 60 second cooldown before game I/O", async () => {
+  const h = makeHarness();
+  await h.farm.refresh(7, { manual: true });
+  const callsAfterFirst = h.calls.length;
+  const retryAt = h.farm.exportState().refreshRetryAt;
+  assert.equal(retryAt, 1_060_000);
+  await assert.rejects(
+    h.farm.refresh(7, { manual: true }),
+    /Повторное обновление доступно через 60 сек\./,
+  );
+  assert.equal(
+    h.calls.length,
+    callsAfterFirst,
+    "cooldown rejects before any game request",
+  );
+  const restored = createWorkFarm({
+    saved: h.farm.exportState(),
+    request: h.request,
+    getWork: () => ({ workId: 7 }),
+    now: () => 1_030_000,
+  });
+  await assert.rejects(
+    restored.refresh(7, { manual: true }),
+    /доступно через 30 сек\./,
+  );
+  assert.equal(h.calls.length, callsAfterFirst);
+});
+
 function start(farm, args = {}) {
   farm.start({
     workId: 7,
@@ -202,6 +231,102 @@ test("fresh partial progress and existing cycles reach a total-cycle target with
     2,
   );
   assert.equal(h.game.completedCycles, 5);
+});
+
+test("energy mode spends only the captured budget, including partial cycles, without refills or waits", async () => {
+  const h = makeHarness({
+    required: [2, 1],
+    energyCosts: [3, 1],
+    energy: 2,
+    maxEnergy: 10,
+    boosters: { small: 2, full: 2 },
+  });
+  await refresh(h);
+  const bagCallsBeforeStart = h.calls.filter(
+    (call) => call.path === "/api/me/bag",
+  ).length;
+  start(h.farm, {
+    mode: "energy",
+    targetCycles: 100,
+    maxActions: 10,
+    maxBoosters: 8,
+    maxDollar: 100,
+    allowPurchase: true,
+  });
+  assert.equal(h.farm.getSnapshot().run.energyBudget, 2);
+  assert.equal(h.farm.getSnapshot().run.config.energyBudget, 2);
+  await h.fireNext({ advance: false });
+  assert.equal(
+    h.game.tasks[1].progress,
+    1,
+    "chooses the affordable task in task order",
+  );
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.energySpent, 1);
+  assert.equal(h.game.completedCycles, 0, "does not require a complete cycle");
+  assert.equal(
+    h.calls.filter((call) => call.path.startsWith("/api/me/bag/boosters/"))
+      .length,
+    0,
+  );
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/me/bag").length,
+    bagCallsBeforeStart,
+  );
+});
+
+test("energy regeneration cannot expand the initial energy budget", async () => {
+  const h = makeHarness({
+    required: [3],
+    energyCosts: [2],
+    energy: 3,
+    maxEnergy: 10,
+  });
+  await refresh(h);
+  start(h.farm, { mode: "energy", targetCycles: 1, maxActions: 10 });
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.getSnapshot().run.energySpent, 2);
+  h.game.energy.current = 10;
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.energySpent, 2);
+  assert.equal(h.game.tasks[0].progress, 1);
+});
+
+test("energy mode keeps the uncertain mutation checkpoint and does not replay it", async () => {
+  const h = makeHarness({
+    required: [2],
+    energyCosts: [2],
+    energy: 4,
+    losePerformReply: true,
+  });
+  await refresh(h);
+  start(h.farm, { mode: "energy", targetCycles: 10 });
+  await h.fireNext({ advance: false });
+  const saved = structuredClone(h.farm.exportState());
+  assert.equal(saved.run.status, "error");
+  assert.equal(saved.run.pending.kind, "performing");
+  assert.equal(saved.run.energyBudget, 4);
+  assert.equal(saved.run.energySpent, 0);
+  const restored = createWorkFarm({
+    saved,
+    request: h.request,
+    getWork: () => ({ workId: 7 }),
+    schedule: () => null,
+    cancel: () => {},
+  });
+  restored.resume();
+  await h.flush();
+  assert.equal(restored.getSnapshot().run.status, "error");
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
 });
 
 test("booster use and purchase are verified against inventory and wallet within limits", async () => {
@@ -361,4 +486,18 @@ test("duration deadline and action cap terminate without extra mutations", async
       .length,
     1,
   );
+});
+
+test("energy mode clamps its budget to fresh energy before the first action", async () => {
+  const h = makeHarness({ required: [10], energy: 5, maxEnergy: 10 });
+  await refresh(h);
+  start(h.farm, { mode: "energy" });
+  h.game.energy.current = 2;
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.getSnapshot().run.energyBudget, 2);
+  h.game.energy.current = 10;
+  for (let index = 0; index < 5 && h.farm.running(); index++)
+    await h.fireNext({ advance: false });
+  assert.equal(h.farm.getSnapshot().run.energySpent, 2);
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
 });

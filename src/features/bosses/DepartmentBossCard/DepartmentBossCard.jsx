@@ -1,6 +1,7 @@
+import { remainingBossWins } from "./boss-target-status.js";
+import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { BossCollectionStatus } from "../collection/BossCollectionStatus.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
-import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { bossLevelStatus } from "./boss-level-status.js";
 import "./DepartmentBossCard.css";
 import { departmentById } from "../../../model/knowledge-base.js";
@@ -18,6 +19,7 @@ export function DepartmentBossCard({
   locked = false,
 }) {
   const levelStatus = bossLevelStatus(boss, playerLevel);
+  const remainingWins = remainingBossWins(goalTargets);
   return (
     <CardEditScope scope={`boss:${boss.id}`}>
       <BossCardVariant
@@ -43,33 +45,35 @@ export function DepartmentBossCard({
         mobileBattleAction
         mobileBattleStatus
         collectionIndicator={
-          collectionState && collectionState.status !== "idle" ? (
-            <BossCollectionStatus boss={boss} state={collectionState} />
+          !locked ? (
+            <>
+              {targeted && remainingWins > 0 && (
+                <Pill
+                  variant="warning"
+                  size="xs"
+                  dot={false}
+                  title={`Осталось побед для задания: ${remainingWins}`}
+                  aria-label={`Осталось побед для задания: ${remainingWins}`}
+                >
+                  <Icon type="combat" size="medium" />
+                  {remainingWins}
+                </Pill>
+              )}
+              {collectionState && collectionState.status !== "idle" && (
+                <BossCollectionStatus boss={boss} state={collectionState} />
+              )}
+            </>
           ) : null
         }
         as="li"
         variant="floor-data"
         className="floor-block-boss-card"
       >
-        {levelStatus && (
+        {levelStatus?.kind === "underlevel" && (
           <div className="boss-level-status">
-            <Pill
-              variant={levelStatus.kind === "underlevel" ? "locked" : "warning"}
-              size="xs"
-              dot={false}
-            >
-              {levelStatus.kind === "underlevel"
-                ? `Нужен ${levelStatus.level} уровень`
-                : "Переросли"}
+            <Pill variant="locked" size="xs" dot={false}>
+              Нужен {levelStatus.level} уровень
             </Pill>
-            {levelStatus.kind === "overlevel" && (
-              <CardDescription
-                size="2xs"
-                title={`Ваш уровень ${playerLevel} выше указанного предела награды: ${levelStatus.level}. Предметные трофеи показаны отдельно.`}
-              >
-                Предел награды: {levelStatus.level} ур. · ваш: {playerLevel}
-              </CardDescription>
-            )}
           </div>
         )}
         {children}

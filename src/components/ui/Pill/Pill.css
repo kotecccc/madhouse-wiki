@@ -44,8 +44,9 @@
 
 .ui-pill--scheduled,
 .ui-pill--unknown {
-  color: var(--status-scheduled);
-  background: color-mix(in srgb, var(--status-scheduled) 8%, transparent);
+  color: var(--text-secondary);
+  border-color: var(--card-border);
+  background: var(--navigation-tab-active-background);
 }
 
 .ui-pill--active {

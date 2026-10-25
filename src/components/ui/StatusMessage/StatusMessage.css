@@ -1,4 +1,8 @@
 .status-message {
+  min-width: 0;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
   display: grid;
   justify-items: center;
   gap: var(--space-16);
@@ -15,6 +19,8 @@
 }
 
 .status-message__content {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 100%;
   display: grid;
   justify-items: center;
   gap: var(--space-8);
