@@ -931,10 +931,13 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         createElement(BossBattlePanel, {
           state: { ...battleState, ...patch },
           now,
+          departmentCode: "F1",
         }),
       );
     const preview = panel();
     assert.ok(preview.includes("Начать бой"));
+    assert.ok(preview.includes("F1 •"));
+    assert.ok(!preview.includes("Подготовка"));
     assert.ok(!preview.includes('role="progressbar"'));
     const activeBattle = normalizeBattle(
       {
@@ -1008,7 +1011,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         }),
       );
     const settingsHtml = settingsPanel();
-    assert.ok(settingsHtml.includes('aria-label="Настройки автобоя"'));
+    assert.ok(settingsHtml.includes('aria-label="Автобой"'));
+    assert.ok(settingsHtml.includes(">Автобой</h3>"));
+    assert.ok(settingsHtml.includes("input-wrap--none"));
+    assert.ok(settingsHtml.includes("select-field--none"));
     assert.ok(settingsHtml.includes('aria-label="Режим автобоя"'));
     assert.equal((settingsHtml.match(/role="radio"/g) || []).length, 3);
     assert.ok(settingsHtml.includes('value="53"'));

@@ -5,7 +5,6 @@ import { CardDescription } from "../../../components/ui/CardDescription/CardDesc
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Disclosure } from "../../../components/ui/Disclosure/Disclosure.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
-import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { BossPortrait } from "../BossPortrait/BossPortrait.jsx";
 import { canAttackBattle, battleActionHint } from "./boss-battle-controller.js";
@@ -59,6 +58,7 @@ export function BossBattlePanel({
   now,
   onStart,
   startBlocked = false,
+  departmentCode,
   onAttack,
   onMedicines,
   auto = { enabled: false, nextAttackAt: null, pause: false },
@@ -69,21 +69,6 @@ export function BossBattlePanel({
     ? Math.max(0, Math.ceil((battle.readyAt - now) / 1000))
     : 0;
   const expired = battle?.expiresAt != null && battle.expiresAt <= now;
-  const status =
-    battle?.outcome ||
-    (battle?.status === "active"
-      ? expired
-        ? "Время истекло"
-        : "Идёт"
-      : battle
-        ? "Статус уточняется"
-        : "Подготовка");
-  const pillVariant =
-    battle?.status === "won"
-      ? "completed"
-      : battle?.status === "active" && !expired
-        ? "active"
-        : "scheduled";
   const stockKnown =
     Array.isArray(state.medicines) &&
     state.medicines.length > 0 &&
@@ -102,26 +87,17 @@ export function BossBattlePanel({
         <BossPortrait src={reference.image} alt={boss.name} />
         <div className="boss-battle-panel-copy">
           <div className="boss-battle-panel-row">
-            <CardTitle as="h3" size="lg" title={boss.name}>
-              {boss.name}
-            </CardTitle>
-            <Pill
-              variant={pillVariant}
-              size="xs"
-              dot={false}
-              title={
-                countdown !== null
-                  ? `До окончания боя: ${countdown}`
-                  : undefined
-              }
+            <CardTitle
+              as="h3"
+              size="lg"
+              title={[departmentCode, boss.name].filter(Boolean).join(" • ")}
             >
-              {status}
-              {countdown !== null ? ` · ${countdown}` : ""}
-            </Pill>
+              {[departmentCode, boss.name].filter(Boolean).join(" • ")}
+            </CardTitle>
           </div>
           {(reference.requiredLevel != null ||
             (reference.damageMin != null && reference.damageMax != null)) && (
-            <CardDescription>
+            <CardDescription size="xs">
               {[
                 reference.requiredLevel != null
                   ? `Уровень ${fmt(reference.requiredLevel)}${reference.rewardUntilLevel != null ? `–${fmt(reference.rewardUntilLevel)}` : "+"}`
@@ -135,7 +111,9 @@ export function BossBattlePanel({
             </CardDescription>
           )}
           {!battle && reference.maxHp != null && (
-            <CardDescription>Здоровье {fmt(reference.maxHp)}</CardDescription>
+            <CardDescription size="xs">
+              Здоровье {fmt(reference.maxHp)}
+            </CardDescription>
           )}
           <div className="boss-battle-panel-rewards">
             {[
@@ -146,6 +124,7 @@ export function BossBattlePanel({
               ([key, icon, label]) =>
                 reference.rewardPreview?.[key] != null && (
                   <CardDescription
+                    size="xs"
                     key={key}
                     className="boss-battle-panel-reward"
                     title={`${label}: ${fmt(reference.rewardPreview[key])}`}
@@ -158,6 +137,11 @@ export function BossBattlePanel({
           </div>
         </div>
       </div>
+      {countdown !== null && (
+        <CardDescription size="xs">
+          До окончания боя: {countdown}
+        </CardDescription>
+      )}
       {battle && (
         <>
           <Health

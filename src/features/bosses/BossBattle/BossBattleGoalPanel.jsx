@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { NumberField } from "../../../components/ui/NumberField/NumberField.jsx";
 import { SelectField } from "../../../components/ui/SelectField/SelectField.jsx";
@@ -61,7 +62,8 @@ export function BossBattleGoalPanel({
       );
   };
   return (
-    <BaseCard className="boss-battle-goal-panel" aria-label="Настройки автобоя">
+    <BaseCard className="boss-battle-goal-panel" aria-label="Автобой">
+      <CardTitle as="h3">Автобой</CardTitle>
       <SegmentedControl
         label="Режим автобоя"
         value={settings.kind}
@@ -72,27 +74,30 @@ export function BossBattleGoalPanel({
         onChange={(kind) => update({ kind })}
       />
       {settings.kind !== "drops" && (
-        <NumberField
-          id={`${id}-count`}
-          label={
-            settings.kind === "business_items"
-              ? "Количество предметов"
-              : settings.countWins
-                ? "Количество побед"
-                : "Количество боёв"
-          }
-          suffix={
-            settings.kind === "business_items"
-              ? "шт."
-              : settings.countWins
-                ? "побед"
-                : "боёв"
-          }
-          min="1"
-          value={settings.target}
-          disabled={busy}
-          onChange={(event) => update({ target: event.target.value })}
-        />
+        <div>
+          <NumberField
+            id={`${id}-count`}
+            label={
+              settings.kind === "business_items"
+                ? "Количество предметов"
+                : settings.countWins
+                  ? "Количество побед"
+                  : "Количество боёв"
+            }
+            suffix={
+              settings.kind === "business_items"
+                ? "шт."
+                : settings.countWins
+                  ? "побед"
+                  : "боёв"
+            }
+            min="1"
+            value={settings.target}
+            disabled={busy}
+            spacing="none"
+            onChange={(event) => update({ target: event.target.value })}
+          />
+        </div>
       )}
       {settings.kind === "drops" && (
         <>
@@ -136,24 +141,27 @@ export function BossBattleGoalPanel({
           )}
         </>
       )}
-      <SelectField
-        id={`${id}-hours`}
-        label="Сколько ходить"
-        value={settings.hours}
-        disabled={busy}
-        options={[1, 2, 4]
-          .map((hours) => ({
-            id: String(hours),
-            value: String(hours),
-            label: `${hours} ч`,
-          }))
-          .concat({
-            id: "infinite",
-            value: "infinite",
-            label: "Без ограничения",
-          })}
-        onChange={(event) => update({ hours: event.target.value })}
-      />
+      <div>
+        <SelectField
+          id={`${id}-hours`}
+          label="Сколько ходить"
+          value={settings.hours}
+          disabled={busy}
+          spacing="none"
+          options={[1, 2, 4]
+            .map((hours) => ({
+              id: String(hours),
+              value: String(hours),
+              label: `${hours} ч`,
+            }))
+            .concat({
+              id: "infinite",
+              value: "infinite",
+              label: "Без ограничения",
+            })}
+          onChange={(event) => update({ hours: event.target.value })}
+        />
+      </div>
       {!config && (
         <CardDescription role="alert">
           Проверьте количество и доступный дроп.

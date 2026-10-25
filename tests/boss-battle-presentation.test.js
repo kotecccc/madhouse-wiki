@@ -49,7 +49,7 @@ test("equal event copies skip rendering while changed and new events stay observ
   );
 });
 
-test("static battle markup keeps countdown inside status and separates journal damage", async () => {
+test("static battle markup separates countdown from the header and journal damage", async () => {
   const cacheDir = mkdtempSync(join(tmpdir(), "madhouse-battle-presentation-"));
   const server = await createServer({
     configFile: false,
@@ -228,7 +228,7 @@ test("static battle markup keeps countdown inside status and separates journal d
     );
     assert.match(
       panel,
-      /ui-pill[^>]*title="До окончания боя: 00:30"[^>]*>Идёт · 00:30<\/span>/,
+      /card-description--xs[^>]*>До окончания боя: 00:30<\/span>/,
     );
     const finished = renderToStaticMarkup(
       createElement(BossBattlePanel, {

@@ -15,6 +15,7 @@ import { BossMedicinePanel } from "./BossMedicinePanel.jsx";
 import { BossBattleErrorBanner } from "./BossBattleErrorBanner.jsx";
 import { isTerminalBossBattle } from "./boss-battle-status.js";
 import { battleActionHint } from "./boss-battle-controller.js";
+import { bossById, departmentById } from "../../../model/knowledge-base.js";
 import {
   bossBattle,
   bossBattleAuto,
@@ -100,6 +101,10 @@ export function BossBattleDialog() {
   }, [needsDetails]);
   if (!state.visible || !state.boss) return null;
   const battle = state.battle;
+  const catalogueBoss = Object.values(bossById).find(
+    (boss) => Number(boss.numericId ?? boss.apiId) === Number(state.boss.id),
+  );
+  const departmentCode = departmentById[catalogueBoss?.departmentId]?.code;
   const actionHint = battleActionHint(state);
   const goalPanel = (
     <BossBattleGoalPanel
@@ -115,6 +120,7 @@ export function BossBattleDialog() {
     <Modal
       title={`Бой: ${state.boss.name}`}
       width="var(--page-max-width)"
+      contentVariant="inset"
       onClose={bossBattle.close}
       footer={
         <div className="boss-battle-actions">
@@ -157,9 +163,9 @@ export function BossBattleDialog() {
       <BossBattleErrorBanner state={state} />
       <div className="boss-battle-layout">
         <div className="boss-battle-column">
-          {goalPanel}
           <BossBattlePanel
             state={state}
+            departmentCode={departmentCode}
             startBlocked={Boolean(goal && !bossBattleGoal.canStart())}
             now={Math.max(now, Date.now())}
             onStart={() => void bossBattle.start()}
@@ -174,6 +180,7 @@ export function BossBattleDialog() {
                 : void bossBattle.openMedicines()
             }
           />
+          {goalPanel}
           {state.medicineOpen && (
             <BossMedicinePanel state={state} now={Math.max(now, Date.now())} />
           )}
