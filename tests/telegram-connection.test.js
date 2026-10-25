@@ -127,23 +127,39 @@ test("a deferred getMe cannot restore connected state after logout", async () =>
 test("cancelled signIn is allowed to settle, then its late grant is revoked", async () => {
   let release;
   const events = [];
+  const phone = "+12025550123";
   const conn = createConnection({
     createClient: () =>
       client({
-        signIn: () =>
-          new Promise((resolve) => {
-            release = () => {
-              events.push("granted");
-              resolve({ id: 42 });
+        getApiCredentials: async () => ({ id: 42, hash: "test-api-hash" }),
+        call: async (request) => {
+          if (request._ === "auth.sendCode")
+            return {
+              _: "auth.sentCode",
+              phoneCodeHash: "test-hash",
+              timeout: 0,
+              nextType: { _: "auth.codeTypeSms" },
+              type: { _: "auth.sentCodeTypeSms", length: 6 },
             };
-          }),
+          if (request._ === "auth.signIn")
+            return new Promise((resolve) => {
+              release = () =>
+                resolve({ _: "auth.authorization", user: { id: 42 } });
+            });
+          throw new Error("unexpected auth method");
+        },
+        notifyLoggedIn: async () => {
+          events.push("granted");
+          return { id: 42 };
+        },
         logOut: async () => {
           events.push("revoked");
         },
       }),
     exchange: async () => "never",
   });
-  const signing = conn.signIn("test-phone", "test-hash", "test-code");
+  const sent = await conn.phoneCode(phone);
+  const signing = conn.signIn(phone, sent.challenge, "123456");
   const rejected = assert.rejects(signing, /cancelled/);
   while (!release) await new Promise((resolve) => setImmediate(resolve));
   const revoking = conn.logout();
@@ -627,9 +643,20 @@ test("restoring a QR session waiting for 2FA resumes password entry before game 
           if (needsPassword) throw { text: "SESSION_PASSWORD_NEEDED" };
           return { id: 42 };
         },
-        checkPassword: async (value) => {
+        call: async (request) => {
+          if (request._ === "account.getPassword")
+            return { _: "account.password" };
+          if (request._ === "auth.checkPassword")
+            return { _: "auth.authorization", user: { id: 42 } };
+          throw new Error("unexpected auth method");
+        },
+        computeSrpParams: async (_info, value) => {
           assert.equal(value, "private-test-password");
+          return { _: "inputCheckPasswordSRP" };
+        },
+        notifyLoggedIn: async () => {
           needsPassword = false;
+          return { id: 42 };
         },
         openWebview: async () => {
           launches++;
@@ -661,8 +688,17 @@ test("2FA recovery still rejects the wrong account after password verification",
           if (needsPassword) throw { text: "SESSION_PASSWORD_NEEDED" };
           return { id: 99 };
         },
-        checkPassword: async () => {
+        call: async (request) => {
+          if (request._ === "account.getPassword")
+            return { _: "account.password" };
+          if (request._ === "auth.checkPassword")
+            return { _: "auth.authorization", user: { id: 99 } };
+          throw new Error("unexpected auth method");
+        },
+        computeSrpParams: async () => ({ _: "inputCheckPasswordSRP" }),
+        notifyLoggedIn: async () => {
           needsPassword = false;
+          return { id: 99 };
         },
       }),
     exchange: async () => {

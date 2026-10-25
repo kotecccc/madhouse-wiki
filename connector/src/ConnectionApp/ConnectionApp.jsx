@@ -1,8 +1,11 @@
-import { OtpCodeInput } from "../OtpCodeInput/OtpCodeInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../src/components/ui/Button/Button.jsx";
+import { FieldLabel } from "../../../src/components/ui/FieldLabel/FieldLabel.jsx";
+import { Input } from "../../../src/components/ui/Input/Input.jsx";
 import { LoadingStatus } from "../../../src/components/ui/LoadingStatus/LoadingStatus.jsx";
+import { Title } from "../../../src/components/ui/Title/Title.jsx";
 import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
+import { normalizePhoneNumber } from "../../phone-auth.js";
 import { createConnection } from "../../session.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
@@ -36,16 +39,30 @@ function levelProgressFields(value) {
 }
 
 const messages = {
+  AUTH_FAILED: "Не удалось выполнить вход. Попробуйте ещё раз или выберите QR.",
   PHONE_NUMBER_INVALID: "Проверьте номер телефона.",
-  PHONE_NUMBER_FLOOD:
-    "Telegram временно ограничил запросы для этого номера. Попробуйте позже.",
-  PHONE_CODE_FLOOD:
-    "Telegram временно ограничил запросы кода. Попробуйте позже.",
-  PHONE_NUMBER_BANNED: "Telegram временно не разрешает вход для этого номера.",
   PHONE_CODE_INVALID: "Неверный код Telegram.",
   PHONE_CODE_EXPIRED: "Код истёк. Начните вход заново.",
+  PHONE_CODE_EMPTY: "Введите код Telegram.",
+  PHONE_CODE_FLOOD:
+    "Telegram ограничил проверку кода. Попробуйте позже или выберите QR.",
+  PHONE_NUMBER_BANNED:
+    "Telegram не разрешил вход для этого номера. Попробуйте QR.",
+  PHONE_NUMBER_FLOOD:
+    "Telegram ограничил запросы для этого номера. Попробуйте позже или выберите QR.",
+  PHONE_NUMBER_UNOCCUPIED:
+    "Этот номер не привязан к существующему аккаунту Telegram.",
+  PHONE_NUMBER_APP_SIGNUP_FORBIDDEN:
+    "Создание аккаунта по номеру здесь недоступно. Используйте существующий аккаунт Telegram.",
   PASSWORD_HASH_INVALID: "Неверный пароль.",
+  SRP_ID_INVALID: "Шаг двухэтапной защиты устарел. Начните вход заново.",
   API_ID_INVALID: "Подключение временно недоступно.",
+  API_ID_PUBLISHED_FLOOD: "Подключение временно ограничено Telegram.",
+  SMS_CODE_CREATE_FAILED:
+    "Telegram не смог подготовить код. Попробуйте позже или выберите QR.",
+  PAYMENT_REQUIRED:
+    "Telegram требует предварительный вход через официальный клиент.",
+  RESEND_UNAVAILABLE: "Telegram не предложил другой способ для этого запроса.",
   telegram_unavailable: "Не удалось соединиться с Telegram.",
   game_auth_rejected: "Игра не приняла вход. Попробуйте подключиться заново.",
   game_unavailable: "Игра сейчас недоступна.",
@@ -59,103 +76,52 @@ const messages = {
 };
 const PENDING_LOGIN_PREFIX = "madhouse-wiki.pending-telegram-login:";
 const PENDING_LOGIN_TTL = 10 * 60 * 1000;
-const CODE_DELIVERY_TYPES = new Set([
+const pendingDeliveryTypes = new Set([
   "app",
-  "sms",
   "call",
-  "flash_call",
-  "missed_call",
   "email",
   "email_required",
-  "fragment",
   "firebase",
-  "sms_word",
+  "flash_call",
+  "fragment",
+  "missed_call",
+  "sms",
   "sms_phrase",
+  "sms_word",
   "unknown",
 ]);
-const NEXT_CODE_DELIVERY_TYPES = new Set([
-  "sms",
+const pendingNextTypes = new Set([
   "call",
   "flash_call",
-  "missed_call",
   "fragment",
+  "missed_call",
+  "sms",
 ]);
+const deliveryLabels = {
+  app: "сообщение Telegram",
+  call: "звонок",
+  email: "электронная почта",
+  email_required: "настройка адреса электронной почты",
+  firebase: "SMS с системной проверкой",
+  flash_call: "проверка по звонку",
+  fragment: "Fragment",
+  missed_call: "пропущенный звонок",
+  sms: "SMS",
+  sms_phrase: "фраза в SMS",
+  sms_word: "слово в SMS",
+  unknown: "способ, выбранный Telegram",
+};
 
-function normalizeCodeLength(value) {
-  return Number.isSafeInteger(value) && value >= 4 && value <= 9 ? value : 5;
+function deliveryLabel(type) {
+  return deliveryLabels[type] || deliveryLabels.unknown;
 }
 
-function normalizeDeliveryType(value) {
-  return CODE_DELIVERY_TYPES.has(value) ? value : "unknown";
-}
-
-function normalizeNextDeliveryType(value) {
-  return NEXT_CODE_DELIVERY_TYPES.has(value) ? value : "none";
-}
-
-function normalizeResendAvailableAt(value) {
-  return Number.isSafeInteger(value) &&
-    value >= Date.now() - PENDING_LOGIN_TTL &&
-    value <= Date.now() + 86400 * 1000
-    ? value
-    : 0;
-}
-
-function nextDeliveryLabel(deliveryType) {
-  switch (deliveryType) {
-    case "sms":
-      return "SMS";
-    case "call":
-      return "автоматический звонок";
-    case "flash_call":
-    case "missed_call":
-      return "звонок";
-    case "fragment":
-      return "код через Fragment";
-    default:
-      return "другой способ";
+function waitLabel(seconds) {
+  if (seconds >= 60) {
+    const minutes = Math.ceil(seconds / 60);
+    return `${minutes} мин.`;
   }
-}
-
-function sendCodeErrorMessage(error) {
-  const code = error?.text || error?.message;
-  const floodWait = typeof code === "string" && /^FLOOD_WAIT_\d+$/.exec(code);
-  if (floodWait) {
-    const seconds = Number(code.slice("FLOOD_WAIT_".length));
-    return seconds < 60
-      ? `Telegram просит подождать ${seconds} секунд перед новой попыткой.`
-      : `Telegram просит подождать ${Math.ceil(seconds / 60)} минут перед новой попыткой.`;
-  }
-  return (
-    messages[code] || "Не удалось завершить подключение. Повторите попытку."
-  );
-}
-
-function codeDeliveryInstructions(deliveryType) {
-  switch (deliveryType) {
-    case "app":
-      return "Проверьте служебный чат Telegram на устройстве, где открыт аккаунт этого номера. Код приходит от Telegram, не от бота.";
-    case "sms":
-      return "Проверьте SMS на указанном номере. В этом случае код может не появиться в чате Telegram.";
-    case "call":
-      return "Ожидайте автоматический звонок на указанный номер: Telegram продиктует код.";
-    case "flash_call":
-    case "missed_call":
-      return "Проверьте входящий или пропущенный звонок на этом номере и следуйте подсказке Telegram.";
-    case "email":
-      return "Проверьте адрес электронной почты, привязанный к аккаунту Telegram.";
-    case "email_required":
-      return "Telegram требует настроить почту для входа. Завершите настройку в официальном приложении Telegram, затем повторите попытку.";
-    case "fragment":
-      return "Telegram использует Fragment для доставки кода. Следуйте подсказке Telegram для этого номера.";
-    case "firebase":
-      return "Проверьте SMS на указанном номере и следуйте дальнейшим подсказкам Telegram.";
-    case "sms_word":
-    case "sms_phrase":
-      return "Проверьте SMS: вместо цифр Telegram мог прислать слово или фразу.";
-    default:
-      return "Проверьте служебный чат Telegram, SMS и другие способы доставки, которые предлагает Telegram.";
-  }
+  return `${seconds} сек.`;
 }
 
 function pendingLoginKey(expectedUserId) {
@@ -180,16 +146,32 @@ function readPendingLogin(expectedUserId) {
       Number.isFinite(pending.expiresAt) &&
       pending.expiresAt > Date.now() &&
       pending.expiresAt <= Date.now() + PENDING_LOGIN_TTL + 60000;
-    if (valid)
+    if (valid) {
+      const timeout =
+        Number.isSafeInteger(pending.timeout) && pending.timeout >= 0
+          ? Math.min(pending.timeout, 365 * 24 * 60 * 60)
+          : 0;
       return {
         ...pending,
-        codeLength: normalizeCodeLength(pending.codeLength),
-        deliveryType: normalizeDeliveryType(pending.deliveryType),
-        nextDeliveryType: normalizeNextDeliveryType(pending.nextDeliveryType),
-        resendAvailableAt: normalizeResendAvailableAt(
-          pending.resendAvailableAt,
-        ),
+        challenge: {
+          phoneCodeHash: pending.phoneCodeHash,
+          type: pendingDeliveryTypes.has(pending.type)
+            ? pending.type
+            : "unknown",
+          nextType: pendingNextTypes.has(pending.nextType)
+            ? pending.nextType
+            : "none",
+          timeout,
+          resendAt: Number.isFinite(pending.resendAt)
+            ? pending.resendAt
+            : Date.now(),
+          length:
+            Number.isSafeInteger(pending.length) && pending.length > 0
+              ? Math.min(pending.length, 64)
+              : 0,
+        },
       };
+    }
     window.localStorage.removeItem(key);
   } catch {
     /* Storage may be blocked in some WebViews. */
@@ -197,18 +179,7 @@ function readPendingLogin(expectedUserId) {
   return null;
 }
 
-function savePendingLogin(
-  expectedUserId,
-  {
-    phone,
-    phoneCodeHash,
-    stage,
-    codeLength,
-    deliveryType,
-    nextDeliveryType,
-    resendAvailableAt,
-  },
-) {
+function savePendingLogin(expectedUserId, { phone, challenge, stage }) {
   const key = pendingLoginKey(expectedUserId);
   if (!key) return false;
   try {
@@ -217,12 +188,13 @@ function savePendingLogin(
       JSON.stringify({
         userId: String(expectedUserId),
         phone,
-        phoneCodeHash,
+        phoneCodeHash: challenge.phoneCodeHash,
+        type: challenge.type,
+        nextType: challenge.nextType,
+        timeout: challenge.timeout,
+        resendAt: challenge.resendAt,
+        length: challenge.length,
         stage,
-        codeLength: normalizeCodeLength(codeLength),
-        deliveryType: normalizeDeliveryType(deliveryType),
-        nextDeliveryType: normalizeNextDeliveryType(nextDeliveryType),
-        resendAvailableAt: normalizeResendAvailableAt(resendAvailableAt),
         expiresAt: Date.now() + PENDING_LOGIN_TTL,
       }),
     );
@@ -242,14 +214,6 @@ function clearPendingLogin(expectedUserId) {
   }
 }
 
-function normalizePhone(value) {
-  const phone = String(value || "")
-    .trim()
-    .replace(/[\s().-]/g, "");
-  if (!/^\+[1-9]\d{6,14}$/.test(phone)) throw new Error("PHONE_NUMBER_INVALID");
-  return phone;
-}
-
 export function ConnectionApp() {
   const connection = useRef(null),
     currentRequest = useRef(null),
@@ -258,10 +222,6 @@ export function ConnectionApp() {
     appRef = useRef(null),
     formRef = useRef(null),
     uiActionHandler = useRef(() => {});
-  const authTrace = useRef(null);
-  const [diagnosticId, setDiagnosticId] = useState("");
-  const [diagnosticRecorded, setDiagnosticRecorded] = useState(false);
-  const [challengeRestored, setChallengeRestored] = useState(false);
   const [config, setConfig] = useState(null),
     [stage, setStage] = useState("loading");
   const [error, setError] = useState(""),
@@ -272,12 +232,10 @@ export function ConnectionApp() {
   const [phone, setPhone] = useState(""),
     [code, setCode] = useState(""),
     [password, setPassword] = useState("");
-  const [codeLength, setCodeLength] = useState(5),
-    [codeDeliveryType, setCodeDeliveryType] = useState("unknown"),
-    [nextCodeDeliveryType, setNextCodeDeliveryType] = useState("none"),
-    [resendAvailableAt, setResendAvailableAt] = useState(0),
-    [resendClock, setResendClock] = useState(() => Date.now());
-  const phoneHash = useRef(null),
+  const [delivery, setDelivery] = useState(null),
+    [authCooldownUntil, setAuthCooldownUntil] = useState(0),
+    [currentTime, setCurrentTime] = useState(Date.now());
+  const phoneChallenge = useRef(null),
     passwordWaiter = useRef(null);
   const reply = useCallback((request, payload, kind = "result") => {
     if (!request || currentRequest.current !== request) return;
@@ -292,17 +250,29 @@ export function ConnectionApp() {
       request.origin,
     );
   }, []);
-  const fail = useCallback(
-    (error) => setError(sendCodeErrorMessage(error) + diagnosticSuffix(error)),
-    [],
-  );
+  const fail = useCallback((error) => {
+    const code = error?.text || error?.message;
+    const waitSeconds = Math.max(0, Math.ceil(error?.waitSeconds || 0));
+    const message =
+      code === "FLOOD_WAIT"
+        ? waitSeconds > 0
+          ? `Telegram просит подождать ${waitSeconds} сек. перед следующей попыткой.`
+          : "Telegram временно ограничил запросы. Попробуйте позже."
+        : code === "RESEND_WAIT"
+          ? `Подождите ещё ${waitSeconds} сек. перед запросом следующего способа.`
+          : messages[code] ||
+            "Не удалось завершить подключение. Повторите попытку.";
+    setError(message + diagnosticSuffix(error));
+  }, []);
   const run = useCallback(
-    async (operation, { keepCodeStep = false } = {}) => {
+    async (operation, { abortable = false } = {}) => {
       const request = currentRequest.current;
+      const controller = abortable ? new AbortController() : null;
+      if (controller) loginAbort.current = controller;
       setBusy(true);
       setError("");
       try {
-        await operation();
+        await operation(controller?.signal);
       } catch (error) {
         const errorCode = error?.text || error?.message;
         if (
@@ -311,45 +281,72 @@ export function ConnectionApp() {
           currentRequest.current === request
         ) {
           fail(error);
+          if (["FLOOD_WAIT", "RESEND_WAIT"].includes(errorCode))
+            setAuthCooldownUntil(
+              Date.now() + Math.max(0, error.waitSeconds || 0) * 1000,
+            );
           if (errorCode === "PHONE_CODE_EXPIRED") {
             clearPendingLogin(request?.data.expectedUserId);
-            phoneHash.current = null;
+            connection.current?.discardPhoneAuth();
+            phoneChallenge.current = null;
+            setDelivery(null);
             setCode("");
-            setNextCodeDeliveryType("none");
-            setResendAvailableAt(0);
             setStage("phone");
           } else if (errorCode === "PHONE_NUMBER_INVALID") {
-            setNextCodeDeliveryType("none");
-            setResendAvailableAt(0);
             setStage("phone");
-          } else if (keepCodeStep) {
-            const floodWait =
-              typeof errorCode === "string" &&
-              /^FLOOD_WAIT_(\d+)$/.exec(errorCode);
-            if (floodWait) {
-              const resendAt = Date.now() + Number(floodWait[1]) * 1000;
-              setResendAvailableAt(resendAt);
-              setResendClock(Date.now());
-              const pending = readPendingLogin(request?.data.expectedUserId);
-              if (pending?.stage === "code")
-                savePendingLogin(request.data.expectedUserId, {
-                  ...pending,
-                  resendAvailableAt: resendAt,
-                });
-            }
           } else if (
-            !["PHONE_CODE_INVALID", "PASSWORD_HASH_INVALID"].includes(errorCode)
+            [
+              "PHONE_CODE_FLOOD",
+              "PHONE_NUMBER_FLOOD",
+              "PHONE_NUMBER_BANNED",
+            ].includes(errorCode)
           ) {
+            clearPendingLogin(request?.data.expectedUserId);
+            connection.current?.discardPhoneAuth();
+            phoneChallenge.current = null;
+            setDelivery(null);
+            setCode("");
+            setStage("retry");
+            reply(request, { status: "failed" });
+          } else if (
+            [
+              "PHONE_CODE_INVALID",
+              "PHONE_CODE_EMPTY",
+              "PASSWORD_HASH_INVALID",
+              "FLOOD_WAIT",
+              "RESEND_WAIT",
+            ].includes(errorCode)
+          ) {
+            // Keep the current form open for an explicit user retry.
+          } else if (errorCode !== "RESEND_UNAVAILABLE") {
             setStage("retry");
             reply(request, { status: "failed" });
           }
         }
       } finally {
+        if (controller && loginAbort.current === controller)
+          loginAbort.current = null;
         if (currentRequest.current === request) setBusy(false);
       }
     },
     [fail, reply],
   );
+  useEffect(() => {
+    const resendDeadline =
+      delivery?.nextType && delivery.nextType !== "none"
+        ? delivery.resendAt
+        : 0;
+    const deadline = Math.max(authCooldownUntil, resendDeadline || 0);
+    const current = Date.now();
+    setCurrentTime(current);
+    if (deadline <= current) return;
+    const timer = setInterval(() => {
+      const timestamp = Date.now();
+      setCurrentTime(timestamp);
+      if (timestamp >= deadline) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [authCooldownUntil, delivery?.nextType, delivery?.resendAt]);
   const accountSession = useCallback(async (request, action, extra = {}) => {
     if (!request?.data.wikiInitData) return null;
     const response = await fetch("/api/account-session", {
@@ -377,38 +374,6 @@ export function ConnectionApp() {
       };
     return data;
   }, []);
-  const beginAuthTrace = useCallback(() => {
-    setDiagnosticRecorded(false);
-    try {
-      const id = crypto.randomUUID();
-      authTrace.current = { id, sequence: 0, request: currentRequest.current };
-      setDiagnosticId(id);
-    } catch {
-      authTrace.current = null;
-      setDiagnosticId("");
-    }
-  }, []);
-  const recordAuthEvent = useCallback(
-    (event, context) => {
-      const target = context || {
-        trace: authTrace.current,
-        request: authTrace.current?.request,
-      };
-      const { trace, request } = target;
-      if (!trace || trace.sequence >= 64 || !request?.data.wikiInitData)
-        return target;
-      const diagnostic = { id: trace.id, sequence: ++trace.sequence, ...event };
-      // Only explicit metadata reaches this endpoint; never pass a raw RPC/error.
-      void accountSession(request, "diagnostic", { diagnostic })
-        .then((result) => {
-          if (result?.status === "accepted" && authTrace.current === trace)
-            setDiagnosticRecorded(true);
-        })
-        .catch(() => {});
-      return target;
-    },
-    [accountSession],
-  );
   const disconnect = useCallback(
     async (request) => {
       // A storage/network failure must not prevent revocation of the local key.
@@ -417,6 +382,12 @@ export function ConnectionApp() {
         accountSession(request, "logout"),
       ]);
       clearPendingLogin(request?.data.expectedUserId);
+      phoneChallenge.current = null;
+      setDelivery(null);
+      setCode("");
+      setPassword("");
+      setPhone("");
+      setAuthCooldownUntil(0);
       const result =
         local.status === "fulfilled"
           ? local.value
@@ -450,9 +421,10 @@ export function ConnectionApp() {
         setPassword("");
         setPhone("");
         setQr("");
-        phoneHash.current = null;
-        setNextCodeDeliveryType("none");
-        setResendAvailableAt(0);
+        phoneChallenge.current = null;
+        setDelivery(null);
+        connection.current.discardPhoneAuth();
+        setAuthCooldownUntil(0);
         request.freshLogin = false;
         reply(request, {
           status: "connected",
@@ -475,10 +447,13 @@ export function ConnectionApp() {
       if (currentRequest.current !== request) return;
       if (result.status === "password-required") {
         clearPendingLogin(request.data.expectedUserId);
-        phoneHash.current = null;
+        connection.current.discardPhoneAuth();
+        phoneChallenge.current = null;
+        setDelivery(null);
         passwordWaiter.current = null;
         setCode("");
         setPassword("");
+        setAuthCooldownUntil(0);
         if (request.data.interactive) {
           request.freshLogin = true;
           setStage("password");
@@ -516,9 +491,10 @@ export function ConnectionApp() {
         setPassword("");
         setPhone("");
         setQr("");
-        phoneHash.current = null;
-        setNextCodeDeliveryType("none");
-        setResendAvailableAt(0);
+        phoneChallenge.current = null;
+        setDelivery(null);
+        connection.current.discardPhoneAuth();
+        setAuthCooldownUntil(0);
         request.freshLogin = false;
         reply(request, {
           status: "connected",
@@ -530,23 +506,20 @@ export function ConnectionApp() {
         });
       } else {
         const pending = readPendingLogin(request.data.expectedUserId);
-        if (pending) {
-          beginAuthTrace();
-          recordAuthEvent({
-            event: "pending-restored",
-            deliveryType: pending.deliveryType,
-            nextDeliveryType: pending.nextDeliveryType,
-          });
-          setChallengeRestored(true);
+        if (
+          pending &&
+          connection.current.resumePhoneAuth(
+            pending.phone,
+            pending.challenge,
+            request.data.expectedUserId,
+          )
+        ) {
           setPhone(pending.phone);
           setCode("");
           setPassword("");
           setQr("");
-          phoneHash.current = pending.phoneCodeHash;
-          setCodeLength(pending.codeLength);
-          setCodeDeliveryType(pending.deliveryType);
-          setNextCodeDeliveryType(pending.nextDeliveryType);
-          setResendAvailableAt(pending.resendAvailableAt);
+          phoneChallenge.current = pending.challenge;
+          setDelivery(pending.challenge);
           request.freshLogin = true;
           if (request.data.interactive) {
             setStage(pending.stage);
@@ -555,12 +528,13 @@ export function ConnectionApp() {
           reply(request, { status: "pending" });
           return;
         }
+        if (pending) clearPendingLogin(request.data.expectedUserId);
         if (request.data.interactive)
           reply(request, { status: "login-required" }, "interaction-required");
         else reply(request, { status: "login-required" });
       }
     },
-    [reply, accountSession, beginAuthTrace, recordAuthEvent],
+    [reply, accountSession],
   );
   useEffect(() => {
     let stopped = false,
@@ -579,7 +553,6 @@ export function ConnectionApp() {
         } = await import("@mtcute/web");
         if (stopped) return;
         const conn = createConnection({
-          onAuthEvent: recordAuthEvent,
           errorTypes: { MtTimeoutError, MtSecurityError, MtUnsupportedError },
           createClient: (storage) =>
             new TelegramClient({
@@ -661,9 +634,9 @@ export function ConnectionApp() {
             setCode("");
             setPassword("");
             setQr("");
-            phoneHash.current = null;
-            setNextCodeDeliveryType("none");
-            setResendAvailableAt(0);
+            conn.discardPhoneAuth();
+            phoneChallenge.current = null;
+            setDelivery(null);
             passwordWaiter.current = null;
             setHostedControls(false);
             return;
@@ -721,7 +694,7 @@ export function ConnectionApp() {
       loginAbort.current?.abort();
       connection.current?.cancel();
     };
-  }, [complete, reply, run, accountSession, disconnect, recordAuthEvent]);
+  }, [complete, reply, run, accountSession, disconnect]);
 
   const startQr = async () => {
     const request = currentRequest.current;
@@ -767,7 +740,7 @@ export function ConnectionApp() {
             { once: true },
           );
         });
-        await connection.current.password(value);
+        await connection.current.password(value, signal);
         signal.throwIfAborted();
         await complete(request);
         return;
@@ -811,13 +784,13 @@ export function ConnectionApp() {
     const request = currentRequest.current;
     if (!request?.data.interactive) return;
     if (command === "choose-phone") {
+      clearPendingLogin(request.data.expectedUserId);
+      connection.current.discardPhoneAuth();
+      phoneChallenge.current = null;
+      setDelivery(null);
       setError("");
       setPhone("");
       setCode("");
-      setCodeLength(5);
-      setCodeDeliveryType("unknown");
-      setNextCodeDeliveryType("none");
-      setResendAvailableAt(0);
       setStage("phone");
       return;
     }
@@ -847,11 +820,11 @@ export function ConnectionApp() {
       setStage("consent");
     } else if (stage === "code") {
       clearPendingLogin(request.data.expectedUserId);
-      phoneHash.current = null;
+      connection.current.discardPhoneAuth();
+      phoneChallenge.current = null;
+      setDelivery(null);
       setCode("");
       setError("");
-      setNextCodeDeliveryType("none");
-      setResendAvailableAt(0);
       setStage("phone");
     } else if (stage === "password") {
       if (passwordWaiter.current) {
@@ -862,12 +835,12 @@ export function ConnectionApp() {
         setStage("consent");
       } else {
         clearPendingLogin(request.data.expectedUserId);
-        phoneHash.current = null;
+        connection.current.discardPhoneAuth();
+        phoneChallenge.current = null;
+        setDelivery(null);
         setCode("");
         setPassword("");
         setError("");
-        setNextCodeDeliveryType("none");
-        setResendAvailableAt(0);
         setStage("phone");
       }
     } else if (stage === "qr") {
@@ -878,36 +851,44 @@ export function ConnectionApp() {
     }
   };
   const interactive = !!currentRequest.current?.data.interactive;
-  const resendSeconds = Math.max(
-    0,
-    Math.ceil((resendAvailableAt - resendClock) / 1000),
-  );
-  useEffect(() => {
-    if (
-      !interactive ||
-      stage !== "code" ||
-      nextCodeDeliveryType === "none" ||
-      resendAvailableAt <= Date.now()
-    )
-      return;
-    const timer = window.setInterval(() => {
-      const now = Date.now();
-      setResendClock(now);
-      if (now >= resendAvailableAt) window.clearInterval(timer);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [interactive, stage, nextCodeDeliveryType, resendAvailableAt]);
-  const textCode = ["sms_word", "sms_phrase"].includes(codeDeliveryType);
-  const codeIsComplete = textCode
-    ? code.trim().length > 0
-    : code.length === codeLength && /^\d+$/.test(code);
   const normalizedPhone = phone.trim().replace(/[\s().-]/g, "");
+  const cooldownSeconds = Math.max(
+    0,
+    Math.ceil((authCooldownUntil - currentTime) / 1000),
+  );
+  const resendSeconds =
+    delivery?.nextType && delivery.nextType !== "none"
+      ? Math.max(0, Math.ceil((delivery.resendAt - currentTime) / 1000))
+      : 0;
+  const codeReady =
+    !!delivery &&
+    delivery.type !== "email_required" &&
+    (delivery.length
+      ? code.trim().length === delivery.length
+      : code.trim().length > 0);
+  const numericCode = [
+    "app",
+    "call",
+    "firebase",
+    "flash_call",
+    "fragment",
+    "missed_call",
+    "sms",
+  ].includes(delivery?.type);
+  const codeInstruction =
+    delivery?.type === "sms_word"
+      ? "Введите слово из сообщения Telegram."
+      : delivery?.type === "sms_phrase"
+        ? "Введите фразу из сообщения Telegram."
+        : delivery?.type === "email"
+          ? "Введите код, если он появится на выбранном Telegram адресе."
+          : "Введите код, если вы его получили.";
   const canSubmit =
-    (stage === "phone" && /^\+[1-9]\d{6,14}$/.test(normalizedPhone)) ||
-    (stage === "code" &&
-      codeIsComplete &&
-      codeDeliveryType !== "email_required") ||
-    (stage === "password" && password.length > 0);
+    (stage === "phone" &&
+      /^\+[1-9]\d{6,14}$/.test(normalizedPhone) &&
+      cooldownSeconds === 0) ||
+    (stage === "code" && codeReady && cooldownSeconds === 0) ||
+    (stage === "password" && password.length > 0 && cooldownSeconds === 0);
   useEffect(() => {
     const request = currentRequest.current;
     const node = appRef.current;
@@ -945,6 +926,9 @@ export function ConnectionApp() {
     code,
     password,
     error,
+    delivery,
+    currentTime,
+    authCooldownUntil,
   ]);
   return (
     <main
@@ -959,12 +943,13 @@ export function ConnectionApp() {
       {interactive && ["consent", "wrong-account"].includes(stage) && (
         <section className="connection-consent">
           {stage === "wrong-account" && (
-            <h2 className="connection-step-title">Подключён другой аккаунт</h2>
+            <Title as="h5">Подключён другой аккаунт</Title>
           )}
           <div className="connection-explanation">
             <p>
-              <strong>По номеру.</strong> Telegram пришлёт код для входа; если
-              включена двухэтапная защита, затем понадобится пароль Telegram.
+              <strong>По номеру.</strong> Telegram выберет доступный способ
+              проверки. Wiki не может подтвердить, что сообщение с кодом было
+              доставлено. При включённой двухэтапной защите потребуется пароль.
             </p>
             <p>
               <strong>По QR.</strong> Отсканируйте код другим устройством через
@@ -1013,47 +998,42 @@ export function ConnectionApp() {
             event.preventDefault();
             const request = currentRequest.current;
             request.freshLogin = true;
-            run(async () => {
-              const normalizedPhone = normalizePhone(phone);
-              beginAuthTrace();
-              setChallengeRestored(false);
-              setPhone(normalizedPhone);
-              const sentCode =
-                await connection.current.phoneCode(normalizedPhone);
-              phoneHash.current = sentCode.phoneCodeHash;
-              const availableAt =
-                sentCode.nextDeliveryType === "none"
-                  ? 0
-                  : Date.now() + sentCode.timeout * 1000;
-              setCodeLength(normalizeCodeLength(sentCode.codeLength));
-              setCodeDeliveryType(normalizeDeliveryType(sentCode.deliveryType));
-              setNextCodeDeliveryType(
-                normalizeNextDeliveryType(sentCode.nextDeliveryType),
-              );
-              setResendAvailableAt(availableAt);
-              setResendClock(Date.now());
-              if (phoneHash.current) {
-                const stored = savePendingLogin(request.data.expectedUserId, {
-                  phone: normalizedPhone,
-                  phoneCodeHash: phoneHash.current,
-                  stage: "code",
-                  codeLength: sentCode.codeLength,
-                  deliveryType: sentCode.deliveryType,
-                  nextDeliveryType: sentCode.nextDeliveryType,
-                  resendAvailableAt: availableAt,
-                });
-                if (!stored)
-                  setError(
-                    "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
-                  );
-              }
-              if (!phoneHash.current) await complete(request);
-            });
+            run(
+              async (signal) => {
+                const normalizedPhone = normalizePhoneNumber(phone);
+                setPhone(normalizedPhone);
+                const result = await connection.current.phoneCode(
+                  normalizedPhone,
+                  signal,
+                );
+                if (result.status === "challenge") {
+                  phoneChallenge.current = result.challenge;
+                  setDelivery(result.challenge);
+                  setAuthCooldownUntil(0);
+                  setStage("code");
+                  const stored = savePendingLogin(request.data.expectedUserId, {
+                    phone: normalizedPhone,
+                    challenge: result.challenge,
+                    stage: "code",
+                  });
+                  if (!stored)
+                    setError(
+                      "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
+                    );
+                } else {
+                  phoneChallenge.current = null;
+                  setDelivery(null);
+                  await complete(request);
+                }
+              },
+              { abortable: true },
+            );
           }}
         >
-          <label>
-            Номер Telegram
-            <input
+          <div className="connection-form-field">
+            <FieldLabel htmlFor="telegram-phone">Номер Telegram</FieldLabel>
+            <Input
+              id="telegram-phone"
               type="tel"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
@@ -1062,153 +1042,180 @@ export function ConnectionApp() {
               placeholder="Введите номер (с кодом)"
               required
             />
-          </label>
+          </div>
+          {cooldownSeconds > 0 && (
+            <p>
+              Повторный запрос будет доступен через {waitLabel(cooldownSeconds)}
+              .
+            </p>
+          )}
           {!hostedControls && (
-            <Button variant="primary" type="submit" disabled={busy}>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={busy || cooldownSeconds > 0 || !canSubmit}
+            >
               Получить код
             </Button>
           )}
         </form>
       )}
-      {interactive && stage === "code" && (
-        <form
-          ref={formRef}
-          className="connection-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!codeIsComplete || codeDeliveryType === "email_required")
-              return;
-            const request = currentRequest.current,
-              value = textCode ? code.trim() : code;
-            setCode("");
-            run(async () => {
-              if (
-                await connection.current.signIn(phone, phoneHash.current, value)
-              ) {
-                clearPendingLogin(request.data.expectedUserId);
-                phoneHash.current = null;
-                setNextCodeDeliveryType("none");
-                setResendAvailableAt(0);
-                await complete(request);
-              } else {
-                const stored = savePendingLogin(request.data.expectedUserId, {
-                  phone,
-                  phoneCodeHash: phoneHash.current,
-                  stage: "password",
-                });
-                if (!stored)
-                  setError(
-                    "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
-                  );
-              }
-            });
-          }}
-        >
+      {interactive && stage === "code" && delivery && (
+        <section className="connection-step-panel">
           <div className="connection-step-intro">
-            <h2 className="connection-step-title">Код Telegram</h2>
-            {challengeRestored && (
-              <p>Продолжен ранее начатый вход. Новый код не запрашивался.</p>
+            <Title as="h5">
+              {delivery.type === "email_required"
+                ? "Нужна дополнительная проверка"
+                : "Проверка Telegram"}
+            </Title>
+            {delivery.type === "email_required" ? (
+              <p>
+                Telegram требует настроить адрес электронной почты в официальном
+                приложении. Завершите проверку там и начните вход заново.
+              </p>
+            ) : (
+              <>
+                <p>{codeInstruction}</p>
+                <p>
+                  Telegram выбрал сценарий: {deliveryLabel(delivery.type)}. Это
+                  не подтверждает доставку сообщения.
+                </p>
+              </>
             )}
-            <p>
-              {codeDeliveryInstructions(codeDeliveryType)}
-              {!textCode && codeDeliveryType !== "email_required"
-                ? ` Введите ${codeLength}-значный код.`
-                : ""}
-            </p>
           </div>
-          {textCode ? (
-            <label>
-              Код Telegram
-              <input
-                type="text"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                autoComplete="one-time-code"
-                disabled={busy}
-              />
-            </label>
-          ) : codeDeliveryType !== "email_required" ? (
-            <OtpCodeInput
-              value={code}
-              length={codeLength}
-              onChange={setCode}
-              disabled={busy}
-            />
-          ) : null}
-          {nextCodeDeliveryType === "none" ? (
-            <small role="status">
-              Telegram не предложил другой способ отправки для этой попытки.
-            </small>
-          ) : (
-            <>
-              <small role="status">
-                {resendSeconds > 0
-                  ? `Запросить ${nextDeliveryLabel(nextCodeDeliveryType)} можно через ${resendSeconds} сек.`
-                  : `Если код не пришёл, запросите его через ${nextDeliveryLabel(nextCodeDeliveryType)}.`}
-              </small>
-              <Button
-                variant="secondary"
-                type="button"
-                disabled={busy || resendSeconds > 0}
-                onClick={() => {
-                  const request = currentRequest.current;
-                  run(
-                    async () => {
-                      if (!phoneHash.current) return;
-                      const sentCode = await connection.current.resendPhoneCode(
+          {delivery.type !== "email_required" && (
+            <form
+              ref={formRef}
+              className="connection-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!codeReady || !phoneChallenge.current) return;
+                const request = currentRequest.current;
+                const value = code.trim();
+                const challenge = phoneChallenge.current;
+                setCode("");
+                run(
+                  async (signal) => {
+                    if (
+                      await connection.current.signIn(
                         phone,
-                        phoneHash.current,
-                      );
-                      phoneHash.current = sentCode.phoneCodeHash;
-                      const availableAt =
-                        sentCode.nextDeliveryType === "none"
-                          ? 0
-                          : Date.now() + sentCode.timeout * 1000;
-                      setCode("");
-                      setCodeLength(normalizeCodeLength(sentCode.codeLength));
-                      setCodeDeliveryType(
-                        normalizeDeliveryType(sentCode.deliveryType),
-                      );
-                      setNextCodeDeliveryType(
-                        normalizeNextDeliveryType(sentCode.nextDeliveryType),
-                      );
-                      setResendAvailableAt(availableAt);
-                      setResendClock(Date.now());
+                        challenge,
+                        value,
+                        signal,
+                      )
+                    ) {
+                      clearPendingLogin(request.data.expectedUserId);
+                      phoneChallenge.current = null;
+                      setDelivery(null);
+                      setAuthCooldownUntil(0);
+                      await complete(request);
+                    } else {
                       const stored = savePendingLogin(
                         request.data.expectedUserId,
                         {
                           phone,
-                          phoneCodeHash: phoneHash.current,
-                          stage: "code",
-                          codeLength: sentCode.codeLength,
-                          deliveryType: sentCode.deliveryType,
-                          nextDeliveryType: sentCode.nextDeliveryType,
-                          resendAvailableAt: availableAt,
+                          challenge,
+                          stage: "password",
                         },
                       );
                       if (!stored)
                         setError(
                           "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
                         );
+                    }
+                  },
+                  { abortable: true },
+                );
+              }}
+            >
+              <div className="connection-form-field">
+                <FieldLabel htmlFor="telegram-code">
+                  Код или текст проверки
+                </FieldLabel>
+                <Input
+                  id="telegram-code"
+                  type="text"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  autoComplete="one-time-code"
+                  inputMode={numericCode ? "numeric" : "text"}
+                  maxLength={delivery.length || 64}
+                  disabled={busy || cooldownSeconds > 0}
+                  required
+                />
+              </div>
+              {cooldownSeconds > 0 && (
+                <p>
+                  Telegram просит подождать ещё {waitLabel(cooldownSeconds)}.
+                </p>
+              )}
+              {!hostedControls && (
+                <Button
+                  variant="primary"
+                  type="submit"
+                  disabled={busy || !codeReady || cooldownSeconds > 0}
+                >
+                  Подтвердить вход
+                </Button>
+              )}
+            </form>
+          )}
+          {delivery.nextType !== "none" ? (
+            <div className="connection-code-resend">
+              <p>
+                Telegram указал следующий способ:{" "}
+                {deliveryLabel(delivery.nextType)}.
+                {resendSeconds > 0
+                  ? ` Его можно запросить через ${waitLabel(resendSeconds)}.`
+                  : " Его можно запросить вручную."}
+              </p>
+              <Button
+                variant="secondary"
+                disabled={busy || cooldownSeconds > 0 || resendSeconds > 0}
+                onClick={() => {
+                  const request = currentRequest.current;
+                  run(
+                    async (signal) => {
+                      const result =
+                        await connection.current.resendPhoneCode(signal);
+                      if (result.status === "challenge") {
+                        phoneChallenge.current = result.challenge;
+                        setDelivery(result.challenge);
+                        setAuthCooldownUntil(0);
+                        setCode("");
+                        const stored = savePendingLogin(
+                          request.data.expectedUserId,
+                          {
+                            phone,
+                            challenge: result.challenge,
+                            stage: "code",
+                          },
+                        );
+                        if (!stored)
+                          setError(
+                            "Не удалось сохранить шаг входа на этом устройстве. Оставьте Wiki открытой до завершения авторизации.",
+                          );
+                        setStage("code");
+                      } else {
+                        clearPendingLogin(request.data.expectedUserId);
+                        phoneChallenge.current = null;
+                        setDelivery(null);
+                        await complete(request);
+                      }
                     },
-                    { keepCodeStep: true },
+                    { abortable: true },
                   );
                 }}
               >
-                Запросить {nextDeliveryLabel(nextCodeDeliveryType)}
+                {resendSeconds > 0
+                  ? `Попробовать ${deliveryLabel(delivery.nextType)} через ${waitLabel(resendSeconds)}`
+                  : `Попробовать ${deliveryLabel(delivery.nextType)}`}
               </Button>
-            </>
+            </div>
+          ) : (
+            <p>Telegram не указал дополнительный способ для этого запроса.</p>
           )}
-          {!hostedControls && (
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={busy || !canSubmit}
-            >
-              Подтвердить вход
-            </Button>
-          )}
-        </form>
+        </section>
       )}
       {interactive && stage === "password" && (
         <form
@@ -1223,30 +1230,47 @@ export function ConnectionApp() {
               passwordWaiter.current(value);
               passwordWaiter.current = null;
             } else
-              run(async () => {
-                await connection.current.password(value);
-                clearPendingLogin(request.data.expectedUserId);
-                phoneHash.current = null;
-                await complete(request);
-              });
+              run(
+                async (signal) => {
+                  await connection.current.password(value, signal);
+                  clearPendingLogin(request.data.expectedUserId);
+                  phoneChallenge.current = null;
+                  setDelivery(null);
+                  setAuthCooldownUntil(0);
+                  await complete(request);
+                },
+                { abortable: true },
+              );
           }}
         >
           <div className="connection-step-intro">
-            <h2 className="connection-step-title">Двухэтапная защита</h2>
+            <Title as="h5">Двухэтапная защита</Title>
             <p>Введите пароль Telegram.</p>
           </div>
-          <label>
-            Пароль двухэтапной аутентификации
-            <input
+          <div className="connection-form-field">
+            <FieldLabel htmlFor="telegram-password">
+              Пароль двухэтапной аутентификации
+            </FieldLabel>
+            <Input
+              id="telegram-password"
               type="password"
               autoComplete="off"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              disabled={busy && !passwordWaiter.current}
               required
             />
-          </label>
+          </div>
           {!hostedControls && (
-            <Button variant="primary" type="submit">
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={
+                (busy && !passwordWaiter.current) ||
+                cooldownSeconds > 0 ||
+                password.length === 0
+              }
+            >
               Подтвердить
             </Button>
           )}
@@ -1265,19 +1289,7 @@ export function ConnectionApp() {
       {stage === "connected" && (
         <LoadingStatus>Завершаем вход в игровую сессию…</LoadingStatus>
       )}
-      {error && (
-        <p className="connection-error" role="alert">
-          {error}
-        </p>
-      )}
-      {interactive && diagnosticId && (
-        <small>
-          Диагностика попытки: {diagnosticId}.{" "}
-          {diagnosticRecorded
-            ? "Записана на сервере."
-            : "Запись на сервере пока не подтверждена."}
-        </small>
-      )}
+      {error && <p role="alert">{error}</p>}
     </main>
   );
 }
