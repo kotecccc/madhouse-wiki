@@ -17,11 +17,17 @@ test("shared modal uses one surface with a separate body and optional actions", 
     const { Modal } = await server.ssrLoadModule(
       "/src/components/ui/Modal/Modal.jsx",
     );
-    const render = (footer) =>
+    const render = (footer, footerNote) =>
       renderToStaticMarkup(
         createElement(
           Modal,
-          { title: "Дроп", titleId: "drop-title", onClose() {}, footer },
+          {
+            title: "Дроп",
+            titleId: "drop-title",
+            onClose() {},
+            footer,
+            footerNote,
+          },
           createElement("ul", null, createElement("li", null, "Предмет")),
         ),
       );
@@ -40,6 +46,11 @@ test("shared modal uses one surface with a separate body and optional actions", 
       render(createElement("button", null, "Готово")),
       /<\/div><footer class="shared-modal-footer"><button>Готово<\/button><\/footer>/,
     );
+    const withNote = render(undefined, "Обновлено недавно");
+    const footerMarkup = withNote.slice(withNote.indexOf("<footer"));
+    assert.match(footerMarkup, /Обновлено недавно/);
+    assert.match(footerMarkup, /Закрыть/);
+    assert.doesNotMatch(footerMarkup, /shared-modal-mobile-footer/);
   } finally {
     await server.close();
   }

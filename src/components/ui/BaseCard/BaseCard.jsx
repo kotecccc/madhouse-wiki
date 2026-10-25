@@ -37,6 +37,7 @@ export function BaseCard({
         variant && `base-card--${variant}`,
         state === "locked" && "base-card--locked",
         state === "target" && "base-card--target",
+        state === "warning" && "base-card--warning",
         paddingClass,
         editing.className,
         className,

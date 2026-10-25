@@ -1,0 +1,50 @@
+.status-message {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-16);
+  text-align: center;
+}
+
+.status-message__icon {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.status-message--warning .status-message__icon {
+  color: var(--status-business);
+}
+
+.status-message__content {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.status-message__description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.status-message--compact {
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-items: start;
+  gap: var(--space-12);
+  text-align: left;
+}
+
+.status-message--compact .status-message__content {
+  justify-items: start;
+}
+
+.status-message--icon-center .status-message__icon {
+  align-self: center;
+}
+
+.status-message--compact .status-message__description {
+  font-size: var(--font-size-sm);
+}

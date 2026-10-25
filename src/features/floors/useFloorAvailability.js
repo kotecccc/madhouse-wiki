@@ -1,8 +1,9 @@
 import {
   getSessionJson,
-  postSessionJson,
+  peekSessionJson,
+  subscribeSessionData,
 } from "../../../shared/session-api.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { telegramContext } from "../../../shared/telegram-context.js";
 import { connectorOrigin } from "../../../connector/protocol.js";
 import {
@@ -27,20 +28,89 @@ function isTelegramRestorePending() {
   );
 }
 
+function floorState(floors) {
+  const next = {};
+  const details = {};
+  for (const floor of floors) {
+    if (
+      typeof floor.code === "string" &&
+      typeof floor.isAvailable === "boolean"
+    ) {
+      next[floor.code] = floor.isAvailable;
+      details[floor.code] = {
+        code: floor.code,
+        number: Number.isFinite(floor.number) ? floor.number : null,
+        requiredLevel: Number.isFinite(floor.requiredLevel)
+          ? floor.requiredLevel
+          : null,
+        isAvailable: floor.isAvailable,
+        unlockDescription:
+          typeof floor.unlockDescription === "string"
+            ? floor.unlockDescription
+            : "",
+        unlockRequirements: Array.isArray(floor.unlockRequirements)
+          ? floor.unlockRequirements
+              .filter(
+                (requirement) => requirement && typeof requirement === "object",
+              )
+              .map((requirement) => ({
+                type:
+                  typeof requirement.type === "string" ? requirement.type : "",
+                label:
+                  typeof requirement.label === "string"
+                    ? requirement.label
+                    : "",
+                required: Number.isFinite(requirement.required)
+                  ? requirement.required
+                  : null,
+                current: Number.isFinite(requirement.current)
+                  ? requirement.current
+                  : null,
+                met:
+                  typeof requirement.met === "boolean" ? requirement.met : null,
+                workId: requirement.workId ?? null,
+                bossId: requirement.bossId ?? null,
+                businessId: requirement.businessId ?? null,
+                medallionId: requirement.medallionId ?? null,
+              }))
+          : null,
+      };
+    }
+  }
+  return { availability: next, floorDetails: details };
+}
+
 // Account access is transient UI state, never part of the reference catalogue.
 export function useFloorAvailability() {
-  const [availability, setAvailability] = useState({});
-  const [floorDetails, setFloorDetails] = useState({});
+  const [availability, setAvailability] = useState(
+    () =>
+      floorState(peekSessionJson("/api/floors", { allowStale: true }) || [])
+        .availability,
+  );
+  const [floorDetails, setFloorDetails] = useState(
+    () =>
+      floorState(peekSessionJson("/api/floors", { allowStale: true }) || [])
+        .floorDetails,
+  );
   const [status, setStatus] = useState(() =>
-    readSession().status === "ready" || isTelegramRestorePending()
-      ? "loading"
-      : "idle",
+    peekSessionJson("/api/floors", { allowStale: true })
+      ? "ready"
+      : readSession().status === "ready" || isTelegramRestorePending()
+        ? "loading"
+        : "idle",
   );
   const [requestId, setRequestId] = useState(0);
-  const attemptedFloors = useRef(new Set());
   useEffect(() => {
     let controller;
     let previousStatus = readSession().status;
+    let identity = readSession().token;
+    const applyFloors = (floors) => {
+      if (!Array.isArray(floors)) return;
+      const next = floorState(floors);
+      setAvailability(next.availability);
+      setFloorDetails(next.floorDetails);
+      setStatus("ready");
+    };
     const load = async () => {
       controller?.abort();
       controller = new AbortController();
@@ -48,23 +118,26 @@ export function useFloorAvailability() {
       const refreshModel = () => setAvailability((current) => ({ ...current }));
       const session = readSession();
       previousStatus = session.status;
-      setStatus(
-        session.status === "ready" || isTelegramRestorePending()
-          ? "loading"
-          : "idle",
-      );
-      setAvailability({});
-      setFloorDetails({});
-      let catalogue = null;
-      let importedAny = false;
+      const changed = identity !== session.token;
+      identity = session.token;
+      const cached = peekSessionJson("/api/floors", { allowStale: true });
+      if (cached) applyFloors(cached);
+      else if (changed || session.status !== "ready") {
+        setAvailability({});
+        setFloorDetails({});
+        setStatus(
+          session.status === "ready" || isTelegramRestorePending()
+            ? "loading"
+            : "idle",
+        );
+      }
       try {
         const response = await fetch("/api/catalogue", {
           cache: "no-store",
           signal,
         });
         if (response.ok) {
-          catalogue = await response.json();
-          mergeKnowledgeBaseOverlay(catalogue);
+          mergeKnowledgeBaseOverlay(await response.json());
           refreshModel();
         }
       } catch {
@@ -75,111 +148,30 @@ export function useFloorAvailability() {
         setStatus(isTelegramRestorePending() ? "loading" : "idle");
         return;
       }
-      setStatus("loading");
       try {
         const floors = await getSessionJson("/api/floors", { signal });
         if (signal.aborted) return;
         if (!Array.isArray(floors)) throw new Error("Invalid floors response");
-        const next = {};
-        const details = {};
-        for (const floor of floors) {
-          if (
-            typeof floor.code === "string" &&
-            typeof floor.isAvailable === "boolean"
-          ) {
-            next[floor.code] = floor.isAvailable;
-            details[floor.code] = {
-              code: floor.code,
-              number: Number.isFinite(floor.number) ? floor.number : null,
-              requiredLevel: Number.isFinite(floor.requiredLevel)
-                ? floor.requiredLevel
-                : null,
-              isAvailable: floor.isAvailable,
-              unlockDescription:
-                typeof floor.unlockDescription === "string"
-                  ? floor.unlockDescription
-                  : "",
-              unlockRequirements: Array.isArray(floor.unlockRequirements)
-                ? floor.unlockRequirements
-                    .filter(
-                      (requirement) =>
-                        requirement && typeof requirement === "object",
-                    )
-                    .map((requirement) => ({
-                      type:
-                        typeof requirement.type === "string"
-                          ? requirement.type
-                          : "",
-                      label:
-                        typeof requirement.label === "string"
-                          ? requirement.label
-                          : "",
-                      required: Number.isFinite(requirement.required)
-                        ? requirement.required
-                        : null,
-                      current: Number.isFinite(requirement.current)
-                        ? requirement.current
-                        : null,
-                      met:
-                        typeof requirement.met === "boolean"
-                          ? requirement.met
-                          : null,
-                      workId: requirement.workId ?? null,
-                      bossId: requirement.bossId ?? null,
-                      businessId: requirement.businessId ?? null,
-                      medallionId: requirement.medallionId ?? null,
-                    }))
-                : null,
-            };
-          }
-        }
+        const { availability: next, floorDetails: details } =
+          floorState(floors);
         setAvailability(next);
         setFloorDetails(details);
         setStatus("ready");
-        if (signal.aborted) return;
-        const complete = new Set(catalogue?.completeFloors || []);
-        for (const floor of floors) {
-          if (signal.aborted) return;
-          if (
-            floor.isAvailable !== true ||
-            complete.has(floor.code) ||
-            attemptedFloors.current.has(floor.code)
-          )
-            continue;
-          attemptedFloors.current.add(floor.code);
-          try {
-            await postSessionJson(
-              "/api/catalogue",
-              { floorCode: floor.code },
-              { signal },
-            );
-            importedAny = true;
-          } catch {
-            // Retry only after a new login or an explicit user retry.
-          }
-        }
-        if (importedAny && !signal.aborted) {
-          const response = await fetch("/api/catalogue", {
-            cache: "no-store",
-            signal,
-          });
-          if (response.ok) {
-            mergeKnowledgeBaseOverlay(await response.json());
-            refreshModel();
-          }
-        }
       } catch {
         if (!signal.aborted) {
-          setAvailability({});
-          setFloorDetails({});
-          setStatus("error");
+          setStatus((current) => (current === "ready" ? current : "error"));
         }
       }
     };
     load();
-    const unsubscribe = subscribeSession(() => {
-      attemptedFloors.current.clear();
-      load();
+    const unsubscribe = subscribeSession(load);
+    const unsubscribeData = subscribeSessionData((event) => {
+      if (event.path === "/api/floors") applyFloors(event.data);
+      if (event.cleared) {
+        setAvailability({});
+        setFloorDetails({});
+        setStatus(readSession().status === "ready" ? "loading" : "idle");
+      }
     });
     const restoreSettled = () => {
       if (readSession().status !== "ready") load();
@@ -187,13 +179,13 @@ export function useFloorAvailability() {
     window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
     const timer = setInterval(() => {
       if (previousStatus !== readSession().status) {
-        attemptedFloors.current.clear();
         load();
       }
     }, 1000);
     return () => {
       controller?.abort();
       unsubscribe();
+      unsubscribeData();
       window.removeEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
       clearInterval(timer);
     };
@@ -203,7 +195,6 @@ export function useFloorAvailability() {
     floorDetails,
     status,
     retry: () => {
-      attemptedFloors.current.clear();
       setRequestId((id) => id + 1);
     },
   };

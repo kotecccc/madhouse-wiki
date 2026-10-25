@@ -183,23 +183,27 @@ test("hosted redirects are rejected without forwarding Location, secrets or foll
 });
 
 test("personal snapshot metadata survives the fixed-origin transport without public caching", async () => {
-  const proxy = createProxy(
-    async () =>
-      new Response('{"playerId":7}', {
-        headers: {
-          "X-Madhouse-Game-Status": "unavailable",
-          "X-Madhouse-Last-Success": "1000",
-          "X-Madhouse-Section-Updated": "900",
-          "X-Madhouse-Snapshot": "stale",
-        },
-      }),
-  );
+  const proxy = createProxy(async (_url, options) => {
+    assert.equal(options.headers["X-Madhouse-Snapshot-Only"], "1");
+    return new Response('{"playerId":7}', {
+      headers: {
+        "X-Madhouse-Game-Status": "unavailable",
+        "X-Madhouse-Last-Success": "1000",
+        "X-Madhouse-Section-Updated": "900",
+        "X-Madhouse-Snapshot": "stale",
+        "X-Madhouse-Snapshot-TTL": "180000",
+      },
+    });
+  });
   const res = response();
   await proxy(
     {
       method: "GET",
       url: "/api/me",
-      headers: { authorization: "Bearer test-session" },
+      headers: {
+        authorization: "Bearer test-session",
+        "x-madhouse-snapshot-only": "1",
+      },
     },
     res,
   );
@@ -208,5 +212,6 @@ test("personal snapshot metadata survives the fixed-origin transport without pub
   assert.equal(res.headers["x-madhouse-last-success"], "1000");
   assert.equal(res.headers["x-madhouse-section-updated"], "900");
   assert.equal(res.headers["x-madhouse-snapshot"], "stale");
+  assert.equal(res.headers["x-madhouse-snapshot-ttl"], "180000");
   assert.match(res.headers["cache-control"], /private, no-store/);
 });

@@ -45,24 +45,57 @@ export function createSessionApi({
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   interval = 1100,
   ttl = 180000,
+  shouldRefresh = () => true,
+  failureCooldown = 30000,
 }) {
   const entries = new Map();
+  const pending = new Map();
+  const snapshotOnlyPending = new Set();
   const controllers = new Set();
+  const listeners = new Set();
   let generation = 0;
   let identity = null;
   let tail = Promise.resolve();
   let lastStarted = -Infinity;
+  let refreshing = 0;
+  const isSnapshotPath = (path) =>
+    /^\/api\/(?:me|me\/bag|floors|floors\/[^/?]+\/info|rooms|clothing|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
+      path,
+    );
+  function publish(event) {
+    for (const listener of [...listeners]) {
+      try {
+        listener(event);
+      } catch {
+        /* subscribers cannot break requests */
+      }
+    }
+  }
+  function setRefreshing(delta) {
+    const next = Math.max(0, refreshing + delta);
+    if (next === refreshing) return;
+    refreshing = next;
+    publish({ refreshing: refreshing > 0 });
+  }
   function clear() {
     reportGameHealth({ status: "unknown", lastSuccessAt: null });
     generation++;
     identity = null;
     entries.clear();
-    tail = Promise.resolve();
+    pending.clear();
+    snapshotOnlyPending.clear();
     tail = Promise.resolve();
     for (const controller of controllers) controller.abort();
     controllers.clear();
+    refreshing = 0;
+    publish({ cleared: true, refreshing: false });
   }
-  function request(method, path, body, { fresh = false, signal } = {}) {
+  function request(
+    method,
+    path,
+    body,
+    { fresh = false, signal, background = false, snapshotOnly = false } = {},
+  ) {
     if (!/^\/api\/[\w/?.=&%+-]+$/.test(path))
       return Promise.reject(new Error("Недопустимый API-запрос"));
     // Validate even a cache hit, so expired/cleared sessions cannot reuse it.
@@ -77,16 +110,33 @@ export function createSessionApi({
       return Promise.reject(error);
     }
     const cached = method === "GET" ? entries.get(path) : null;
-    if (!fresh && cached && (cached.pending || now() < cached.until))
-      return cached.promise;
+    if (method === "GET" && pending.has(path)) {
+      const active = pending.get(path);
+      if (fresh && snapshotOnlyPending.has(path))
+        return active
+          .catch(() => {})
+          .then(() =>
+            request(method, path, body, {
+              fresh: true,
+              signal,
+              background,
+              snapshotOnly: false,
+            }),
+          );
+      return active;
+    }
+    if (!fresh && cached && !isSnapshotPath(path) && now() < cached.until)
+      return Promise.resolve(cached.value);
     const requestGeneration = generation;
-    const entry = { pending: true };
+    const entry = cached || {};
     const task = async () => {
       const wait = interval - (now() - lastStarted);
       if (wait > 0) await pause(wait);
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (generation !== requestGeneration)
         throw new Error("Сессия изменилась");
+      // A queued refresh may reach its turn after the app was backgrounded.
+      if (background && !shouldRefresh()) return entry.value;
       const request = authorize({ url: path });
       const controller = new AbortController();
       const forwardAbort = () => controller.abort();
@@ -99,6 +149,7 @@ export function createSessionApi({
           method,
           headers: {
             ...request.headers,
+            ...(snapshotOnly ? { "X-Madhouse-Snapshot-Only": "1" } : {}),
             ...(body === undefined
               ? {}
               : { "Content-Type": "application/json" }),
@@ -142,8 +193,26 @@ export function createSessionApi({
         const data = await response.json();
         if (generation !== requestGeneration || controller.signal.aborted)
           throw new Error("Сессия изменилась");
-        entry.until = now() + ttl;
+        const updatedHeader = response.headers?.get?.(
+          "X-Madhouse-Section-Updated",
+        );
+        const ttlHeader = response.headers?.get?.("X-Madhouse-Snapshot-TTL");
+        const sectionUpdated = updatedHeader ? Number(updatedHeader) : NaN;
+        const serverTtl = ttlHeader ? Number(ttlHeader) : NaN;
+        const effectiveTtl =
+          Number.isFinite(serverTtl) && serverTtl >= 0 ? serverTtl : ttl;
+        entry.until =
+          Number.isFinite(sectionUpdated) && sectionUpdated > 0
+            ? sectionUpdated + effectiveTtl
+            : now() + effectiveTtl;
         entry.value = data;
+        entry.lastFailureAt =
+          response.headers?.get?.("X-Madhouse-Game-Status") === "unavailable"
+            ? now()
+            : null;
+        if (snapshotOnly && now() >= entry.until)
+          entry.revalidateAfterRequest = true;
+        publish({ path, data });
         return data;
       } finally {
         clearTimeout(timeout);
@@ -151,48 +220,145 @@ export function createSessionApi({
         controllers.delete(controller);
       }
     };
-    entry.promise = tail.then(task);
-    tail = entry.promise.catch(() => {});
-    if (method === "GET") entries.set(path, entry);
-    entry.promise.then(
-      () => {
-        entry.pending = false;
-      },
-      () => {
-        if (entries.get(path) === entry) entries.delete(path);
-      },
-    );
-    return entry.promise;
+    const promise = tail.then(task);
+    tail = promise.catch(() => {});
+    if (method === "GET") {
+      if (!cached) entries.set(path, entry);
+      pending.set(path, promise);
+      if (snapshotOnly) snapshotOnlyPending.add(path);
+      if (background) setRefreshing(1);
+      promise
+        .then(
+          () => {},
+          () => {
+            if (entries.get(path) === entry) {
+              if (cached?.value !== undefined) {
+                entry.lastFailureAt = now();
+              } else entries.delete(path);
+            }
+          },
+        )
+        .finally(() => {
+          if (pending.get(path) === promise) {
+            pending.delete(path);
+            snapshotOnlyPending.delete(path);
+          }
+          if (background && generation === requestGeneration) setRefreshing(-1);
+          if (
+            entry.revalidateAfterRequest &&
+            generation === requestGeneration
+          ) {
+            entry.revalidateAfterRequest = false;
+            refreshPath(path);
+          }
+        });
+    }
+    return promise;
+  }
+  function refreshPath(path) {
+    const entry = entries.get(path);
+    if (!entry?.value || pending.has(path) || !shouldRefresh()) return;
+    if (
+      entry.lastFailureAt != null &&
+      now() - entry.lastFailureAt < failureCooldown
+    )
+      return;
+    request("GET", path, undefined, { background: true }).catch(() => {});
+  }
+  function refreshExpired() {
+    if (!shouldRefresh()) return;
+    for (const [path, entry] of entries) {
+      if (
+        isSnapshotPath(path) &&
+        entry.value !== undefined &&
+        now() >= entry.until
+      )
+        refreshPath(path);
+    }
   }
   return {
-    get: (path, options) => request("GET", path, undefined, options),
+    get(path, options = {}) {
+      try {
+        const current = authorize({ url: path }).headers.Authorization;
+        if (identity !== current) {
+          clear();
+          identity = current;
+        }
+      } catch (error) {
+        clear();
+        return Promise.reject(error);
+      }
+      const cached = entries.get(path);
+      if (
+        !options.fresh &&
+        isSnapshotPath(path) &&
+        cached?.value !== undefined
+      ) {
+        if (now() >= cached.until) refreshPath(path);
+        return Promise.resolve(cached.value);
+      }
+      const promise = request("GET", path, undefined, {
+        ...options,
+        snapshotOnly: !options.fresh && isSnapshotPath(path) && !cached,
+      });
+      return promise;
+    },
     post: (path, body, options) => request("POST", path, body, options),
     peek(path, { allowStale = false } = {}) {
       try {
         if (authorize({ url: path }).headers.Authorization !== identity) {
-          clear();
           return null;
         }
       } catch {
-        clear();
         return null;
       }
       const entry = entries.get(path);
-      return entry && !entry.pending && (allowStale || now() < entry.until)
+      return entry &&
+        entry.value !== undefined &&
+        (allowStale || now() < entry.until)
         ? entry.value
         : null;
     },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    isRefreshing: () => refreshing > 0,
+    refreshExpired,
     clear,
   };
 }
 let sessionApi;
-export function getSessionJson(path, { signal, fresh = false } = {}) {
-  if (!sessionApi) {
-    sessionApi = createSessionApi({ authorize: authorizeRequest });
+let refreshLifecycleStarted = false;
+function ensureSessionApi() {
+  if (sessionApi) return sessionApi;
+  sessionApi = createSessionApi({
+    authorize: authorizeRequest,
+    shouldRefresh: () =>
+      typeof document === "undefined" || document.visibilityState === "visible",
+  });
+  if (typeof window !== "undefined")
     subscribeSession(() => {
       if (readSession().status !== "ready") sessionApi.clear();
     });
+  if (!refreshLifecycleStarted && typeof window !== "undefined") {
+    refreshLifecycleStarted = true;
+    const refresh = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible"
+      )
+        sessionApi?.refreshExpired();
+    };
+    window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", refresh);
   }
+  return sessionApi;
+}
+export function getSessionJson(path, { signal, fresh = false } = {}) {
+  ensureSessionApi();
   if (readSession().status !== "ready") {
     sessionApi.clear();
     return Promise.reject(new Error("Требуется вход"));
@@ -210,12 +376,7 @@ export function getSessionJson(path, { signal, fresh = false } = {}) {
   });
 }
 export function postSessionJson(path, body, { signal } = {}) {
-  if (!sessionApi) {
-    sessionApi = createSessionApi({ authorize: authorizeRequest });
-    subscribeSession(() => {
-      if (readSession().status !== "ready") sessionApi.clear();
-    });
-  }
+  ensureSessionApi();
   if (readSession().status !== "ready") {
     sessionApi.clear();
     return Promise.reject(new Error("Требуется вход"));
@@ -231,6 +392,19 @@ export function postSessionJson(path, body, { signal } = {}) {
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", abort));
   });
+}
+
+// Subscribers receive {path, data} after successful GET responses,
+// {refreshing} when background revalidation activity changes, and {cleared:true}
+// when the authenticated account changes or the session is cleared.
+export function subscribeSessionData(listener) {
+  return ensureSessionApi().subscribe(listener);
+}
+export function readSessionRefreshState() {
+  return sessionApi?.isRefreshing() ?? false;
+}
+export function peekSessionJson(path, options) {
+  return ensureSessionApi().peek(path, options);
 }
 
 // The nickname is already loaded for the account overview; this accessor never

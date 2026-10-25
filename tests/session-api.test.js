@@ -11,6 +11,7 @@ test("session GET cache deduplicates, spaces requests, expires and clears betwee
     pause: async (ms) => {
       clock += ms;
     },
+    ttl: 180000,
     authorize: (request) => ({
       ...request,
       headers: { Authorization: account },
@@ -31,7 +32,8 @@ test("session GET cache deduplicates, spaces requests, expires and clears betwee
   await api.get("/api/me");
   assert.equal(starts.length, 2);
   clock += 180001;
-  await api.get("/api/me");
+  assert.equal((await api.get("/api/me")).account, "fake-session-a");
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(starts.length, 3);
   account = "fake-session-b";
   assert.equal((await api.get("/api/me")).account, account);
@@ -162,20 +164,24 @@ test("cached profile identity can be read without another request and never cros
   let account = "account-a";
   let clock = 0;
   let calls = 0;
+  const events = [];
   const api = createSessionApi({
     authorize: (request) => ({
       ...request,
       headers: { Authorization: account },
     }),
     now: () => clock,
+    ttl: 180000,
     interval: 0,
     fetcher: async () => {
       calls++;
       return { ok: true, json: async () => ({ nickname: "Игрок A" }) };
     },
   });
+  api.subscribe((event) => events.push(event));
   assert.equal(api.peek("/api/me"), null);
   await api.get("/api/me");
+  events.length = 0;
   clock = 180001;
   assert.equal(api.peek("/api/me"), null);
   assert.equal(api.peek("/api/me", { allowStale: true }).nickname, "Игрок A");
@@ -183,6 +189,7 @@ test("cached profile identity can be read without another request and never cros
   account = "account-b";
   assert.equal(api.peek("/api/me", { allowStale: true }), null);
   assert.equal(calls, 1);
+  assert.deepEqual(events, []);
 });
 
 test("server snapshot outages are reported once without retrying a handled read", async () => {
@@ -210,4 +217,139 @@ test("server snapshot outages are reported once without retrying a handled read"
   });
   api.clear();
   assert.equal(readGameHealth().status, "unknown");
+});
+
+test("snapshot reads use server timestamps for expiry and revalidate stale data in the background", async () => {
+  let clock = 1_000_000;
+  const requests = [];
+  const events = [];
+  let call = 0;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      requests.push(options.headers["X-Madhouse-Snapshot-Only"] ?? null);
+      call++;
+      return new Response(JSON.stringify({ revision: call }), {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Madhouse-Section-Updated": "900000",
+          "X-Madhouse-Snapshot-TTL": "200000",
+        },
+      });
+    },
+  });
+  api.subscribe((event) => events.push(event));
+  assert.deepEqual(await api.get("/api/me"), { revision: 1 });
+  assert.deepEqual(requests, ["1"]);
+  // The deadline is sectionUpdated + server TTL, not response time + TTL.
+  clock = 1_100_000;
+  assert.deepEqual(await api.get("/api/me"), { revision: 1 });
+  assert.equal(requests.length, 1);
+  clock = 1_100_001;
+  assert.deepEqual(await api.get("/api/me"), { revision: 1 });
+  assert.equal(api.isRefreshing(), true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(requests, ["1", null]);
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), { revision: 2 });
+  assert.equal(api.isRefreshing(), false);
+  assert.ok(
+    events.some(
+      (event) => event.path === "/api/me" && event.data.revision === 2,
+    ),
+  );
+  assert.ok(events.some((event) => event.refreshing === true));
+});
+
+test("failed background refresh retains stale data and cooldown prevents a request storm", async () => {
+  let clock = 10_000;
+  let calls = 0;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 0,
+    ttl: 100,
+    pause: async () => {},
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async () =>
+      ++calls === 1
+        ? Response.json({ saved: true })
+        : new Response("", {
+            status: 503,
+            headers: { "X-Madhouse-Game-Status": "unavailable" },
+          }),
+  });
+  assert.deepEqual(await api.get("/api/me"), { saved: true });
+  clock += 101;
+  assert.deepEqual(await api.get("/api/me"), { saved: true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), { saved: true });
+  await api.get("/api/me");
+  assert.equal(calls, 2);
+});
+
+test("fresh snapshot reads omit snapshot-only and explicit refresh guard prevents background work", async () => {
+  let clock = 1_000;
+  let visible = false;
+  const headers = [];
+  let calls = 0;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 0,
+    ttl: 10,
+    shouldRefresh: () => visible,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      calls++;
+      headers.push(options.headers["X-Madhouse-Snapshot-Only"] ?? null);
+      return Response.json({ revision: calls });
+    },
+  });
+  await api.get("/api/me");
+  clock += 11;
+  assert.deepEqual(await api.get("/api/me"), { revision: 1 });
+  assert.equal(calls, 1);
+  assert.deepEqual(await api.get("/api/me", { fresh: true }), { revision: 2 });
+  assert.deepEqual(headers, ["1", null]);
+  visible = true;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await api.get("/api/me", { fresh: true });
+  assert.deepEqual(headers, ["1", null, null]);
+});
+
+test("a queued refresh waits for the app to become visible again", async () => {
+  let clock = 1000;
+  let visible = true;
+  let calls = 0;
+  let release;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 100,
+    ttl: 10,
+    shouldRefresh: () => visible,
+    pause: (ms) =>
+      new Promise((resolve) => {
+        release = () => {
+          clock += ms;
+          resolve();
+        };
+      }),
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async () => Response.json({ revision: ++calls }),
+  });
+  await api.get("/api/me");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  clock += 11;
+  api.refreshExpired();
+  await Promise.resolve();
+  visible = false;
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
+  assert.equal(api.isRefreshing(), false);
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), { revision: 1 });
+  visible = true;
+  api.refreshExpired();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 2);
 });

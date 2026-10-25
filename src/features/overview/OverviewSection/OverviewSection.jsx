@@ -6,6 +6,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import {
@@ -19,10 +20,20 @@ import {
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
 import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
+import { getProfileStatDisplay } from "../../auth/profile.js";
 import "./OverviewSection.css";
 
 const numberFormat = new Intl.NumberFormat("ru-RU");
 const fallbackEnergyRegenSeconds = 120;
+
+function effectTimeLeft(expiresAtMs, now) {
+  const remaining = Math.max(0, Math.ceil((expiresAtMs - now) / 1000));
+  if (!remaining) return "Срок истёк · ожидается обновление данных";
+  const hours = String(Math.floor(remaining / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((remaining % 3600) / 60)).padStart(2, "0");
+  const seconds = String(remaining % 60).padStart(2, "0");
+  return `Осталось ${hours}:${minutes}:${seconds}`;
+}
 
 function energyAtTime(energy, now) {
   if (
@@ -193,11 +204,14 @@ function ProfileSummary({ state }) {
   const displayedEnergy = energyKnown ? energyAtTime(energy, now) : null;
   const shouldTickEnergy =
     !!displayedEnergy && displayedEnergy.current < energy.max;
+  const shouldTickEffects = profile?.stashBuffs?.some(
+    (buff) => buff.expiresAtMs > now,
+  );
   useEffect(() => {
-    if (!energyKnown || !shouldTickEnergy) return undefined;
+    if (!shouldTickEnergy && !shouldTickEffects) return undefined;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [energyKnown, shouldTickEnergy]);
+  }, [shouldTickEnergy, shouldTickEffects]);
   if (state.status === "loading" || state.status === "idle")
     return (
       <>
@@ -237,6 +251,31 @@ function ProfileSummary({ state }) {
             <CardDescription>
               {profile.username ? `@${profile.username}` : "Персонаж игрока"}
             </CardDescription>
+            {profile.stashBuffs?.map((buff, index) => (
+              <div
+                className="overview-active-effect"
+                key={`${buff.setId}:${buff.expiresAtUtc}:${index}`}
+              >
+                <Icon type="stash" size="small" />
+                <div className="overview-active-effect-copy">
+                  <CardTitle as="span" size="xs" title={buff.name}>
+                    {buff.name}
+                  </CardTitle>
+                  <CardDescription size="xs">
+                    {effectTimeLeft(buff.expiresAtMs, now)}
+                  </CardDescription>
+                </div>
+                <InfoButton
+                  label={buff.name}
+                  description={`Безумие +${fmt(buff.madness)}, агрессия +${fmt(buff.aggression)}, ярость +${fmt(buff.rage)}. Действует до ${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "medium" }).format(new Date(buff.expiresAtMs))}. Время и прибавки получены из игрового API.`}
+                />
+              </div>
+            ))}
+            {profile.stashBuffsStatus === "error" && (
+              <CardDescription size="xs">
+                Данные о временных эффектах недоступны
+              </CardDescription>
+            )}
             {experienceKnown && Number.isSafeInteger(profile.playerLevel) && (
               <div
                 className="overview-level-progress"
@@ -294,32 +333,42 @@ function ProfileSummary({ state }) {
         </div>
       </div>
       <dl className="overview-stats">
-        {profile.stats.map(([name, value, derived, unit]) => (
-          <div key={name}>
-            <dt>
-              <Icon
-                type={
-                  {
-                    Безумие: "madness",
-                    Агрессия: "aggression",
-                    Ярость: "rage",
-                  }[name]
-                }
-                size="small"
-              />
-              {name}
-            </dt>
-            <dd>
-              {numberFormat.format(value)}
-              {unit !== "урон" && Number.isFinite(derived) && (
-                <small>
-                  {" "}
-                  • {numberFormat.format(derived)} {unit}
-                </small>
-              )}
-            </dd>
-          </div>
-        ))}
+        {profile.stats.map(([name, value, derived, unit]) => {
+          const display = getProfileStatDisplay(profile, name, value, now);
+          const description = [
+            `Итого: ${fmt(value)}.`,
+            display.temporary > 0
+              ? `Без временных эффектов: ${fmt(display.value)}. Наборы: +${fmt(display.temporary)}.`
+              : "Значение из последнего ответа игры.",
+            Number.isFinite(derived) ? `${fmt(derived)} ${unit}.` : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return (
+            <div key={name}>
+              <dt>
+                <Icon
+                  type={
+                    {
+                      Безумие: "madness",
+                      Агрессия: "aggression",
+                      Ярость: "rage",
+                    }[name]
+                  }
+                  size="small"
+                />
+                {name}
+                <InfoButton label={name} description={description} />
+              </dt>
+              <dd>
+                {numberFormat.format(display.value)}
+                {display.temporary > 0 && (
+                  <> + {numberFormat.format(display.temporary)}</>
+                )}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
       <dl className="overview-wallet" aria-label="Валюта">
         {profile.wallet.map(([name, value, icon]) => (

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 // Bounded, demand-driven personal sections. Battle state is deliberately live-only:
 // stale battle reads must never become inputs to an automated mutation.
 export function isSnapshotPath(path) {
-  return /^\/api\/(?:me(?:\/bag)?|floors(?:\/[A-Za-z0-9_-]+\/info)?|rooms|clothing|ornaments\/zones\/\d+|(?:weapons|pets|businesses|bosses)\/\d+)$/.test(
+  return /^\/api\/(?:me(?:\/bag)?|floors(?:\/(?:[A-Za-z0-9_-]+|%24|\$)\/info)?|rooms|clothing|ornaments\/zones\/\d+|(?:weapons|pets|businesses|bosses)\/\d+)$/.test(
     path,
   );
 }
@@ -31,6 +31,19 @@ function sanitize(value, depth = 0) {
 // A sparse object cannot erase previously known fields. Empty successful lists
 // are authoritative; malformed/error envelopes are never successful sections.
 function merge(previous, next) {
+  // Normalize the two bag API shapes before both first-write and update paths.
+  if (next && typeof next === "object" && !Array.isArray(next)) {
+    if (
+      Object.hasOwn(next, "activeStashBuffs") &&
+      !Object.hasOwn(next, "activeStashBuff")
+    )
+      next = { ...next, activeStashBuff: null };
+    else if (
+      Object.hasOwn(next, "activeStashBuff") &&
+      !Object.hasOwn(next, "activeStashBuffs")
+    )
+      next = { ...next, activeStashBuffs: [] };
+  }
   if (
     !previous ||
     typeof previous !== "object" ||
@@ -42,7 +55,12 @@ function merge(previous, next) {
     return next;
   const result = { ...previous };
   for (const [key, value] of Object.entries(next)) {
-    if (key === "activeBossBattle" && value === null) result[key] = null;
+    if (
+      ["activeStashBuff", "activeStashBuffs"].includes(key) &&
+      value !== undefined
+    )
+      result[key] = value;
+    else if (key === "activeBossBattle" && value === null) result[key] = null;
     else if (value !== null && value !== undefined)
       result[key] = merge(previous[key], value);
   }
@@ -92,6 +110,7 @@ export function createAccountSnapshots({
   function withMetadata(response, record, section, stale = false) {
     const headers = new Headers(response.headers);
     headers.set("X-Madhouse-Game-Status", state(record).status);
+    headers.set("X-Madhouse-Snapshot-TTL", String(ttl));
     if (record?.lastSuccessAt)
       headers.set("X-Madhouse-Last-Success", String(record.lastSuccessAt));
     if (section?.updatedAt)
@@ -144,6 +163,10 @@ export function createAccountSnapshots({
         json({ error: "game_credentials_invalid" }, 401),
         record,
       );
+    const requestHeaders = new Headers(init.headers);
+    const snapshotOnly = requestHeaders.get("X-Madhouse-Snapshot-Only") === "1";
+    requestHeaders.delete("X-Madhouse-Snapshot-Only");
+    const upstreamInit = { ...init, headers: requestHeaders };
     if (!playerId && path !== "/api/me") {
       const identity = await read("https://cargohustle.online/api/me", {
         headers: { Authorization: authorization },
@@ -152,6 +175,22 @@ export function createAccountSnapshots({
       playerId = credentials.get(digest);
       record = accounts.get(playerId);
     }
+    const savedSection = record?.sections?.[path];
+    if (snapshotOnly && savedSection)
+      return withMetadata(
+        json(savedSection.data),
+        record,
+        savedSection,
+        Boolean(
+          savedSection.dirty ||
+          now() - savedSection.updatedAt >= ttl ||
+          record?.health?.failedSections?.includes(path) ||
+          (path === "/api/me" &&
+            record?.health?.failedSections?.includes("*")) ||
+          (record?.health?.status === "unavailable" &&
+            record.health.retryAt > now()),
+        ),
+      );
     const key = `${playerId || digest}:${path}:${fallback ? "view" : "live"}`;
     if (pending.has(key)) return (await pending.get(key)).clone();
     const run = async () => {
@@ -179,7 +218,7 @@ export function createAccountSnapshots({
         now() - section.updatedAt < ttl
       )
         return withMetadata(json(section.data), record, section);
-      const response = await upstream(url, init);
+      const response = await upstream(url, upstreamInit);
       // Re-read after await so concurrent section updates cannot overwrite one another.
       record = playerId ? accounts.get(playerId) : null;
       section = record?.sections?.[path];
@@ -361,7 +400,7 @@ export function createAccountSnapshots({
     )
       return execute(url, init, { fallback: false, cache: false });
     const response = await upstream(url, init);
-    if (method !== "GET" && record) {
+    if (method !== "GET" && record && response.ok) {
       const current = accounts.get(playerId);
       persist({
         ...current,

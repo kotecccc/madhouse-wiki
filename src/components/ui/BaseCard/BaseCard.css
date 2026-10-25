@@ -54,6 +54,13 @@
   }
 }
 
+.base-card--warning {
+  --card-background: var(--control-warning-background);
+  --card-border: var(--status-business);
+  background: var(--control-warning-background);
+  border-color: var(--status-business);
+}
+
 .base-card--token-help {
   --card-background: var(--surface-raised);
   --card-border: var(--border-strong);

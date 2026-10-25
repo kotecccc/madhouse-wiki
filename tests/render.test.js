@@ -155,6 +155,20 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
               ["Агрессия", 2000, 2000, "урон"],
               ["Ярость", 300, 3.5, "% шанс крита"],
             ],
+            statBreakdown: {
+              Безумие: { base: 900, bonus: 100, total: 1000 },
+            },
+            stashBuffs: [
+              {
+                setId: 1,
+                name: "Тестовая заначка",
+                expiresAtUtc: "2099-01-01T00:00:00Z",
+                expiresAtMs: Date.parse("2099-01-01T00:00:00Z"),
+                madness: 50,
+                aggression: 0,
+                rage: 0,
+              },
+            ],
             wallet: [],
             playerLevel: null,
           },
@@ -174,14 +188,19 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       }),
     );
     assert.ok(overviewMarkup.includes("Тестовый игрок"));
+    assert.ok(overviewMarkup.includes("Тестовая заначка"));
+    assert.ok(overviewMarkup.includes("Осталось"));
+    assert.match(overviewMarkup, /<dd>950 \+ 50<\/dd>/);
     for (const name of ["Безумие", "Агрессия", "Ярость"])
       assert.match(
         overviewMarkup,
-        new RegExp(String.raw`<dt><svg[\s\S]*?</svg>${name}</dt>`),
+        new RegExp(
+          String.raw`<dt><svg[\s\S]*?</svg>${name}<button[^>]*aria-label="${name}"`,
+        ),
       );
     for (const stat of ["madness", "aggression", "rage"])
       assert.ok(overviewMarkup.includes(`ui-icon--${stat}`));
-    assert.ok(!overviewMarkup.includes("урон"));
+    assert.doesNotMatch(overviewMarkup, /<dd>[^<]*(?:HP|урон|шанс крита)/);
     assert.ok(overviewMarkup.includes("HP"));
     assert.ok(overviewMarkup.includes("% шанс крита"));
     assert.ok(!overviewMarkup.includes("Следующий уровень"));

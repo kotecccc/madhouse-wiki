@@ -3,7 +3,17 @@ import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/Acti
 import { BottomDock } from "../../components/layout/BottomDock/BottomDock.jsx";
 import { knowledgeBase as kb } from "virtual:madhouse-catalogue";
 import "./App.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  readSessionRefreshState,
+  subscribeSessionData,
+} from "../../../shared/session-api.js";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
 import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
 import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection.jsx";
@@ -24,6 +34,11 @@ import { useRaidSchedule } from "../../features/raids/useRaidSchedule.js";
 import { screenFromHash } from "./app-screen.js";
 
 export function App() {
+  const refreshing = useSyncExternalStore(
+    subscribeSessionData,
+    readSessionRefreshState,
+    () => false,
+  );
   const scrollRegionRef = useRef(null);
   const floorAvailability = useFloorAvailability();
   const profileState = usePlayerProfile();
@@ -93,6 +108,7 @@ export function App() {
     <div className="site-shell">
       <SiteHeader
         loading={
+          refreshing ||
           profileState.status === "loading" ||
           floorAvailability.status === "loading" ||
           floorContentLoading ||

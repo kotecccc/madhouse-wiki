@@ -2,7 +2,10 @@ import {
   telegramContext,
   accountStorageKey,
 } from "../../../../shared/telegram-context.js";
-import { getSessionJson } from "../../../../shared/session-api.js";
+import {
+  getSessionJson,
+  subscribeSessionData,
+} from "../../../../shared/session-api.js";
 import { useEffect, useRef, useState } from "react";
 import {
   readSession,
@@ -127,6 +130,11 @@ export function LoginControl() {
     };
     load();
     refreshProfileRef.current = load;
+    const unsubscribeData = subscribeSessionData((event) => {
+      if (event.path === "/api/me")
+        setProfile(normalizePlayerProfile(event.data));
+      if (event.cleared) setProfile(null);
+    });
     const unsubscribe = subscribeSession(() => {
       setProfile(null);
       load();
@@ -134,6 +142,7 @@ export function LoginControl() {
     return () => {
       controller?.abort();
       unsubscribe();
+      unsubscribeData();
     };
   }, []);
   useEffect(() => {

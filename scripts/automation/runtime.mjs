@@ -27,7 +27,12 @@ export async function createAutomationRuntime({
     identifyPlayer: async (authorization) => {
       const response = await snapshots.read(
         "https://cargohustle.online/api/me",
-        { headers: { Authorization: authorization } },
+        {
+          headers: {
+            Authorization: authorization,
+            "X-Madhouse-Snapshot-Only": "1",
+          },
+        },
       );
       if (!response.ok) {
         const error = new Error("game_identity_unavailable");

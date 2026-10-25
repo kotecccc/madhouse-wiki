@@ -254,3 +254,19 @@
 .button--accent-gold:hover:not(:disabled) {
   border-color: var(--status-business);
 }
+
+.button-nav-tab.button--accent-gold,
+.button-nav-tab.button--accent-gold:hover:not(:disabled) {
+  color: var(--status-business);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .button-nav-tab:hover:not(:disabled) {
+    background-color: var(--navigation-tab-hover-background);
+    color: var(--navigation-tab-active-color);
+  }
+
+  .button-nav-tab.button--accent-gold:hover:not(:disabled) {
+    background-color: var(--control-warning-background-hover);
+  }
+}

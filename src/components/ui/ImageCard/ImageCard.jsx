@@ -5,6 +5,19 @@ import { BaseCard } from "../BaseCard/BaseCard.jsx";
 import { Icon } from "../Icon/Icon.jsx";
 
 const IMAGE_SIZE_TOKENS = [4, 8, 12, 16, 24, 32, 40, 48, 64];
+const LOADED_IMAGES_LIMIT = 2000;
+const loadedImages = new Set();
+
+function rememberLoadedImage(src) {
+  loadedImages.delete(src);
+  loadedImages.add(src);
+  if (loadedImages.size > LOADED_IMAGES_LIMIT)
+    loadedImages.delete(loadedImages.values().next().value);
+}
+
+function forgetLoadedImage(src) {
+  loadedImages.delete(src);
+}
 
 function asCssLength(value) {
   if (typeof value !== "number") return value;
@@ -40,10 +53,12 @@ export function ImageCard({
     imageSize = editing.values.imageSize;
   }
   const [failedSrc, setFailedSrc] = useState(null);
-  const [loadedSrc, setLoadedSrc] = useState(null);
+  const [loadedSrc, setLoadedSrc] = useState(() =>
+    loadedImages.has(src) ? src : null,
+  );
   const imageFailed = Boolean(src) && failedSrc === src;
   const showImage = Boolean(src) && !imageFailed;
-  const imageLoaded = showImage && loadedSrc === src;
+  const imageLoaded = showImage && (loadedSrc === src || loadedImages.has(src));
 
   return (
     <BaseCard
@@ -65,9 +80,13 @@ export function ImageCard({
           loading={loading}
           onLoad={() => {
             setFailedSrc(null);
+            rememberLoadedImage(src);
             setLoadedSrc(src);
           }}
-          onError={() => setFailedSrc(src)}
+          onError={() => {
+            forgetLoadedImage(src);
+            setFailedSrc(src);
+          }}
         />
       )}
       {!imageLoaded && (

@@ -21,6 +21,10 @@
   --icon-size: var(--font-size-lg);
 }
 
+.ui-icon--hero {
+  --icon-size: var(--space-64);
+}
+
 .ui-icon--star,
 .ui-icon--coin {
   color: var(--status-business);

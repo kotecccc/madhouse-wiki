@@ -1,44 +1,87 @@
 import { useEffect, useState } from "react";
 import { readGameHealth } from "../../../../shared/session-api.js";
+import { BaseCard } from "../../ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../ui/Button/Button.jsx";
-import { CardDescription } from "../../ui/CardDescription/CardDescription.jsx";
-import { Dialog } from "../../ui/Dialog/Dialog.jsx";
-import { DialogCloseButton } from "../../ui/DialogCloseButton/DialogCloseButton.jsx";
-import { Title } from "../../ui/Title/Title.jsx";
-import "./GameHealthWarning.css";
+import { Icon } from "../../ui/Icon/Icon.jsx";
+import { Modal } from "../../ui/Modal/Modal.jsx";
+import { StatusMessage } from "../../ui/StatusMessage/StatusMessage.jsx";
 
 function healthMessage(status) {
   switch (status) {
     case "unavailable":
       return {
-        label: "Игровые данные временно недоступны",
+        label: "Игра временно недоступна",
         description:
-          "Справочник Madhouse Wiki работает автономно. Личные игровые данные обновляются отдельными запросами и могут быть устаревшими, пока игра не отвечает. Игровые действия приостановлены. Сохранённые секции могут обновляться в разное время; время ниже — последнее обновление одной из секций, не всего аккаунта.",
+          "Игровой сервер не отвечает на запросы Wiki. Обновление личных данных и игровые действия приостановлены до восстановления связи.",
+        detailTitle: "Игровые функции на паузе",
+        detail:
+          "Профиль, доступность этажей, запасы и другие личные данные могут быть устаревшими. Они требуют успешного ответа игры.",
       };
     case "credentials_invalid":
       return {
         label: "Требуется повторный вход",
         description:
           "Сохранённые данные входа больше не принимаются игрой. Войдите в игровой аккаунт снова, чтобы продолжить обновление личных данных.",
+        detailTitle: "Нужно обновить доступ",
+        detail:
+          "Закройте это окно и откройте меню аккаунта, чтобы войти снова. Без действующего входа личные данные не обновляются.",
       };
     default:
       return {
         label: "Личный снимок ещё не получен",
         description:
-          "Справочник Madhouse Wiki доступен автономно. Первый снимок личных игровых данных появится после успешного запроса к игре.",
+          "Первый снимок личных игровых данных появится после успешного запроса к игре.",
+        detailTitle: "Ждём игровые данные",
+        detail:
+          "Профиль, доступность этажей и запасы появятся после успешного ответа игрового сервера.",
       };
   }
 }
 
-function formatLastSuccess(timestamp) {
-  if (!Number.isFinite(timestamp)) return "Успешных обновлений ещё не было.";
+export function formatLastSuccess(timestamp) {
+  if (!Number.isFinite(timestamp)) return "—";
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime()))
-    return "Время последнего обновления неизвестно.";
-  return `Последнее успешное обновление: ${new Intl.DateTimeFormat("ru-RU", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date)}.`;
+  if (Number.isNaN(date.getTime())) return "—";
+  const parts = new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const fields = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+  return `${fields.hour}:${fields.minute} ${fields.day}.${fields.month}.${fields.year}`;
+}
+
+export function GameHealthDetails({ health }) {
+  const message = healthMessage(health.status);
+  return (
+    <StatusMessage
+      icon={health.status === "credentials_invalid" ? "lock" : "warning"}
+      tone="warning"
+      title={message.label}
+      description={message.description}
+    />
+  );
+}
+
+export function GameHealthNotice({ health }) {
+  const message = healthMessage(health.status);
+  return (
+    <BaseCard state="warning">
+      <StatusMessage
+        compact
+        iconAlignment="center"
+        tone="warning"
+        icon={health.status === "credentials_invalid" ? "lock" : "timer"}
+        title={message.detailTitle}
+        description={message.detail}
+      />
+    </BaseCard>
+  );
 }
 
 export function GameHealthWarning() {
@@ -58,41 +101,44 @@ export function GameHealthWarning() {
 
   return (
     <>
-      <Button
-        variant="warning-icon"
-        size="md"
-        aria-label={message.label}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
+      <BaseCard
+        variant="glass-nav"
+        state="warning"
+        className="game-health-warning"
       >
-        <span aria-hidden="true">!</span>
-      </Button>
-      <Dialog
-        modal
-        visible={open}
-        onClose={() => setOpen(false)}
-        aria-labelledby="game-health-title"
-        aria-describedby="game-health-description"
-        className="game-health-warning-dialog"
-      >
-        <div className="game-health-warning-heading">
-          <Title as="h2" id="game-health-title">
-            {message.label}
-          </Title>
-          <DialogCloseButton onClick={() => setOpen(false)} />
-        </div>
-        <CardDescription as="p" id="game-health-description" size="md">
-          {message.description}
-        </CardDescription>
-        <CardDescription as="p" size="sm">
-          {formatLastSuccess(health.lastSuccessAt)}
-        </CardDescription>
-        <CardDescription as="p" size="sm">
-          Wiki использует локальный справочник независимо от доступности игры.
-          Профиль, доступность этажей, запасы и другие личные данные требуют
-          успешного чтения игрового API.
-        </CardDescription>
-      </Dialog>
+        <Button
+          variant="nav-tab"
+          size="md"
+          accent="gold"
+          aria-label={message.label}
+          title={message.label}
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+        >
+          <Icon type="warning" size="large" />
+        </Button>
+      </BaseCard>
+      {open && (
+        <Modal
+          title={
+            health.status === "unavailable"
+              ? "Сервера игры не отвечают"
+              : message.label
+          }
+          footerNote={
+            <>
+              Последнее обновление:
+              <br />
+              {formatLastSuccess(health.lastSuccessAt)}
+            </>
+          }
+          contentAlignment="center"
+          contentBottom={<GameHealthNotice health={health} />}
+          onClose={() => setOpen(false)}
+        >
+          <GameHealthDetails health={health} />
+        </Modal>
+      )}
     </>
   );
 }

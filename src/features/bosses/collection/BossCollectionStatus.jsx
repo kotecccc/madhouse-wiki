@@ -8,7 +8,7 @@ export function BossCollectionStatus({ boss, state }) {
   if (!summary.total) return null;
   const known = summary.known === summary.total;
   const count =
-    state.status === "loading"
+    state.status === "loading" && summary.known === 0
       ? "…"
       : known
         ? summary.collected

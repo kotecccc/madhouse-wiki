@@ -1,6 +1,10 @@
-import { getSessionJson } from "../../../shared/session-api.js";
-import { useEffect, useRef, useState } from "react";
-import { readSession, subscribeSession } from "../../../shared/auth-session.js";
+import {
+  getSessionJson,
+  peekSessionJson,
+  subscribeSessionData,
+} from "../../../shared/session-api.js";
+import { useEffect, useState } from "react";
+import { readSession } from "../../../shared/auth-session.js";
 
 export function departmentAccess(response) {
   const result = {};
@@ -54,6 +58,21 @@ function departmentDetails(response) {
     }));
 }
 
+function departmentResult(code, body) {
+  return {
+    code,
+    status: "ready",
+    availability: departmentAccess(body),
+    departments: departmentDetails(body),
+    businessLevels: (Array.isArray(body?.businesses) ? body.businesses : [])
+      .filter(
+        (business) =>
+          Number.isFinite(business?.id) && Number.isFinite(business?.level),
+      )
+      .map(({ id, level }) => ({ id, level })),
+  };
+}
+
 // Access belongs to the signed-in session and is never written to the catalogue.
 export function useDepartmentAvailability(
   code,
@@ -63,66 +82,47 @@ export function useDepartmentAvailability(
 ) {
   const [state, setState] = useState({});
   const [revision, setRevision] = useState(0);
-  const cache = useRef(new Map());
+  const path = code ? `/api/floors/${encodeURIComponent(code)}/info` : null;
   useEffect(
     () =>
-      subscribeSession(() => {
-        cache.current.clear();
-        setState({});
-        setRevision((value) => value + 1);
+      subscribeSessionData((event) => {
+        if (event.cleared) {
+          setState({});
+          setRevision((value) => value + 1);
+        } else if (event.path === path && path) {
+          setState(departmentResult(code, event.data));
+        }
       }),
-    [],
+    [path, code],
   );
+  const shouldLoad = Boolean(
+    code &&
+    floorStatus === "ready" &&
+    floorAvailable === true &&
+    isLastAvailableFloor === true &&
+    readSession().status === "ready",
+  );
+  const cachedBody =
+    shouldLoad && path ? peekSessionJson(path, { allowStale: true }) : null;
+  const cachedResult = cachedBody ? departmentResult(code, cachedBody) : null;
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    setState({});
-    if (
-      !code ||
-      floorStatus !== "ready" ||
-      floorAvailable !== true ||
-      isLastAvailableFloor !== true ||
-      readSession().status !== "ready"
-    )
-      return () => controller.abort();
-    const cached = cache.current.get(code);
-    if (cached) {
-      setState(cached);
-      return () => controller.abort();
-    }
-    setState({ code, status: "loading" });
+    if (!shouldLoad || !path) return () => controller.abort();
+    const cachedBody = peekSessionJson(path, { allowStale: true });
+    const cachedResult = cachedBody ? departmentResult(code, cachedBody) : null;
+    setState(cachedResult || { code, status: "loading" });
     const load = async () => {
       try {
-        const body = await getSessionJson(
-          `/api/floors/${encodeURIComponent(code)}/info`,
-          { signal },
-        );
-        if (!signal.aborted) {
-          const result = {
-            code,
-            status: "ready",
-            availability: departmentAccess(body),
-            departments: departmentDetails(body),
-            businessLevels: (Array.isArray(body?.businesses)
-              ? body.businesses
-              : []
-            )
-              .filter(
-                (business) =>
-                  Number.isFinite(business?.id) &&
-                  Number.isFinite(business?.level),
-              )
-              .map(({ id, level }) => ({ id, level })),
-          };
-          cache.current.set(code, result);
-          setState(result);
-        }
+        const body = await getSessionJson(path, { signal });
+        if (!signal.aborted) setState(departmentResult(code, body));
       } catch {
-        if (!signal.aborted) setState({ code, status: "error" });
+        if (!signal.aborted && !cachedResult)
+          setState({ code, status: "error" });
       }
     };
     load();
     return () => controller.abort();
-  }, [code, floorStatus, floorAvailable, isLastAvailableFloor, revision]);
-  return state.code === code ? state : {};
+  }, [code, path, shouldLoad, revision]);
+  return !shouldLoad ? {} : state.code === code ? state : cachedResult || {};
 }

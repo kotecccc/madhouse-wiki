@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAccountSnapshots } from "./snapshots.mjs";
+import { createAccountSnapshots, isSnapshotPath } from "./snapshots.mjs";
 import { createAutomationStateStore } from "../automation/state-store.mjs";
 
 const origin = "https://cargohustle.online";
@@ -15,6 +15,13 @@ const reply = (body, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 const payload = (response) => response.json();
+
+test("all floor identifiers including the dollar floor use account snapshots", () => {
+  assert.equal(isSnapshotPath("/api/floors/%24/info"), true);
+  assert.equal(isSnapshotPath("/api/floors/$/info"), true);
+  assert.equal(isSnapshotPath("/api/floors/A/info"), true);
+  assert.equal(isSnapshotPath("/api/bosses/1/battle"), false);
+});
 
 function memoryStore() {
   const snapshots = new Map();
@@ -184,6 +191,141 @@ test("TTL cache and concurrent demand deduplicate upstream section reads", async
   assert.equal(expired.status, 200);
   assert.deepEqual(await payload(expired), { bag: [1] });
   assert.equal(expired.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(queue.calls.length, 3);
+});
+
+test("snapshot-only reads immediately serve persisted data without disturbing refreshes", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "madhouse-snapshot-only-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let now = 10_000;
+  let store = createAutomationStateStore({ directory });
+  const initialQueue = queueFetcher([
+    reply({ playerId: 90 }),
+    reply({ name: "saved" }),
+  ]);
+  let snapshots = createAccountSnapshots({
+    store,
+    fetcher: initialQueue.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("snapshot-user"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("snapshot-user"));
+  const originalUpdatedAt =
+    store.readSnapshots()[0].sections["/api/me/bag"].updatedAt;
+  store.close();
+
+  now += 101;
+  store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  let releaseRefresh;
+  const refreshQueue = queueFetcher([
+    () =>
+      new Promise((resolve) => {
+        releaseRefresh = () => resolve(reply({ name: "fresh" }));
+      }),
+  ]);
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: refreshQueue.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  const headers = {
+    headers: {
+      Authorization: "Bearer snapshot-user",
+      "X-Madhouse-Snapshot-Only": "1",
+    },
+  };
+  const saved = await snapshots.read(`${origin}/api/me/bag`, headers);
+  assert.deepEqual(await payload(saved), { name: "saved" });
+  assert.equal(saved.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    saved.headers.get("X-Madhouse-Section-Updated"),
+    String(originalUpdatedAt),
+  );
+  assert.equal(saved.headers.get("X-Madhouse-Snapshot-TTL"), "100");
+  assert.equal(refreshQueue.calls.length, 0);
+
+  // A foreground refresh can be pending while snapshot-only callers still
+  // receive the durable copy without joining that promise.
+  const refreshing = snapshots.read(
+    `${origin}/api/me/bag`,
+    auth("snapshot-user"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const duringRefresh = await snapshots.read(`${origin}/api/me/bag`, headers);
+  assert.deepEqual(await payload(duringRefresh), { name: "saved" });
+  assert.equal(refreshQueue.calls.length, 1);
+  releaseRefresh();
+  const refreshed = await refreshing;
+  assert.deepEqual(await payload(refreshed), { name: "fresh" });
+  assert.equal(
+    Number(refreshed.headers.get("X-Madhouse-Section-Updated")) >
+      originalUpdatedAt,
+    true,
+  );
+  const afterRefresh = await snapshots.read(`${origin}/api/me/bag`, headers);
+  assert.equal(
+    afterRefresh.headers.get("X-Madhouse-Section-Updated"),
+    refreshed.headers.get("X-Madhouse-Section-Updated"),
+  );
+  assert.equal(refreshQueue.calls.length, 1);
+});
+
+test("snapshot-only misses perform initial reads and internal header is never forwarded", async () => {
+  const queue = queueFetcher([
+    (url, init) => {
+      assert.equal(
+        new Headers(init.headers).has("X-Madhouse-Snapshot-Only"),
+        false,
+      );
+      return reply({ playerId: 91 });
+    },
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  const response = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer first-read",
+      "X-Madhouse-Snapshot-Only": "1",
+    },
+  });
+  assert.deepEqual(await payload(response), { playerId: 91 });
+  assert.equal(queue.calls.length, 1);
+});
+
+test("failed mutations do not invalidate saved sections", async () => {
+  let now = 1000;
+  const queue = queueFetcher([
+    reply({ playerId: 92 }),
+    reply({ owned: true }),
+    reply({}, 500),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    now: () => now,
+    cooldown: 0,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("mutation-user"));
+  await snapshots.read(`${origin}/api/weapons/1`, auth("mutation-user"));
+  const failed = await snapshots.liveFetch(`${origin}/api/shop/buy`, {
+    ...auth("mutation-user"),
+    method: "POST",
+  });
+  assert.equal(failed.ok, false);
+  now += 1;
+  const cached = await snapshots.read(`${origin}/api/weapons/1`, {
+    headers: {
+      Authorization: "Bearer mutation-user",
+      "X-Madhouse-Snapshot-Only": "1",
+    },
+  });
+  assert.deepEqual(await payload(cached), { owned: true });
+  assert.equal(cached.headers.get("X-Madhouse-Snapshot"), "current");
   assert.equal(queue.calls.length, 3);
 });
 
@@ -395,4 +537,101 @@ test("an explicit ended battle reference clears an older active battle instead o
   await snapshots.read(`${origin}/api/me`, auth("a"));
   const result = await snapshots.read(`${origin}/api/me`, auth("a"));
   assert.equal((await result.json()).activeBossBattle, null);
+});
+
+test("stash buff clears survive snapshot restart and retire the alternate API shape", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "madhouse-buff-snapshot-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let store = createAutomationStateStore({ directory });
+  const expiresAtUtc = "2030-01-01T01:00:00Z";
+  const initial = createAccountSnapshots({
+    store,
+    fetcher: queueFetcher([
+      reply({ playerId: 61 }),
+      reply({
+        activeStashBuffs: [
+          { setId: 1, name: "Набор", madness: 35, expiresAtUtc },
+        ],
+      }),
+    ]).fetcher,
+    ttl: 0,
+  });
+  await initial.read(`${origin}/api/me`, auth("buff-account"));
+  assert.deepEqual(
+    await payload(
+      await initial.read(`${origin}/api/me/bag`, auth("buff-account")),
+    ),
+    {
+      activeStashBuff: null,
+      activeStashBuffs: [
+        { setId: 1, name: "Набор", madness: 35, expiresAtUtc },
+      ],
+    },
+  );
+  store.close();
+
+  store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  const afterRestart = createAccountSnapshots({
+    store,
+    fetcher: queueFetcher([
+      reply({ activeStashBuffs: null }),
+      reply({
+        activeStashBuff: {
+          setId: 2,
+          name: "Другой набор",
+          madness: 20,
+          expiresAtUtc,
+        },
+      }),
+      reply({
+        activeStashBuff: { setId: 3, name: "Ярость", rage: 5, expiresAtUtc },
+      }),
+      reply({ activeStashBuffs: [] }),
+    ]).fetcher,
+    ttl: 0,
+  });
+
+  const expired = await payload(
+    await afterRestart.read(`${origin}/api/me/bag`, auth("buff-account")),
+  );
+  assert.deepEqual(expired, {
+    activeStashBuff: null,
+    activeStashBuffs: null,
+  });
+
+  const legacy = await payload(
+    await afterRestart.read(`${origin}/api/me/bag`, auth("buff-account")),
+  );
+  assert.deepEqual(legacy, {
+    activeStashBuff: {
+      setId: 2,
+      name: "Другой набор",
+      madness: 20,
+      expiresAtUtc,
+    },
+    activeStashBuffs: [],
+  });
+
+  const replaced = await payload(
+    await afterRestart.read(`${origin}/api/me/bag`, auth("buff-account")),
+  );
+  assert.deepEqual(
+    replaced.activeStashBuff,
+    {
+      setId: 3,
+      name: "Ярость",
+      rage: 5,
+      expiresAtUtc,
+    },
+    "a replacement effect must not inherit an old set's madness bonus",
+  );
+
+  const cleared = await payload(
+    await afterRestart.read(`${origin}/api/me/bag`, auth("buff-account")),
+  );
+  assert.deepEqual(cleared, {
+    activeStashBuff: null,
+    activeStashBuffs: [],
+  });
 });

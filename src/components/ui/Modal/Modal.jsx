@@ -12,12 +12,15 @@ export function Modal({
   titleId,
   onClose,
   children,
+  contentBottom,
   footer,
+  footerNote,
   className = "",
   width,
   showCloseButton = true,
   contentScrollable = true,
   contentVariant = "default",
+  contentAlignment = "start",
   visible = true,
   loading = false,
 }) {
@@ -62,11 +65,23 @@ export function Modal({
           contentVariant === "default"
             ? ""
             : ` shared-modal-content--${contentVariant}`
-        }${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
+        }${contentAlignment === "center" ? " shared-modal-content--center" : ""}${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
       >
-        {children}
+        {contentAlignment === "center" ? (
+          <div className="shared-modal-content-inner">{children}</div>
+        ) : (
+          children
+        )}
+        {contentBottom != null && (
+          <div className="shared-modal-content-bottom">{contentBottom}</div>
+        )}
       </div>
-      {footer ? (
+      {footerNote != null ? (
+        <footer className="shared-modal-footer shared-modal-footer--with-note">
+          <p className="shared-modal-footer-note">{footerNote}</p>
+          {footer || <Button onClick={onClose}>Закрыть</Button>}
+        </footer>
+      ) : footer ? (
         <footer className="shared-modal-footer">{footer}</footer>
       ) : (
         <footer className="shared-modal-footer shared-modal-mobile-footer">

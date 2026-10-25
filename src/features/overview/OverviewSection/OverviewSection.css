@@ -56,6 +56,19 @@
   gap: var(--space-4);
 }
 
+.overview-active-effect {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.overview-active-effect-copy {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 .overview-level-progress {
   display: grid;
   gap: var(--space-8);
@@ -107,6 +120,7 @@
 .overview-stats > div,
 .overview-wallet > div {
   display: grid;
+  align-content: start;
   gap: var(--space-4);
   min-width: 0;
 }
@@ -126,11 +140,6 @@
   color: var(--paper-bright);
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
-}
-
-.overview-stats small {
-  color: var(--muted);
-  font-size: var(--font-size-2xs);
 }
 
 .overview-grid {

@@ -44,7 +44,8 @@
     flex-direction: column;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    scrollbar-gutter: stable both-edges;
+    scrollbar-gutter: auto;
+    padding-inline: var(--page-gutter);
     padding-bottom: calc(
       var(--space-64) + var(--space-16) + env(safe-area-inset-bottom, 0px)
     );
