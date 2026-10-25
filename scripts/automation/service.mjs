@@ -150,8 +150,7 @@ export function createAutomationService({
     const goal = updateGoal(entry);
     if (entry.collector && !entry.collector.withinTime()) return false;
     return !(
-      goal?.kind === "time" &&
-      goal.deadlineAt != null &&
+      goal?.deadlineAt != null &&
       now() >= goal.deadlineAt &&
       goal.status !== "stopped"
     );
@@ -573,9 +572,13 @@ export function createAutomationService({
     updateGoal(entry);
     const state = entry.controller.getSnapshot();
     if (
-      ["goal.configure", "goal.reset", "open", "favorites.set"].includes(
-        input.command,
-      ) &&
+      [
+        "goal.configure",
+        "goal.reset",
+        "open",
+        "favorites.set",
+        "auto.start",
+      ].includes(input.command) &&
       state.pending
     )
       throw failure(409, "automation_action_pending");
@@ -660,11 +663,50 @@ export function createAutomationService({
           entry.controller.acknowledgePurchase();
           break;
         case "auto.start":
+          if (args.settings != null) {
+            if (!state.boss || args.settings.bossId !== state.boss.id)
+              throw failure(400, "goal_boss_mismatch");
+            if (entry.auto.getSnapshot().enabled)
+              throw failure(409, "automation_controls_the_battle");
+            const resolved = resolveBossGoal(args.settings, state.boss);
+            const settings = {
+              ...resolved,
+              targetCount: ["time", "drops"].includes(resolved.kind)
+                ? null
+                : resolved.targetCount,
+              maxAttempts:
+                resolved.maxAttempts ??
+                (resolved.kind === "battles" && !resolved.countWins
+                  ? resolved.targetCount
+                  : null),
+            };
+            const previous = entry.goal.exportState()?.settings;
+            const unchanged =
+              entry.goal.getSnapshot()?.status === "active" &&
+              previous &&
+              [
+                "bossId",
+                "kind",
+                "targetCount",
+                "durationHours",
+                "maxAttempts",
+                "countWins",
+              ].every(
+                (key) =>
+                  (previous[key] ?? (key === "countWins" ? false : null)) ===
+                  (settings[key] ?? (key === "countWins" ? false : null)),
+              ) &&
+              JSON.stringify(previous.items) === JSON.stringify(settings.items);
+            if (!unchanged) entry.goal.configure(settings);
+          }
           if (
             !entry.goal.getSnapshot() ||
             entry.goal.getSnapshot().status === "active"
-          )
-            entry.auto.start();
+          ) {
+            const started = entry.auto.start();
+            if (args.settings != null && !started)
+              throw failure(409, "automation_start_unavailable");
+          }
           break;
         case "auto.stop":
           entry.collector.stop();

@@ -468,6 +468,7 @@ test("boss opening requirements stay in dialog context without becoming a game g
       label: requirements[0].label,
       note: requirements[0].note,
       verification: requirements[0].verification,
+      category: "bosses",
     },
   ]);
   assert.deepEqual(h.calls.at(-1)[2].args, { bossId: 8 });

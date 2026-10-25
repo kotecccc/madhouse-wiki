@@ -3,7 +3,6 @@ import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
-import { BossBattleOpeningRequirements } from "./BossBattleOpeningRequirements.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import {
@@ -108,10 +107,8 @@ export function BossBattleDialog() {
       state={state}
       goal={goal}
       auto={auto}
-      onStopAuto={() => void bossBattleAuto.stop()}
-      onConfigure={bossBattleGoal.configure}
-      onStop={() => void bossBattleGoal.stop()}
-      onReset={bossBattleGoal.reset}
+      onStopAuto={bossBattleAuto.stop}
+      onStart={bossBattleAuto.start}
     />
   );
   return (
@@ -160,17 +157,13 @@ export function BossBattleDialog() {
       <BossBattleErrorBanner state={state} />
       <div className="boss-battle-layout">
         <div className="boss-battle-column">
-          <BossBattleOpeningRequirements targets={state.openingRequirements} />
+          {goalPanel}
           <BossBattlePanel
             state={state}
             startBlocked={Boolean(goal && !bossBattleGoal.canStart())}
             now={Math.max(now, Date.now())}
             onStart={() => void bossBattle.start()}
             auto={auto}
-            goal={goal}
-            onAuto={() =>
-              auto.enabled ? bossBattleAuto.stop() : bossBattleAuto.start()
-            }
             onAttack={() => {
               if (!bossBattleAuto.getSnapshot().enabled)
                 void bossBattle.attack();
@@ -181,7 +174,6 @@ export function BossBattleDialog() {
                 : void bossBattle.openMedicines()
             }
           />
-          {battle && goalPanel}
           {state.medicineOpen && (
             <BossMedicinePanel state={state} now={Math.max(now, Date.now())} />
           )}
@@ -193,11 +185,7 @@ export function BossBattleDialog() {
           )}
         </div>
         <div className="boss-battle-column">
-          {battle ? (
-            <BossBattleDetails boss={state.boss} battle={battle} />
-          ) : (
-            goalPanel
-          )}
+          {battle && <BossBattleDetails boss={state.boss} battle={battle} />}
         </div>
       </div>
     </Modal>

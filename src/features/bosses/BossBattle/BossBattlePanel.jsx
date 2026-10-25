@@ -8,7 +8,6 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { BossPortrait } from "../BossPortrait/BossPortrait.jsx";
-import { canStartAutoSeries } from "./boss-battle-auto.js";
 import { canAttackBattle, battleActionHint } from "./boss-battle-controller.js";
 import { medicineNames } from "./boss-medicines.js";
 import { fmt } from "../../../lib/format.js";
@@ -60,10 +59,8 @@ export function BossBattlePanel({
   now,
   onStart,
   startBlocked = false,
-  goal = null,
   onAttack,
   onMedicines,
-  onAuto,
   auto = { enabled: false, nextAttackAt: null, pause: false },
 }) {
   const { boss, battle } = state;
@@ -95,25 +92,10 @@ export function BossBattlePanel({
     ? state.medicines.reduce((sum, m) => sum + m.quantity, 0)
     : null;
   const hint = battleActionHint(state);
-  const autoHint = auto.enabled ? "Выключить автоудары" : "Включить автоудары";
   const countdown =
     battle?.status === "active" && !battle.outcome
       ? formatBattleCountdown(battle.expiresAt, now)
       : null;
-  const showAuto =
-    battle?.status === "active" || auto.enabled || goal?.status === "active";
-  const autoControl = (
-    <Button
-      variant="secondary"
-      aria-pressed={auto.enabled}
-      aria-label={auto.enabled ? "Остановить автоудары" : "Включить автоудары"}
-      title={autoHint}
-      disabled={!auto.enabled && !canStartAutoSeries(state, goal, now)}
-      onClick={onAuto}
-    >
-      Авто
-    </Button>
-  );
   return (
     <BaseCard className="boss-battle-panel">
       <div className="boss-battle-panel-heading">
@@ -247,10 +229,8 @@ export function BossBattlePanel({
                 : "Начать бой"}
             </Button>
           )}
-          {showAuto && autoControl}
         </div>
       )}
-      {battle?.outcome && showAuto && autoControl}
       {state.notice && !state.medicineOpen && (
         <CardDescription role="status" title={state.notice}>
           {state.notice}

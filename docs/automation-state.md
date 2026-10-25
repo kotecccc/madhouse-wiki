@@ -8,6 +8,7 @@ The wiki server owns personal battle state, goal settings and confirmed per-batt
 - `POST /api/automation/commands` accepts `{id, expectedVersion, command, args}`. The command ID is recorded before dispatch. Duplicate IDs, concurrent actions and stale versions are rejected with HTTP 409 and a current snapshot; the client does not retry mutations.
 - Supported commands: `open`, `refresh`, `hydrate`, `start`, `next`, `attack`, `medicines.open`, `medicines.close`, `medicine.use`, `purchase.prepare`, `purchase.cancel`, `purchase.buy`, `purchase.ack`, `auto.start`, `auto.stop`, `goal.configure`, `goal.stop`, `goal.reset`, `pvp.refresh`, `favorites.set`.
 - Favorite settings use `favorites.set` with `{bossIds: [positive game boss IDs]}`. New automation settings must use this authenticated server boundary, not localStorage.
+- The battle dialog keeps settings expanded and enables them with one `auto.start` command carrying `args.settings`. The server validates and saves these settings before enabling the series. Re-enabling unchanged active settings preserves confirmed progress; changed or finished settings start a new run. The UI has no separate goal creation/reset step.
 
 Identity is verified using the bearer-authenticated game `/api/me` response. Caller-supplied player IDs and unverified JWT subjects cannot select an account. Verified identities are cached for five minutes to avoid one bot request per browser poll. A token rotation preserves state for the same verified player. Credentials and private account identity are never returned in state snapshots.
 
@@ -43,10 +44,11 @@ Historical in-memory goal progress was never durable and cannot be reconstructed
 
 ## Goal variants
 
-- `battles`: `targetCount` confirmed completed battles, including wins and losses. A failed start is not a completed battle. Each battle ID contributes once.
+- `battles`: `targetCount` confirmed completed battles, including wins and losses, or victories only when `countWins` is true. Opening requirements prefill the remaining victory count and do not impose an attempt cap on losses. A failed start is not a completed battle. Each battle ID contributes once.
 - `business_items`: `itemKey` identifies one activity item from that boss's catalogue drops, with a positive `targetCount`. Only granted reward quantities from new goal battles increase the count; a battle without the item adds nothing.
 - `drops`: `selection` is `all` or `selected` (with `itemKeys`). The server resolves and freezes the list from the boss catalogue at creation. Every selected item identity must be received at least once. Matching uses IDs/type, never names or an inventory guess.
-- `time`: `durationHours` is 1, 2, 4 or null (unlimited). The deadline is computed on the server, persisted, and checked immediately before each game mutation. After the deadline no new POST is submitted; an already submitted request can still finish. Unlimited goals run until stopped or an optional battle limit is reached.
+- Every mode supports `durationHours` of 1, 2, 4 or null (unlimited). The deadline is computed on the server, persisted, and checked immediately before each game mutation. After the deadline no new POST is submitted; an already submitted request can still finish. An unfinished quantitative run expires at its deadline.
+- `time` remains supported for existing stored/API configurations, but is no longer a separate UI mode. Its deadline continues to mark it completed.
 
 For non-battle-count goals `maxAttempts` may be null, or a positive safety cap on started battles. The last permitted battle can finish before exhaustion. Unknown reward payloads do not grant progress. Repeated and late reward snapshots are reconciled per battle so quantities are not counted twice. Old victory goals are migrated in the stopped state and require a new configuration; their meaning is not silently changed into a running battle-count goal.
 

@@ -444,6 +444,23 @@ test("expired time goal cancels queued next battle", async () => {
   );
 });
 
+test("expired quantitative goal cancels queued next battle", async () => {
+  await withSetup(
+    { initial: makeBattle("battle-1", "won", 1_000_000) },
+    async (ctx) => {
+      const entry = await ctx.openAndConfigure("battles", 5, {
+        durationHours: 1,
+      });
+      await ctx.command(entry, "autostart10", "auto.start");
+      await ctx.advance(3_600_000);
+      assert.equal(ctx.service.snapshot(entry).goal.status, "expired");
+      await ctx.advance(1000);
+      assert.equal(ctx.starts, 0);
+      assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    },
+  );
+});
+
 test("server series preserves enabled intent across a manual battle refresh", async () => {
   await withSetup(
     {

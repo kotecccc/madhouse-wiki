@@ -538,8 +538,8 @@ test("discovery adopts only an explicit account battle reference and local reads
   }
 });
 
-test("time goal enforces its server deadline before every POST and survives restart without resetting duration", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "automation-time-deadline-"));
+test("quantitative goal enforces its server deadline before every POST and survives restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "automation-goal-deadline-"));
   let clock = 1_000_000;
   const started = clock;
   const store = createAutomationStateStore({ directory });
@@ -576,39 +576,79 @@ test("time goal enforces its server deadline before every POST and survives rest
     let entry = await openBoss(service);
     await service.command(
       entry,
-      command("time-start", "start", service.snapshot(entry).version),
+      command("goal-start", "start", service.snapshot(entry).version),
     );
     await service.command(
       entry,
-      command("time-goal", "goal.configure", service.snapshot(entry).version, {
-        bossId: 7,
-        kind: "time",
-        durationHours: 1,
-      }),
+      command(
+        "goal-deadline",
+        "goal.configure",
+        service.snapshot(entry).version,
+        {
+          bossId: 7,
+          kind: "battles",
+          targetCount: 3,
+          durationHours: 1,
+        },
+      ),
     );
     assert.equal(service.snapshot(entry).goal.deadlineAt, started + 3600000);
     clock = started + 3599000;
     await service.command(
       entry,
-      command("time-hit1", "attack", service.snapshot(entry).version),
+      command("goal-hit1", "attack", service.snapshot(entry).version),
     );
     assert.equal(posts, 2);
     clock = started + 3600000;
     await service.command(
       entry,
-      command("time-hit2", "attack", service.snapshot(entry).version),
+      command("goal-hit2", "attack", service.snapshot(entry).version),
     );
     assert.equal(posts, 2);
-    assert.equal(service.snapshot(entry).goal.status, "completed");
+    assert.equal(service.snapshot(entry).goal.status, "expired");
     service.close();
     service = create();
     entry = await service.identify(tokenA);
     assert.equal(service.snapshot(entry).goal.deadlineAt, started + 3600000);
-    assert.equal(service.snapshot(entry).goal.status, "completed");
+    assert.equal(service.snapshot(entry).goal.status, "expired");
     assert.equal(posts, 2);
   } finally {
     service.close();
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("one enable command saves settings and starts automation; unchanged settings resume earned progress", async () => {
+  await withContext(async ({ service, game, now }) => {
+    const entry = await openBoss(service);
+    const settings = {
+      bossId: 7,
+      kind: "battles",
+      targetCount: 5,
+      countWins: true,
+      durationHours: 1,
+      maxAttempts: null,
+    };
+    const send = (id, name, args) =>
+      service.command(
+        entry,
+        command(id, name, service.snapshot(entry).version, args),
+      );
+    await send("enable-settings-01", "auto.start", { settings });
+    assert.equal(service.snapshot(entry).auto.enabled, true);
+    assert.equal(service.snapshot(entry).goal.targetCount, 5);
+    assert.equal(service.snapshot(entry).goal.countWins, true);
+    assert.equal(service.snapshot(entry).goal.maxAttempts, null);
+    assert.equal(service.snapshot(entry).goal.deadlineAt, now + 3600000);
+    assert.equal(game.calls.filter((call) => call.method === "POST").length, 0);
+    await send("disable-settings-01", "auto.stop");
+    await send("manual-start-001", "start");
+    await send("manual-attack-01", "attack");
+    assert.equal(service.snapshot(entry).goal.wins, 1);
+    await send("enable-settings-02", "auto.start", { settings });
+    assert.equal(service.snapshot(entry).goal.wins, 1);
+    assert.equal(service.snapshot(entry).auto.enabled, true);
+    await send("disable-settings-02", "auto.stop");
+  });
 });

@@ -360,12 +360,32 @@ export function createRemoteBattleSession({
     if (requirements !== undefined || !sameBoss) {
       openingBossId = numericId(boss);
       openingRequirements = Array.isArray(requirements)
-        ? requirements.map(({ destination, label, note, verification }) => ({
-            destination,
-            label,
-            note,
-            verification,
-          }))
+        ? requirements.map(
+            ({
+              destination,
+              label,
+              note,
+              verification,
+              category,
+              required,
+              current,
+              kind,
+              itemKey,
+            }) => ({
+              destination,
+              label,
+              note,
+              verification,
+              ...(category ? { category } : {}),
+              ...(Number.isSafeInteger(required) && required > 0
+                ? { required }
+                : {}),
+              ...(Number.isSafeInteger(current) && current >= 0
+                ? { current }
+                : {}),
+              ...(kind === "business_items" ? { kind, itemKey } : {}),
+            }),
+          )
         : [];
     }
     localOpen(boss);
@@ -414,7 +434,7 @@ export function createRemoteBattleSession({
       return () => autoListeners.delete(listener);
     },
     getSnapshot: () => autoSnapshot,
-    start: () => send("auto.start"),
+    start: (settings) => send("auto.start", settings ? { settings } : {}),
     stop: () => send("auto.stop"),
   };
   const goal = {

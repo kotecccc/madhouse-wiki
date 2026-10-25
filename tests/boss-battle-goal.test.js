@@ -170,6 +170,62 @@ test("time deadline ticks, survives restore, and blocks starts at closure", () =
   assert.equal(restored.getSnapshot().status, "completed");
 });
 
+test("duration deadlines expire quantitative goals and survive restore", () => {
+  for (const kind of ["battles", "business_items", "drops"]) {
+    const f = fixture();
+    const g = f.goal();
+    const extra =
+      kind === "battles"
+        ? {}
+        : {
+            items:
+              kind === "business_items"
+                ? [{ key: "item:7", name: "Widget" }]
+                : [
+                    { key: "item:7", name: "Widget" },
+                    { key: "item:8", name: "Gadget" },
+                  ],
+          };
+    g.configure(config(kind, { ...extra, durationHours: 1 }));
+    f.update({ battle: { id: "battle-1", status: "lost" } });
+    const deadline = g.getSnapshot().deadlineAt;
+    assert.equal(deadline, 3601000);
+    assert.equal(g.getSnapshot().status, "active");
+    const saved = g.exportState();
+    f.setTime(deadline);
+    g.tick();
+    assert.equal(g.getSnapshot().status, "expired");
+    assert.equal(g.getSnapshot().canStart, false);
+    assert.equal(g.getSnapshot().canContinue, false);
+
+    const restored = f.goal();
+    restored.restoreState(saved);
+    restored.tick();
+    assert.equal(restored.getSnapshot().deadlineAt, deadline);
+    assert.equal(restored.getSnapshot().status, "expired");
+  }
+});
+
+test("countWins goals count victories and have no implicit attempt cap", () => {
+  const f = fixture();
+  const g = f.goal();
+  g.configure(config("battles", { targetCount: 2, countWins: true }));
+  assert.equal(g.getSnapshot().countWins, true);
+  assert.equal(g.getSnapshot().maxAttempts, null);
+  assert.equal(g.exportState().settings.countWins, true);
+  f.update({ battle: { id: "loss-1", status: "lost" } });
+  assert.equal(g.getSnapshot().progress, 0);
+  assert.equal(g.getSnapshot().status, "active");
+  f.update({ battle: { id: "win-1", status: "won" } });
+  assert.equal(g.getSnapshot().progress, 1);
+  assert.equal(g.getSnapshot().status, "active");
+  const restored = f.goal();
+  restored.restoreState(g.exportState());
+  assert.equal(restored.getSnapshot().countWins, true);
+  assert.equal(restored.getSnapshot().maxAttempts, null);
+  assert.equal(restored.getSnapshot().progress, 1);
+});
+
 test("canStart checks an elapsed deadline before a tick and finite time targets expose seconds", () => {
   const f = fixture(),
     g = f.goal();

@@ -17,17 +17,6 @@
   background: transparent;
   white-space: nowrap;
   transform: none;
-  position: relative;
-}
-
-.segmented-control-option.button + .segmented-control-option.button::before {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  height: var(--space-16);
-  border-left: 1px solid var(--card-border);
-  content: "";
-  transform: translateY(-50%);
 }
 
 .segmented-control-option--loading {

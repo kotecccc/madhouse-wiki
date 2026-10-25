@@ -106,32 +106,50 @@ test("static battle markup keeps countdown inside status and separates journal d
       losses: 1,
       status: "active",
     };
+    const settingsState = {
+      boss: {
+        ...goal.boss,
+        reference: {
+          possibleDrops: [
+            { type: "activity_item", entityId: 1, name: "Материал" },
+            {
+              type: "mutagen",
+              mutagenType: "I",
+              mutagenLevel: 1,
+              name: "Мутаген I-1",
+            },
+          ],
+        },
+      },
+    };
     const goalMarkup = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
-        state: {},
+        state: settingsState,
         goal,
       }),
     );
-    assert.ok(goalMarkup.includes("Завершено боёв: 2 · Начато: 2 / 5"));
-    assert.ok(goalMarkup.includes("Остановить цель"));
-    assert.ok(goalMarkup.includes('aria-label="Прогресс цели"'));
+    assert.ok(goalMarkup.includes("Бои: 2 · Победы: 1"));
+    assert.ok(goalMarkup.includes("Включить автобой"));
+    assert.ok(!goalMarkup.includes("Остановить цель"));
+    assert.ok(goalMarkup.includes('aria-label="Прогресс автобоя"'));
     const seriesGoal = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
-        state: {},
+        state: settingsState,
         goal,
         auto: { enabled: true },
       }),
     );
-    assert.ok(seriesGoal.includes("Остановить авто"));
-    assert.ok(seriesGoal.includes("Остановить цель"));
+    assert.ok(seriesGoal.includes("Выключить автобой"));
+    assert.ok(!seriesGoal.includes("Остановить цель"));
     const completedGoal = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
-        state: {},
+        state: settingsState,
         goal: { ...goal, status: "completed", wins: 3 },
       }),
     );
-    assert.ok(completedGoal.includes("Цель достигнута"));
-    assert.ok(completedGoal.includes("Новая цель"));
+    assert.ok(completedGoal.includes("Выполнено"));
+    assert.ok(completedGoal.includes("Включить автобой"));
+    assert.ok(!completedGoal.includes("Новая цель"));
     assert.ok(!completedGoal.includes("Остановить цель"));
     for (const [kind, extra, text] of [
       [
@@ -146,7 +164,7 @@ test("static battle markup keeps countdown inside status and separates journal d
             },
           ],
         },
-        "Материал",
+        "Количество предметов",
       ],
       [
         "drops",
@@ -160,7 +178,7 @@ test("static battle markup keeps countdown inside status and separates journal d
             },
           ],
         },
-        "Ожидается",
+        "Мутаген I-1",
       ],
       [
         "time",
@@ -170,7 +188,7 @@ test("static battle markup keeps countdown inside status and separates journal d
           deadlineAt: null,
           remainingSeconds: null,
         },
-        "Без ограничения времени",
+        "Без ограничения",
       ],
       [
         "time",
@@ -185,7 +203,7 @@ test("static battle markup keeps countdown inside status and separates journal d
     ]) {
       const variant = renderToStaticMarkup(
         createElement(BossBattleGoalPanel, {
-          state: {},
+          state: settingsState,
           goal: { ...goal, kind, ...extra },
         }),
       );
@@ -233,8 +251,8 @@ test("static battle markup keeps countdown inside status and separates journal d
         now: 1000,
       }),
     );
-    assert.ok(transitioning.includes('aria-label="Остановить автоудары"'));
-    assert.ok(transitioning.includes('aria-pressed="true"'));
+    assert.ok(!transitioning.includes('aria-label="Остановить автоудары"'));
+    assert.ok(!transitioning.includes('aria-pressed="true"'));
 
     const details = renderToStaticMarkup(
       createElement(BossBattleDetails, { boss, battle }),

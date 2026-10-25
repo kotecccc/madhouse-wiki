@@ -1,14 +1,13 @@
 import { bossDropIdentity } from "./boss-battle-reference.js";
 
 export const BOSS_GOAL_KINDS = [
-  { id: "battles", value: "battles", label: "Количество боёв" },
+  { id: "battles", value: "battles", label: "Бои" },
   {
     id: "business_items",
     value: "business_items",
-    label: "Количество предметов бизнеса",
+    label: "Предметы",
   },
-  { id: "drops", value: "drops", label: "Дроп всех или выбранных предметов" },
-  { id: "time", value: "time", label: "Время" },
+  { id: "drops", value: "drops", label: "Дроп" },
 ];
 
 export function goalDropOptions(reference) {
@@ -65,5 +64,106 @@ export function resolveBossGoal(config, boss) {
     items: items.map(({ key, name }) => ({ key, name })),
     durationHours: config.durationHours ?? null,
     maxAttempts: config.maxAttempts ?? null,
+    countWins: config.kind === "battles" && config.countWins === true,
+  };
+}
+
+export function defaultBattleSettings(state, goal) {
+  let saved = goal?.boss?.id === state.boss?.id ? goal : null;
+  const options = goalDropOptions(state.boss?.reference || state.boss);
+  const requirements = (state.openingRequirements || []).filter(
+    (target) => Number.isSafeInteger(target.required) && target.required > 0,
+  );
+  const kills = requirements.filter((target) => target.category === "bosses");
+  const remaining = (target) =>
+    Math.max(
+      0,
+      target.required -
+        (Number.isSafeInteger(target.current) && target.current >= 0
+          ? target.current
+          : 0),
+    );
+  const requiredWins = kills.length ? Math.max(...kills.map(remaining)) : null;
+  const materialTarget = requirements.find(
+    (target) => target.kind === "business_items",
+  );
+  if ((requiredWins !== null || materialTarget) && saved?.status !== "active")
+    saved = null;
+  const duration =
+    saved?.deadlineAt == null
+      ? null
+      : (saved.deadlineAt - saved.startedAt) / 3600000;
+  return {
+    kind:
+      saved && saved.kind !== "time"
+        ? saved.kind
+        : materialTarget
+          ? "business_items"
+          : "battles",
+    target: String(
+      saved?.targetCount ??
+        (materialTarget ? remaining(materialTarget) : requiredWins) ??
+        5,
+    ),
+    countWins: saved?.countWins ?? Boolean(requiredWins),
+    itemKey:
+      saved?.items?.[0]?.key ??
+      materialTarget?.itemKey ??
+      options.find((item) => item.type === "activity_item")?.key ??
+      "",
+    selection:
+      saved?.kind === "drops" && saved.items.length !== options.length
+        ? "selected"
+        : "all",
+    selectedKeys:
+      saved?.kind === "drops" ? saved.items.map((item) => item.key) : [],
+    hours: saved
+      ? [1, 2, 4].includes(duration)
+        ? String(duration)
+        : "infinite"
+      : "1",
+  };
+}
+
+export function battleSettingsConfig(settings, boss) {
+  const options = goalDropOptions(boss.reference || boss);
+  const count = Number(settings.target);
+  const material =
+    options.find(
+      (item) => item.type === "activity_item" && item.key === settings.itemKey,
+    ) || options.find((item) => item.type === "activity_item");
+  const itemKeys =
+    settings.selection === "all"
+      ? options.map((item) => item.key)
+      : settings.selectedKeys.filter((key) =>
+          options.some((item) => item.key === key),
+        );
+  if (
+    !BOSS_GOAL_KINDS.some((item) => item.value === settings.kind) ||
+    (settings.kind !== "drops" &&
+      (!Number.isSafeInteger(count) || count <= 0)) ||
+    (settings.kind === "business_items" && !material) ||
+    (settings.kind === "drops" && !itemKeys.length) ||
+    !["1", "2", "4", "infinite"].includes(settings.hours)
+  )
+    return null;
+  return {
+    bossId: boss.id,
+    kind: settings.kind,
+    ...(settings.kind !== "drops" ? { targetCount: count } : {}),
+    ...(settings.kind === "battles"
+      ? { countWins: settings.countWins === true }
+      : {}),
+    ...(settings.kind === "business_items" ? { itemKey: material.key } : {}),
+    ...(settings.kind === "drops"
+      ? {
+          selection: settings.selection,
+          ...(settings.selection === "selected" ? { itemKeys } : {}),
+        }
+      : {}),
+    durationHours:
+      settings.hours === "infinite" ? null : Number(settings.hours),
+    maxAttempts:
+      settings.kind === "battles" && !settings.countWins ? count : null,
   };
 }

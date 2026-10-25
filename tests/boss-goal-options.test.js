@@ -17,10 +17,10 @@ const boss = {
     ],
   },
 };
-test("four goal variants resolve identities and authoritative frozen all-drop lists", () => {
+test("three visible modes resolve identities and authoritative frozen all-drop lists", () => {
   assert.deepEqual(
     BOSS_GOAL_KINDS.map((item) => item.value),
-    ["battles", "business_items", "drops", "time"],
+    ["battles", "business_items", "drops"],
   );
   assert.equal(goalDropOptions(boss.reference).length, 2);
   const resolved = resolveBossGoal(
@@ -69,4 +69,59 @@ test("business goals accept only a catalogue business material and reject forged
     ),
   );
   assert.throws(() => resolveBossGoal({ ...config, bossId: 8 }, boss));
+});
+
+test("opening requirements prefill remaining victories without a new goal or an attempt cap", async () => {
+  const { defaultBattleSettings, battleSettingsConfig } =
+    await import("../src/features/bosses/BossBattle/boss-goal-options.js");
+  const state = {
+    boss,
+    openingRequirements: [{ category: "bosses", required: 65, current: 12 }],
+  };
+  const settings = defaultBattleSettings(state, null);
+  assert.equal(settings.target, "53");
+  assert.equal(settings.countWins, true);
+  assert.equal(
+    defaultBattleSettings(state, {
+      boss: { id: 7 },
+      status: "completed",
+      kind: "battles",
+      targetCount: 5,
+    }).target,
+    "53",
+  );
+  const config = battleSettingsConfig(settings, boss);
+  assert.equal(config.targetCount, 53);
+  assert.equal(config.maxAttempts, null);
+  assert.equal(config.durationHours, 1);
+  assert.equal(resolveBossGoal(config, boss).countWins, true);
+  assert.equal(
+    defaultBattleSettings(
+      { boss, openingRequirements: [{ category: "bosses", required: 65 }] },
+      null,
+    ).target,
+    "65",
+  );
+});
+
+test("saved business settings prefill the material and retain a universal duration", async () => {
+  const { defaultBattleSettings, battleSettingsConfig } =
+    await import("../src/features/bosses/BossBattle/boss-goal-options.js");
+  const saved = {
+    boss: { id: 7 },
+    kind: "business_items",
+    targetCount: 12,
+    items: [{ key: "activity_item:4", name: "Материал" }],
+    startedAt: 1000,
+    deadlineAt: 7201000,
+  };
+  const settings = defaultBattleSettings({ boss }, saved);
+  assert.equal(settings.kind, "business_items");
+  assert.equal(settings.target, "12");
+  const config = battleSettingsConfig(settings, boss);
+  assert.equal(config.itemKey, "activity_item:4");
+  assert.equal(config.durationHours, 2);
+  assert.equal(config.maxAttempts, null);
+  assert.equal(battleSettingsConfig({ ...settings, kind: "time" }, boss), null);
+  assert.equal(battleSettingsConfig({ ...settings, target: "0" }, boss), null);
 });

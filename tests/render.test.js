@@ -969,11 +969,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       "medicine action precedes attack action",
     );
 
-    assert.ok(
-      activePanel.indexOf("Ударить") <
-        activePanel.indexOf("Включить автоудары"),
-    );
-    assert.ok(activePanel.includes('aria-pressed="false"'));
+    assert.ok(!activePanel.includes("Включить автоудары"));
     const autoPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: {
@@ -985,14 +981,57 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         auto: { enabled: true, nextAttackAt: 8000, pause: true },
       }),
     );
-    assert.ok(autoPanel.includes('aria-pressed="true"'));
-    assert.ok(autoPanel.includes(">Авто</button>"));
+    assert.ok(!autoPanel.includes(">Авто</button>"));
     assert.ok(!autoPanel.includes("Авто включено"));
     assert.ok(autoPanel.includes("button-secondary"));
     assert.ok(!autoPanel.includes("Зевок"));
     assert.ok(!autoPanel.includes("7 с"));
     assert.match(autoPanel, /disabled=""[^>]*>.*?Ударить/s);
-    assert.ok(autoPanel.includes("Остановить автоудары"));
+    assert.ok(!autoPanel.includes("Остановить автоудары"));
+    const { BossBattleGoalPanel } = await load(
+      "features/bosses/BossBattle/BossBattleGoalPanel.jsx",
+    );
+    const settingsPanel = (patch = {}, auto = { enabled: false }) =>
+      renderToStaticMarkup(
+        createElement(BossBattleGoalPanel, {
+          state: {
+            ...battleState,
+            openingRequirements: [
+              { category: "bosses", required: 65, current: 12 },
+            ],
+            ...patch,
+          },
+          goal: null,
+          auto,
+          onStart: () => true,
+          onStopAuto: () => true,
+        }),
+      );
+    const settingsHtml = settingsPanel();
+    assert.ok(settingsHtml.includes('aria-label="Настройки автобоя"'));
+    assert.ok(settingsHtml.includes('aria-label="Режим автобоя"'));
+    assert.equal((settingsHtml.match(/role="radio"/g) || []).length, 3);
+    assert.ok(settingsHtml.includes('value="53"'));
+    assert.ok(settingsHtml.includes("Количество побед"));
+    assert.ok(settingsHtml.includes("Сколько ходить"));
+    assert.equal((settingsHtml.match(/<select/g) || []).length, 1);
+    for (const removed of [
+      "Настроить цель",
+      "Настройка цели",
+      "Создать цель",
+      "Отмена",
+      "Тип цели",
+      "Лимит боёв",
+      "Предмет бизнеса",
+      "Для открытия",
+    ])
+      assert.ok(!settingsHtml.includes(removed), removed);
+    assert.ok(settingsHtml.includes('aria-label="Включить автобой"'));
+    assert.ok(
+      settingsPanel({}, { enabled: true }).includes(
+        'aria-label="Выключить автобой"',
+      ),
+    );
     const { ActiveBattleAutoStatus } = await load(
       "features/combat/ActiveBattleDock/ActiveBattleDock.jsx",
     );

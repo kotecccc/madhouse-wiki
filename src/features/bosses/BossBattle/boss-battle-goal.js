@@ -49,7 +49,8 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
         : settings.kind === "drops"
           ? settings.items.length
           : (settings.targetCount ?? null);
-    if (settings.kind === "battles") progress = completedBattles;
+    if (settings.kind === "battles")
+      progress = settings.countWins ? wins : completedBattles;
     else if (settings.kind === "business_items")
       progress = items[0]?.amount || 0;
     else if (settings.kind === "drops")
@@ -58,6 +59,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
     const deadlineReached = deadlineAt != null && now() >= deadlineAt;
     const complete =
       settings.kind === "time" ? deadlineReached : progress >= target;
+    const expired = settings.kind !== "time" && deadlineReached && !complete;
     const exhausted =
       !complete &&
       settings.maxAttempts != null &&
@@ -67,9 +69,11 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       ? "stopped"
       : complete
         ? "completed"
-        : exhausted
-          ? "exhausted"
-          : "active";
+        : expired
+          ? "expired"
+          : exhausted
+            ? "exhausted"
+            : "active";
     const open = status === "active" && !deadlineReached;
     const sameBoss = state?.boss?.id === settings.bossId;
     const knownTerminal = sameBoss && battle?.id && TERMINAL.has(battle.status);
@@ -78,6 +82,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       boss: Object.freeze({ id: settings.bossId, name: settings.bossName }),
       targetCount: settings.targetCount,
       maxAttempts: settings.maxAttempts,
+      countWins: settings.countWins,
       attempts: attempts.size,
       completedBattles,
       wins,
@@ -185,6 +190,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       items = [],
       durationHours = null,
       maxAttempts = null,
+      countWins = false,
     } = config || {};
     if (!((typeof bossId === "string" && bossId.trim()) || positive(bossId)))
       throw new TypeError("Invalid bossId");
@@ -193,8 +199,10 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
     if (!KINDS.has(kind)) throw new TypeError("Invalid goal kind");
     if (kind !== "time" && kind !== "drops" && !positive(targetCount))
       throw new RangeError("targetCount must be a positive safe integer");
-    if (kind === "time" && ![1, 2, 4, null].includes(durationHours))
+    if (![1, 2, 4, null].includes(durationHours))
       throw new RangeError("durationHours must be 1, 2, 4, or null");
+    if (typeof countWins !== "boolean" || (countWins && kind !== "battles"))
+      throw new TypeError("countWins is only supported for battle goals");
     if (maxAttempts != null && !positive(maxAttempts))
       throw new RangeError(
         "maxAttempts must be a positive safe integer or null",
@@ -231,7 +239,9 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       targetCount: kind === "time" || kind === "drops" ? null : targetCount,
       items: normalizedItems,
       durationHours,
-      maxAttempts: maxAttempts ?? (kind === "battles" ? targetCount : null),
+      countWins,
+      maxAttempts:
+        maxAttempts ?? (kind === "battles" && !countWins ? targetCount : null),
     };
   }
   return Object.freeze({
@@ -244,7 +254,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       return snapshot;
     },
     tick() {
-      if (disposed || !settings || settings.kind !== "time") return;
+      if (disposed || !settings) return;
       const next = makeSnapshot(controller.getSnapshot());
       if (
         next.status !== snapshot?.status ||
@@ -287,7 +297,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       startedAt = saved.startedAt ?? now();
       deadlineAt =
         saved.deadlineAt ??
-        (settings.kind === "time" && settings.durationHours != null
+        (settings.durationHours != null
           ? startedAt + settings.durationHours * 3600000
           : null);
       for (const id of saved.attempts || []) attempts.add(id);
@@ -310,7 +320,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       stopped = false;
       startedAt = now();
       deadlineAt =
-        valid.kind === "time" && valid.durationHours != null
+        valid.durationHours != null
           ? startedAt + valid.durationHours * 3600000
           : null;
       const state = controller.getSnapshot(),
