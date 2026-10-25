@@ -263,19 +263,25 @@ export function createAccountSessions({
         signal: verificationSignal,
       };
       let me;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        verificationSignal.throwIfAborted();
-        me = await fetcher(
-          "https://cargohustle.online/api/me",
-          verificationOptions,
-        );
-        if (![500, 502, 503, 504].includes(me.status)) break;
-        await me.body?.cancel();
-        if (attempt === 2) throw new Error("game_unavailable");
-        await pause(1100 * (attempt + 1));
+      let profile;
+      try {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          verificationSignal.throwIfAborted();
+          me = await fetcher(
+            "https://cargohustle.online/api/me",
+            verificationOptions,
+          );
+          if (![500, 502, 503, 504].includes(me.status)) break;
+          await me.body?.cancel();
+          if (attempt === 2) throw new Error("game_unavailable");
+          await pause(1100 * (attempt + 1));
+        }
+        if (me.status === 429) throw new Error("game_unavailable");
+        if (me.ok) profile = await me.json();
+      } catch {
+        throw new Error("game_unavailable");
       }
       if (!me.ok) throw new Error("invalid_game_session");
-      const profile = await me.json();
       const telegramId =
         typeof profile?.telegramId === "number" &&
         Number.isSafeInteger(profile.telegramId)

@@ -1,3 +1,5 @@
+import { createAccountSnapshots } from "../account/snapshots.mjs";
+import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { resolve } from "node:path";
 import { createAutomationStateStore } from "./state-store.mjs";
 import { createAutomationService } from "./service.mjs";
@@ -14,10 +16,26 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
+  const snapshots = createAccountSnapshots({ store });
+  const proxy = createProxy(snapshots.fetch);
   let catalogue;
   const getCatalogue = () => (catalogue ??= readKnowledgeBase(root));
   const service = createAutomationService({
     store,
+    fetcher: snapshots.liveFetch,
+    accountHealth: snapshots.health,
+    identifyPlayer: async (authorization) => {
+      const response = await snapshots.read(
+        "https://cargohustle.online/api/me",
+        { headers: { Authorization: authorization } },
+      );
+      if (!response.ok) {
+        const error = new Error("game_identity_unavailable");
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
+    },
     getBoss: (id) => {
       return (
         getCatalogue().bosses.find(
@@ -39,6 +57,7 @@ export async function createAutomationRuntime({
   });
   return {
     handle,
+    proxy,
     nodeHandler: nodeAutomationHandler(handle, {
       origin: env.WIKI_PUBLIC_ORIGIN,
     }),
@@ -58,7 +77,9 @@ export function automationPlugin(root) {
         if (
           !/^\/api\/automation(?:\/|$)/.test(request.url?.split("?")[0] || "")
         )
-          return next();
+          return isGameApiPath(request.url?.split("?")[0] || "")
+            ? runtime.proxy(request, response)
+            : next();
         return runtime.nodeHandler(request, response);
       });
       server.httpServer?.once("close", () => runtime.close());

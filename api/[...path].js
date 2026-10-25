@@ -3,6 +3,7 @@ import { listApiOperations } from "../scripts/api-operations.mjs";
 import {
   API_MAX_REQUEST_BYTES,
   createProductionApi,
+  routePattern,
 } from "../scripts/deploy/production-api.mjs";
 
 export const config = { api: { bodyParser: false } };
@@ -14,6 +15,9 @@ const contract = JSON.parse(
   ),
 );
 const operations = listApiOperations(contract);
+const gamePaths = operations.map(({ path }) => routePattern(path));
+export const isGameApiPath = (path) =>
+  gamePaths.some((pattern) => pattern.test(path));
 async function readIncomingBody(request) {
   const contentLength = Number(request.headers?.["content-length"]);
   if (Number.isFinite(contentLength) && contentLength > API_MAX_REQUEST_BYTES) {

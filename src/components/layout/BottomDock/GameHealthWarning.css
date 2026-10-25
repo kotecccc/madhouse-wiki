@@ -1,0 +1,11 @@
+.game-health-warning-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-16);
+}
+
+.game-health-warning-dialog {
+  display: grid;
+  gap: var(--space-16);
+}

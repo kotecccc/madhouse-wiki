@@ -77,13 +77,16 @@ export function createAutomationHttp({
       return json(
         {
           error:
-            status === 400
-              ? "invalid_automation_command"
-              : status === 401
-                ? "game_session_required"
-                : status === 409
-                  ? "automation_state_changed"
-                  : "automation_unavailable",
+            error.message === "game_unavailable_actions_paused"
+              ? "game_unavailable_actions_paused"
+              : status === 400
+                ? "invalid_automation_command"
+                : status === 401
+                  ? "game_session_required"
+                  : status === 409
+                    ? "automation_state_changed"
+                    : "automation_unavailable",
+          ...(entry ? { gameHealth: service.snapshot(entry).gameHealth } : {}),
           ...(entry && status === 409
             ? { snapshot: service.snapshot(entry) }
             : {}),

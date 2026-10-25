@@ -73,6 +73,8 @@ export function createAutomationService({
     bosses: [],
   }),
   fetcher = fetch,
+  identifyPlayer,
+  accountHealth = () => null,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -137,6 +139,12 @@ export function createAutomationService({
     return goal;
   }
   function canAct(entry) {
+    if (
+      ["unavailable", "credentials_invalid"].includes(
+        accountHealth(entry.credential)?.status,
+      )
+    )
+      return false;
     const goal = updateGoal(entry);
     if (entry.collector && !entry.collector.withinTime()) return false;
     return !(
@@ -188,6 +196,7 @@ export function createAutomationService({
     reconcileFinishedBattle(entry);
     const state = entry.controller.getSnapshot();
     return {
+      gameHealth: accountHealth(entry.credential),
       version: entry.version,
       serverTime: now(),
       battle: {
@@ -422,7 +431,9 @@ export function createAutomationService({
     if (loading.has(hash)) return loading.get(hash);
     const promise = (async () => {
       // Account identity comes only from the authenticated upstream, never JWT claims/caller IDs.
-      const me = await gameJson(authorization, "/api/me");
+      const me = await (identifyPlayer
+        ? identifyPlayer(authorization)
+        : gameJson(authorization, "/api/me"));
       if (!positive(me?.playerId)) throw failure(401, "invalid_game_identity");
       const playerId = String(me.playerId);
       const entry = await actor(playerId);
@@ -469,6 +480,22 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
+    if (
+      ["unavailable", "credentials_invalid"].includes(
+        accountHealth(entry.credential)?.status,
+      ) &&
+      [
+        "start",
+        "next",
+        "attack",
+        "medicine.use",
+        "purchase.buy",
+        "auto.start",
+        "work.start",
+        "business.run.start",
+      ].includes(input.command)
+    )
+      throw failure(503, "game_unavailable_actions_paused");
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");

@@ -190,6 +190,10 @@ export function createAutomationStateStore({ directory }) {
       account_key TEXT PRIMARY KEY NOT NULL,
       record TEXT NOT NULL
     ) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS account_snapshots (
+      account_key TEXT PRIMARY KEY NOT NULL,
+      record TEXT NOT NULL
+    ) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS worker_lease (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       owner TEXT NOT NULL,
@@ -206,6 +210,15 @@ export function createAutomationStateStore({ directory }) {
   );
   const upsert = db.prepare(
     "INSERT INTO accounts (account_key, record) VALUES (?, ?) ON CONFLICT(account_key) DO UPDATE SET record = excluded.record",
+  );
+  const snapshotSelect = db.prepare(
+    "SELECT record FROM account_snapshots WHERE account_key = ?",
+  );
+  const snapshotUpsert = db.prepare(
+    "INSERT INTO account_snapshots (account_key, record) VALUES (?, ?) ON CONFLICT(account_key) DO UPDATE SET record = excluded.record",
+  );
+  const snapshotAll = db.prepare(
+    "SELECT account_key, record FROM account_snapshots",
   );
   const selectAll = db.prepare(
     "SELECT account_key, record FROM accounts ORDER BY account_key",
@@ -234,6 +247,22 @@ export function createAutomationStateStore({ directory }) {
   }
 
   return {
+    readSnapshots() {
+      return snapshotAll
+        .all()
+        .map((row) => decrypt(key, row.account_key, row.record));
+    },
+    readSnapshot(playerId) {
+      const id = opaqueId(key, normalizePlayerId(playerId));
+      const row = snapshotSelect.get(id);
+      return row ? decrypt(key, id, row.record) : null;
+    },
+    writeSnapshot(playerId, value) {
+      const normalized = normalizePlayerId(playerId);
+      const id = opaqueId(key, normalized);
+      const encrypted = encrypt(key, id, { ...value, playerId: normalized });
+      transaction(() => snapshotUpsert.run(id, encrypted));
+    },
     read(playerId) {
       const normalized = normalizePlayerId(playerId);
       const id = opaqueId(key, normalized);

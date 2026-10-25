@@ -70,31 +70,22 @@ const json = (body, status = 200, headers = {}) =>
 let apiHandlers;
 let automationRuntime;
 if (role === "wiki") {
-  const [
-    proxy,
-    catalogue,
-    raids,
-    feedback,
-    analytics,
-    cleanup,
-    bot,
-    raidsSync,
-  ] = await Promise.all([
-    import("../../api/[...path].js"),
-    import("../../api/catalogue.js"),
-    import("../../api/raids.js"),
-    import("../../api/feedback.js"),
-    import("../../api/analytics.js"),
-    import("../../api/analytics-cleanup.js"),
-    import("../../api/telegram/bot-webhook.js"),
-    import("../../api/telegram/raids-sync.js"),
-  ]);
+  const [catalogue, raids, feedback, analytics, cleanup, bot, raidsSync] =
+    await Promise.all([
+      import("../../api/catalogue.js"),
+      import("../../api/raids.js"),
+      import("../../api/feedback.js"),
+      import("../../api/analytics.js"),
+      import("../../api/analytics-cleanup.js"),
+      import("../../api/telegram/bot-webhook.js"),
+      import("../../api/telegram/raids-sync.js"),
+    ]);
   const { createAutomationRuntime } = await import("../automation/runtime.mjs");
   automationRuntime = await createAutomationRuntime({ root });
   apiHandlers = new Map([
     ["/api/automation/state", automationRuntime.nodeHandler],
     ["/api/automation/commands", automationRuntime.nodeHandler],
-    ["/api", proxy.default],
+    ["/api", automationRuntime.proxy],
     ["/api/catalogue", catalogue.default],
     ["/api/raids", raids.default],
     ["/api/feedback", feedback.default],

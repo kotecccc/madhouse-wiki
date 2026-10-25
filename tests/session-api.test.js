@@ -184,3 +184,30 @@ test("cached profile identity can be read without another request and never cros
   assert.equal(api.peek("/api/me", { allowStale: true }), null);
   assert.equal(calls, 1);
 });
+
+test("server snapshot outages are reported once without retrying a handled read", async () => {
+  const { readGameHealth } = await import("../shared/session-api.js");
+  let calls = 0;
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "Bearer fake" },
+    }),
+    fetcher: async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: "snapshot_unknown" }), {
+        status: 503,
+        headers: { "X-Madhouse-Game-Status": "unavailable" },
+      });
+    },
+  });
+  await assert.rejects(api.get("/api/me"));
+  assert.equal(calls, 1);
+  assert.deepEqual(readGameHealth(), {
+    status: "unavailable",
+    lastSuccessAt: null,
+  });
+  api.clear();
+  assert.equal(readGameHealth().status, "unknown");
+});

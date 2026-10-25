@@ -181,3 +181,32 @@ test("hosted redirects are rejected without forwarding Location, secrets or foll
     /secret=|check\.ddos/,
   );
 });
+
+test("personal snapshot metadata survives the fixed-origin transport without public caching", async () => {
+  const proxy = createProxy(
+    async () =>
+      new Response('{"playerId":7}', {
+        headers: {
+          "X-Madhouse-Game-Status": "unavailable",
+          "X-Madhouse-Last-Success": "1000",
+          "X-Madhouse-Section-Updated": "900",
+          "X-Madhouse-Snapshot": "stale",
+        },
+      }),
+  );
+  const res = response();
+  await proxy(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: "Bearer test-session" },
+    },
+    res,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers["x-madhouse-game-status"], "unavailable");
+  assert.equal(res.headers["x-madhouse-last-success"], "1000");
+  assert.equal(res.headers["x-madhouse-section-updated"], "900");
+  assert.equal(res.headers["x-madhouse-snapshot"], "stale");
+  assert.match(res.headers["cache-control"], /private, no-store/);
+});

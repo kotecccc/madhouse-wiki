@@ -1,3 +1,4 @@
+import { reportGameHealth } from "../../../../shared/session-api.js";
 import { authorizeRequest } from "../../../../shared/auth-session.js";
 import { createRemoteBattleSession } from "./boss-battle-remote.js";
 export { createBossBattleRequest } from "./boss-battle-request.js";
@@ -16,13 +17,16 @@ async function automationRequest(method, path, body) {
     signal: AbortSignal.timeout(25000),
   });
   const value = await response.json();
+  if (value.gameHealth) reportGameHealth(value.gameHealth);
   if (!response.ok) {
     const error = new Error(
-      value.error === "automation_game_requests_disabled"
-        ? "Игровые запросы серверной автоматизации пока отключены в DEV."
-        : response.status === 409
-          ? "Состояние изменилось. Проверьте данные и повторите действие вручную."
-          : "Не удалось получить серверное состояние боя.",
+      value.error === "game_unavailable_actions_paused"
+        ? "Игра временно недоступна. Игровые действия приостановлены; справочник и сохранённые данные доступны для чтения."
+        : value.error === "automation_game_requests_disabled"
+          ? "Игровые запросы серверной автоматизации пока отключены в DEV."
+          : response.status === 409
+            ? "Состояние изменилось. Проверьте данные и повторите действие вручную."
+            : "Не удалось получить серверное состояние боя.",
     );
     error.status = response.status;
     error.snapshot = value.snapshot;

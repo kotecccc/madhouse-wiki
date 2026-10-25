@@ -1,3 +1,35 @@
+let gameHealth = { status: "unknown", lastSuccessAt: null };
+export function readGameHealth() {
+  return gameHealth;
+}
+export function reportGameHealth(value) {
+  if (
+    !value ||
+    !["available", "unavailable", "credentials_invalid", "unknown"].includes(
+      value.status,
+    )
+  )
+    return;
+  const next = {
+    status: value.status,
+    lastSuccessAt: Number(value.lastSuccessAt) || null,
+  };
+  if (JSON.stringify(next) === JSON.stringify(gameHealth)) return;
+  gameHealth = next;
+  if (typeof window !== "undefined")
+    window.dispatchEvent(
+      new CustomEvent("madhouse:game-health", { detail: gameHealth }),
+    );
+}
+export function observeGameResponse(response) {
+  const status = response.headers?.get?.("X-Madhouse-Game-Status");
+  if (status)
+    reportGameHealth({
+      status,
+      lastSuccessAt: response.headers.get("X-Madhouse-Last-Success"),
+    });
+}
+
 import {
   authorizeRequest,
   readSession,
@@ -21,6 +53,7 @@ export function createSessionApi({
   let tail = Promise.resolve();
   let lastStarted = -Infinity;
   function clear() {
+    reportGameHealth({ status: "unknown", lastSuccessAt: null });
     generation++;
     identity = null;
     entries.clear();
@@ -80,7 +113,11 @@ export function createSessionApi({
             throw new Error("Сессия изменилась");
           lastStarted = now();
           response = await fetcher(request.url, options);
+          if (generation === requestGeneration && !controller.signal.aborted)
+            observeGameResponse(response);
           if (
+            response.headers?.get?.("X-Madhouse-Game-Status") ===
+              "unavailable" ||
             method !== "GET" ||
             ![500, 502, 503, 504].includes(response.status) ||
             attempt === 2

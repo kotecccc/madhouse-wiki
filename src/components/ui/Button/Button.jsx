@@ -11,6 +11,7 @@ const variants = new Set([
   "nav-tab",
   "icon-copy",
   "icon-copy-inline",
+  "warning-icon",
 ]);
 
 export function Button({
@@ -41,6 +42,7 @@ export function Button({
   const classes = [
     "button",
     safeVariant === "icon-copy-inline" && "button-icon-copy",
+    safeVariant === "warning-icon" && "button-warning-icon",
     `button-${safeVariant}`,
     accent === "gold" && "button--accent-gold",
     `button-size-${safeSize}`,

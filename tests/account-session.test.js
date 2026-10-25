@@ -221,7 +221,9 @@ test("profile verification retries are bounded and never retry rejected credenti
     const start = await s.call("restore");
     await assert.rejects(
       s.call("save", { ticket: start.ticket, accessToken: jwt() }),
-      status >= 500 ? /game_unavailable/ : /invalid_game_session/,
+      status >= 500 || status === 429
+        ? /game_unavailable/
+        : /invalid_game_session/,
     );
     assert.equal(s.profileCalls(), status >= 500 ? 3 : 1);
     assert.equal((await s.call("restore")).status, "login-required");

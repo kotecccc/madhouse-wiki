@@ -78,3 +78,94 @@ GET-перепроверку на бой/причину, без постоянн
 таймер не создаёт фиктивное поражение и не увеличивает счётчики цели.
 409 `battle_finished` с совпадающим ID и известным терминальным статусом
 принимается как результат боя, без нового события удара и без повторения POST.
+
+## Account read snapshots (iteration 1)
+
+The VPS runtime now serves personal GET readers through `scripts/account/snapshots.mjs`
+before the existing documented game transport. DEV uses the same snapshot gateway
+for these routes. This remains our API: the browser has no durable snapshot store.
+
+| Reader / surface                                        | Snapshot sections and boundary                                                                                                                                                                                                   |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile, login summary, calculators                     | `/api/me`: profile, stats, wallet, energy, level and experience                                                                                                                                                                  |
+| Floor opening and progression requirements              | `/api/floors`, `/api/floors/{code}/info`: account availability, current/met requirements, department access and business levels                                                                                                  |
+| Boss drop collection                                    | `/api/rooms`, `/api/clothing`, `/api/ornaments/zones/{id}`, `/api/weapons/{id}`, `/api/pets/{id}`: explicit owned/unlocked flags; existing collection semantics retain unknown values                                            |
+| Inventory and business assistant                        | `/api/me/bag`, `/api/businesses/{id}`; server automation reads also update these sections                                                                                                                                        |
+| Boss detail                                             | `/api/bosses/{id}`; existing public reference import still projects only allowlisted reference fields                                                                                                                            |
+| Battle, goals, preferences, farm and business execution | Existing private automation actor records remain canonical; battle GETs are live-only, never stale inputs for actions. `/api/combat` and battle detail reads remain live; the last confirmed actor projection survives failures. |
+| Work cycle reader                                       | `/api/works/open` is POST despite being a state reader. Its normalized latest view already lives in the private work-farm record. It is not replayed or generically cached as a GET.                                             |
+| Encyclopedia, raids, media, bot inline cards            | Public reference catalogue and existing raid storage; independent of personal snapshots and game availability. No new per-account scans.                                                                                         |
+
+The allowlist deliberately covers current consumers rather than every documented
+GET. Query-bearing reads and other API documentation operations stay live-only;
+they cannot overwrite a baseline snapshot with a filtered response. Collection
+sections are requested only for known drops used by the opened surface. This is
+incremental coverage, not an atomic scan of the entire game account. An unvisited
+section or an evicted section remains unknown until successfully requested.
+
+`account_snapshots` is a separate table in the existing private `automation.sqlite`,
+using the same private directory, HMAC account keys, AES-GCM encryption and FULL
+SQLite transactions. No personal data is written to public `madhouse.sqlite`.
+Each account has one schema-version-1 record with current sections, timestamps,
+health, and at most eight hashes of verified bearer credentials. Identity comes
+from successful game `/api/me`, or an exact credential already bound to a verified
+account in private storage; JWT claims and caller IDs cannot select accounts.
+No raw credential is added to snapshot data. Secret-shaped fields are recursively
+removed; existing encrypted automation credentials remain in their existing record.
+
+Limits are 128 sections, 1 MiB per section and 3 MiB per account snapshot, with
+oldest sections evicted first while retaining `/api/me`. Response bodies are read
+with a byte limit. Successful section replacements are committed atomically;
+concurrent updates reread the current account record before replacing a section.
+There is no response history. Sparse objects preserve known fields when fields
+are omitted or null; successful arrays replace arrays (including legitimate empty
+lists). Explicit partial/error envelopes, malformed JSON and oversized responses
+are failures and preserve the prior successful section. The upstream has no
+universal completeness marker, so an otherwise successful empty list is treated
+as authoritative. Unknown ownership is never converted to zero or a complete set.
+
+The server TTL is three minutes. Identical concurrent reads are deduplicated and
+reads are serialized per account; at most 256 in-flight section requests are
+accepted. UI fallback reads and mandatory-live automation reads use separate
+in-flight keys so automation can never inherit a stale UI response. The existing
+client memory cache is also three minutes; effective display age may therefore
+reach roughly six minutes without an explicit refresh. A mutation dirties cached
+sections so the next demand refreshes them. There is no browser snapshot timer,
+account sweep, new cron or background polling of all endpoints.
+
+Timeout/network failures, 429, 5xx and malformed successful responses record an
+observed outage with a 30-second retry cooldown. A previously successful section
+is returned with HTTP 200 and `X-Madhouse-Snapshot: stale`; a missing section
+returns 503 `snapshot_unknown`. The game request deadline is eight seconds, below
+the browser request deadline. Read responses also expose
+`X-Madhouse-Game-Status`, `X-Madhouse-Last-Success` and
+`X-Madhouse-Section-Updated`. These timestamps describe successful section reads,
+not a simultaneous whole-account snapshot. An endpoint failure is cleared by
+successful refresh of that endpoint; a successful unrelated endpoint does not
+hide partial unavailability. Recovery is demand-driven after the cooldown.
+
+Game HTTP 401 records invalid credentials separately; it never becomes a stale
+success. HTTP 403 remains a permission refusal and does not revoke an entire
+account. Wiki launch identity validation stays in the connector and remains a
+separate error. Existing session expiry and logout rules still apply: this first
+iteration does not create a new long-lived Wiki login or grant access to an
+unknown credential during an outage. A verified, restorable session can read its
+saved sections after browser/server restart without contacting a healthy game.
+
+The bottom navigation warning uses a shared UI Kit Button variant and Dialog.
+It explains section staleness, last successful update and paused actions. Normal
+initial/anonymous `unknown` is quiet; first-read failure reports unavailable with
+no successful timestamp. Recovery updates the existing indicator without toasts.
+Automation state responses carry the same health projection, using the existing
+server-state subscription rather than a new game polling loop.
+
+Known unavailability blocks action-start commands before dispatch and blocks every
+game mutation at the shared server fetch boundary, including existing workers.
+Stop commands and private preference/goal edits remain usable. Live automation
+reads never fall back to stale bodies. Existing pending receipts, uncertain
+checkpoints, durable serialization and no-replay rules remain unchanged. There
+is no durable deferred-action queue and no automatic replay on recovery; a future
+queue must distinguish unsent, submitted and uncertain operations and reuse the
+same account/receipt/checkpoint boundary. The single-host worker lease and volume
+backup requirements above still apply. Neither deploy nor live-game verification
+is required by this local implementation; tests inject fake upstream responses.

@@ -3,7 +3,7 @@ export const API_MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-function routePattern(path) {
+export function routePattern(path) {
   return new RegExp(
     "^" +
       path
@@ -189,6 +189,15 @@ export function createProductionApi(operations, fetcher = fetch) {
           "X-Madhouse-Redirect-Class": redirectClass,
           "X-Madhouse-Upstream-Status": String(upstream.status),
         });
+      }
+      for (const name of [
+        "X-Madhouse-Game-Status",
+        "X-Madhouse-Last-Success",
+        "X-Madhouse-Section-Updated",
+        "X-Madhouse-Snapshot",
+      ]) {
+        const value = upstream.headers.get(name);
+        if (value) headers[name] = value;
       }
       const responseBody = await upstream.arrayBuffer();
       if (responseBody.byteLength > MAX_RESPONSE_BYTES)
