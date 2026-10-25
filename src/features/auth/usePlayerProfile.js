@@ -8,10 +8,13 @@ import { readSession, subscribeSession } from "../../../shared/auth-session.js";
 import {
   normalizeActiveStashBuffs,
   normalizePlayerProfile,
+  retainProfileProgress,
+  applyWorkFarmEnergy,
 } from "./profile.js";
+import { workFarm } from "../bosses/BossBattle/boss-battle-session.js";
 
-function playerProfile(data) {
-  const profile = normalizePlayerProfile(data);
+function playerProfile(data, previous) {
+  const profile = retainProfileProgress(normalizePlayerProfile(data), previous);
   const session = readSession();
   profile.playerLevel ??= session.playerLevel;
   if (
@@ -42,7 +45,8 @@ export function usePlayerProfile() {
   useEffect(() => {
     let controller;
     let identity = readSession().token;
-    const load = async () => {
+    let workStatus = workFarm.getSnapshot().run?.status;
+    const load = async ({ fresh = false } = {}) => {
       controller?.abort();
       controller = new AbortController();
       const { signal } = controller;
@@ -56,9 +60,12 @@ export function usePlayerProfile() {
       // Clear only for an account change; revalidation keeps the current view.
       if (changed) setState(cachedState());
       try {
-        const data = await getSessionJson("/api/me", { signal });
+        const data = await getSessionJson("/api/me", { signal, fresh });
         if (signal.aborted) return;
-        setState({ status: "ready", profile: playerProfile(data) });
+        setState((current) => ({
+          status: "ready",
+          profile: playerProfile(data, current.profile),
+        }));
         try {
           const bag = await getSessionJson("/api/me/bag", { signal });
           if (!signal.aborted)
@@ -102,7 +109,10 @@ export function usePlayerProfile() {
       if (event.cleared) {
         setState(cachedState());
       } else if (event.path === "/api/me") {
-        setState({ status: "ready", profile: playerProfile(event.data) });
+        setState((current) => ({
+          status: "ready",
+          profile: playerProfile(event.data, current.profile),
+        }));
       } else if (event.path === "/api/me/bag") {
         setState((current) => ({
           ...current,
@@ -114,12 +124,25 @@ export function usePlayerProfile() {
         }));
       }
     });
+    const unsubscribeWork = workFarm.subscribe(() => {
+      if (readSession().token !== identity) return;
+      const view = workFarm.getSnapshot().view;
+      setState((current) => {
+        const profile = applyWorkFarmEnergy(current.profile, view);
+        return profile === current.profile ? current : { ...current, profile };
+      });
+      const status = workFarm.getSnapshot().run?.status;
+      const finished = workStatus === "running" && status !== "running";
+      workStatus = status;
+      if (finished) void load({ fresh: true });
+    });
     void load();
     const unsubscribe = subscribeSession(load);
     return () => {
       controller?.abort();
       unsubscribe();
       unsubscribeData();
+      unsubscribeWork();
     };
   }, []);
 

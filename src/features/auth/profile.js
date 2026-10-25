@@ -174,3 +174,37 @@ export function normalizePlayerProfile(data, bag) {
     },
   };
 }
+
+// Partial /me responses must not erase confirmed progress for the same player.
+export function retainProfileProgress(profile, previous) {
+  if (!profile.playerId || profile.playerId !== previous?.playerId)
+    return profile;
+  return {
+    ...profile,
+    playerLevel: profile.playerLevel ?? previous.playerLevel,
+    experience: {
+      current: profile.experience.current ?? previous.experience.current,
+      toNextLevel:
+        profile.experience.toNextLevel ?? previous.experience.toNextLevel,
+    },
+  };
+}
+
+export function applyWorkFarmEnergy(profile, view) {
+  const energy = view?.energy;
+  if (
+    !profile ||
+    !Number.isFinite(view?.updatedAt) ||
+    view.updatedAt <= (profile.energy?.snapshotAtMs ?? 0) ||
+    !Number.isFinite(energy?.current) ||
+    !Number.isFinite(energy?.max) ||
+    energy.current < 0 ||
+    energy.max <= 0 ||
+    energy.current > energy.max
+  )
+    return profile;
+  return {
+    ...profile,
+    energy: { ...energy, snapshotAtMs: view.updatedAt },
+  };
+}

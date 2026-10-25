@@ -31,14 +31,18 @@ export function BossStatus({
     const info = RAID_STATUS_INFO[status] || RAID_STATUS_INFO.unknown;
     const hasUnknownMarker =
       status === "unknown" && hasUnknownRaidStatusMarker(raid);
-    const label = hasUnknownMarker ? "Маркер не распознан" : info.label;
+    const label = hasUnknownMarker
+      ? "Маркер не распознан"
+      : `Статус из сообщения: ${info.label}`;
     content = (
       <Pill
         editKey="status"
         compact={compact}
         variant={info.color}
         title={
-          hasUnknownMarker ? "В канале нераспознанный маркер состояния." : label
+          hasUnknownMarker
+            ? "В сообщении есть нераспознанный маркер состояния."
+            : label
         }
         aria-label={label}
       >

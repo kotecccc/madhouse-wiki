@@ -120,3 +120,69 @@ for (const mode of ["missingCooldown", "fail", "victory"]) {
       assert.equal(f.controller.getSnapshot().battle.status, "won");
   });
 }
+
+test("manual refresh pauses strikes, resumes after success and stops after failed verification", async () => {
+  let time = 100000;
+  let release;
+  let reject;
+  let holding = false;
+  let posts = 0;
+  const timers = new Map();
+  let seq = 0;
+  const raw = () => ({
+    battleId: "refresh-fight",
+    bossId: 7,
+    status: "active",
+    playerHealth: 100,
+    playerMaxHealth: 100,
+    bossHealth: 100,
+    bossMaxHealth: 100,
+    retryAfterMilliseconds: 3000,
+  });
+  const controller = createBossBattleController({
+    now: () => time,
+    request: async (method, path) => {
+      if (method === "POST") {
+        posts++;
+        return { battle: raw() };
+      }
+      if (holding)
+        return new Promise((resolve, fail) => {
+          release = resolve;
+          reject = fail;
+        });
+      return path.includes("/battles/")
+        ? raw()
+        : { id: 7, activeBattle: raw() };
+    },
+  });
+  await controller.open({ numericId: 7, name: "Boss" });
+  const auto = createBossBattleAutoAttack({
+    controller,
+    now: () => time,
+    random: () => 0,
+    schedule: (fn) => {
+      const id = ++seq;
+      timers.set(id, fn);
+      return id;
+    },
+    cancel: (id) => timers.delete(id),
+  });
+  assert.equal(auto.start(), true);
+  holding = true;
+  const refresh = controller.refresh();
+  assert.equal(auto.getSnapshot().enabled, true);
+  assert.equal(timers.size, 0);
+  time += 5000;
+  assert.equal(posts, 0);
+  release(raw());
+  await refresh;
+  assert.equal(auto.getSnapshot().enabled, true);
+  assert.equal(timers.size, 1);
+  const failed = controller.refresh();
+  reject(new Error("offline"));
+  await failed;
+  assert.equal(auto.getSnapshot().enabled, false);
+  assert.equal(timers.size, 0);
+  auto.dispose();
+});

@@ -93,7 +93,15 @@ export function createRemoteBattleSession({
     for (const listener of [...set]) listener(value);
   };
   function publish() {
-    const battleState = server?.battle ?? {};
+    const savedBattle = server?.battle ?? {};
+    // While switching targets, do not label the previous result as the selected
+    // boss. Server reconciliation may still return an actually active old fight.
+    const battleState =
+      pendingCommands > 0 &&
+      localBoss &&
+      numericId(savedBattle.boss) !== numericId(localBoss)
+        ? { ...EMPTY_BATTLE, boss: localBoss }
+        : savedBattle;
     snapshot = Object.freeze({
       ...EMPTY_BATTLE,
       ...battleState,

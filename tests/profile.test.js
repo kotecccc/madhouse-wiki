@@ -180,3 +180,56 @@ test("stat display retains persistent bonuses and falls back without reliable br
     { value: 17, temporary: 0 },
   );
 });
+
+test("partial profile keeps known level and experience only for the same account", async () => {
+  const { retainProfileProgress } =
+    await import("../src/features/auth/profile.js");
+  const known = normalizePlayerProfile({
+    playerId: 1,
+    exp: { level: 134, currentExp: 100, expToNextLevel: 200 },
+  });
+  const partial = normalizePlayerProfile({ playerId: 1 });
+  const retained = retainProfileProgress(partial, known);
+  assert.equal(retained.playerLevel, 134);
+  assert.deepEqual(retained.experience, { current: 100, toNextLevel: 200 });
+  assert.equal(
+    retainProfileProgress(normalizePlayerProfile({ playerId: 2 }), known)
+      .playerLevel,
+    null,
+  );
+  const newer = normalizePlayerProfile({
+    playerId: 1,
+    exp: { level: 135, currentExp: 0, expToNextLevel: 300 },
+  });
+  assert.equal(retainProfileProgress(newer, known).experience.current, 0);
+});
+
+test("confirmed farm energy updates profile, but old or invalid snapshots cannot roll it back", async () => {
+  const { applyWorkFarmEnergy } =
+    await import("../src/features/auth/profile.js");
+  const profile = normalizePlayerProfile({
+    playerId: 1,
+    energy: { current: 360, max: 360 },
+  });
+  profile.energy.snapshotAtMs = 100;
+  const view = {
+    updatedAt: 200,
+    energy: { current: 182, max: 360, regenIntervalSeconds: 120 },
+  };
+  const updated = applyWorkFarmEnergy(profile, view);
+  assert.equal(updated.energy.current, 182);
+  assert.equal(updated.energy.snapshotAtMs, 200);
+  assert.equal(
+    applyWorkFarmEnergy(updated, { ...view, updatedAt: 150 }),
+    updated,
+  );
+  assert.equal(
+    applyWorkFarmEnergy(updated, {
+      ...view,
+      updatedAt: 300,
+      energy: { current: 500, max: 360 },
+    }),
+    updated,
+  );
+  assert.equal(applyWorkFarmEnergy(null, view), null);
+});

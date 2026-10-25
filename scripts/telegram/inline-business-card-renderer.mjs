@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { cataloguePlugin } from "../catalogue/vite-plugin.mjs";
 import { businessCardFilename } from "./inline-card-assets.mjs";
 import { businessUpgradeCardGroups } from "./inline-business-card-groups.mjs";
+import {
+  installPreviewImageLoader,
+  reportPreviewImageFailures,
+} from "./inline-preview-assets.mjs";
 
 export async function renderBusinessUpgradeCards(knowledgeBase, root) {
   const groups = businessUpgradeCardGroups(knowledgeBase).map((group) => ({
@@ -52,6 +56,8 @@ export async function renderBusinessUpgradeCards(knowledgeBase, root) {
     }
     browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
+    await page.setRequestInterception(true);
+    const imageFailures = installPreviewImageLoader(page);
     const browserErrors = [];
     page.on("pageerror", (error) => browserErrors.push(error.message));
     page.on("console", (message) => {
@@ -87,6 +93,7 @@ export async function renderBusinessUpgradeCards(knowledgeBase, root) {
         { cause: error },
       );
     }
+    reportPreviewImageFailures("inline-business-cards", imageFailures);
 
     const renderedGroups = await page.$$(`[data-business-upgrade-group]`);
     if (renderedGroups.length !== groups.length) {

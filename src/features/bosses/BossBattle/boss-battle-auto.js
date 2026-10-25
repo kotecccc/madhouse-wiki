@@ -66,6 +66,7 @@ export function createBossBattleAutoAttack({
   let disposed = false;
   let state = controller.getSnapshot();
   let targetBattleId = null;
+  let refreshResumeAt = null;
   let cachedSnapshot = { enabled, nextAttackAt, pause };
 
   const snapshot = () => cachedSnapshot;
@@ -83,6 +84,7 @@ export function createBossBattleAutoAttack({
     runId++;
     enabled = false;
     clearTimer();
+    refreshResumeAt = null;
     publish();
   }
   function delayNext(id, base, isPause = false) {
@@ -168,6 +170,20 @@ export function createBossBattleAutoAttack({
   function onControllerChange() {
     state = controller.getSnapshot();
     if (!enabled) return;
+    // A read must pause the timer, not cancel the user's server-owned intent.
+    // Failed or changed battle state still follows the normal halt path below.
+    if (
+      state.pending === "refresh" &&
+      state.battle?.id === targetBattleId &&
+      state.battle.status === "active" &&
+      !state.error &&
+      !state.purchaseUncertain
+    ) {
+      refreshResumeAt ??= nextAttackAt;
+      clearTimer();
+      publish();
+      return;
+    }
     const intermediateOwnAttack = ownAttack && state.pending === "attack";
     if (
       state.battle?.id !== targetBattleId ||
@@ -190,6 +206,10 @@ export function createBossBattleAutoAttack({
       )
     ) {
       halt();
+    } else if (timer === null && !ownAttack && !state.pending) {
+      const resumeAt = Math.max(state.battle.readyAt, refreshResumeAt ?? 0);
+      refreshResumeAt = null;
+      delayNext(runId, Math.max(0, resumeAt - now()));
     }
   }
   const unsubscribe = controller.subscribe(onControllerChange);

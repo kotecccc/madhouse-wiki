@@ -392,7 +392,10 @@ test("partial attack reply preserves confirmed participants and journal without 
   const before = store.getSnapshot().battle;
   await store.attack();
   const after = store.getSnapshot().battle;
-  assert.equal(after.participants, before.participants);
+  assert.equal(after.participantCount, before.participantCount);
+  assert.equal(after.participants[0].nickname, before.participants[0].nickname);
+  assert.equal(after.participants[0].damageDealt, null);
+  assert.equal(after.participantsStale, true);
   assert.equal(after.events.length, before.events.length + 1);
   assert.equal(after.events[0].confirmed, true);
   assert.equal(after.events[1], before.events[0]);
@@ -685,4 +688,41 @@ test("server actions can resolve the current nickname without retaining player i
   );
   assert.equal(result.events[0].actor, "[PSY_A]koteccc");
   assert.equal(JSON.stringify(result).includes("playerId"), false);
+});
+
+test("opening a different boss reconciles a restored terminal fight then selects the requested boss", async () => {
+  const { store, calls } = setup((_method, path) =>
+    path.includes("/battles/")
+      ? rawBattle({ status: "won", bossHealth: 0 })
+      : { id: 8, activeBattle: null, state: { canStartFight: true } },
+  );
+  store.restoreState({
+    boss: { id: 7, name: "Old" },
+    battle: normalizeBattle(rawBattle({ status: "won", bossHealth: 0 }), 7),
+  });
+  await store.open({ numericId: 8, name: "Selected" });
+  assert.equal(store.getSnapshot().boss.id, 8);
+  assert.equal(store.getSnapshot().battle, null);
+  assert.equal(store.getSnapshot().canStart, true);
+  assert.deepEqual(
+    calls.map(([method, path]) => [method, path]),
+    [
+      ["GET", "/api/bosses/battles/battle-1"],
+      ["GET", "/api/bosses/8"],
+    ],
+  );
+});
+
+test("failed reconciliation never discards an uncertain old fight for a new target", async () => {
+  const { store, calls } = setup(() => {
+    throw new Error("offline");
+  });
+  store.restoreState({
+    boss: { id: 7, name: "Old" },
+    battle: normalizeBattle(rawBattle(), 7),
+  });
+  await store.open({ numericId: 8, name: "Selected" });
+  assert.equal(store.getSnapshot().boss.id, 7);
+  assert.equal(store.getSnapshot().needsRefresh, true);
+  assert.equal(calls.length, 1);
 });

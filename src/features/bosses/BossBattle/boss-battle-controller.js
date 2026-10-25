@@ -162,6 +162,7 @@ export function normalizeBattle(
     detailsLoaded:
       Array.isArray(raw.participants) &&
       raw.participants.length === participants.length,
+    participantsStale: false,
     participants,
     events,
   };
@@ -189,10 +190,14 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
   if (!Object.hasOwn(raw, "expiresAtUtc")) next.expiresAt = previous.expiresAt;
   next.readyAt = Math.max(next.readyAt, previous.readyAt);
   if (!Object.hasOwn(raw, "myDamage")) next.totalDamage = previous.totalDamage;
-  if (!Object.hasOwn(raw, "participantCount"))
+  if (number(raw.participantCount) === null)
     next.participantCount = previous.participantCount;
   if (!Array.isArray(raw.participants)) {
-    next.participants = previous.participants;
+    next.participants = previous.participants.map((participant) => ({
+      ...participant,
+      damageDealt: null,
+    }));
+    next.participantsStale = true;
     next.detailsLoaded = previous.detailsLoaded;
   } else if (
     JSON.stringify(next.participants) === JSON.stringify(previous.participants)
@@ -766,7 +771,7 @@ export function createBossBattleController({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    open(boss, { refresh: shouldRefresh = true } = {}) {
+    async open(boss, { refresh: shouldRefresh = true } = {}) {
       const id = Number(boss.numericId ?? boss.apiId);
       if (!Number.isSafeInteger(id) || id <= 0) return;
       if (
@@ -787,7 +792,19 @@ export function createBossBattleController({
           (state.battle && !state.battle.outcome))
       ) {
         publish({ visible: true, needsRefresh: true });
-        return refresh();
+        const version = generation;
+        await refresh();
+        if (
+          version !== generation ||
+          !state.visible ||
+          state.pending ||
+          state.needsRefresh ||
+          state.purchaseUncertain ||
+          state.error ||
+          (state.battle && !isTerminalBossBattle(state.battle)) ||
+          state.boss?.id === id
+        )
+          return;
       }
       if (state.boss?.id !== id)
         publish({

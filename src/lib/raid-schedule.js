@@ -25,7 +25,7 @@ export function getRaidStatus(raid) {
 
   const zone = String(raid?.zone || "").trimStart();
   if (/^\p{Extended_Pictographic}/u.test(zone)) return "unknown";
-  return "scheduled";
+  return "unknown";
 }
 
 export function getRaidDisplayZone(raid) {

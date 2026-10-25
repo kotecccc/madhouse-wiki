@@ -3,6 +3,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import { FieldLabel } from "../../../components/ui/FieldLabel/FieldLabel.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { telegramContext } from "../../../../shared/telegram-context.js";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
 import "./FeedbackWidget.css";
@@ -231,6 +232,11 @@ export function FeedbackWidget({ screen = "floors" }) {
               </Button>
             )}
           </div>
+          {!telegram.initData && (
+            <CardDescription as="p" size="sm" role="status">
+              Чтобы отправить обращение, откройте Wiki внутри Telegram.
+            </CardDescription>
+          )}
         </form>
       </Modal>
     </>

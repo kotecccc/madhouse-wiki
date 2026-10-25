@@ -286,6 +286,7 @@ const BattleParticipants = memo(function BattleParticipants({
   participants,
   participantCount,
   maxParticipants,
+  stale,
 }) {
   const count =
     participantCount != null
@@ -298,6 +299,12 @@ const BattleParticipants = memo(function BattleParticipants({
       countLabel={count ? `Участников: ${count}` : undefined}
       description={count ? undefined : "Нет данных"}
     >
+      {stale && (
+        <CardDescription>
+          Список участников сохранён до последнего действия. Обновите бой, чтобы
+          получить актуальный урон.
+        </CardDescription>
+      )}
       {participants.length ? (
         <div className="boss-battle-panel-stack">
           {participants.map((participant, index) => (
@@ -414,6 +421,7 @@ export function BossBattleDetails({ boss, battle }) {
   return (
     <>
       <BattleParticipants
+        stale={battle.participantsStale}
         participants={battle.participants || EMPTY_LIST}
         participantCount={battle.participantCount}
         maxParticipants={boss.reference?.maxParticipants}

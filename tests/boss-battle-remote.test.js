@@ -588,3 +588,35 @@ test("idle state connection errors retry promptly and clear after recovery", asy
   assert.equal([...h.tasks.values()][0].delay, 180000);
   h.disconnect();
 });
+
+test("selecting a new boss hides the previous result until server reconciliation finishes", async () => {
+  let release;
+  const old = initialState();
+  old.battle.battle.status = "won";
+  const h = harness({
+    request: async (method) =>
+      method === "GET"
+        ? old
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
+  });
+  await h.connect();
+  const opening = h.bossBattle.open({ numericId: 29, name: "Selected" });
+  assert.equal(h.bossBattle.getSnapshot().boss.name, "Selected");
+  assert.equal(h.bossBattle.getSnapshot().battle, null);
+  assert.equal(h.bossBattle.getSnapshot().pending, "command");
+  release({
+    ...old,
+    version: 8,
+    battle: {
+      boss: { id: 29, name: "Selected" },
+      battle: null,
+      canStart: true,
+    },
+  });
+  await opening;
+  assert.equal(h.bossBattle.getSnapshot().boss.id, 29);
+  assert.equal(h.bossBattle.getSnapshot().pending, null);
+  h.disconnect();
+});

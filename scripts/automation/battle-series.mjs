@@ -133,7 +133,7 @@ export function createBattleSeries({
     }
     if (state.pending) {
       // The strike engine may temporarily publish needsRefresh during its POST.
-      if (state.pending !== "attack") stop();
+      if (!["attack", "refresh"].includes(state.pending)) stop();
       return;
     }
     if (!healthy(state)) {

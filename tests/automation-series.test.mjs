@@ -443,3 +443,31 @@ test("expired time goal cancels queued next battle", async () => {
     },
   );
 });
+
+test("server series preserves enabled intent across a manual battle refresh", async () => {
+  await withSetup(
+    {
+      initial: makeBattle("existing", "active", 1_000_000, {
+        retryAfterMilliseconds: 30000,
+      }),
+    },
+    async (f) => {
+      const entry = await f.openAndConfigure();
+      await f.command(entry, "start-refresh-case", "auto.start");
+      await f.flush();
+      assert.equal(f.service.snapshot(entry).auto.enabled, true);
+      const postsBefore = f.calls.filter(
+        (call) => call.method === "POST",
+      ).length;
+      await f.command(entry, "refresh-active-case", "refresh");
+      await f.flush();
+      assert.equal(f.service.snapshot(entry).auto.enabled, true);
+      assert.equal(
+        f.calls.filter((call) => call.method === "POST").length,
+        postsBefore,
+      );
+      await f.command(entry, "stop-refresh-case", "auto.stop");
+      assert.equal(f.service.snapshot(entry).auto.enabled, false);
+    },
+  );
+});
