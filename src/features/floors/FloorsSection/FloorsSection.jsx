@@ -1,3 +1,5 @@
+import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
+import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { progressionTargets } from "../progression-targets.js";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
@@ -78,22 +80,34 @@ export function FloorsSection({
     if (departmentState.status === "ready")
       setConfirmedDepartmentState(departmentState);
   }, [departmentState]);
+  const floorsLoading =
+    status === "loading" || (isAuthenticated && status === "idle");
+  const departmentsLoading =
+    floorsLoading ||
+    (isAuthenticated &&
+      status === "ready" &&
+      selectedFloor?.code === lastAvailableFloorCode &&
+      !["ready", "error"].includes(departmentState.status));
   const category =
     categorySelection?.floorId === selectedFloor?.id
       ? categorySelection.category
       : "work";
-  const targets = progressionTargets({
-    floors: orderedFloors,
-    departments: knowledgeBase.departments,
-    bosses: knowledgeBase.bosses,
-    businesses: knowledgeBase.businesses,
-    availability,
-    floorDetails,
-    departmentState:
-      departmentState.status === "ready"
-        ? departmentState
-        : confirmedDepartmentState || {},
-  }).filter((target) =>
+  const targets = (
+    departmentsLoading
+      ? []
+      : progressionTargets({
+          floors: orderedFloors,
+          departments: knowledgeBase.departments,
+          bosses: knowledgeBase.bosses,
+          businesses: knowledgeBase.businesses,
+          availability,
+          floorDetails,
+          departmentState:
+            departmentState.status === "ready"
+              ? departmentState
+              : confirmedDepartmentState || {},
+        })
+  ).filter((target) =>
     (selectedFloor?.departmentIds || []).includes(target.departmentId),
   );
   useEffect(() => {
@@ -167,46 +181,57 @@ export function FloorsSection({
       <Title as="h2" className="sr-only" id="floors-title">
         Этажи и работёнки
       </Title>
-      <div className="floor-selector" role="group" aria-label="Выберите этаж">
-        {orderedFloors.map((floor) => (
-          <Button
-            key={floor.id}
-            variant={
-              availability[floor.code] === false ? "locked" : "secondary"
-            }
-            className="floor-selector-tile"
-            aria-label={[
-              `Этаж ${floor.code}`,
-              floor.id === selectedFloor?.id ? "выбран" : null,
-              availability[floor.code] === false ? "заблокирован в игре" : null,
-            ]
-              .filter(Boolean)
-              .join(" — ")}
-            aria-pressed={floor.id === selectedFloor?.id}
-            onClick={() => {
-              if (floor.id !== selectedFloor?.id) setCategorySelection(null);
-              setSelectedFloorId(floor.id);
-              trackProductEvent("floor_select", {
-                section: "floors",
-                feature: "floor_catalogue",
-                subject: floor.code,
-              });
-            }}
-          >
-            <span className="floor-selector-code">
-              <span className="floor-selector-dash">–</span>
-              <span>{floor.code}</span>
-              {availability[floor.code] === false && (
-                <LockIndicator
-                  variant="locked"
-                  size="medium"
-                  className="floor-selector-lock"
-                />
-              )}
-              <span className="floor-selector-dash">–</span>
-            </span>
-          </Button>
-        ))}
+      <div
+        className="floor-selector"
+        role="group"
+        aria-label="Выберите этаж"
+        aria-busy={floorsLoading}
+      >
+        {orderedFloors.map((floor) =>
+          floorsLoading ? (
+            <Skeleton key={floor.id} variant="card" />
+          ) : (
+            <Button
+              key={floor.id}
+              variant={
+                availability[floor.code] === false ? "locked" : "secondary"
+              }
+              className="floor-selector-tile"
+              aria-label={[
+                `Этаж ${floor.code}`,
+                floor.id === selectedFloor?.id ? "выбран" : null,
+                availability[floor.code] === false
+                  ? "заблокирован в игре"
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" — ")}
+              aria-pressed={floor.id === selectedFloor?.id}
+              onClick={() => {
+                if (floor.id !== selectedFloor?.id) setCategorySelection(null);
+                setSelectedFloorId(floor.id);
+                trackProductEvent("floor_select", {
+                  section: "floors",
+                  feature: "floor_catalogue",
+                  subject: floor.code,
+                });
+              }}
+            >
+              <span className="floor-selector-code">
+                <span className="floor-selector-dash">–</span>
+                <span>{floor.code}</span>
+                {availability[floor.code] === false && (
+                  <LockIndicator
+                    variant="locked"
+                    size="medium"
+                    className="floor-selector-lock"
+                  />
+                )}
+                <span className="floor-selector-dash">–</span>
+              </span>
+            </Button>
+          ),
+        )}
       </div>
 
       <div
@@ -220,6 +245,8 @@ export function FloorsSection({
           ["businesses", "Бизнесы"],
         ].map(([value, label]) => {
           const isTarget = targets.some((target) => target.category === value);
+          if (departmentsLoading)
+            return <Skeleton key={value} variant="control" />;
           return (
             <Button
               key={value}
@@ -259,8 +286,25 @@ export function FloorsSection({
           Доступность отделений не удалось проверить.
         </p>
       )}
-      <div className="floor-grid" aria-live="polite">
-        {selectedFloor ? renderFloor(selectedFloor) : null}
+      <div
+        className="floor-grid"
+        aria-live="polite"
+        aria-busy={departmentsLoading}
+      >
+        {departmentsLoading ? (
+          <>
+            <span className="sr-only" role="status">
+              Загружаем этажи, отделения и цели…
+            </span>
+            {[0, 1, 2].map((index) => (
+              <BaseCard key={index} variant="floor-data">
+                <Skeleton variant="card" />
+              </BaseCard>
+            ))}
+          </>
+        ) : selectedFloor ? (
+          renderFloor(selectedFloor)
+        ) : null}
       </div>
     </ContentSection>
   );

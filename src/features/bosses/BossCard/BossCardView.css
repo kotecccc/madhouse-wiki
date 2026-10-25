@@ -89,6 +89,14 @@
   .boss-card-view--no-portrait {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .boss-card-view--mobile-battle-action {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .boss-card-view--mobile-battle-action.boss-card-view--no-portrait {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .boss-card-indicators {

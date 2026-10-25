@@ -1,5 +1,6 @@
+import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
@@ -14,15 +15,6 @@ import { getWorkCardVariantProps } from "./work-card-variants.js";
 import { WorkCalculatorDialog } from "./WorkCalculatorDialog.jsx";
 import "./WorkCard.css";
 
-const mobileQuery = "(max-width: 650px)";
-function subscribe(onChange) {
-  const query = window.matchMedia(mobileQuery);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-const getMobile = () => window.matchMedia(mobileQuery).matches;
-const getServerMobile = () => false;
-
 export function WorkCard({
   work,
   department,
@@ -35,11 +27,17 @@ export function WorkCard({
   placeholder = false,
 }) {
   const [open, setOpen] = useState(false);
-  const mobile = useSyncExternalStore(subscribe, getMobile, getServerMobile);
+  const { mobile, cardProps } = useMobileCardAction({
+    enabled: !!work && !placeholder,
+    label: `Настроить фарм: ${work?.title || "Работёнка"}`,
+    onActivate: () => setOpen(true),
+  });
   const variant = getWorkCardVariantProps(preset, mobile);
   if (!work && !placeholder) return null;
   const energy = placeholder ? null : department?.energyCycle?.full;
   const departmentWork = department?.work;
+  const stash = departmentWork?.stash || department?.stashPreview?.title || "";
+  const image = departmentWork?.image || department?.stashPreview?.image;
   const fields = [
     {
       id: "name",
@@ -48,7 +46,7 @@ export function WorkCard({
     },
     { id: "block", label: "Блок", value: department?.code || "" },
     { id: "department", label: "Отделение", value: department?.name || "" },
-    { id: "stash", label: "Тайник", value: departmentWork?.stash || "" },
+    { id: "stash", label: "Тайник", value: stash },
     {
       id: "energy",
       label: "Энергия",
@@ -73,6 +71,7 @@ export function WorkCard({
         editKey="card"
         className="work-card"
         variant="floor-data"
+        {...cardProps}
       >
         <div className="work-card-heading">
           <ImageCard
@@ -80,9 +79,9 @@ export function WorkCard({
             className="image-card--work"
             size="var(--work-image-card-size)"
             imageSize="var(--work-image-size)"
-            src={departmentWork?.image}
-            label={departmentWork?.stash || "Отделение"}
-            title={departmentWork?.stash || "Отделение"}
+            src={image}
+            label={stash || "Отделение"}
+            title={stash || "Отделение"}
           >
             <Icon type="department" />
           </ImageCard>
@@ -132,20 +131,22 @@ export function WorkCard({
               </>
             )}
           </span>
-          <Button
-            editKey="calculator-button"
-            size={variant?.buttonSize}
-            variant="card-action"
-            accent={targeted ? "gold" : undefined}
-            icon="brain"
-            disabled={placeholder}
-            aria-haspopup="dialog"
-            aria-label={`Настроить фарм: ${work?.title || "Работёнка"}`}
-            title="Настроить количество выполнений и рассчитать энергию"
-            onClick={showFarm}
-          >
-            Фарм
-          </Button>
+          {!mobile && (
+            <Button
+              editKey="calculator-button"
+              size={variant?.buttonSize}
+              variant="card-action"
+              accent={targeted ? "gold" : undefined}
+              icon="brain"
+              disabled={placeholder}
+              aria-haspopup="dialog"
+              aria-label={`Настроить фарм: ${work?.title || "Работёнка"}`}
+              title="Настроить количество выполнений и рассчитать энергию"
+              onClick={showFarm}
+            >
+              Фарм
+            </Button>
+          )}
         </div>
       </BaseCard>
       <WorkCalculatorDialog

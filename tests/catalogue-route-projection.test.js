@@ -62,9 +62,23 @@ test("projects route-only department metadata and route membership", () => {
       JSON.stringify({ nameRu: "API boss" }),
       "2026-10-20",
     );
+    entity.run(
+      "stash_set",
+      "stash_set:30",
+      "30",
+      "Керосинка",
+      "api",
+      JSON.stringify({
+        title: "Набор «Керосинка»",
+        setId: 30,
+        previewImageUrl: "https://cdn.cargohustle.online/stash/J/3_1.webp",
+      }),
+      "2026-10-20",
+    );
     const route = db.prepare("INSERT INTO route_discovery VALUES (?,?,?,?,?)");
     route.run("work", 7, "A", "A1", "client-hash");
     route.run("boss", 9, "$", "$2", "client-hash");
+    route.run("work", 30, "J", "J3", "client-hash");
     const model = readKnowledgeBase(root);
     const floorA = model.floors.find((floor) => floor.code === "A");
     const floorDollar = model.floors.find((floor) => floor.code === "$");
@@ -88,7 +102,19 @@ test("projects route-only department metadata and route membership", () => {
     assert.equal(floorDollar.metadataOnly, true);
     assert.equal(deptDollar2.metadataOnly, true);
     assert.equal(deptDollar2.name, undefined);
-    assert.equal(model.routeDiscovery.departments, 2);
+    const j3 = model.departments.find((department) => department.code === "J3");
+    assert.equal(j3.work, null);
+    assert.equal(j3.stashPreview.title, "Набор «Керосинка»");
+    assert.equal(
+      j3.stashPreview.image,
+      "https://cdn.cargohustle.online/stash/J/3_1.webp",
+    );
+    assert.equal(
+      model.works.some((work) => work.apiId === "30"),
+      false,
+    );
+    assert.equal(deptDollar2.stashPreview, null);
+    assert.equal(model.routeDiscovery.departments, 3);
     assert.equal(model.routeDiscovery.clientSha256, "client-hash");
   } finally {
     db.close();

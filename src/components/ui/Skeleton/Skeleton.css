@@ -1,0 +1,18 @@
+.ui-skeleton {
+  display: block;
+  width: 100%;
+  background: var(--card-border);
+  border-radius: var(--control-radius);
+}
+
+.ui-skeleton--text {
+  height: var(--font-size-md);
+}
+
+.ui-skeleton--control {
+  height: var(--control-height-lg);
+}
+
+.ui-skeleton--card {
+  height: var(--space-64);
+}

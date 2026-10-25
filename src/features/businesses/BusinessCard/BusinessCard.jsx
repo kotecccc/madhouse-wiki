@@ -1,3 +1,4 @@
+import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
 import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
 import "./BusinessCard.css";
@@ -19,6 +20,19 @@ export function BusinessCard({
   department,
   locked = false,
 }) {
+  const openLevels = () => {
+    trackProductEvent("business_upgrades_open", {
+      section: "businesses",
+      feature: "business_upgrades",
+      subject: business.id,
+    });
+    onUpgradeSelect({ business, upgrade });
+  };
+  const { mobile, cardProps } = useMobileCardAction({
+    enabled: typeof onUpgradeSelect === "function",
+    label: `Уровни бизнеса: ${business.title}`,
+    onActivate: openLevels,
+  });
   const fields = [
     { id: "block", label: "Отделение", value: department?.code || "" },
     { id: "name", label: "Название бизнеса", value: business.title },
@@ -31,7 +45,8 @@ export function BusinessCard({
         variant="floor-data"
         state={locked ? "locked" : targeted ? "target" : undefined}
         as="li"
-        className="floor-business-card"
+        className={`floor-business-card${mobile ? " floor-business-card--mobile-action" : ""}`}
+        {...cardProps}
       >
         <ImageCard
           editKey="image"
@@ -63,27 +78,22 @@ export function BusinessCard({
           </CardDescription>
           {children}
         </EditableLayout>
-        <div className="floor-business-actions">
-          <Button
-            editKey="action"
-            variant="card-action"
-            icon="levels"
-            title="Уровни бизнеса"
-            className="business-upgrade-open"
-            aria-label={`Требования по предметам для бизнеса «${business.title}»`}
-            onClick={() => {
-              trackProductEvent("business_upgrades_open", {
-                section: "businesses",
-                feature: "business_upgrades",
-                subject: business.id,
-              });
-              onUpgradeSelect({ business, upgrade });
-            }}
-          >
-            Уровни
-          </Button>
-          {goalAction}
-        </div>
+        {!mobile && (
+          <div className="floor-business-actions">
+            <Button
+              editKey="action"
+              variant="card-action"
+              icon="levels"
+              title="Уровни бизнеса"
+              className="business-upgrade-open"
+              aria-label={`Требования по предметам для бизнеса «${business.title}»`}
+              onClick={openLevels}
+            >
+              Уровни
+            </Button>
+            {goalAction}
+          </div>
+        )}
       </BaseCard>
     </CardEditScope>
   );

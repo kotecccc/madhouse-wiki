@@ -147,7 +147,7 @@
 .floor-category-button {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .floor-category-target {

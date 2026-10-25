@@ -263,9 +263,34 @@ export function readKnowledgeBase(
       const stash = stashSets.find(
         (s) => String(s.setId) === String(w?.stashSetId),
       );
+      // Reference asset paths identify their floor and department slot even
+      // when the work definition has not been captured. Keep that preview
+      // separate from work data; it must not create a synthetic work entity.
+      const code = d.blockCode ?? d.code;
+      const [, floorCode, slot] = /^([A-O$])(\d+)$/.exec(code || "") || [];
+      const preview =
+        stash ||
+        stashSets.find((set) => {
+          if (!floorCode || !set.previewImageUrl) return false;
+          try {
+            return (
+              new URL(set.previewImageUrl).pathname ===
+              `/stash/${floorCode}/${slot}_1.webp`
+            );
+          } catch {
+            return false;
+          }
+        });
       return {
         ...d,
-        code: d.blockCode ?? d.code,
+        code,
+        stashPreview: preview
+          ? {
+              id: preview.id,
+              title: text(preview.name ?? preview.title),
+              image: preview.previewImageUrl,
+            }
+          : null,
         openingConditions: conditions(d),
         work: w
           ? {

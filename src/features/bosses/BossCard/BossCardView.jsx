@@ -1,10 +1,18 @@
 import { renderDisplayFields } from "../../../components/ui/CardEditing/DisplayFields.jsx";
-import { BossBattleButton } from "../BossBattle/BossBattleDialog.jsx";
+import {
+  BossBattleButton,
+  openBossBattle,
+} from "../BossBattle/BossBattleDialog.jsx";
+import {
+  readSession,
+  subscribeSession,
+} from "../../../../shared/auth-session.js";
+import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { BossStatus } from "./BossStatus.jsx";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { bossDisplayFields } from "../../../lib/card-display-fields.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { useBossRewardReference } from "../useBossRewardReference.js";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { ItemCard } from "../../items/ItemCard/ItemCard.jsx";
@@ -44,6 +52,7 @@ export function BossCardView({
   className = "",
   showInfo = true,
   showBattleAction = false,
+  mobileBattleAction = false,
   showStats = false,
   showDropList = true,
   action,
@@ -81,6 +90,20 @@ export function BossCardView({
 }) {
   const cardRef = useRef(null);
   const referenceBoss = useBossRewardReference(boss, cardRef);
+  const sessionReady = useSyncExternalStore(
+    subscribeSession,
+    () => readSession().status === "ready",
+    () => false,
+  );
+  const { mobile, cardProps: mobileActionProps } = useMobileCardAction({
+    enabled:
+      mobileBattleAction && showBattleAction && !onSelectPart && sessionReady,
+    label: `Бой: ${boss.name}`,
+    onActivate: () => {
+      if (readSession().status === "ready")
+        openBossBattle(referenceBoss, openingRequirements);
+    },
+  });
   const [showDrops, setShowDrops] = useState(false);
   const [portraitHeight, setPortraitHeight] = useState(92);
   const cardVariant = variant || "boss";
@@ -134,6 +157,10 @@ export function BossCardView({
   const cardClass = [
     "boss-card-view",
     `boss-card-view--${cardVariant}`,
+    mobileBattleAction &&
+      mobile &&
+      !onSelectPart &&
+      "boss-card-view--mobile-battle-action",
     !hasPortrait && "boss-card-view--no-portrait",
     (showStatus || showAvailability) && "boss-card-view--indicators",
     className,
@@ -178,6 +205,7 @@ export function BossCardView({
       variant={cardVariant}
       state={cardState}
       padding={cardPadding}
+      className={cardClass}
       tabIndex={onSelectPart ? 0 : undefined}
       aria-label={
         onSelectPart ? "Карточка босса: нажмите для настройки" : undefined
@@ -201,6 +229,7 @@ export function BossCardView({
           : undefined
       }
       {...editableTargetProps(Boolean(onSelectPart), cardClass)}
+      {...mobileActionProps}
       style={{
         "--boss-portrait-height": `${portraitHeight}px`,
         ...(outerGap ? { gap: outerGap } : {}),
@@ -315,7 +344,10 @@ export function BossCardView({
             </CardDescription>
           ))}
       </EditableLayout>
-      {(showBattleAction || goalAction) && !onSelectPart ? (
+      {mobileBattleAction &&
+      mobile &&
+      !onSelectPart ? null : (showBattleAction || goalAction) &&
+        !onSelectPart ? (
         <div className="boss-card-actions">
           {showBattleAction && (
             <BossBattleButton

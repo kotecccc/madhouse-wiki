@@ -1,3 +1,4 @@
+import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { useEffect, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
@@ -197,7 +198,15 @@ function ProfileSummary({ state }) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [energyKnown, shouldTickEnergy]);
-  if (state.status === "loading" || state.status === "idle") return null;
+  if (state.status === "loading" || state.status === "idle")
+    return (
+      <BaseCard aria-busy="true">
+        <span className="sr-only" role="status">
+          Загружаем профиль…
+        </span>
+        <Skeleton variant="card" />
+      </BaseCard>
+    );
   if (state.status === "error")
     return (
       <p className="overview-empty" role="status">

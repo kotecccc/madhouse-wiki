@@ -30,6 +30,13 @@ const useBattle = () =>
     bossBattle.getSnapshot,
   );
 
+export function openBossBattle(boss, openingRequirements) {
+  bossBattle.open(boss, {
+    refresh: !bossBattleAuto.getSnapshot().enabled,
+    openingRequirements,
+  });
+}
+
 export function BossBattleButton({ boss, size = "md", openingRequirements }) {
   const sessionStatus = useSyncExternalStore(
     subscribeSession,
@@ -43,12 +50,7 @@ export function BossBattleButton({ boss, size = "md", openingRequirements }) {
       size={size}
       icon="combat"
       title="Открыть ручной бой"
-      onClick={() =>
-        bossBattle.open(boss, {
-          refresh: !bossBattleAuto.getSnapshot().enabled,
-          openingRequirements,
-        })
-      }
+      onClick={() => openBossBattle(boss, openingRequirements)}
       aria-haspopup="dialog"
       aria-label={`Бой: ${boss.name}`}
     >

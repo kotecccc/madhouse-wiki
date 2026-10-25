@@ -127,7 +127,6 @@ export function App() {
   return (
     <div className="site-shell">
       <SiteHeader
-        showDivider={!profileLoading}
         loading={
           profileState.status === "loading" ||
           floorAvailability.status === "loading" ||

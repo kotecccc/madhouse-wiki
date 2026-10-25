@@ -48,6 +48,11 @@ export function useFloorAvailability() {
       const refreshModel = () => setAvailability((current) => ({ ...current }));
       const session = readSession();
       previousStatus = session.status;
+      setStatus(
+        session.status === "ready" || isTelegramRestorePending()
+          ? "loading"
+          : "idle",
+      );
       setAvailability({});
       setFloorDetails({});
       let catalogue = null;

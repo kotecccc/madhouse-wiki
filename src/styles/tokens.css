@@ -19,7 +19,6 @@
   --layout-gap-item: var(--space-8);
   --page-gutter: var(--space-16);
   --page-max-width: 1024px;
-  --floor-card-border-bottom: rgba(212, 196, 163, 0.1);
   color-scheme: dark;
   --bg: #191816;
   --panel: #22201d;
@@ -28,7 +27,7 @@
   --dialog-backdrop: rgba(0, 0, 0, 0.6);
   --card-background: rgba(55, 50, 42, 0.24);
   --image-card-surface: #1d1c19;
-  --card-border: rgba(212, 196, 163, 0.16);
+  --card-border: var(--border-strong);
   --border-strong: rgba(212, 196, 163, 0.28);
   --radius-control: 8px;
   --radius-card: var(--radius-control);

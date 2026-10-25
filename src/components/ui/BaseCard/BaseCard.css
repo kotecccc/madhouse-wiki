@@ -20,7 +20,6 @@
 .base-card--floor-data {
   --card-padding: var(--space-12);
   --card-background: var(--surface-raised);
-  border-bottom-color: var(--floor-card-border-bottom);
 }
 
 .base-card--image {
@@ -112,4 +111,13 @@
 
 .base-card--target {
   border-color: var(--status-business);
+}
+
+.base-card[role="button"] {
+  cursor: pointer;
+}
+
+.base-card[role="button"]:focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
 }

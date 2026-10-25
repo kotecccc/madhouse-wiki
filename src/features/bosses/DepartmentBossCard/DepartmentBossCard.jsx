@@ -31,6 +31,7 @@ export function DepartmentBossCard({
             }
           : {})}
         showBattleAction={!locked}
+        mobileBattleAction
         as="li"
         variant="floor-data"
         className="floor-block-boss-card"
