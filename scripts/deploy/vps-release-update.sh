@@ -8,10 +8,150 @@ readonly IMAGE_ARCHIVE=madhouse-wiki-image.tar.gz
 readonly CHECKSUM_FILE="${IMAGE_ARCHIVE}.sha256"
 readonly COMPOSE_FILE="${ROOT}/vps-compose.yml"
 readonly RELEASE_ENV="${ROOT}/release.env"
+readonly PREVIOUS_RELEASE_ENV="${ROOT}/previous-release.env"
+readonly BEFORE_DOWNLOAD_KB=$((6 * 1024 * 1024))
+readonly BEFORE_LOAD_KB=$((4 * 1024 * 1024))
+readonly RESERVE_KB=$((1024 * 1024))
 
+case "${1:-}" in
+  ""|--check-space) ;;
+  *) echo "Usage: $0 [--check-space]" >&2; exit 2 ;;
+esac
+if [[ "$#" -gt 1 ]]; then exit 2; fi
+
+# Shared by the timer, manual updates and the space-only maintenance command.
 umask 077
+exec 9>"${ROOT}/release-update.lock"
+if ! flock -n 9; then
+  echo "madhouse-wiki updater is already running"
+  exit 0
+fi
+
 work="$(mktemp -d "/tmp/madhouse-wiki-release.XXXXXXXX")"
-trap 'rm -rf -- "${work}"' EXIT
+probe_name=""
+finish() {
+  if [[ -n "${probe_name}" ]]; then
+    docker container rm "${probe_name}" >/dev/null 2>&1 || true
+  fi
+  rm -rf -- "${work}"
+}
+trap finish EXIT
+
+read_marker() {
+  local path="$1" key="$2" value="" contents
+  if [[ -f "${path}" ]]; then
+    contents="$(cat "${path}")" || return 1
+    if [[ "${contents}" != "${key}="* ]]; then
+      echo "Invalid release retention marker; refusing to update or clean images" >&2
+      return 1
+    fi
+    value="${contents#${key}=}"
+    if [[ ! "${value}" =~ ^[a-f0-9]{40}$ ]]; then
+      if [[ -n "${value}" || "${key}" != MADHOUSE_PREVIOUS_RELEASE_SHA ]]; then
+        echo "Invalid release retention marker; refusing to update or clean images" >&2
+        return 1
+      fi
+    fi
+  fi
+  printf '%s' "${value}"
+}
+previous_sha="$(read_marker "${RELEASE_ENV}" MADHOUSE_RELEASE_SHA)"
+retained_previous_sha="$(read_marker "${PREVIOUS_RELEASE_ENV}" MADHOUSE_PREVIOUS_RELEASE_SHA)"
+protected_release_sha="${previous_sha}"
+protected_previous_sha="${retained_previous_sha}"
+retention_known=0
+if [[ -f "${PREVIOUS_RELEASE_ENV}" ]]; then retention_known=1; fi
+initial_retention_known="${retention_known}"
+candidate_sha=""
+
+cleanup_old_images() {
+  # A legacy installation has no trustworthy previous-release pointer. Do not
+  # guess it from image timestamps or delete anything until it is initialized.
+  if [[ "${retention_known}" -ne 1 ]]; then
+    echo "Wiki image cleanup skipped: previous release is not recorded" >&2
+    return 0
+  fi
+  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' > "${work}/images" || return 1
+  docker container ls --all --quiet > "${work}/containers" || return 1
+  : > "${work}/protected-images" || return 1
+  local sha tag image_id container_id found
+  for sha in "${protected_release_sha}" "${protected_previous_sha}"; do
+    if [[ -n "${sha}" ]]; then
+      image_id="$(docker image inspect --format '{{.Id}}' "madhouse-wiki:vps-${sha}")" || return 1
+      if [[ ! "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]]; then return 1; fi
+      printf '%s\n' "${image_id}" >> "${work}/protected-images" || return 1
+    fi
+  done
+  while IFS= read -r container_id; do
+    if [[ -n "${container_id}" ]]; then
+      image_id="$(docker container inspect --format '{{.Image}}' "${container_id}")" || return 1
+      if [[ ! "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]]; then return 1; fi
+      printf '%s\n' "${image_id}" >> "${work}/protected-images" || return 1
+    fi
+  done < "${work}/containers"
+  while read -r tag image_id; do
+    if [[ ! "${tag}" =~ ^madhouse-wiki:vps-[a-f0-9]{40}$ ]]; then continue; fi
+    if [[ ! "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+      echo "Invalid Docker image inventory; cleanup aborted" >&2
+      return 1
+    fi
+    sha="${tag#madhouse-wiki:vps-}"
+    if [[ "${sha}" == "${protected_release_sha}" || "${sha}" == "${protected_previous_sha}" || "${sha}" == "${candidate_sha}" ]]; then continue; fi
+    if grep -Fxq "${image_id}" "${work}/protected-images"; then
+      continue
+    else
+      found="$?"
+      if [[ "${found}" -ne 1 ]]; then return 1; fi
+    fi
+    # Never force removal: Docker also checks references added after inventory.
+    docker image rm "${tag}" || return 1
+  done < "${work}/images"
+}
+
+prepare_space_paths() {
+  local docker_root
+  docker_root="$(docker info --format '{{.DockerRootDir}}')" || return 1
+  if [[ "${docker_root}" != /* || ! -d "${docker_root}" ]]; then
+    echo "Cannot determine Docker data filesystem" >&2
+    return 1
+  fi
+  space_paths=("${work}" "${ROOT}" "${docker_root}")
+  # This VPS uses the containerd image store, separate from DockerRootDir.
+  if [[ -d /var/lib/containerd ]]; then space_paths+=(/var/lib/containerd); fi
+}
+
+minimum_free_kb() {
+  local path available minimum=""
+  for path in "${space_paths[@]}"; do
+    available="$(df -Pk "${path}" | awk 'NR == 2 && $4 ~ /^[0-9]+$/ { print $4 }')" || return 1
+    if [[ ! "${available}" =~ ^[0-9]+$ ]]; then
+      echo "Cannot determine free disk space; refusing to update" >&2
+      return 1
+    fi
+    if [[ -z "${minimum}" || "${available}" -lt "${minimum}" ]]; then minimum="${available}"; fi
+  done
+  printf '%s' "${minimum}"
+}
+
+require_free_space() {
+  local required="$1" available
+  available="$(minimum_free_kb)" || return 1
+  if [[ "${available}" -lt "${required}" ]]; then
+    cleanup_old_images || return 1
+    available="$(minimum_free_kb)" || return 1
+  fi
+  if [[ "${available}" -lt "${required}" ]]; then
+    echo "Insufficient disk space: need ${required} KiB, available ${available} KiB; running release unchanged" >&2
+    return 1
+  fi
+  echo "Disk space check passed: ${available} KiB available (required ${required} KiB)"
+}
+
+if [[ "${1:-}" == --check-space ]]; then
+  prepare_space_paths
+  require_free_space "${BEFORE_DOWNLOAD_KB}"
+  exit 0
+fi
 
 curl --fail --silent --show-error --location \
   --max-time 30 \
@@ -55,18 +195,12 @@ checksum_url="${release_info[1]}"
 candidate_sha="${release_info[2]}"
 image_tag="madhouse-wiki:vps-${candidate_sha}"
 
-if [[ -f "${RELEASE_ENV}" ]]; then
-  previous_sha="$(sed -n 's/^MADHOUSE_RELEASE_SHA=//p' "${RELEASE_ENV}")"
-else
-  previous_sha=""
-fi
-if [[ -n "${previous_sha}" && ! "${previous_sha}" =~ ^[a-f0-9]{40}$ ]]; then
-  echo "Current release marker is invalid; refusing to update" >&2
-  exit 1
-fi
 if [[ "${candidate_sha}" == "${previous_sha}" ]]; then
   exit 0
 fi
+
+prepare_space_paths
+require_free_space "${BEFORE_DOWNLOAD_KB}"
 
 curl --fail --silent --show-error --location --max-time 900 \
   --max-filesize 2000000000 "${archive_url}" \
@@ -82,8 +216,18 @@ fi
   sha256sum --check --status "${CHECKSUM_FILE}"
 )
 
+require_free_space "${BEFORE_LOAD_KB}"
 docker load --input "${work}/${IMAGE_ARCHIVE}"
 docker image inspect "${image_tag}" >/dev/null
+require_free_space "${RESERVE_KB}"
+# Never start it: creating a container verifies that the image actually unpacks,
+# even when Docker load printed an unpack error but returned success.
+probe_name="madhouse-wiki-image-check-${candidate_sha:0:12}-$$"
+docker create --pull=never --name "${probe_name}" --network none --entrypoint /bin/true "${image_tag}" >/dev/null
+docker container rm "${probe_name}" >/dev/null
+probe_name=""
+rm -f -- "${work}/${IMAGE_ARCHIVE}"
+require_free_space "${RESERVE_KB}"
 
 compose() {
   docker compose \
@@ -119,10 +263,35 @@ write_release_env() {
   mv -f -- "${temporary}" "${RELEASE_ENV}"
 }
 
+write_previous_release_env() {
+  local sha="$1" temporary="${PREVIOUS_RELEASE_ENV}.new"
+  printf 'MADHOUSE_PREVIOUS_RELEASE_SHA=%s\n' "${sha}" > "${temporary}"
+  chmod 0640 "${temporary}"
+  mv -f -- "${temporary}" "${PREVIOUS_RELEASE_ENV}"
+}
+
+restore_previous_release_env() {
+  if [[ "${initial_retention_known}" -eq 1 ]]; then
+    write_previous_release_env "${retained_previous_sha}"
+  else
+    rm -f -- "${PREVIOUS_RELEASE_ENV}"
+  fi
+}
+
 stop_wiki_and_wait_for_lease
+# Persist the rollback pointer before publishing the candidate marker, so a
+# process interruption cannot leave the prior current image unprotected.
+write_previous_release_env "${previous_sha}"
 write_release_env "${candidate_sha}"
 if compose up --detach --wait --wait-timeout 120; then
   echo "madhouse-wiki release activated: ${candidate_sha}"
+  protected_release_sha="${candidate_sha}"
+  protected_previous_sha="${previous_sha}"
+  retention_known=1
+  # Cleanup failure cannot turn a healthy activation into a destructive rollback.
+  if ! cleanup_old_images; then
+    echo "Release is healthy; old Wiki image cleanup requires attention" >&2
+  fi
   exit 0
 fi
 
@@ -130,6 +299,7 @@ echo "madhouse-wiki release failed health checks: ${candidate_sha}" >&2
 if [[ -n "${previous_sha}" ]]; then
   stop_wiki_and_wait_for_lease
   write_release_env "${previous_sha}"
+  restore_previous_release_env
   if compose up --detach --wait --wait-timeout 120; then
     echo "madhouse-wiki rolled back to ${previous_sha}" >&2
   else
@@ -137,5 +307,6 @@ if [[ -n "${previous_sha}" ]]; then
   fi
 else
   rm -f -- "${RELEASE_ENV}"
+  restore_previous_release_env
 fi
 exit 1

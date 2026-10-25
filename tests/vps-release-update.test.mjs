@@ -20,15 +20,27 @@ const previous = "b".repeat(40);
 
 function fixture({
   priorSha = previous,
+  priorPreviousSha = null,
   stopFailures = [],
   upFailures = [],
   sleepFailures = [],
+  freeKb = 10_000_000,
+  dfFailure = false,
+  inventoryFailure = false,
+  probeFailure = false,
+  checkSpace = false,
+  malformedMarker = false,
+  freeAfterCleanupKb = null,
+  freeAfterDownloadKb = null,
+  flockFailure = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "vps-release-update-test-"));
   const root = join(directory, "root");
   const bin = join(directory, "bin");
   mkdirSync(root);
   mkdirSync(bin);
+  const dockerRoot = join(directory, "docker-root");
+  mkdirSync(dockerRoot);
   const script = join(directory, "vps-release-update.sh");
   const source = readFileSync(updater, "utf8");
   assert.match(source, /readonly ROOT=\/opt\/madhouse-wiki/);
@@ -44,6 +56,16 @@ function fixture({
     writeFileSync(
       join(root, "release.env"),
       `MADHOUSE_RELEASE_SHA=${priorSha}\n`,
+    );
+  if (priorPreviousSha)
+    writeFileSync(
+      join(root, "previous-release.env"),
+      `MADHOUSE_PREVIOUS_RELEASE_SHA=${priorPreviousSha}\n`,
+    );
+  if (malformedMarker)
+    writeFileSync(
+      join(root, "previous-release.env"),
+      "MADHOUSE_RELEASE_SHA=bad\n",
     );
 
   const log = join(directory, "calls.log");
@@ -68,7 +90,9 @@ JSON
     ;;
   *sha256) printf '%064d  madhouse-wiki-image.tar.gz\\n' 0 >"$out" ;;
   *) : >"$out" ;;
-esac`,
+esac
+case "$url" in *madhouse-wiki-image.tar.gz) : >'${directory}/downloaded' ;; esac
+printf 'curl %s\\n' "$url" >>'${log}'`,
   );
   put(
     "python3",
@@ -78,6 +102,19 @@ esac`,
   '${candidate}'`,
   );
   put("sha256sum", "exit 0");
+  put("flock", `[ '${flockFailure}' = true ] && exit 1; exit 0`);
+  put(
+    "df",
+    `
+[ '${dfFailure}' = true ] && exit 1
+count_file='${directory}/df-count'; count=0
+[ ! -f "$count_file" ] || read count <"$count_file"
+count=$((count + 1)); printf '%s\\n' "$count" >"$count_file"
+available=${freeKb}
+if [ '${freeAfterCleanupKb}' != null ] && [ -f '${directory}/image-removed' ]; then available=${freeAfterCleanupKb}; fi
+if [ '${freeAfterDownloadKb}' != null ] && [ -f '${directory}/downloaded' ]; then available=${freeAfterDownloadKb}; fi
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/test 10000000 1 %s 1%% /\\n' "$available"`,
+  );
   put(
     "sleep",
     `
@@ -94,8 +131,46 @@ case " ${sleepFailures.join(" ") || "-1"} " in *" $count "*) exit 1 ;; esac`,
 printf 'docker %s\\n' "$*" >>'${log}'
 action=
 for arg do
-  case "$arg" in stop|up) action=$arg ;; esac
+  case "$arg" in stop|up|ls|inspect|create|rm|info|load) action=$arg ;; esac
 done
+if [ "$1" = image ] && [ "$2" = ls ]; then
+  [ '${inventoryFailure}' = true ] && exit 1
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${candidate}' 10
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${previous}' 11
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${"c".repeat(40)}' 12
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${"d".repeat(40)}' 2
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${"e".repeat(40)}' 3
+  printf 'foreign:vps-%s sha256:%064d\\n' '${"e".repeat(40)}' 30
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${"1".repeat(40)}' 11
+  printf '<none>:<none> sha256:%064d\\n' 4
+  printf 'madhouse-wiki:latest sha256:%064d\\n' 5
+  printf 'madhouse-wiki:vps-bad sha256:%064d\\n' 6
+  printf 'madhouse-wiki:vps-%s sha256:%064d\\n' '${"f".repeat(40)}' 7
+  exit 0
+fi
+if [ "$1" = info ]; then printf '%s\\n' '${dockerRoot}'; exit 0; fi
+if [ "$1" = image ] && [ "$2" = inspect ]; then
+  [ '${inventoryFailure}' = true ] && exit 1
+  image_ref=$3; [ "$#" -lt 5 ] || image_ref=$5
+  case "$image_ref" in
+    madhouse-wiki:vps-${candidate}) printf 'sha256:%064d\\n' 10 ;;
+    madhouse-wiki:vps-${previous}) printf 'sha256:%064d\\n' 11 ;;
+    madhouse-wiki:vps-${"c".repeat(40)}) printf 'sha256:%064d\\n' 12 ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+if [ "$1" = container ] && [ "$2" = ls ]; then
+  [ '${inventoryFailure}' = true ] && exit 1
+  printf 'deadbeef\\nfeedface\\n'; exit 0
+fi
+if [ "$1" = container ] && [ "$2" = inspect ]; then
+  [ '${inventoryFailure}' = true ] && exit 1
+  case "$5" in deadbeef) printf 'sha256:%064d\\n' 2 ;; feedface) printf 'sha256:%064d\\n' 3 ;; *) exit 1 ;; esac
+  exit 0
+fi
+if [ "$1" = image ] && [ "$2" = rm ]; then : >'${directory}/image-removed'; exit 0; fi
+if [ "$1" = create ] && [ '${probeFailure}' = true ]; then exit 1; fi
 case "$action" in
   stop)
     count_file='${directory}/stop-count'; count=0
@@ -107,11 +182,14 @@ case "$action" in
     [ ! -f "$count_file" ] || read count <"$count_file"
     printf '%s\\n' "$((count + 1))" >"$count_file"
     case " ${upFailures.join(" ") || "-1"} " in *" $count "*) exit 1 ;; esac ;;
+  load) : >'${directory}/loaded' ;;
 esac
+[ -n "$action" ] || exit 97
 exit 0`,
   );
 
-  const run = spawnSync("/bin/bash", [script], {
+  const args = checkSpace ? ["--check-space"] : [];
+  const run = spawnSync("/bin/bash", [script, ...args], {
     encoding: "utf8",
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
   });
@@ -123,6 +201,10 @@ exit 0`,
     marker: existsSync(join(root, "release.env"))
       ? readFileSync(join(root, "release.env"), "utf8")
       : null,
+    previousMarker: existsSync(join(root, "previous-release.env"))
+      ? readFileSync(join(root, "previous-release.env"), "utf8")
+      : null,
+    directory,
     run,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };
@@ -152,7 +234,14 @@ test("same SHA is a no-op without stop, sleep, or up", () => {
   const f = fixture({ priorSha: candidate });
   try {
     assert.equal(f.run.status, 0, `${f.run.stderr}\n${f.run.stdout}`);
-    assert.deepEqual(f.calls, []);
+    assert.equal(f.calls.filter((call) => call.startsWith("curl ")).length, 1);
+    assert.ok(f.calls[0].startsWith("curl https://api.github.com/"));
+    assert.ok(!f.calls.some((call) => call.startsWith("docker ")));
+    assert.ok(
+      !lifecycle(f.calls).some((call) =>
+        ["stop", "up", "sleep 16"].includes(call),
+      ),
+    );
     assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${candidate}\n`);
   } finally {
     f.cleanup();
@@ -194,6 +283,10 @@ test("rollback stop failure leaves the marker on candidate and does not start th
     assert.notEqual(f.run.status, 0);
     assert.deepEqual(lifecycle(f.calls), ["stop", "sleep 16", "up", "stop"]);
     assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${candidate}\n`);
+    assert.equal(
+      f.previousMarker,
+      `MADHOUSE_PREVIOUS_RELEASE_SHA=${previous}\n`,
+    );
   } finally {
     f.cleanup();
   }
@@ -220,6 +313,209 @@ test("sleep failure after stop preserves marker and prevents candidate startup",
     assert.notEqual(f.run.status, 0);
     assert.deepEqual(lifecycle(f.calls), ["stop", "sleep 16"]);
     assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("previous marker advances on success and old previous marker returns on rollback", () => {
+  const success = fixture({ priorPreviousSha: "c".repeat(40) });
+  try {
+    assert.equal(
+      success.run.status,
+      0,
+      `${success.run.stderr}\n${success.run.stdout}`,
+    );
+    assert.equal(
+      success.previousMarker,
+      `MADHOUSE_PREVIOUS_RELEASE_SHA=${previous}\n`,
+    );
+  } finally {
+    success.cleanup();
+  }
+  const rollback = fixture({
+    priorPreviousSha: "c".repeat(40),
+    upFailures: [0],
+  });
+  try {
+    assert.notEqual(rollback.run.status, 0);
+    assert.equal(
+      rollback.previousMarker,
+      `MADHOUSE_PREVIOUS_RELEASE_SHA=${"c".repeat(40)}\n`,
+    );
+  } finally {
+    rollback.cleanup();
+  }
+});
+
+test("low space cleans only exact Wiki release tags while retaining known markers and referenced images", () => {
+  const f = fixture({ priorPreviousSha: "c".repeat(40), freeKb: 1 });
+  try {
+    const rm = f.calls.filter((call) => call.includes("image rm"));
+    assert.deepEqual(
+      rm,
+      [`docker image rm madhouse-wiki:vps-${"f".repeat(40)}`],
+      `${f.run.stderr}\n${f.run.stdout}\n${f.calls.join("\n")}`,
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("insufficient space fails before download and activation, preserving both markers", () => {
+  const f = fixture({ priorPreviousSha: "c".repeat(40), freeKb: 1 });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.ok(
+      !f.calls.some(
+        (call) =>
+          call.startsWith("docker load") ||
+          call.includes(" stop wiki") ||
+          call.includes(" up "),
+      ),
+    );
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+    assert.equal(
+      f.previousMarker,
+      `MADHOUSE_PREVIOUS_RELEASE_SHA=${"c".repeat(40)}\n`,
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("space check performs no download, load, create, stop, or up", () => {
+  const f = fixture({ checkSpace: true });
+  try {
+    assert.equal(f.run.status, 0, `${f.run.stderr}\n${f.run.stdout}`);
+    assert.ok(
+      !f.calls.some(
+        (call) =>
+          call.startsWith("curl ") ||
+          call.startsWith("docker load") ||
+          call.startsWith("docker create ") ||
+          /docker .* (stop|up)/.test(call),
+      ),
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("inventory failure and failed container probe fail closed before stopping", () => {
+  const inventory = fixture({
+    priorPreviousSha: "c".repeat(40),
+    freeKb: 1,
+    inventoryFailure: true,
+  });
+  try {
+    assert.notEqual(inventory.run.status, 0);
+    assert.ok(!lifecycle(inventory.calls).includes("stop"));
+  } finally {
+    inventory.cleanup();
+  }
+  const probe = fixture({ probeFailure: true });
+  try {
+    assert.notEqual(probe.run.status, 0);
+    assert.ok(!lifecycle(probe.calls).includes("stop"));
+    assert.ok(
+      probe.calls.some((call) =>
+        call.includes("container rm madhouse-wiki-image-check-"),
+      ),
+    );
+  } finally {
+    probe.cleanup();
+  }
+});
+
+test("unknown retention never guesses and df failure fails closed", () => {
+  const unknown = fixture({ priorPreviousSha: null, freeKb: 1 });
+  try {
+    assert.notEqual(unknown.run.status, 0);
+    assert.ok(!unknown.calls.some((call) => call.includes("image rm")));
+    assert.ok(!lifecycle(unknown.calls).includes("stop"));
+  } finally {
+    unknown.cleanup();
+  }
+  const df = fixture({ dfFailure: true });
+  try {
+    assert.notEqual(df.run.status, 0);
+    assert.equal(df.calls.filter((call) => call.startsWith("curl ")).length, 1);
+    assert.ok(
+      df.calls.some((call) => call.startsWith("curl https://api.github.com/")),
+    );
+    assert.ok(
+      !df.calls.some((call) => call.includes("madhouse-wiki-image.tar.gz")),
+    );
+    assert.ok(!lifecycle(df.calls).includes("stop"));
+  } finally {
+    df.cleanup();
+  }
+});
+
+test("ample space skips pre-download cleanup", () => {
+  const f = fixture({ priorPreviousSha: "c".repeat(40) });
+  try {
+    assert.equal(f.run.status, 0, `${f.run.stderr}\n${f.run.stdout}`);
+    const archiveDownload = f.calls.findIndex((call) =>
+      call.includes("madhouse-wiki-image.tar.gz"),
+    );
+    const firstCleanup = f.calls.findIndex((call) => call.includes("image rm"));
+    assert.ok(archiveDownload >= 0);
+    assert.ok(firstCleanup === -1 || firstCleanup > archiveDownload);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("low space recovers after cleanup and succeeds", () => {
+  const f = fixture({
+    priorPreviousSha: "c".repeat(40),
+    freeKb: 1,
+    freeAfterCleanupKb: 10_000_000,
+  });
+  try {
+    assert.equal(f.run.status, 0, `${f.run.stderr}\n${f.run.stdout}`);
+    assert.deepEqual(lifecycle(f.calls), ["stop", "sleep 16", "up"]);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("pre-load space failure occurs after download but before Docker load or activation", () => {
+  const f = fixture({ freeAfterDownloadKb: 1 });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.ok(
+      f.calls.some((call) => call.includes("madhouse-wiki-image.tar.gz")),
+    );
+    assert.ok(!f.calls.some((call) => call.startsWith("docker load")));
+    assert.ok(!lifecycle(f.calls).includes("stop"));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("flock contention exits without update calls", () => {
+  const f = fixture({ flockFailure: true });
+  try {
+    assert.equal(f.run.status, 0);
+    assert.deepEqual(f.calls, []);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("malformed retention marker fails before download, cleanup, or stopping", () => {
+  const f = fixture({
+    malformedMarker: true,
+    priorPreviousSha: "c".repeat(40),
+  });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.ok(!f.calls.some((call) => call.startsWith("curl ")));
+    assert.ok(!f.calls.some((call) => call.includes("image rm")));
+    assert.ok(!lifecycle(f.calls).includes("stop"));
   } finally {
     f.cleanup();
   }

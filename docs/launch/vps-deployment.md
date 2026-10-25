@@ -32,9 +32,39 @@ wait aborts the transition before changing the release marker or starting anothe
 worker. The lease and personal state are never deleted. First deployment uses
 the candidate image SHA to resolve Compose without requiring a prior release file.
 
-It keeps the prior Docker image tag available for rollback and does not prune
-Docker images or modify storage backups. The verified download archive is held
-only in a private temporary directory during deployment.
+The updater records the previous successful source SHA atomically in
+`/opt/madhouse-wiki/previous-release.env` (`MADHOUSE_PREVIOUS_RELEASE_SHA`). It
+writes the rollback pointer before changing `release.env`, and restores the old
+pointer when rolling back. On a legacy installation without this pointer,
+automatic image cleanup stays disabled rather than guessing which release to
+preserve. Before enabling cleanup on such a host, initialize this marker with the
+verified previous successful SHA; never infer it from the newest downloaded image.
+
+Space checks run against the temporary-download, deployment, Docker data and
+containerd filesystems. The conservative minimum free space is 6 GiB before
+download, 4 GiB before image load, and a 1 GiB reserve after load and before
+stopping the working Wiki. If space is low, the updater removes eligible old Wiki
+images and rechecks; insufficient space or unreadable disk/inventory information
+aborts before stopping the services. A never-started, network-disabled probe
+container verifies actual image unpacking before the worker stop, including
+Docker implementations which return success despite an unpack error. The probe
+and the private temporary download archive are removed when no longer needed.
+
+Cleanup only removes tags matching `madhouse-wiki:vps-<40 lowercase hex digits>`,
+without force. It preserves the current release, its previous successful release,
+the candidate, and all immutable image IDs referenced by any existing container
+(including stopped containers). It never invokes global Docker/image/system
+prune or removes volumes, personal data, session keys, storage files or backups.
+After healthy activation it also removes older eligible Wiki images, retaining
+the new current and old current releases. Cleanup failure at that point is
+reported without rolling back a healthy service. A shared `flock` prevents the
+timer and manual maintenance from racing.
+
+`/opt/madhouse-wiki/vps-release-update.sh --check-space` performs the 6 GiB space
+check and, if necessary, the same constrained image cleanup without fetching a
+release, loading an image or stopping/starting containers. This is an operational
+maintenance command and can delete eligible image tags; it is not a read-only
+check. The normal no-op when the latest SHA is already active remains quiet.
 
 ## Runtime layout
 
