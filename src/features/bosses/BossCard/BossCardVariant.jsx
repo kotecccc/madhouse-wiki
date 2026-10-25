@@ -11,7 +11,12 @@ function subscribe(onChange) {
 const getMobile = () => window.matchMedia(mobileQuery).matches;
 const getServerMobile = () => false;
 
-export function BossCardVariant({ preset, availabilityLocked, ...props }) {
+export function BossCardVariant({
+  preset,
+  availabilityLocked,
+  mobileBattleStatus = false,
+  ...props
+}) {
   const mobile = useSyncExternalStore(subscribe, getMobile, getServerMobile);
   const settings = getBossCardVariantProps(preset, mobile);
   const showAvailability =
@@ -20,6 +25,7 @@ export function BossCardVariant({ preset, availabilityLocked, ...props }) {
     <BossCardView
       {...settings}
       {...props}
+      showBattleStatus={mobileBattleStatus && mobile}
       showAvailability={showAvailability}
     />
   );

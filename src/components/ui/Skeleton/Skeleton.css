@@ -1,18 +1,34 @@
 .ui-skeleton {
-  display: block;
-  width: 100%;
-  background: var(--card-border);
-  border-radius: var(--control-radius);
+  animation: skeleton-pulse var(--skeleton-animation-duration) ease-in-out
+    infinite;
 }
 
-.ui-skeleton--text {
+.ui-skeleton-space {
+  display: block;
+  width: 100%;
   height: var(--font-size-md);
 }
 
-.ui-skeleton--control {
-  height: var(--control-height-lg);
+.ui-skeleton-space--tile {
+  height: var(--font-size-xl);
 }
 
-.ui-skeleton--card {
+.ui-skeleton-space--card {
   height: var(--space-64);
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: var(--skeleton-opacity-min);
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-skeleton {
+    animation: none;
+  }
 }

@@ -80,7 +80,7 @@
 
 .floor-work-list {
   display: grid;
-  gap: var(--space-8);
+  gap: var(--layout-gap-item);
   min-width: 0;
   margin: 0;
   padding: 0;

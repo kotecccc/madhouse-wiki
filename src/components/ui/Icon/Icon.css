@@ -61,3 +61,15 @@
 .ui-icon--banknote {
   color: var(--status-completed);
 }
+
+.ui-icon--madness {
+  color: var(--icon-madness);
+}
+
+.ui-icon--aggression {
+  color: var(--icon-aggression);
+}
+
+.ui-icon--rage {
+  color: var(--icon-rage);
+}

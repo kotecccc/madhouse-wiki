@@ -26,19 +26,6 @@
 
 @media (max-width: 650px) {
   .footer {
-    margin-top: 0;
-    margin-inline: var(--page-gutter);
-    height: 60px;
-    min-height: 60px;
-    flex-wrap: nowrap;
-    gap: var(--space-12);
-    padding: 0;
-  }
-  .footer-disclaimer {
-    width: 0;
-    max-width: 100%;
-    min-width: 0;
-    flex: 1 1 0;
-    text-align: left;
+    display: none;
   }
 }

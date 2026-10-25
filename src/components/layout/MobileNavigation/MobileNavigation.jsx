@@ -4,23 +4,15 @@ import { Icon } from "../../ui/Icon/Icon.jsx";
 import "./MobileNavigation.css";
 
 const screens = [
-  { id: "floors", label: "Этажи", icon: "floor" },
   { id: "overview", label: "Главная", icon: "character" },
   { id: "raids", label: "Рейды", icon: "combat" },
 ];
 
-export function MobileNavigation({
-  activeScreen,
-  onScreenChange,
-  isAuthenticated,
-}) {
-  const visibleScreens = isAuthenticated
-    ? screens
-    : screens.filter((screen) => screen.id !== "overview");
+export function MobileNavigation({ activeScreen, onScreenChange }) {
   return (
     <BaseCard variant="glass-nav" className="mobile-navigation">
       <nav className="mobile-navigation-items" aria-label="Разделы Wiki">
-        {visibleScreens.map(({ id, label, icon }) => (
+        {screens.map(({ id, label, icon }) => (
           <Button
             key={id}
             variant="nav-tab"

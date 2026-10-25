@@ -1,3 +1,4 @@
+import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { Divider } from "../../../components/ui/Divider/Divider.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
@@ -35,6 +36,7 @@ export function RequirementCalculatorDialog({
   optionActions,
   afterOptions,
   loading = false,
+  contentLoading = false,
 }) {
   const [energyLimit, setEnergyLimit] = useState("");
   const [localProfileEnergy, setProfileEnergy] = useState(null);
@@ -147,216 +149,232 @@ export function RequirementCalculatorDialog({
       width={620}
       showCloseButton={showCloseButton}
       contentVariant="inset"
-      loading={loading}
+      loading={loading || contentLoading || profileStatus === "loading"}
       onClose={onClose}
     >
-      <form
-        className="requirement-calculator-card"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onClose();
-        }}
-      >
-        {intro}
-        {countControl && (
-          <NumberStepper
-            id="work-calculator-count"
-            label={countControl.label || "Количество выполнений"}
-            hideLabel
-            compact
-            min={countControl.min ?? 1}
-            max={countControl.max ?? Number.MAX_SAFE_INTEGER}
-            value={Number(countControl.value)}
-            onChange={(value) => countControl.onChange(String(value))}
-            decrementLabel="Уменьшить количество выполнений"
-            incrementLabel="Увеличить количество выполнений"
-            rangeLabel={
-              countControl.rangeLabel || "Количество полных выполнений работы"
-            }
-          />
-        )}
-        {(requirementCalc != null || profileStatus === "loading") && (
-          <BaseCard
-            variant="floor-data"
-            className="requirement-calculator-energy-summary"
-          >
-            {requirementCalc != null && (
-              <div className="requirement-calculator-total">
-                <CardDescription size="sm">Необходимо энергии</CardDescription>
-                <CardTitle size="sm" as="span">
-                  <span className="requirement-calculator-energy-value">
-                    {fmtEnergy(requirementCalc)}{" "}
-                    <Icon type="energy" size="text" />
-                  </span>
-                </CardTitle>
-              </div>
-            )}
-            {profileStatus === "loading" && (
-              <div className="requirement-calculator-total">
-                <LoadingStatus>
-                  Загружаю запас энергии из профиля…
-                </LoadingStatus>
-              </div>
-            )}
-            {requirementCalc > 0 && profileEnergy && (
-              <div className="requirement-calculator-progress">
-                <ProgressBar
-                  value={profileEnergy.currentEnergy}
-                  max={requirementCalc}
-                  segments={countResult?.count}
-                  label="Запас энергии для выполнения"
-                  valueText={`Есть ${fmt(profileEnergy.currentEnergy)} энергии, не хватает ${fmt(Math.max(0, requirementCalc - profileEnergy.currentEnergy))}`}
-                />
-                <CardDescription
-                  size="2xs"
-                  className="requirement-calculator-progress-caption"
-                >
-                  Есть {fmt(profileEnergy.currentEnergy)} · Не хватает{" "}
-                  {fmt(
-                    Math.max(0, requirementCalc - profileEnergy.currentEnergy),
-                  )}
-                </CardDescription>
-              </div>
-            )}
-          </BaseCard>
-        )}
-        {!profileEnergy && profileStatus !== "loading" && (
-          <div className="requirement-calculator-energy-field">
-            <NumberField
-              id="requirement-energy-limit"
-              label="Максимальный лимит энергии"
-              suffix={<Icon type="energy" size="text" />}
-              suffixClassName="requirement-calculator-energy-suffix"
-              min="1"
-              placeholder="Введите лимит энергии"
-              value={energyLimit}
-              onChange={(event) => setEnergyLimit(event.target.value)}
+      {contentLoading ? (
+        <div className="requirement-calculator-card" aria-busy="true">
+          <span className="sr-only" role="status">
+            Загружаем данные работёнки и запас энергии…
+          </span>
+          <Skeleton />
+          <Skeleton />
+          <Skeleton />
+        </div>
+      ) : (
+        <form
+          className="requirement-calculator-card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onClose();
+          }}
+        >
+          {intro}
+          {countControl && (
+            <NumberStepper
+              id="work-calculator-count"
+              label={countControl.label || "Количество выполнений"}
+              hideLabel
+              compact
+              min={countControl.min ?? 1}
+              max={countControl.max ?? Number.MAX_SAFE_INTEGER}
+              value={Number(countControl.value)}
+              onChange={(value) => countControl.onChange(String(value))}
+              decrementLabel="Уменьшить количество выполнений"
+              incrementLabel="Увеличить количество выполнений"
+              rangeLabel={
+                countControl.rangeLabel || "Количество полных выполнений работы"
+              }
             />
-          </div>
-        )}
-        {(requirementCalc == null || energyPlan) && (
-          <div className="requirement-calculator-result" aria-live="polite">
-            {requirementCalc == null ? (
-              <CardDescription size="sm">
-                Для этого условия в подключённых источниках не указана
-                подтверждённая стоимость энергии.
-              </CardDescription>
-            ) : (
-              <>
-                <BaseCard
-                  variant="floor-data"
-                  className="requirement-calculator-option"
-                >
-                  <div className="requirement-calculator-option-heading">
-                    <CardTitle as="h3" size="sm">
-                      Вариант 1: ждать энергию
-                    </CardTitle>
-                    <Icon
-                      type="timer"
-                      size="medium"
-                      className="requirement-calculator-option-icon"
-                    />
-                  </div>
-                  <Divider fullWidth />
-                  <div className="requirement-calculator-banknotes">
-                    <CardDescription size="sm">Итого</CardDescription>
-                    <CardTitle as="span" size="sm">
-                      {energyPlan.minutes == null
-                        ? "—"
-                        : restoreTime(energyPlan.minutes)}
-                    </CardTitle>
-                  </div>
-                  {optionActions?.wait}
-                </BaseCard>
-                <BaseCard
-                  variant="floor-data"
-                  className="requirement-calculator-option requirement-calculator-option--purchase"
-                >
-                  <div className="requirement-calculator-option-heading">
-                    <CardTitle as="h3" size="sm">
-                      Вариант 2: купить дефибрилляторы
-                    </CardTitle>
-                    <Icon
-                      type="banknote"
-                      size="medium"
-                      className="requirement-calculator-option-icon"
-                    />
-                  </div>
-                  <Divider fullWidth />
-                  <div
-                    className="requirement-calculator-refills"
-                    aria-label="Дефибрилляторы для восстановления энергии"
+          )}
+          {(requirementCalc != null || profileStatus === "loading") && (
+            <BaseCard
+              variant="floor-data"
+              className="requirement-calculator-energy-summary"
+            >
+              {requirementCalc != null && (
+                <div className="requirement-calculator-total">
+                  <CardDescription size="sm">
+                    Необходимо энергии
+                  </CardDescription>
+                  <CardTitle size="sm" as="span">
+                    <span className="requirement-calculator-energy-value">
+                      {fmtEnergy(requirementCalc)}{" "}
+                      <Icon type="energy" size="text" />
+                    </span>
+                  </CardTitle>
+                </div>
+              )}
+              {profileStatus === "loading" && (
+                <div className="requirement-calculator-total">
+                  <LoadingStatus>
+                    Загружаю запас энергии из профиля…
+                  </LoadingStatus>
+                </div>
+              )}
+              {requirementCalc > 0 && profileEnergy && (
+                <div className="requirement-calculator-progress">
+                  <ProgressBar
+                    value={profileEnergy.currentEnergy}
+                    max={requirementCalc}
+                    segments={countResult?.count}
+                    label="Запас энергии для выполнения"
+                    valueText={`Есть ${fmt(profileEnergy.currentEnergy)} энергии, не хватает ${fmt(Math.max(0, requirementCalc - profileEnergy.currentEnergy))}`}
+                  />
+                  <CardDescription
+                    size="2xs"
+                    className="requirement-calculator-progress-caption"
                   >
-                    <div className="requirement-calculator-refill">
-                      <Icon type="defibrillator-small" size="large" />
-                      <span className="requirement-calculator-refill-copy">
-                        <CardTitle size="sm">Малый</CardTitle>
-                        <CardDescription size="2xs">
-                          {energyPlan.smallLabel || "10% лимита"}
-                        </CardDescription>
-                      </span>
-                      <CardTitle
-                        as="span"
-                        size="sm"
-                        className="requirement-calculator-refill-count"
-                      >
-                        ×
-                        {energyPlan.smallRefills == null
+                    Есть {fmt(profileEnergy.currentEnergy)} · Не хватает{" "}
+                    {fmt(
+                      Math.max(
+                        0,
+                        requirementCalc - profileEnergy.currentEnergy,
+                      ),
+                    )}
+                  </CardDescription>
+                </div>
+              )}
+            </BaseCard>
+          )}
+          {!profileEnergy && profileStatus !== "loading" && (
+            <div className="requirement-calculator-energy-field">
+              <NumberField
+                id="requirement-energy-limit"
+                label="Максимальный лимит энергии"
+                suffix={<Icon type="energy" size="text" />}
+                suffixClassName="requirement-calculator-energy-suffix"
+                min="1"
+                placeholder="Введите лимит энергии"
+                value={energyLimit}
+                onChange={(event) => setEnergyLimit(event.target.value)}
+              />
+            </div>
+          )}
+          {(requirementCalc == null || energyPlan) && (
+            <div className="requirement-calculator-result" aria-live="polite">
+              {requirementCalc == null ? (
+                <CardDescription size="sm">
+                  Для этого условия в подключённых источниках не указана
+                  подтверждённая стоимость энергии.
+                </CardDescription>
+              ) : (
+                <>
+                  <BaseCard
+                    variant="floor-data"
+                    className="requirement-calculator-option"
+                  >
+                    <div className="requirement-calculator-option-heading">
+                      <CardTitle as="h3" size="sm">
+                        Вариант 1: ждать энергию
+                      </CardTitle>
+                      <Icon
+                        type="timer"
+                        size="medium"
+                        className="requirement-calculator-option-icon"
+                      />
+                    </div>
+                    <Divider fullWidth />
+                    <div className="requirement-calculator-banknotes">
+                      <CardDescription size="sm">Итого</CardDescription>
+                      <CardTitle as="span" size="sm">
+                        {energyPlan.minutes == null
                           ? "—"
-                          : fmt(energyPlan.smallRefills)}
+                          : restoreTime(energyPlan.minutes)}
                       </CardTitle>
                     </div>
-                    <div className="requirement-calculator-refill">
-                      <Icon type="defibrillator-large" size="large" />
-                      <span className="requirement-calculator-refill-copy">
-                        <CardTitle size="sm">Большой</CardTitle>
-                        <CardDescription size="2xs">
-                          {energyPlan.largeLabel || "100% лимита"}
-                        </CardDescription>
-                      </span>
-                      <CardTitle
-                        as="span"
-                        size="sm"
-                        className="requirement-calculator-refill-count"
-                      >
-                        ×
-                        {energyPlan.largeRefills == null
-                          ? "—"
-                          : fmt(energyPlan.largeRefills)}
+                    {optionActions?.wait}
+                  </BaseCard>
+                  <BaseCard
+                    variant="floor-data"
+                    className="requirement-calculator-option requirement-calculator-option--purchase"
+                  >
+                    <div className="requirement-calculator-option-heading">
+                      <CardTitle as="h3" size="sm">
+                        Вариант 2: купить дефибрилляторы
                       </CardTitle>
+                      <Icon
+                        type="banknote"
+                        size="medium"
+                        className="requirement-calculator-option-icon"
+                      />
                     </div>
-                  </div>
-                  <Divider fullWidth />
-                  <div className="requirement-calculator-banknotes">
-                    <CardDescription size="sm">Итого</CardDescription>
-                    <CardDescription
-                      size="sm"
-                      className="requirement-calculator-banknotes-value"
+                    <Divider fullWidth />
+                    <div
+                      className="requirement-calculator-refills"
+                      aria-label="Дефибрилляторы для восстановления энергии"
                     >
-                      <CardTitle
-                        as="span"
-                        size="sm"
-                        className="requirement-calculator-inline"
-                      >
-                        {energyPlan.banknotes == null
-                          ? "—"
-                          : fmt(energyPlan.banknotes)}
-                      </CardTitle>{" "}
-                      купюр
-                    </CardDescription>
-                  </div>
-                  {optionActions?.purchase && (
-                    <div className="requirement-calculator-action">
-                      {optionActions.purchase}
+                      <div className="requirement-calculator-refill">
+                        <Icon type="defibrillator-small" size="large" />
+                        <span className="requirement-calculator-refill-copy">
+                          <CardTitle size="sm">Малый</CardTitle>
+                          <CardDescription size="2xs">
+                            {energyPlan.smallLabel || "10% лимита"}
+                          </CardDescription>
+                        </span>
+                        <CardTitle
+                          as="span"
+                          size="sm"
+                          className="requirement-calculator-refill-count"
+                        >
+                          ×
+                          {energyPlan.smallRefills == null
+                            ? "—"
+                            : fmt(energyPlan.smallRefills)}
+                        </CardTitle>
+                      </div>
+                      <div className="requirement-calculator-refill">
+                        <Icon type="defibrillator-large" size="large" />
+                        <span className="requirement-calculator-refill-copy">
+                          <CardTitle size="sm">Большой</CardTitle>
+                          <CardDescription size="2xs">
+                            {energyPlan.largeLabel || "100% лимита"}
+                          </CardDescription>
+                        </span>
+                        <CardTitle
+                          as="span"
+                          size="sm"
+                          className="requirement-calculator-refill-count"
+                        >
+                          ×
+                          {energyPlan.largeRefills == null
+                            ? "—"
+                            : fmt(energyPlan.largeRefills)}
+                        </CardTitle>
+                      </div>
                     </div>
-                  )}
-                </BaseCard>
-              </>
-            )}
-          </div>
-        )}
-        {afterOptions}
-      </form>
+                    <Divider fullWidth />
+                    <div className="requirement-calculator-banknotes">
+                      <CardDescription size="sm">Итого</CardDescription>
+                      <CardDescription
+                        size="sm"
+                        className="requirement-calculator-banknotes-value"
+                      >
+                        <CardTitle
+                          as="span"
+                          size="sm"
+                          className="requirement-calculator-inline"
+                        >
+                          {energyPlan.banknotes == null
+                            ? "—"
+                            : fmt(energyPlan.banknotes)}
+                        </CardTitle>{" "}
+                        купюр
+                      </CardDescription>
+                    </div>
+                    {optionActions?.purchase && (
+                      <div className="requirement-calculator-action">
+                        {optionActions.purchase}
+                      </div>
+                    )}
+                  </BaseCard>
+                </>
+              )}
+            </div>
+          )}
+          {afterOptions}
+        </form>
+      )}
     </Modal>
   );
 }

@@ -23,6 +23,7 @@ import {
   IconExternalLink,
   IconFlame,
   IconHandGrab,
+  IconHeart,
   IconLock,
   IconLockOpen,
   IconMessage,
@@ -49,6 +50,9 @@ function iconSizeVariant(size) {
 
 const iconComponents = {
   brain: IconBrain,
+  madness: IconHeart,
+  aggression: IconSwords,
+  rage: IconFlame,
   star: IconStar,
   boss: IconSkull,
   character: IconUser,
@@ -94,6 +98,9 @@ export function Icon({ type, size, className = "" }) {
     "ui-icon",
     [
       "energy",
+      "madness",
+      "aggression",
+      "rage",
       "star",
       "coin",
       "pill",

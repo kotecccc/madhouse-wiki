@@ -20,6 +20,8 @@ const departmentCodeOrder = new Intl.Collator("en", {
 export function FloorGroup({
   floor,
   category,
+  playerLevel,
+  collectionState,
   targets = [],
   floorAvailable,
   viewMode,
@@ -45,6 +47,8 @@ export function FloorGroup({
               key={department.id}
               department={department}
               category={category}
+              playerLevel={playerLevel}
+              collectionState={collectionState}
               available={departmentAvailability?.[department.code]}
               targets={targets.filter(
                 (target) => target.departmentId === department.id,
@@ -152,6 +156,8 @@ export function FloorGroup({
             <FloorWorkItem
               key={work.id}
               work={work}
+              playerLevel={playerLevel}
+              collectionState={collectionState}
               locked={departmentAvailability?.[work.code] === false}
               onCalculator={onCalculator}
               onUpgradeSelect={onUpgradeSelect}

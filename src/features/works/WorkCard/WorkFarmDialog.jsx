@@ -127,12 +127,12 @@ export function WorkFarmDialog({
   );
   const account = useMemo(
     () => ({
-      status: view ? "ready" : "loading",
+      status: view ? "ready" : state.error ? "error" : "loading",
       energy: view
         ? { currentEnergy: view.energy.current, maxEnergy: view.energy.max }
         : null,
     }),
-    [view],
+    [view, state.error],
   );
   const ready = Boolean(
     view &&
@@ -179,7 +179,8 @@ export function WorkFarmDialog({
   return (
     <RequirementCalculatorDialog
       showCloseButton
-      loading={!state.loaded || state.pending || active}
+      loading={(!state.loaded && !state.error) || state.pending || active}
+      contentLoading={!view && !state.error}
       conditionDialog={condition}
       title={`Фарм · ${work.title || work.name || "Работёнка"}`}
       onClose={onClose}

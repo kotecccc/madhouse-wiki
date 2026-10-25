@@ -18,11 +18,17 @@ export function renderDisplayFields(fields, ids, breakBefore = []) {
                     {rewardIndex > 0 && <span aria-hidden="true"> • </span>}
                     <span
                       className="display-field-reward"
-                      aria-label={`${label}: ${fmt(amount)}`}
-                      title={label}
+                      aria-label={`${label}: ${fmt(amount)}${field.unavailable ? " — награда по уровню недоступна" : ""}`}
+                      title={
+                        field.unavailable
+                          ? "Вы переросли босса: валютная награда по уровню недоступна"
+                          : label
+                      }
                     >
                       <Icon type={icon} size="text" />{" "}
-                      <span>{fmt(amount)}</span>
+                      <span>
+                        {field.unavailable ? <s>{fmt(amount)}</s> : fmt(amount)}
+                      </span>
                     </span>
                   </Fragment>
                 ))

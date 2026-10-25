@@ -20,12 +20,7 @@ import { usePlayerProfile } from "../../features/auth/usePlayerProfile.js";
 import { OverviewSection } from "../../features/overview/OverviewSection/OverviewSection.jsx";
 import { useRaidSchedule } from "../../features/raids/useRaidSchedule.js";
 
-function screenFromHash(authenticated) {
-  const screen = window.location.hash.slice(1);
-  if (screen === "overview") return authenticated ? "overview" : "floors";
-  if (["floors", "raids"].includes(screen)) return screen;
-  return authenticated ? "overview" : "floors";
-}
+import { screenFromHash } from "./app-screen.js";
 
 export function App() {
   const scrollRegionRef = useRef(null);
@@ -38,72 +33,41 @@ export function App() {
     () => readSession().status,
   );
   const authenticated = sessionStatus === "ready";
-  const profileLoading =
-    authenticated && ["idle", "loading"].includes(profileState.status);
   const [activeScreen, setActiveScreen] = useState(() =>
     typeof window === "undefined"
-      ? "floors"
-      : screenFromHash(readSession().status === "ready"),
-  );
-  const explicitScreen = useRef(
-    typeof window !== "undefined" &&
-      (["floors", "raids"].includes(window.location.hash.slice(1)) ||
-        (window.location.hash.slice(1) === "overview" &&
-          readSession().status === "ready")),
+      ? "overview"
+      : screenFromHash(window.location.hash),
   );
   const [departmentState, setDepartmentState] = useState(null);
+  const [floorContentLoading, setFloorContentLoading] = useState(false);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
 
   useEffect(() => {
-    let previousStatus = readSession().status;
-    const syncSession = () => {
-      const next = readSession().status;
-      setSessionStatus(next);
-      if (
-        previousStatus !== "ready" &&
-        next === "ready" &&
-        !explicitScreen.current
-      ) {
-        setActiveScreen("overview");
-        window.history.replaceState(null, "", "#overview");
-      } else if (previousStatus === "ready" && next !== "ready") {
-        setDepartmentState(null);
-        if (activeScreen === "overview") {
-          setActiveScreen("floors");
-          window.history.replaceState(null, "", "#floors");
-        }
-      }
-      previousStatus = next;
-    };
+    const syncSession = () => setSessionStatus(readSession().status);
     const unsubscribe = subscribeSession(syncSession);
-    const restoreSettled = () => syncSession();
     const timer = window.setInterval(syncSession, 1000);
-    window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
+    window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, syncSession);
     return () => {
       unsubscribe();
       window.clearInterval(timer);
-      window.removeEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
+      window.removeEventListener(AUTH_RESTORE_SETTLED_EVENT, syncSession);
     };
-  }, [activeScreen]);
+  }, []);
 
   useEffect(() => {
     const syncScreen = () => {
-      const requested = window.location.hash.slice(1);
-      const isAuthenticated = readSession().status === "ready";
-      explicitScreen.current =
-        ["floors", "raids"].includes(requested) ||
-        (requested === "overview" && isAuthenticated);
-      setActiveScreen(screenFromHash(isAuthenticated));
-      if (requested === "overview" && !isAuthenticated)
-        window.history.replaceState(null, "", "#floors");
+      const next = screenFromHash(window.location.hash);
+      setActiveScreen(next);
+      if (window.location.hash !== `#${next}`)
+        window.history.replaceState(null, "", `#${next}`);
     };
+    syncScreen();
     window.addEventListener("hashchange", syncScreen);
     return () => window.removeEventListener("hashchange", syncScreen);
   }, []);
 
   function changeScreen(screen) {
-    const next = screen === "overview" && !authenticated ? "floors" : screen;
-    explicitScreen.current = true;
+    const next = screenFromHash(`#${screen}`);
     setActiveScreen(next);
     window.history.replaceState(null, "", `#${next}`);
     scrollRegionRef.current?.scrollTo({ top: 0, behavior: "instant" });
@@ -111,7 +75,7 @@ export function App() {
   }
   const onOpenFloors = (code) => {
     setFloorFocusCode(code || null);
-    changeScreen("floors");
+    changeScreen("overview");
   };
   const onOpenRaids = () => changeScreen("raids");
   const onDepartmentState = useCallback((state) => {
@@ -130,19 +94,14 @@ export function App() {
         loading={
           profileState.status === "loading" ||
           floorAvailability.status === "loading" ||
+          floorContentLoading ||
           raidSchedule.status === "loading"
         }
       />
       <div className="app-scroll-region" ref={scrollRegionRef} data-page-scroll>
-        <main
-          id="top"
-          className={`app-content app-content--${activeScreen}${profileLoading ? " app-content--profile-loading" : ""}`}
-        >
-          {authenticated && (
-            <div
-              id="screen-overview"
-              className="app-screen app-screen--overview"
-            >
+        <main id="top" className={`app-content app-content--${activeScreen}`}>
+          <div id="screen-overview" className="app-screen app-screen--overview">
+            {authenticated && (
               <OverviewSection
                 profileState={profileState}
                 floorAvailability={floorAvailability}
@@ -152,20 +111,26 @@ export function App() {
                 onOpenRaids={onOpenRaids}
                 onRetryFloors={floorAvailability.retry}
               />
-            </div>
-          )}
-          <div id="screen-floors" className="app-screen app-screen--floors">
-            {kb.floors.length === 0 && (
-              <p role="status">Справочник ещё не заполнен.</p>
             )}
-            <FloorsSection
-              {...floorAvailability}
-              isAuthenticated={authenticated}
-              onCalculator={setConditionDialog}
-              onUpgradeSelect={setUpgradeDialog}
-              onDepartmentState={onDepartmentState}
-              selectedFloorCode={floorFocusCode}
-            />
+            <div className="app-floor-catalogue">
+              {kb.floors.length === 0 && (
+                <p role="status">Справочник ещё не заполнен.</p>
+              )}
+              <FloorsSection
+                {...floorAvailability}
+                isAuthenticated={authenticated}
+                playerLevel={
+                  authenticated && profileState.status === "ready"
+                    ? profileState.profile.playerLevel
+                    : null
+                }
+                onCalculator={setConditionDialog}
+                onUpgradeSelect={setUpgradeDialog}
+                onDepartmentState={onDepartmentState}
+                onLoadingChange={setFloorContentLoading}
+                selectedFloorCode={floorFocusCode}
+              />
+            </div>
           </div>
           <div id="screen-raids" className="app-screen app-screen--raids">
             <RaidScheduleSection
@@ -184,7 +149,6 @@ export function App() {
         <MobileNavigation
           activeScreen={activeScreen}
           onScreenChange={changeScreen}
-          isAuthenticated={authenticated}
         />
       </BottomDock>
       <RequirementCalculatorDialog

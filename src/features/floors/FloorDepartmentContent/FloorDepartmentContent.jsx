@@ -16,6 +16,8 @@ import "./FloorDepartmentContent.css";
 export function FloorDepartmentContent({
   department,
   category,
+  playerLevel,
+  collectionState,
   available,
   targets = [],
   onUpgradeSelect,
@@ -57,6 +59,8 @@ export function FloorDepartmentContent({
       <DepartmentBossCard
         key={boss.id}
         boss={boss}
+        playerLevel={playerLevel}
+        collectionState={collectionState}
         prefixDepartment
         locked={locked}
         {...targetProps(boss.id)}

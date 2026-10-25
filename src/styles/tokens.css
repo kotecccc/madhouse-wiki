@@ -39,6 +39,8 @@
   --control-height-md: 40px;
   --control-height-lg: 48px;
   --touch-target-size: 44px;
+  --skeleton-animation-duration: 1.6s;
+  --skeleton-opacity-min: 0.5;
   --control-transition-duration: 0.2s;
   --control-transition-easing: ease;
   --card-padding: var(--space-16);
@@ -77,6 +79,9 @@
   --red: #b63e34;
   --red-bright: #df5a49;
   --green: #a3a77f;
+  --icon-madness: #b39ddb;
+  --icon-aggression: var(--red-bright);
+  --icon-rage: #e49a54;
   --status-scheduled: #aaa69d;
   --status-active: #80b8ed;
   --status-completed: #73c993;

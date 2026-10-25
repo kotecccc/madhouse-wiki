@@ -115,6 +115,18 @@
 
 .base-card[role="button"] {
   cursor: pointer;
+  transition: background-color var(--control-transition-duration)
+    var(--control-transition-easing);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .base-card[role="button"]:hover {
+    background-color: var(--navigation-selected);
+  }
+
+  .base-card--locked[role="button"]:hover {
+    background-color: var(--control-locked-background-hover);
+  }
 }
 
 .base-card[role="button"]:focus-visible {

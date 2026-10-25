@@ -1,0 +1,6 @@
+.boss-level-status {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  min-width: 0;
+}

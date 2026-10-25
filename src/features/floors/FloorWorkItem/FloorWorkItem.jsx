@@ -24,6 +24,8 @@ const showDepartmentBusinesses = false;
 
 export function FloorWorkItem({
   work,
+  playerLevel,
+  collectionState,
   onCalculator,
   onUpgradeSelect,
   onRequirementSelect,
@@ -165,7 +167,12 @@ export function FloorWorkItem({
               {deptBosses.length ? (
                 <ul className="floor-work-boss-list">
                   {deptBosses.map((boss) => (
-                    <DepartmentBossCard key={boss.id} boss={boss} />
+                    <DepartmentBossCard
+                      key={boss.id}
+                      boss={boss}
+                      playerLevel={playerLevel}
+                      collectionState={collectionState}
+                    />
                   ))}
                 </ul>
               ) : (

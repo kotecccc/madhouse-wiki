@@ -142,3 +142,18 @@
 .boss-card-view:has(> .boss-card-actions) {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
+
+.boss-card-heading:has(> .boss-card-indicator-group:not(:empty)) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-8);
+}
+
+.boss-card-indicator-group {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+}

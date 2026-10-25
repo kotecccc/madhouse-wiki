@@ -88,6 +88,21 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     const { App } = await load("app/App/App.jsx");
     const html = renderToStaticMarkup(createElement(App));
     assert.ok(html.includes("floor-group"));
+    assert.ok(!html.includes('id="screen-floors"'));
+    const { MobileNavigation } = await load(
+      "components/layout/MobileNavigation/MobileNavigation.jsx",
+    );
+    const navigationMarkup = renderToStaticMarkup(
+      createElement(MobileNavigation, {
+        activeScreen: "overview",
+        onScreenChange() {},
+      }),
+    );
+    assert.equal((navigationMarkup.match(/<button\b/g) || []).length, 2);
+    assert.ok(navigationMarkup.includes('aria-controls="screen-overview"'));
+    assert.ok(navigationMarkup.includes('aria-controls="screen-raids"'));
+    assert.ok(!navigationMarkup.includes('aria-label="Этажи"'));
+
     const { FloorsSection } = await load(
       "features/floors/FloorsSection/FloorsSection.jsx",
     );
@@ -98,7 +113,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         status: "idle",
       }),
     );
-    assert.ok(lockedFloorSelectorMarkup.includes("floor-selector-lock"));
+    assert.ok(lockedFloorSelectorMarkup.includes("floor-selector-indicators"));
+    assert.ok(
+      lockedFloorSelectorMarkup.includes('aria-label="Заблокировано в игре"'),
+    );
     const { FloorGroup } = await load(
       "features/floors/FloorGroup/FloorGroup.jsx",
     );
@@ -132,7 +150,11 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
           status: "ready",
           profile: {
             name: "Тестовый игрок",
-            stats: [],
+            stats: [
+              ["Безумие", 1000, 10000, "HP"],
+              ["Агрессия", 2000, 2000, "урон"],
+              ["Ярость", 300, 3.5, "% шанс крита"],
+            ],
             wallet: [],
             playerLevel: null,
           },
@@ -152,6 +174,16 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       }),
     );
     assert.ok(overviewMarkup.includes("Тестовый игрок"));
+    for (const name of ["Безумие", "Агрессия", "Ярость"])
+      assert.match(
+        overviewMarkup,
+        new RegExp(String.raw`<dt><svg[\s\S]*?</svg>${name}</dt>`),
+      );
+    for (const stat of ["madness", "aggression", "rage"])
+      assert.ok(overviewMarkup.includes(`ui-icon--${stat}`));
+    assert.ok(!overviewMarkup.includes("урон"));
+    assert.ok(overviewMarkup.includes("HP"));
+    assert.ok(overviewMarkup.includes("% шанс крита"));
     assert.ok(!overviewMarkup.includes("Следующий уровень"));
     assert.ok(!overviewMarkup.includes("Следующая цель"));
     const categoryFloor = kb.floors[0];
@@ -282,6 +314,79 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         `${category} cards do not render literal locked status text`,
       );
     }
+    const { DepartmentBossCard: LevelBossCard } = await load(
+      "features/bosses/DepartmentBossCard/DepartmentBossCard.jsx",
+    );
+    const renderBossLevel = (playerLevel) =>
+      renderToStaticMarkup(
+        createElement(LevelBossCard, {
+          boss: {
+            ...kb.bosses[0],
+            requiredLevel: 7,
+            rewardUntilLevel: 15,
+            rewardPreview: { gold: 10, pills: 20, dollar: 30 },
+          },
+          playerLevel,
+        }),
+      );
+    const overlevelBossMarkup = renderBossLevel(16);
+    assert.ok(overlevelBossMarkup.includes("Переросли"));
+    for (const amount of [10, 20, 30])
+      assert.ok(overlevelBossMarkup.includes(`<s>${amount}</s>`));
+    assert.ok(overlevelBossMarkup.includes("награда по уровню недоступна"));
+    assert.ok(!renderBossLevel(15).includes("<s>"));
+    assert.ok(!renderBossLevel(null).includes("<s>"));
+    assert.ok(overlevelBossMarkup.includes("Предел награды: 15 ур. · ваш: 16"));
+    assert.ok(overlevelBossMarkup.includes('class="boss-card-actions"'));
+    assert.ok(renderBossLevel(6).includes("Нужен 7 уровень"));
+    assert.ok(!renderBossLevel(15).includes("Переросли"));
+    assert.ok(!renderBossLevel(null).includes("boss-level-status"));
+    const { BossCollectionStatus } = await load(
+      "features/bosses/collection/BossCollectionStatus.jsx",
+    );
+    const collectionBoss = {
+      possibleDrops: [
+        { type: "room", entityId: 7, mode: "unlock_for_purchase" },
+        { type: "activity_item", entityId: 1, mode: "grant" },
+      ],
+    };
+    const renderCollection = (state) =>
+      renderToStaticMarkup(
+        createElement(BossCollectionStatus, { boss: collectionBoss, state }),
+      );
+    const completeCollectionMarkup = renderCollection({
+      status: "ready",
+      responses: {
+        "/api/rooms": {
+          catalog: { rooms: [{ id: 7, unlocked: true, owned: false }] },
+        },
+      },
+    });
+    assert.ok(!completeCollectionMarkup.includes(">1 из 1<"));
+    assert.ok(
+      completeCollectionMarkup.includes(
+        'aria-label="Получено 1 из 1 вещевых наград"',
+      ),
+    );
+    assert.ok(completeCollectionMarkup.includes("ui-icon--medium"));
+    assert.ok(completeCollectionMarkup.includes("ui-pill--completed"));
+    assert.ok(
+      renderCollection({ status: "partial", responses: {} }).includes(
+        "ui-pill--scheduled",
+      ),
+    );
+    assert.ok(!completeCollectionMarkup.includes("Всё собрано"));
+    assert.ok(!completeCollectionMarkup.includes("Вещи"));
+    assert.ok(
+      renderCollection({ status: "partial", responses: {} }).includes("? из 1"),
+    );
+    assert.ok(
+      renderCollection({ status: "loading", responses: {} }).includes("… из 1"),
+    );
+    assert.ok(
+      !renderCollection({ status: "partial", responses: {} }).includes("loot"),
+    );
+    assert.equal(renderCollection({ status: "idle", responses: {} }), "");
     const lockedBossMarkup = categoryMarkup("bosses", [], false);
     assert.ok(lockedBossMarkup.includes("base-card--locked"));
     assert.ok(!lockedBossMarkup.includes('class="lock-indicator'));
@@ -324,6 +429,39 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     const { WorkFarmDialog } = await load(
       "features/works/WorkCard/WorkFarmDialog.jsx",
     );
+    const loadingFarmSnapshot = {
+      loaded: true,
+      pending: false,
+      view: null,
+      run: null,
+    };
+    const renderFarmState = (snapshot) =>
+      renderToStaticMarkup(
+        createElement(WorkFarmDialog, {
+          work: { workId: 7, title: "Блиндаж" },
+          onClose() {},
+          farmStore: { subscribe: () => () => {}, getSnapshot: () => snapshot },
+        }),
+      );
+    for (const snapshot of [
+      loadingFarmSnapshot,
+      { ...loadingFarmSnapshot, pending: true },
+    ]) {
+      const markup = renderFarmState(snapshot);
+      assert.ok(markup.includes("ui-border-loader"));
+      assert.ok(markup.includes("ui-skeleton"));
+      assert.ok(!markup.includes("work-calculator-count"));
+      assert.ok(!markup.includes("стоимость энергии"));
+      assert.ok(!markup.includes("Целевое количество выполнений достигнуто"));
+    }
+    const failedFarmMarkup = renderFarmState({
+      ...loadingFarmSnapshot,
+      loaded: false,
+      error: "Не удалось загрузить работу",
+    });
+    assert.ok(failedFarmMarkup.includes("Не удалось загрузить работу"));
+    assert.ok(!failedFarmMarkup.includes("ui-skeleton"));
+    assert.ok(!failedFarmMarkup.includes("ui-border-loader"));
     const farmSnapshot = {
       loaded: true,
       pending: true,

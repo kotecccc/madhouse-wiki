@@ -9,6 +9,7 @@ import {
 } from "../../../../shared/auth-session.js";
 import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { BossStatus } from "./BossStatus.jsx";
+import { BossBattleStatus } from "./BossBattleStatus.jsx";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { bossDisplayFields } from "../../../lib/card-display-fields.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
@@ -85,6 +86,9 @@ export function BossCardView({
   availabilitySize = "sm",
   showStatus = false,
   showAvailability = false,
+  showBattleStatus = false,
+  collectionIndicator,
+  currencyRewardUnavailable = false,
   status = "unknown",
   raid,
 }) {
@@ -119,9 +123,14 @@ export function BossCardView({
       ? `DMG ${fmt(boss.damageMin)}–${fmt(boss.damageMax)}`
       : null,
   ].filter(Boolean);
-  const availableFields =
+  const availableFields = (
     displayFields ||
-    bossDisplayFields(referenceBoss, departmentById[boss.departmentId] || {});
+    bossDisplayFields(referenceBoss, departmentById[boss.departmentId] || {})
+  ).map((field) =>
+    field.id === "drop" && currencyRewardUnavailable
+      ? { ...field, unavailable: true }
+      : field,
+  );
   const renderedTitle = Array.isArray(titleFields)
     ? renderDisplayFields(availableFields, titleFields)
     : title;
@@ -162,7 +171,8 @@ export function BossCardView({
       !onSelectPart &&
       "boss-card-view--mobile-battle-action",
     !hasPortrait && "boss-card-view--no-portrait",
-    (showStatus || showAvailability) && "boss-card-view--indicators",
+    (showStatus || showAvailability || showBattleStatus) &&
+      "boss-card-view--indicators",
     className,
   ]
     .filter(Boolean)
@@ -302,6 +312,16 @@ export function BossCardView({
                   }
                 />
               )}
+            </div>
+          )}
+          {(showBattleStatus || collectionIndicator) && (
+            <div className="boss-card-indicator-group">
+              {showBattleStatus && (
+                <BossBattleStatus
+                  bossId={Number(boss.numericId ?? boss.apiId)}
+                />
+              )}
+              {collectionIndicator}
             </div>
           )}
         </div>

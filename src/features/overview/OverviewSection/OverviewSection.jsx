@@ -200,12 +200,12 @@ function ProfileSummary({ state }) {
   }, [energyKnown, shouldTickEnergy]);
   if (state.status === "loading" || state.status === "idle")
     return (
-      <BaseCard aria-busy="true">
+      <>
         <span className="sr-only" role="status">
           Загружаем профиль…
         </span>
-        <Skeleton variant="card" />
-      </BaseCard>
+        <Skeleton as="article" className="overview-card overview-player-card" />
+      </>
     );
   if (state.status === "error")
     return (
@@ -296,10 +296,22 @@ function ProfileSummary({ state }) {
       <dl className="overview-stats">
         {profile.stats.map(([name, value, derived, unit]) => (
           <div key={name}>
-            <dt>{name}</dt>
+            <dt>
+              <Icon
+                type={
+                  {
+                    Безумие: "madness",
+                    Агрессия: "aggression",
+                    Ярость: "rage",
+                  }[name]
+                }
+                size="small"
+              />
+              {name}
+            </dt>
             <dd>
               {numberFormat.format(value)}
-              {Number.isFinite(derived) && (
+              {unit !== "урон" && Number.isFinite(derived) && (
                 <small>
                   {" "}
                   • {numberFormat.format(derived)} {unit}

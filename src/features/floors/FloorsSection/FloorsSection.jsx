@@ -1,9 +1,9 @@
+import { useBossCollection } from "../../bosses/collection/useBossCollection.js";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
-import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { progressionTargets } from "../progression-targets.js";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import "./FloorsSection.css";
 import {
@@ -28,10 +28,12 @@ export function FloorsSection({
   onCalculator,
   onUpgradeSelect,
   onDepartmentState,
+  onLoadingChange,
   selectedFloorCode,
   isAuthenticated = false,
+  playerLevel,
 }) {
-  const [categorySelection, setCategorySelection] = useState(null);
+  const [category, setCategory] = useState("work");
   const [confirmedDepartmentState, setConfirmedDepartmentState] =
     useState(null);
   const [selectedFloorId, setSelectedFloorId] = useState(null);
@@ -53,7 +55,6 @@ export function FloorsSection({
     const floor = orderedFloors.find((item) => item.code === selectedFloorCode);
     if (floor) {
       setSelectedFloorId(floor.id);
-      setCategorySelection(null);
     }
   }, [selectedFloorCode]);
 
@@ -63,7 +64,6 @@ export function FloorsSection({
       const nextStatus = readSession().status;
       if (previousStatus !== "ready" && nextStatus === "ready") {
         setSelectedFloorId(null);
-        setCategorySelection(null);
       }
       setConfirmedDepartmentState(null);
       previousStatus = nextStatus;
@@ -71,45 +71,58 @@ export function FloorsSection({
   }, []);
 
   const departmentState = useDepartmentAvailability(
-    selectedFloor?.code,
+    lastAvailableFloorCode,
     status,
-    availability[selectedFloor?.code],
-    selectedFloor?.code === lastAvailableFloorCode,
+    availability[lastAvailableFloorCode],
+    true,
   );
   useEffect(() => {
     if (departmentState.status === "ready")
       setConfirmedDepartmentState(departmentState);
   }, [departmentState]);
+  const collectionState = useBossCollection(
+    knowledgeBase.bosses.filter((boss) =>
+      (selectedFloor?.departmentIds || []).includes(boss.departmentId),
+    ),
+    isAuthenticated && category === "bosses",
+  );
   const floorsLoading =
     status === "loading" || (isAuthenticated && status === "idle");
+  const goalLoading =
+    isAuthenticated &&
+    status === "ready" &&
+    Boolean(lastAvailableFloorCode) &&
+    !["ready", "error"].includes(departmentState.status);
   const departmentsLoading =
     floorsLoading ||
-    (isAuthenticated &&
-      status === "ready" &&
-      selectedFloor?.code === lastAvailableFloorCode &&
-      !["ready", "error"].includes(departmentState.status));
-  const category =
-    categorySelection?.floorId === selectedFloor?.id
-      ? categorySelection.category
-      : "work";
-  const targets = (
-    departmentsLoading
-      ? []
-      : progressionTargets({
-          floors: orderedFloors,
-          departments: knowledgeBase.departments,
-          bosses: knowledgeBase.bosses,
-          businesses: knowledgeBase.businesses,
-          availability,
-          floorDetails,
-          departmentState:
-            departmentState.status === "ready"
-              ? departmentState
-              : confirmedDepartmentState || {},
-        })
-  ).filter((target) =>
-    (selectedFloor?.departmentIds || []).includes(target.departmentId),
+    (selectedFloor?.code === lastAvailableFloorCode && goalLoading);
+  useLayoutEffect(() => {
+    onLoadingChange?.(
+      floorsLoading || goalLoading || collectionState.status === "loading",
+    );
+  }, [floorsLoading, goalLoading, collectionState.status, onLoadingChange]);
+  const allTargets = floorsLoading
+    ? []
+    : progressionTargets({
+        floors: orderedFloors,
+        departments: knowledgeBase.departments,
+        bosses: knowledgeBase.bosses,
+        businesses: knowledgeBase.businesses,
+        availability,
+        floorDetails,
+        departmentState:
+          departmentState.status === "ready"
+            ? departmentState
+            : confirmedDepartmentState || {},
+      });
+  const targetFloorIds = new Set(
+    allTargets.map((target) => departmentById[target.departmentId]?.floorId),
   );
+  const targets = departmentsLoading
+    ? []
+    : allTargets.filter((target) =>
+        (selectedFloor?.departmentIds || []).includes(target.departmentId),
+      );
   useEffect(() => {
     if (
       departmentState.status === "ready" ||
@@ -136,11 +149,25 @@ export function FloorsSection({
             )
           : {};
 
+  const skeletonItems = (selectedFloor?.departmentIds || []).flatMap((id) => {
+    const entities =
+      category === "bosses"
+        ? knowledgeBase.bosses.filter((boss) => boss.departmentId === id)
+        : category === "businesses"
+          ? knowledgeBase.businesses.filter(
+              (business) => business.departmentId === id,
+            )
+          : [];
+    return entities.length ? entities.map((entity) => entity.id) : [id];
+  });
+
   const renderFloor = (floor) => (
     <FloorGroup
       key={floor.id}
       floor={floor}
       category={category}
+      playerLevel={playerLevel}
+      collectionState={collectionState}
       targets={targets}
       floorAvailable={status === "ready" ? availability[floor.code] : undefined}
       departmentAvailability={departmentAvailability}
@@ -189,7 +216,11 @@ export function FloorsSection({
       >
         {orderedFloors.map((floor) =>
           floorsLoading ? (
-            <Skeleton key={floor.id} variant="card" />
+            <Skeleton
+              key={floor.id}
+              variant="tile"
+              className="floor-selector-tile"
+            />
           ) : (
             <Button
               key={floor.id}
@@ -200,6 +231,9 @@ export function FloorsSection({
               aria-label={[
                 `Этаж ${floor.code}`,
                 floor.id === selectedFloor?.id ? "выбран" : null,
+                targetFloorIds.has(floor.id)
+                  ? "есть задача для открытия"
+                  : null,
                 availability[floor.code] === false
                   ? "заблокирован в игре"
                   : null,
@@ -208,7 +242,6 @@ export function FloorsSection({
                 .join(" — ")}
               aria-pressed={floor.id === selectedFloor?.id}
               onClick={() => {
-                if (floor.id !== selectedFloor?.id) setCategorySelection(null);
                 setSelectedFloorId(floor.id);
                 trackProductEvent("floor_select", {
                   section: "floors",
@@ -220,12 +253,18 @@ export function FloorsSection({
               <span className="floor-selector-code">
                 <span className="floor-selector-dash">–</span>
                 <span>{floor.code}</span>
-                {availability[floor.code] === false && (
-                  <LockIndicator
-                    variant="locked"
-                    size="medium"
-                    className="floor-selector-lock"
-                  />
+                {(availability[floor.code] === false ||
+                  targetFloorIds.has(floor.id)) && (
+                  <span className="floor-selector-indicators">
+                    {targetFloorIds.has(floor.id) && (
+                      <span role="img" aria-label="Задача для открытия">
+                        <Icon type="star" size="medium" />
+                      </span>
+                    )}
+                    {availability[floor.code] === false && (
+                      <LockIndicator variant="locked" size="medium" />
+                    )}
+                  </span>
                 )}
                 <span className="floor-selector-dash">–</span>
               </span>
@@ -246,7 +285,13 @@ export function FloorsSection({
         ].map(([value, label]) => {
           const isTarget = targets.some((target) => target.category === value);
           if (departmentsLoading)
-            return <Skeleton key={value} variant="control" />;
+            return (
+              <Skeleton
+                key={value}
+                variant="control"
+                className="floor-category-button"
+              />
+            );
           return (
             <Button
               key={value}
@@ -255,12 +300,7 @@ export function FloorsSection({
               className="floor-category-button"
               aria-pressed={category === value}
               aria-label={`${label}${isTarget ? " — есть задача для открытия" : ""}`}
-              onClick={() =>
-                setCategorySelection({
-                  floorId: selectedFloor.id,
-                  category: value,
-                })
-              }
+              onClick={() => setCategory(value)}
             >
               <span>{label}</span>
               {isTarget && (
@@ -296,11 +336,13 @@ export function FloorsSection({
             <span className="sr-only" role="status">
               Загружаем этажи, отделения и цели…
             </span>
-            {[0, 1, 2].map((index) => (
-              <BaseCard key={index} variant="floor-data">
-                <Skeleton variant="card" />
-              </BaseCard>
-            ))}
+            <article className="floor-group">
+              <ul className="floor-work-list">
+                {skeletonItems.map((id) => (
+                  <Skeleton key={id} as="li" />
+                ))}
+              </ul>
+            </article>
           </>
         ) : selectedFloor ? (
           renderFloor(selectedFloor)
