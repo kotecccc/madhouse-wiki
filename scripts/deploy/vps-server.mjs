@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createVercelConnectorHandler } from "./vercel-connector-handler.mjs";
 import { connectorHeaders } from "../../connector/worker.js";
-import { loadVpsInlineCards } from "../telegram/inline-cards-vps.mjs";
+import { startVpsInlineCards } from "../telegram/inline-cards-vps.mjs";
 import { VERSION } from "../../connector/protocol.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -111,7 +111,7 @@ if (role === "wiki") {
   ]);
 }
 
-const inlineCards = await loadVpsInlineCards({ root });
+const inlineCards = startVpsInlineCards({ root });
 
 const assetsRoot = resolve(root, role === "wiki" ? "dist" : "connector/dist");
 const releaseMarker =
@@ -240,12 +240,18 @@ const server = createServer(async (request, response) => {
     }
     if (role === "wiki" && url.pathname.startsWith("/inline-cards/")) {
       const card = inlineCards.get(url.pathname);
-      response.writeHead(card ? 200 : 404, {
+      const ready = inlineCards.status === "ready";
+      response.writeHead(card ? 200 : ready ? 404 : 503, {
         "Content-Type": card ? "image/jpeg" : "text/plain; charset=utf-8",
         "Cache-Control": "no-cache",
+        ...(!ready ? { "Retry-After": "30" } : {}),
         "X-Content-Type-Options": "nosniff",
       });
-      response.end(method === "HEAD" ? undefined : card || "Not found");
+      response.end(
+        method === "HEAD"
+          ? undefined
+          : card || (ready ? "Not found" : "Telegram cards are not ready"),
+      );
       return;
     }
     let file = readStatic(url.pathname);

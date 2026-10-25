@@ -37,3 +37,33 @@ export async function loadVpsInlineCards({
     cards.map(({ filename, buffer }) => [`/inline-cards/${filename}`, buffer]),
   );
 }
+
+// Readiness of optional Telegram assets must not block the Wiki HTTP server.
+export function startVpsInlineCards({
+  loadCards = loadVpsInlineCards,
+  onError = () =>
+    console.error(
+      "Telegram cards: generation failed; cards unavailable until the next service restart",
+    ),
+  ...options
+}) {
+  let cards = new Map();
+  let status = "loading";
+  const ready = Promise.resolve()
+    .then(() => loadCards(options))
+    .then((loaded) => {
+      cards = loaded;
+      status = "ready";
+    })
+    .catch((error) => {
+      status = "failed";
+      onError(error);
+    });
+  return {
+    get status() {
+      return status;
+    },
+    get: (path) => cards.get(path),
+    ready,
+  };
+}

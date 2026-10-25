@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { loadVpsInlineCards } from "./inline-cards-vps.mjs";
+import {
+  loadVpsInlineCards,
+  startVpsInlineCards,
+} from "./inline-cards-vps.mjs";
 
 test("local, CI and connector configurations never load the generator", async () => {
   for (const env of [
@@ -74,4 +77,32 @@ test("VPS startup uses its persistent cache and exposes card bytes", async (t) =
     }),
     /persistent cache/,
   );
+});
+
+test("slow Telegram generation does not block server startup and publishes cards only when ready", async () => {
+  let finish;
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const loader = startVpsInlineCards({ loadCards: () => pending });
+  assert.equal(loader.status, "loading");
+  assert.equal(loader.get("/inline-cards/floor.jpg"), undefined);
+  finish(new Map([["/inline-cards/floor.jpg", Buffer.from("image")]]));
+  await loader.ready;
+  assert.equal(loader.status, "ready");
+  assert.deepEqual(loader.get("/inline-cards/floor.jpg"), Buffer.from("image"));
+});
+
+test("Telegram generation failure remains isolated from HTTP readiness", async () => {
+  const errors = [];
+  const loader = startVpsInlineCards({
+    loadCards: async () => {
+      throw new Error("fake renderer timeout");
+    },
+    onError: (error) => errors.push(error.message),
+  });
+  await loader.ready;
+  assert.equal(loader.status, "failed");
+  assert.deepEqual(errors, ["fake renderer timeout"]);
+  assert.equal(loader.get("/inline-cards/floor.jpg"), undefined);
 });
