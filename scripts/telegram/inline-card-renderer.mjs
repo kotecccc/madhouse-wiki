@@ -385,6 +385,15 @@ async function jpeg(svg) {
 }
 
 export async function generateInlineCards(knowledgeBase, root) {
+  if (
+    process.env.MADHOUSE_VPS_INLINE_CARDS !== "1" ||
+    process.env.MADHOUSE_SERVICE !== "wiki" ||
+    process.env.NODE_ENV !== "production"
+  ) {
+    throw new Error(
+      "Telegram card generation is restricted to the production VPS wiki service",
+    );
+  }
   const theme = getTheme(root);
   const cards = [];
   const bossOpeningCards = await renderBossOpeningCards(knowledgeBase, root);

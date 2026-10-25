@@ -66,6 +66,7 @@ export function createBattleSeries({
       enabled &&
       !disposed &&
       generation === id &&
+      !controller.getSnapshot().invitationOnly &&
       controller.getSnapshot().boss?.id === bossId &&
       currentGoal?.status === "active" &&
       goal.canStart()
@@ -126,6 +127,7 @@ export function createBattleSeries({
     const currentGoal = goal.getSnapshot();
     if (
       state.boss?.id !== bossId ||
+      (state.invitationOnly && state.battle?.status !== "active") ||
       (currentGoal && currentGoal.status !== "active")
     ) {
       stop();
@@ -218,6 +220,7 @@ export function createBattleSeries({
         currentGoal = goal.getSnapshot();
       if (
         !state.boss ||
+        (state.invitationOnly && state.battle?.status !== "active") ||
         state.pending ||
         !healthy(state) ||
         (currentGoal && currentGoal.status !== "active") ||

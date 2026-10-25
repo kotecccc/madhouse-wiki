@@ -25,7 +25,7 @@ const detail = (patch = {}) => ({
   ...patch,
 });
 const settle = () => new Promise((resolve) => setImmediate(resolve));
-function setup(handler) {
+function setup(handler, { now = Date.now, playerId = 101 } = {}) {
   const calls = [];
   const store = createBossBattleController({
     request: async (...args) => {
@@ -33,8 +33,17 @@ function setup(handler) {
       return handler(...args);
     },
     operationId: () => "test-operation",
+    now,
+    getPlayerIdentity: () => ({ playerId, nickname: "Player" }),
   });
   return { store, calls };
+}
+
+function invitationBattle(patch = {}) {
+  return rawBattle({
+    participants: [{ playerId: 101, nickname: "Player" }],
+    ...patch,
+  });
 }
 
 test("opening only reads; attack applies its reply without a second GET and duplicate clicks send once", async () => {
@@ -127,6 +136,151 @@ test("failed start can discover the already-created battle without another POST"
   await store.refresh();
   assert.equal(store.getSnapshot().battle.id, "battle-1");
   assert.equal(calls.filter(([m]) => m === "POST").length, 1);
+});
+
+test("accepts an invitation once and confirms own membership before adopting the battle", async () => {
+  const { store, calls } = setup((method, path) => {
+    if (method === "POST") return null;
+    if (path === "/api/bosses/7") return detail();
+    if (path === "/api/bosses/battles/invited-1")
+      return invitationBattle({ battleId: "invited-1" });
+    throw new Error(`Unexpected route: ${method} ${path}`);
+  });
+  await store.open(boss);
+  const result = await store.acceptInvitation(boss, {
+    invitationId: "invite-1",
+    battleId: "invited-1",
+    bossId: 7,
+    expiresAt: Date.now() + 60_000,
+  });
+  assert.equal(result, undefined);
+  assert.equal(store.getSnapshot().battle.id, "invited-1");
+  assert.equal(store.getSnapshot().invitationOnly, true);
+  assert.equal(store.getSnapshot().pendingInvitation, null);
+  assert.equal(store.getSnapshot().canStart, false);
+  assert.equal(calls.filter(([, path]) => path.includes("/accept")).length, 1);
+  await store.acceptInvitation(boss, {
+    invitationId: "invite-1",
+    battleId: "invited-1",
+    bossId: 7,
+    expiresAt: Date.now() + 60_000,
+  });
+  await store.start();
+  assert.equal(
+    calls.filter(
+      ([, path]) => path.includes("/accept") || path.endsWith("/battles"),
+    ).length,
+    1,
+  );
+});
+
+test("foreign participants cannot confirm an invitation or clear its checkpoint", async () => {
+  const { store, calls } = setup((method, path) => {
+    if (method === "POST") return null;
+    if (path === "/api/bosses/7") return detail();
+    if (path === "/api/bosses/battles/invited-1")
+      return invitationBattle({
+        battleId: "invited-1",
+        participants: [{ playerId: 202, nickname: "Someone else" }],
+      });
+    throw new Error(`Unexpected route: ${method} ${path}`);
+  });
+  await store.open(boss);
+  await store.acceptInvitation(boss, {
+    invitationId: "invite-1",
+    battleId: "invited-1",
+    bossId: 7,
+    expiresAt: Date.now() + 60_000,
+  });
+  assert.equal(store.getSnapshot().pendingInvitation.battleId, "invited-1");
+  assert.equal(store.getSnapshot().battle, null);
+  assert.equal(store.getSnapshot().needsRefresh, true);
+  await store.refresh();
+  assert.equal(store.getSnapshot().pendingInvitation.battleId, "invited-1");
+  assert.equal(
+    store.adoptJoinedInvitation(
+      boss,
+      invitationBattle({ battleId: "invited-1" }),
+    ),
+    true,
+  );
+  assert.equal(store.getSnapshot().pendingInvitation, null);
+  assert.equal(store.getSnapshot().needsRefresh, false);
+  assert.equal(calls.filter(([, path]) => path.includes("/accept")).length, 1);
+});
+
+test("expired invitation checkpoint can be cleared without enabling solo starts", async () => {
+  let time = 1000;
+  const { store } = setup(
+    (method, path) => {
+      if (method === "POST") return null;
+      if (path === "/api/bosses/7") return detail();
+      if (path === "/api/bosses/battles/invited-1")
+        throw Object.assign(new Error("not available"), { status: 404 });
+      throw new Error(`Unexpected route: ${method} ${path}`);
+    },
+    { now: () => time },
+  );
+  await store.open(boss);
+  await store.acceptInvitation(boss, {
+    invitationId: "invite-1",
+    battleId: "invited-1",
+    bossId: 7,
+    expiresAt: 2000,
+  });
+  assert.equal(store.getSnapshot().needsRefresh, true);
+  assert.equal(store.clearExpiredInvitation(), false);
+  time = 2000;
+  assert.equal(store.clearExpiredInvitation(), true);
+  assert.equal(store.getSnapshot().pendingInvitation, null);
+  assert.equal(store.getSnapshot().battle, null);
+  assert.equal(store.getSnapshot().error, null);
+  assert.equal(store.getSnapshot().needsRefresh, false);
+  assert.equal(store.getSnapshot().invitationOnly, true);
+  assert.equal(store.getSnapshot().canStart, false);
+  await store.start();
+  assert.equal(store.getSnapshot().battle, null);
+});
+
+test("adopts an already joined invitation only after own membership is present", async () => {
+  const { store, calls } = setup((method, path) => {
+    if (path === "/api/bosses/7") return detail();
+    throw new Error(`Unexpected route: ${method} ${path}`);
+  });
+  await store.open(boss);
+  assert.equal(
+    store.adoptJoinedInvitation(
+      boss,
+      invitationBattle({
+        battleId: "joined-1",
+        status: "won",
+        bossHealth: 0,
+      }),
+    ),
+    true,
+  );
+  assert.equal(store.getSnapshot().battle.id, "joined-1");
+  assert.equal(store.getSnapshot().invitationOnly, true);
+  assert.equal(store.getSnapshot().canStart, false);
+  await store.startNextBattle();
+  assert.equal(
+    calls.some(([, path]) => path.includes("/accept")),
+    false,
+  );
+  assert.equal(
+    calls.some(([, path]) => path.endsWith("/battles")),
+    false,
+  );
+  assert.equal(
+    store.adoptJoinedInvitation(
+      boss,
+      invitationBattle({
+        battleId: "foreign-1",
+        participants: [{ playerId: 202, nickname: "Someone else" }],
+      }),
+    ),
+    false,
+  );
 });
 
 test("session reset discards late responses and aborts the request", async () => {
@@ -322,6 +476,35 @@ test("transport uses guarded same-origin requests, rejects unrelated routes and 
   await assert.rejects(request("POST", "/api/bank/purchases", {}));
   await assert.rejects(request("GET", "https://example.com/api/bosses/7"));
   assert.equal(calls.length, 1);
+});
+
+test("invitation acceptance transport is guarded and discards the unknown success body", async () => {
+  let canceled = false;
+  let requestInit;
+  const request = createBossBattleRequest({
+    authorize: (r) => ({ ...r, headers: { Authorization: "test-only" } }),
+    fetcher: async (_url, init) => {
+      requestInit = init;
+      return {
+        ok: true,
+        status: 200,
+        body: { cancel: async () => (canceled = true) },
+      };
+    },
+  });
+  const result = await request(
+    "POST",
+    "/api/bosses/invitations/invite-1/accept",
+    { operationId: "accept-once" },
+  );
+  assert.equal(result, null);
+  assert.equal(canceled, true);
+  assert.equal(requestInit.headers["X-Madhouse-Allow-Mutations"], "true");
+  assert.equal(
+    requestInit.body,
+    JSON.stringify({ operationId: "accept-once" }),
+  );
+  await assert.rejects(request("GET", "/api/bosses/invitations/invite-1"));
 });
 
 test("reconciliation never shortens the cooldown returned by the mutation", async () => {

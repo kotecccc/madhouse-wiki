@@ -855,6 +855,15 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       }),
     );
     assert.ok(genericLoadingModal.includes('class="ui-border-loader"'));
+    const noFooterModal = renderToStaticMarkup(
+      createElement(Modal, {
+        title: "Без подвала",
+        footer: false,
+        onClose() {},
+      }),
+    );
+    assert.ok(!noFooterModal.includes("<footer"));
+    assert.ok(noFooterModal.includes("dialog-close-button"));
     const { SiteHeader } = await load(
       "components/layout/SiteHeader/SiteHeader.jsx",
     );
@@ -1010,17 +1019,43 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
           onStopAuto: () => true,
         }),
       );
+    const { BossInvitationsContent } = await load(
+      "features/bosses/BossInvitations/BossInvitations.jsx",
+    );
+    const invitationsHtml = renderToStaticMarkup(
+      createElement(BossInvitationsContent, {
+        state: {
+          loaded: true,
+          items: [
+            {
+              invitationId: "test-invite",
+              bossId: 41,
+              bossName: "Тестовый босс",
+              sender: "Друг",
+              available: true,
+            },
+          ],
+          unresolved: true,
+        },
+        onAccept: () => {},
+        onReconcile: () => {},
+      }),
+    );
+    assert.ok(invitationsHtml.includes("Принять и открыть бой"));
+    assert.ok(invitationsHtml.includes("Проверить вступление"));
+    assert.ok(invitationsHtml.includes("Зовёт: Друг"));
+    assert.match(invitationsHtml, /disabled=""[^>]*>Принять и открыть бой/);
     const settingsHtml = settingsPanel();
-    assert.ok(settingsHtml.includes('aria-label="Автобой"'));
-    assert.ok(settingsHtml.includes(">Автобой</h3>"));
-    assert.ok(settingsHtml.includes("input-wrap--none"));
-    assert.ok(settingsHtml.includes("select-field--none"));
-    assert.ok(settingsHtml.includes('aria-label="Режим автобоя"'));
-    assert.equal((settingsHtml.match(/role="radio"/g) || []).length, 3);
+    assert.ok(settingsHtml.includes('aria-label="Цель и условия боя"'));
+    assert.ok(settingsHtml.includes(">Цель и условия боя</h3>"));
+    assert.ok(settingsHtml.includes("number-stepper"));
+    assert.ok(settingsHtml.includes('aria-label="Увеличить количество"'));
+    assert.ok(settingsHtml.includes('aria-label="Цель боя"'));
+    assert.equal((settingsHtml.match(/role="radio"/g) || []).length, 7);
     assert.ok(settingsHtml.includes('value="53"'));
     assert.ok(settingsHtml.includes("Количество побед"));
     assert.ok(settingsHtml.includes("Сколько ходить"));
-    assert.equal((settingsHtml.match(/<select/g) || []).length, 1);
+    assert.equal((settingsHtml.match(/<select/g) || []).length, 0);
     for (const removed of [
       "Настроить цель",
       "Настройка цели",
@@ -1032,10 +1067,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       "Для открытия",
     ])
       assert.ok(!settingsHtml.includes(removed), removed);
-    assert.ok(settingsHtml.includes('aria-label="Включить автобой"'));
+    assert.ok(settingsHtml.includes('aria-label="Запустить автобой"'));
     assert.ok(
       settingsPanel({}, { enabled: true }).includes(
-        'aria-label="Выключить автобой"',
+        'aria-label="Остановить автобой"',
       ),
     );
     const { ActiveBattleAutoStatus } = await load(

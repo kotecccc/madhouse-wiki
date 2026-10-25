@@ -14,6 +14,7 @@ export function createBossBattleRequest({
         (/^\/api\/bosses\/(?:\d+\/battles|battles\/[A-Za-z0-9_-]+\/(?:attack|items\/use))$/.test(
           path,
         ) ||
+          /^\/api\/bosses\/invitations\/[A-Za-z0-9_-]+\/accept$/.test(path) ||
           path === "/api/me/bag/combat-items/buy"))
     ))
       throw new Error("Недопустимое действие боя");
@@ -61,7 +62,11 @@ export function createBossBattleRequest({
       error.status = response.status;
       throw error;
     }
-    if (method === "POST" && path === "/api/me/bag/combat-items/buy") {
+    if (
+      method === "POST" &&
+      (path === "/api/me/bag/combat-items/buy" ||
+        /^\/api\/bosses\/invitations\/[A-Za-z0-9_-]+\/accept$/.test(path))
+    ) {
       await response.body?.cancel();
       return null;
     }

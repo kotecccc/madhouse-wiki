@@ -39,7 +39,7 @@ services:
           CMD,
           node,
           -e,
-          "fetch('http://127.0.0.1:4174/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:4174/src/main.jsx').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 15s
       timeout: 5s
@@ -71,7 +71,7 @@ services:
           CMD,
           node,
           -e,
-          "fetch('http://127.0.0.1:4199/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:4199/src/main.jsx').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 15s
       timeout: 5s

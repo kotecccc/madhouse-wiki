@@ -77,7 +77,7 @@ export function Modal({
           <div className="shared-modal-content-bottom">{contentBottom}</div>
         )}
       </div>
-      {footerNote != null ? (
+      {footer === false ? null : footerNote != null ? (
         <footer
           className={`shared-modal-footer shared-modal-footer--with-note${footerStart ? " shared-modal-footer--split" : ""}`}
         >

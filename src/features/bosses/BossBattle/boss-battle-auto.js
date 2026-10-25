@@ -27,6 +27,7 @@ export function canStartAutoAttack(state, now = Date.now()) {
 
 // UI eligibility only; series execution and deadline checks stay on the server.
 export function canStartAutoSeries(state, goal, now = Date.now()) {
+  if (state?.invitationOnly && state.battle?.status !== "active") return false;
   if (
     !state?.boss ||
     state.pending ||

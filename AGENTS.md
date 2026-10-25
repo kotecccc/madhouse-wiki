@@ -1,3 +1,12 @@
+## Efficient edits and validation
+
+- Keep trivial and small, well-localized edits in the main agent. Do not launch a subagent merely to find a file, inspect a few related files, change a style, or repeat the main agent's investigation.
+- Delegate only a bounded, independently useful task when the expected benefit exceeds startup, context transfer and review costs. Use GPT-6 Luna with medium reasoning and a short standalone brief (`fork_turns: none`) for routine delegated work. Keep integration and consequential decisions in the main agent.
+- Match validation to the change. Run `npm run lint:ui`, lint/format checks for changed files, relevant tests and the relevant build. Batch checks after a coherent edit; do not repeat successful checks unless subsequent changes or new evidence affect them.
+- Reserve `npm run check` (whole-project data, lint, formatting, tests and build) for releases, broad changes or a concrete cross-cutting risk. Do not run it automatically for every minor follow-up. If it has passed, do not rerun its constituent checks without a reason.
+- When another chat is working in the same checkout, inspect current changes and avoid overlapping edits and duplicate heavyweight checks. Do not attribute unrelated failures to the current edit without evidence.
+- Never generate Telegram cards locally, including during builds and checks. Vite builds do not include card generation. Only the production VPS wiki service may generate them at startup, enabled by `MADHOUSE_VPS_INLINE_CARDS=1` in VPS Compose. Its disposable cache persists in the separate `telegram_cards` volume at `/data/telegram-cards`, expires after 24 hours, and invalidates on catalogue, rendering dependencies, tokens, lockfile or runtime changes. `MADHOUSE_INLINE_CARDS_REFRESH=1` forces regeneration on the next VPS service startup; never use it to generate locally. Test caching and startup gates with fake generators; do not open a browser for verification without explicit authorization.
+
 # Madhouse Wiki UI rules
 
 ## Visual testing requires an explicit request

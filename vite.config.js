@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { installCatalogueCapture } from "./scripts/catalogue/proxy-capture.mjs";
 import { raidsFixturePlugin } from "./scripts/raids-fixture-plugin.mjs";
 import { catalogueSyncPlugin } from "./scripts/catalogue/dev-sync-plugin.mjs";
-import { inlineCardsPlugin } from "./scripts/telegram/inline-cards-vite-plugin.mjs";
 import { apiDocsProxyGuard } from "./scripts/api-docs-proxy-guard.mjs";
 
 function redirectApiDocs(server) {
@@ -34,7 +33,6 @@ export default defineConfig({
     automationPlugin(fileURLToPath(new URL(".", import.meta.url))),
     catalogueSyncPlugin(fileURLToPath(new URL(".", import.meta.url))),
     cataloguePlugin(fileURLToPath(new URL(".", import.meta.url))),
-    inlineCardsPlugin(fileURLToPath(new URL(".", import.meta.url))),
     apiDocsProxyGuard(),
     {
       name: "api-docs-entry",

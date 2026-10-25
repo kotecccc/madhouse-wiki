@@ -38,6 +38,7 @@ async function automationRequest(method, path, body) {
 const remote = createRemoteBattleSession({ request: automationRequest });
 export const {
   bossBattle,
+  bossInvitations,
   bossBattleAuto,
   bossBattleGoal,
   pvpBattle,

@@ -621,3 +621,88 @@ test("selecting a new boss hides the previous result until server reconciliation
   assert.equal(h.bossBattle.getSnapshot().pending, null);
   h.disconnect();
 });
+
+test("invitations are server-backed and accepting opens only the confirmed joined fight", async () => {
+  const state = {
+    ...initialState(),
+    battle: {},
+    invitations: {
+      items: [{ invitationId: "invite-1", bossId: 8 }],
+      loaded: true,
+    },
+  };
+  const h = harness({
+    request: async (method, path, body) => {
+      if (method === "GET" || body.command === "invitations.refresh")
+        return state;
+      assert.equal(body.command, "invitations.accept");
+      assert.deepEqual(body.args, { invitationId: "invite-1" });
+      return {
+        ...state,
+        version: 8,
+        battle: {
+          boss: { id: 8, name: "Joined" },
+          battle: { id: "raid-1", status: "active" },
+          invitationOnly: true,
+        },
+      };
+    },
+  });
+  await h.connect();
+  assert.equal(h.bossInvitations.getSnapshot().items.length, 1);
+  await h.bossInvitations.refresh();
+  assert.equal(h.bossBattle.getSnapshot().visible, false);
+  assert.equal(await h.bossInvitations.accept("invite-1"), true);
+  assert.equal(h.bossBattle.getSnapshot().visible, true);
+  assert.equal(h.bossBattle.getSnapshot().battle.id, "raid-1");
+  assert.equal(h.bossBattle.getSnapshot().invitationOnly, true);
+  h.disconnect();
+  assert.equal(h.bossInvitations.getSnapshot().items.length, 0);
+});
+
+test("uncertain invitation acceptance never opens the prior battle or retries the command", async () => {
+  let posts = 0;
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      posts++;
+      const error = new Error("check participation");
+      error.status = 409;
+      error.snapshot = {
+        ...initialState(),
+        version: 8,
+        invitations: { items: [], notice: "Проверить вступление" },
+        battle: {
+          boss: { id: 8 },
+          battle: null,
+          pendingInvitation: { invitationId: "i" },
+        },
+      };
+      throw error;
+    },
+  });
+  await h.connect();
+  assert.equal(await h.bossInvitations.accept("i"), false);
+  assert.equal(h.bossInvitations.getSnapshot().unresolved, true);
+  assert.equal(h.bossBattle.getSnapshot().visible, false);
+  assert.equal(posts, 1);
+});
+
+test("raid intent comes from server state and start/stop send commands without local execution", async () => {
+  const state = {
+    ...initialState(),
+    raid: { enabled: true, status: "waiting", bossId: 8 },
+  };
+  const h = harness({ state });
+  await h.connect();
+  assert.deepEqual(h.bossBattle.getSnapshot().raid, state.raid);
+  assert.equal([...h.tasks.values()][0].delay, 2000);
+  const settings = { bossId: 8, kind: "battles", targetCount: 3 };
+  await h.bossBattleAuto.startRaid(settings);
+  assert.equal(h.calls.at(-1)[2].command, "raid.start");
+  assert.deepEqual(h.calls.at(-1)[2].args, { settings });
+  await h.bossBattleAuto.stopRaid();
+  assert.equal(h.calls.at(-1)[2].command, "raid.stop");
+  h.disconnect();
+  assert.equal(h.tasks.size, 0);
+});

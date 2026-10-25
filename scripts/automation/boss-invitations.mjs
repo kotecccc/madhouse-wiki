@@ -1,0 +1,48 @@
+import { normalizeBossBattleStatus } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
+
+export const BOSS_INVITATIONS_PATH =
+  "/api/bosses/invitations?direction=incoming&status=pending";
+const identifier = (value) =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(value);
+const text = (value) =>
+  typeof value === "string" ? value.trim().slice(0, 80) : "";
+
+// Private account projection. Never store raw invitations or player identifiers.
+export async function projectBossInvitations(raw, getBoss, now = Date.now()) {
+  if (!Array.isArray(raw?.items))
+    throw new TypeError("invalid_boss_invitations");
+  const unique = new Map();
+  for (const item of raw.items.slice(0, 100)) {
+    if (
+      !identifier(item?.invitationId) ||
+      !identifier(item.battleId) ||
+      !Number.isSafeInteger(item.bossId) ||
+      item.bossId <= 0 ||
+      String(item.status).toLowerCase() !== "pending"
+    )
+      continue;
+    const invitationExpiry = Date.parse(item.expiresAtUtc);
+    const battleExpiry = Date.parse(item.battleExpiresAtUtc);
+    const expiresAt =
+      Number.isFinite(invitationExpiry) && Number.isFinite(battleExpiry)
+        ? Math.min(invitationExpiry, battleExpiry)
+        : null;
+    const boss = await getBoss(item.bossId);
+    unique.set(item.invitationId, {
+      invitationId: item.invitationId,
+      battleId: item.battleId,
+      bossId: item.bossId,
+      bossName: text(boss?.name) || `Босс №${item.bossId}`,
+      sender:
+        text(item.peerNickname) ||
+        text(item.peerUsername) ||
+        "Отправитель не указан",
+      expiresAt,
+      available:
+        expiresAt !== null &&
+        expiresAt > now &&
+        normalizeBossBattleStatus(item.battleStatus) === "active",
+    });
+  }
+  return [...unique.values()];
+}

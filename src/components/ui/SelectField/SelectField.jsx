@@ -1,5 +1,6 @@
 import "./SelectField.css";
 import { FieldLabel } from "../FieldLabel/FieldLabel.jsx";
+import { Icon } from "../Icon/Icon.jsx";
 export function SelectField({
   id,
   label,
@@ -11,23 +12,28 @@ export function SelectField({
 }) {
   const safeSize = ["sm", "md", "lg"].includes(size) ? size : "md";
   return (
-    <>
+    <div
+      className={`select-field-group${spacing === "none" ? " select-field-group--none" : ""}`}
+    >
       {label ? <FieldLabel htmlFor={id}>{label}</FieldLabel> : null}
-      <select
-        className={`select-field select-field--${safeSize}${spacing === "none" ? " select-field--none" : ""} ${className}`.trim()}
-        id={id}
-        {...props}
-      >
-        {options.map((option) => (
-          <option
-            key={option.id}
-            value={option.value}
-            disabled={option.disabled}
-          >
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </>
+      <div className="select-field-wrap">
+        <select
+          className={`select-field select-field--${safeSize} ${className}`.trim()}
+          id={id}
+          {...props}
+        >
+          {options.map((option) => (
+            <option
+              key={option.id}
+              value={option.value}
+              disabled={option.disabled}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <Icon type="chevron" size="small" className="select-field-icon" />
+      </div>
+    </div>
   );
 }

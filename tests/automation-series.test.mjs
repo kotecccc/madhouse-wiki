@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { createBattleSeries } from "../scripts/automation/battle-series.mjs";
+import { canStartAutoSeries } from "../src/features/bosses/BossBattle/boss-battle-auto.js";
 
 const token = "Bearer series.payload.sig";
 const startPath = "/api/bosses/7/battles";
@@ -487,4 +489,85 @@ test("server series preserves enabled intent across a manual battle refresh", as
       assert.equal(f.service.snapshot(entry).auto.enabled, false);
     },
   );
+});
+
+test("invitation series attacks its active joined battle but never starts a solo battle after it", () => {
+  let now = 10_000;
+  let state = {
+    boss: { id: 7 },
+    battle: {
+      id: "invited-battle",
+      status: "active",
+      readyAt: now + 1000,
+      expiresAt: now + 60_000,
+      playerHealth: 80,
+      playerMaxHealth: 100,
+      bossHealth: 40,
+      bossMaxHealth: 100,
+      cooldownKnown: true,
+    },
+    invitationOnly: true,
+    pending: null,
+    needsRefresh: false,
+    error: null,
+    medicineOpen: false,
+    purchase: null,
+    purchaseUncertain: false,
+  };
+  const controllerListeners = new Set();
+  const goalListeners = new Set();
+  const timers = new Map();
+  let timerId = 0;
+  let soloStarts = 0;
+  const controller = {
+    getSnapshot: () => state,
+    subscribe(listener) {
+      controllerListeners.add(listener);
+      return () => controllerListeners.delete(listener);
+    },
+    start: async () => {
+      soloStarts++;
+    },
+    startNextBattle: async () => {
+      soloStarts++;
+    },
+    attack: async () => {},
+  };
+  const goal = {
+    getSnapshot: () => ({ status: "active" }),
+    canStart: () => true,
+    subscribe(listener) {
+      goalListeners.add(listener);
+      return () => goalListeners.delete(listener);
+    },
+  };
+  const series = createBattleSeries({
+    controller,
+    goal,
+    now: () => now,
+    schedule(callback, delay) {
+      const id = ++timerId;
+      timers.set(id, { callback, at: now + delay });
+      return id;
+    },
+    cancel(id) {
+      timers.delete(id);
+    },
+    random: () => 0,
+  });
+  assert.equal(canStartAutoSeries(state, { status: "active" }, now), true);
+  assert.equal(series.start(), true);
+  assert.equal(timers.size, 1);
+
+  state = {
+    ...state,
+    battle: { ...state.battle, status: "won", playerHealth: 80, bossHealth: 0 },
+  };
+  for (const listener of controllerListeners) listener();
+  for (const listener of goalListeners) listener();
+  assert.equal(canStartAutoSeries(state, { status: "active" }, now), false);
+  assert.equal(series.getSnapshot().enabled, false);
+  assert.equal(timers.size, 0);
+  assert.equal(soloStarts, 0);
+  series.dispose();
 });

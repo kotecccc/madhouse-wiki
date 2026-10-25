@@ -12,7 +12,6 @@ import {
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
 import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
 import { BossMedicinePanel } from "./BossMedicinePanel.jsx";
-import { BossBattleErrorBanner } from "./BossBattleErrorBanner.jsx";
 import { isTerminalBossBattle } from "./boss-battle-status.js";
 import { battleActionHint } from "./boss-battle-controller.js";
 import { bossById, departmentById } from "../../../model/knowledge-base.js";
@@ -106,6 +105,12 @@ export function BossBattleDialog() {
   );
   const departmentCode = departmentById[catalogueBoss?.departmentId]?.code;
   const actionHint = battleActionHint(state);
+  const showNext =
+    !state.invitationOnly &&
+    (goal
+      ? goal.status === "active" &&
+        ["won", "lost", "expired", "surrendered"].includes(battle?.status)
+      : isTerminalBossBattle(battle));
   const goalPanel = (
     <BossBattleGoalPanel
       key={state.boss.id}
@@ -114,53 +119,18 @@ export function BossBattleDialog() {
       auto={auto}
       onStopAuto={bossBattleAuto.stop}
       onStart={bossBattleAuto.start}
+      onStartRaid={bossBattleAuto.startRaid}
+      onStopRaid={bossBattleAuto.stopRaid}
     />
   );
   return (
     <Modal
-      title={`Бой: ${state.boss.name}`}
+      title={`Босс «${state.boss.name}»`}
       width="var(--page-max-width)"
       contentVariant="inset"
       onClose={bossBattle.close}
-      footer={
-        <div className="boss-battle-actions">
-          <Button onClick={bossBattle.close}>Закрыть</Button>
-          <Button
-            disabled={Boolean(state.pending)}
-            title={actionHint}
-            onClick={() => void bossBattle.refresh()}
-          >
-            {state.pending === "refresh" ? "Обновление…" : "Обновить"}
-          </Button>
-          {(goal
-            ? goal.status === "active" &&
-              ["won", "lost", "expired", "surrendered"].includes(battle?.status)
-            : isTerminalBossBattle(battle)) && (
-            <Button
-              variant="primary"
-              icon="combat"
-              disabled={
-                auto.enabled ||
-                Boolean(state.pending) ||
-                state.needsRefresh ||
-                state.purchaseUncertain ||
-                Boolean(state.purchase) ||
-                Boolean(goal && !goal.canContinue)
-              }
-              title={actionHint || state.notice}
-              onClick={() => void bossBattle.startNextBattle()}
-            >
-              {state.pending === "restart"
-                ? "Запуск…"
-                : goal
-                  ? "Следующий бой"
-                  : "Напасть"}
-            </Button>
-          )}
-        </div>
-      }
+      footer={false}
     >
-      <BossBattleErrorBanner state={state} />
       <div className="boss-battle-layout">
         <div className="boss-battle-column">
           <BossBattlePanel
@@ -169,7 +139,7 @@ export function BossBattleDialog() {
             startBlocked={Boolean(goal && !bossBattleGoal.canStart())}
             now={Math.max(now, Date.now())}
             onStart={() => void bossBattle.start()}
-            auto={auto}
+            auto={{ ...auto, enabled: auto.enabled || state.raid?.enabled }}
             onAttack={() => {
               if (!bossBattleAuto.getSnapshot().enabled)
                 void bossBattle.attack();
@@ -180,6 +150,33 @@ export function BossBattleDialog() {
                 : void bossBattle.openMedicines()
             }
           />
+          {showNext && (
+            <div className="boss-battle-actions">
+              {showNext && (
+                <Button
+                  variant="primary"
+                  icon="combat"
+                  disabled={
+                    auto.enabled ||
+                    state.raid?.enabled ||
+                    Boolean(state.pending) ||
+                    state.needsRefresh ||
+                    state.purchaseUncertain ||
+                    Boolean(state.purchase) ||
+                    Boolean(goal && !goal.canContinue)
+                  }
+                  title={actionHint || state.notice}
+                  onClick={() => void bossBattle.startNextBattle()}
+                >
+                  {state.pending === "restart"
+                    ? "Запуск…"
+                    : goal
+                      ? "Следующий бой"
+                      : "Напасть"}
+                </Button>
+              )}
+            </div>
+          )}
           {goalPanel}
           {state.medicineOpen && (
             <BossMedicinePanel state={state} now={Math.max(now, Date.now())} />

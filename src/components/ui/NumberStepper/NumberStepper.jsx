@@ -91,9 +91,11 @@ export function NumberStepper({
           </Button>
         ) : null}
       </div>
-      <span className="number-stepper-range">
-        {rangeLabel || `От ${min} до ${max}`}
-      </span>
+      {rangeLabel !== null && (
+        <span className="number-stepper-range">
+          {rangeLabel || `От ${min} до ${max}`}
+        </span>
+      )}
     </div>
   );
 }

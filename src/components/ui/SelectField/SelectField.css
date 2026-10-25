@@ -1,9 +1,23 @@
+.select-field-group {
+  min-width: 0;
+  margin-bottom: var(--space-16);
+}
+
+.select-field-group--none {
+  margin-bottom: 0;
+}
+
+.select-field-wrap {
+  position: relative;
+}
+
 select.select-field {
+  appearance: none;
   display: block;
   width: 100%;
   height: var(--select-height, var(--control-height-md));
-  margin: 0 0 var(--space-16);
-  padding: 0 var(--space-12);
+  margin: 0;
+  padding: 0 var(--space-32) 0 var(--space-12);
   border: 1px solid var(--card-border);
   border-radius: var(--control-radius);
   background: var(--surface-page);
@@ -14,6 +28,15 @@ select.select-field {
   line-height: var(--line-height-normal);
 }
 
+.select-field-icon {
+  position: absolute;
+  top: 50%;
+  right: var(--space-12);
+  color: var(--text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 select.select-field--sm {
   --select-height: var(--control-height-sm);
   font-size: var(--font-size-xs);
@@ -21,10 +44,6 @@ select.select-field--sm {
 
 select.select-field--lg {
   --select-height: var(--control-height-lg);
-}
-
-select.select-field--none {
-  margin-bottom: 0;
 }
 
 select.select-field:hover:not(:disabled) {

@@ -1,0 +1,10 @@
+.boss-invitations-list {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.boss-invitations-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}

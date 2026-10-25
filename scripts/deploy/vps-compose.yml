@@ -22,6 +22,8 @@ services:
     environment:
       MADHOUSE_SERVICE: wiki
       MADHOUSE_AUTOMATION_STATE_DIR: /data/automation
+      MADHOUSE_VPS_INLINE_CARDS: "1"
+      MADHOUSE_INLINE_CARDS_CACHE_DIR: /data/telegram-cards
       MADHOUSE_RELEASE_SHA: ${MADHOUSE_RELEASE_SHA}
       PORT: 9092
       WIKI_PUBLIC_ORIGIN: https://madhouse-wiki.ru
@@ -29,6 +31,7 @@ services:
       MADHOUSE_STORAGE_ORIGIN: https://storage.madhouse-wiki.ru/_madhouse-storage
     volumes:
       - automation_state:/data/automation
+      - telegram_cards:/data/telegram-cards
     healthcheck:
       test:
         - CMD
@@ -38,7 +41,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 4
-      start_period: 25s
+      start_period: 90s
 
   connector:
     image: madhouse-wiki:vps-${MADHOUSE_RELEASE_SHA:?MADHOUSE_RELEASE_SHA is required}
@@ -69,3 +72,4 @@ services:
 
 volumes:
   automation_state:
+  telegram_cards:

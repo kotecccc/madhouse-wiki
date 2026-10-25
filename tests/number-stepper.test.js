@@ -35,6 +35,9 @@ test("NumberStepper optionally renders a guarded MAX button", async () => {
     assert.ok(defaultMarkup.includes('class="number-stepper-manual"'));
     assert.ok(!defaultMarkup.includes("number-stepper-controls--max"));
 
+    const hiddenRangeMarkup = render({ rangeLabel: null });
+    assert.ok(!hiddenRangeMarkup.includes("number-stepper-range"));
+
     const enabledMarkup = render({ showMaxButton: true });
     assert.ok(
       enabledMarkup.includes('aria-label="Установить максимальное количество"'),

@@ -300,6 +300,8 @@ const emptyState = () => ({
   medicines: null,
   purchase: null,
   purchaseUncertain: false,
+  invitationOnly: false,
+  pendingInvitation: null,
   notice: null,
 });
 
@@ -455,10 +457,39 @@ export function createBossBattleController({
       needsRefresh: false,
     };
   }
+  function projectInvitationBattle(boss, raw, invitation) {
+    if (
+      raw?.battleId !== invitation.battleId ||
+      String(raw?.bossId) !== String(invitation.bossId)
+    )
+      throw new Error("Не удалось подтвердить бой по приглашению.");
+    const identity = currentIdentity();
+    if (
+      identity?.playerId == null ||
+      !Array.isArray(raw.participants) ||
+      !raw.participants.some(
+        (participant) =>
+          participant?.playerId != null &&
+          String(participant.playerId) === String(identity.playerId),
+      )
+    )
+      throw new Error("Участие в бою по приглашению не подтверждено.");
+    const battle = normalizeBattle(raw, boss.id, now(), identity);
+    battle.detailsLoaded = true;
+    return { battle, canStart: false, needsRefresh: false };
+  }
+  async function readInvitationBattle(call, boss, invitation) {
+    const raw = await call(
+      "GET",
+      `/api/bosses/battles/${encodeURIComponent(invitation.battleId)}`,
+    );
+    return projectInvitationBattle(boss, raw, invitation);
+  }
   function applyCurrent(current, version, extra = {}) {
     if (version !== generation) return;
     publish({
       ...current,
+      ...(state.invitationOnly ? { canStart: false } : {}),
       ...((!current.battle || current.battle.status !== "active") &&
       !(extra.purchaseUncertain ?? state.purchaseUncertain)
         ? { medicineOpen: false }
@@ -471,6 +502,20 @@ export function createBossBattleController({
     const boss = state.boss;
     const battleId = state.battle?.id;
     return run("refresh", async (call, version) => {
+      if (state.pendingInvitation) {
+        const current = await readInvitationBattle(
+          call,
+          boss,
+          state.pendingInvitation,
+        );
+        applyCurrent(current, version, {
+          pendingInvitation: null,
+          invitationOnly: true,
+          canStart: false,
+          purchase: null,
+        });
+        return;
+      }
       const current = await readCurrent(
         call,
         boss,
@@ -484,7 +529,10 @@ export function createBossBattleController({
     if (!state.boss || state.pending || state.needsRefresh) return;
     if (
       kind === "start"
-        ? !state.canStart || state.battle || !canStartBattle()
+        ? state.invitationOnly ||
+          !state.canStart ||
+          state.battle ||
+          !canStartBattle()
         : !canAttackBattle(state, now())
     )
       return;
@@ -580,6 +628,7 @@ export function createBossBattleController({
   async function startNextBattle({ allowed = () => true } = {}) {
     if (
       !state.boss ||
+      state.invitationOnly ||
       !isTerminalBossBattle(state.battle) ||
       !canStartBattle() ||
       !allowed() ||
@@ -844,6 +893,127 @@ export function createBossBattleController({
     },
     close: () => publish({ visible: false }),
     refresh,
+    async acceptInvitation(
+      boss,
+      { invitationId, battleId, bossId, expiresAt } = {},
+    ) {
+      const id = Number(boss?.numericId ?? boss?.apiId ?? boss?.id);
+      if (
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        String(bossId) !== String(id) ||
+        !/^[A-Za-z0-9_-]+$/.test(String(invitationId || "")) ||
+        !/^[A-Za-z0-9_-]+$/.test(String(battleId || "")) ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= now() ||
+        state.battle?.status === "active" ||
+        state.pending ||
+        state.needsRefresh ||
+        state.purchaseUncertain ||
+        state.purchase ||
+        state.medicineOpen
+      )
+        return false;
+      const selectedBoss = {
+        id,
+        name: boss.name,
+        reference: bossBattleReference(boss),
+      };
+      const invitation = { invitationId, battleId, bossId: id, expiresAt };
+      return run("accept", async (call, version) => {
+        publish({
+          boss: selectedBoss,
+          battle: null,
+          canStart: false,
+          invitationOnly: true,
+          pendingInvitation: invitation,
+          needsRefresh: true,
+          medicineOpen: false,
+          purchase: null,
+        });
+        await call(
+          "POST",
+          `/api/bosses/invitations/${encodeURIComponent(invitationId)}/accept`,
+          { operationId: operationId() },
+        );
+        if (version !== generation) return;
+        const current = await readInvitationBattle(
+          call,
+          selectedBoss,
+          invitation,
+        );
+        applyCurrent(current, version, {
+          pendingInvitation: null,
+          invitationOnly: true,
+          canStart: false,
+          purchase: null,
+          notice: "Приглашение принято. Подтверждено участие в бою.",
+        });
+      });
+    },
+    adoptJoinedInvitation(boss, raw) {
+      const id = Number(boss?.numericId ?? boss?.apiId ?? boss?.id);
+      const invitation = {
+        battleId: raw?.battleId,
+        bossId: id,
+      };
+      if (
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        state.pending ||
+        state.purchaseUncertain ||
+        state.purchase ||
+        state.medicineOpen ||
+        (state.battle?.status === "active" &&
+          state.battle.id !== invitation.battleId)
+      )
+        return false;
+      let current;
+      try {
+        current = projectInvitationBattle({ ...boss, id }, raw, invitation);
+      } catch {
+        return false;
+      }
+      publish({
+        boss: {
+          id,
+          name: boss.name,
+          reference: bossBattleReference(boss),
+        },
+        ...current,
+        canStart: false,
+        invitationOnly: true,
+        pendingInvitation: null,
+        needsRefresh: false,
+        error: null,
+        errorStatus: null,
+        purchase: null,
+        notice: "Участие в бою по приглашению подтверждено.",
+      });
+      return true;
+    },
+    clearExpiredInvitation() {
+      const invitation = state.pendingInvitation;
+      if (
+        !invitation ||
+        state.pending ||
+        !Number.isFinite(invitation.expiresAt) ||
+        invitation.expiresAt > now()
+      )
+        return false;
+      publish({
+        battle: null,
+        canStart: false,
+        pendingInvitation: null,
+        invitationOnly: true,
+        needsRefresh: false,
+        error: null,
+        errorStatus: null,
+        purchase: null,
+        notice: null,
+      });
+      return true;
+    },
     hydrateDetails() {
       const id = state.battle?.id;
       if (

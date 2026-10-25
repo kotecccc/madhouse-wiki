@@ -22,6 +22,10 @@ test("three visible modes resolve identities and authoritative frozen all-drop l
     BOSS_GOAL_KINDS.map((item) => item.value),
     ["battles", "business_items", "drops"],
   );
+  assert.deepEqual(
+    BOSS_GOAL_KINDS.map((item) => item.label),
+    ["Кол-во", "Бизнес", "Дроп"],
+  );
   assert.equal(goalDropOptions(boss.reference).length, 2);
   const resolved = resolveBossGoal(
     { bossId: 7, kind: "drops", selection: "all", itemKeys: ["forged"] },

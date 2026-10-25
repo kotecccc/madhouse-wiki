@@ -17,9 +17,16 @@ import {
 } from "./boss-battle-presentation.js";
 import "./BossBattlePanel.css";
 
+const formatHealth = (amount) =>
+  amount >= 1_000_000
+    ? `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(amount / 1_000_000)} млн`
+    : fmt(amount);
+
 function Health({ label, value, max, animationKey }) {
   const known = Number.isFinite(value) && Number.isFinite(max) && max > 0;
-  const text = known ? `${fmt(value)} / ${fmt(max)}` : "Нет данных";
+  const text = known
+    ? `${formatHealth(value)} / ${formatHealth(max)}`
+    : "Нет данных";
   return (
     <div className="boss-battle-panel-stack">
       <div className="boss-battle-panel-row">
@@ -112,7 +119,7 @@ export function BossBattlePanel({
           )}
           {!battle && reference.maxHp != null && (
             <CardDescription size="xs">
-              Здоровье {fmt(reference.maxHp)}
+              Здоровье {formatHealth(reference.maxHp)}
             </CardDescription>
           )}
           <div className="boss-battle-panel-rewards">

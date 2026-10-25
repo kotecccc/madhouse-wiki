@@ -1,11 +1,11 @@
 import { bossDropIdentity } from "./boss-battle-reference.js";
 
 export const BOSS_GOAL_KINDS = [
-  { id: "battles", value: "battles", label: "Бои" },
+  { id: "battles", value: "battles", label: "Кол-во" },
   {
     id: "business_items",
     value: "business_items",
-    label: "Предметы",
+    label: "Бизнес",
   },
   { id: "drops", value: "drops", label: "Дроп" },
 ];
