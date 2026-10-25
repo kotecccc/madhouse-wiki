@@ -19,7 +19,7 @@ curl --fail --silent --show-error --location \
   --header 'X-GitHub-Api-Version: 2022-11-28' \
   "${RELEASE_API}" --output "${work}/release.json"
 
-readarray -t release_info < <(python3 - "${work}/release.json" <<'PY'
+python3 - "${work}/release.json" > "${work}/release-info" <<'PY'
 import json
 import re
 import sys
@@ -40,7 +40,11 @@ for name in ("madhouse-wiki-image.tar.gz", "madhouse-wiki-image.tar.gz.sha256"):
     print(url)
 print(match.group(1))
 PY
-)
+
+release_info=()
+while IFS= read -r line; do
+  release_info+=("${line}")
+done < "${work}/release-info"
 
 if [[ "${#release_info[@]}" -ne 3 ]]; then
   echo "GitHub release metadata did not contain the expected assets" >&2
@@ -89,6 +93,24 @@ compose() {
     "$@"
 }
 
+stop_wiki_and_wait_for_lease() {
+  # docker compose stop returns only after the old process has stopped. Its
+  # durable worker lease may still live for 15 seconds; never delete it or
+  # start the candidate/rollback worker until that window has elapsed.
+  if [[ -f "${RELEASE_ENV}" ]]; then
+    compose stop wiki
+  else
+    # First deployment has no release marker yet. Supply only the image SHA
+    # needed to resolve Compose and stop any existing Wiki container safely.
+    MADHOUSE_RELEASE_SHA="${candidate_sha}" docker compose \
+      --project-name madhouse-wiki \
+      --file "${COMPOSE_FILE}" \
+      --env-file /dev/null \
+      stop wiki
+  fi
+  sleep 16
+}
+
 write_release_env() {
   local sha="$1"
   local temporary="${RELEASE_ENV}.new"
@@ -97,6 +119,7 @@ write_release_env() {
   mv -f -- "${temporary}" "${RELEASE_ENV}"
 }
 
+stop_wiki_and_wait_for_lease
 write_release_env "${candidate_sha}"
 if compose up --detach --wait --wait-timeout 120; then
   echo "madhouse-wiki release activated: ${candidate_sha}"
@@ -105,6 +128,7 @@ fi
 
 echo "madhouse-wiki release failed health checks: ${candidate_sha}" >&2
 if [[ -n "${previous_sha}" ]]; then
+  stop_wiki_and_wait_for_lease
   write_release_env "${previous_sha}"
   if compose up --detach --wait --wait-timeout 120; then
     echo "madhouse-wiki rolled back to ${previous_sha}" >&2

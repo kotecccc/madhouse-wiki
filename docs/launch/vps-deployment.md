@@ -24,6 +24,14 @@ release over HTTPS, requires the expected tag and asset names, verifies the
 checksum, and loads the immutable image. Docker Compose waits for both
 containers to become healthy. If a new image does not pass health checks, the
 updater restores the previous release marker and starts the previous image.
+Before activating a candidate, the updater stops the Wiki container and waits
+16 seconds after the process has stopped, allowing its 15-second durable worker
+lease to expire. The same stop-and-wait step runs before rollback, while the
+candidate release marker still selects the candidate container. A failed stop or
+wait aborts the transition before changing the release marker or starting another
+worker. The lease and personal state are never deleted. First deployment uses
+the candidate image SHA to resolve Compose without requiring a prior release file.
+
 It keeps the prior Docker image tag available for rollback and does not prune
 Docker images or modify storage backups. The verified download archive is held
 only in a private temporary directory during deployment.
