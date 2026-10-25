@@ -19,7 +19,6 @@ export function canStartAutoAttack(state, now = Date.now()) {
     battle.bossMaxHealth > 0 &&
     !state.needsRefresh &&
     !state.error &&
-    !state.medicineOpen &&
     !state.purchase &&
     !state.purchaseUncertain,
   );
@@ -33,7 +32,6 @@ export function canStartAutoSeries(state, goal, now = Date.now()) {
     state.pending ||
     state.error ||
     state.needsRefresh ||
-    state.medicineOpen ||
     state.purchase ||
     state.purchaseUncertain ||
     (goal && goal.status !== "active")
@@ -57,6 +55,7 @@ export function createBossBattleAutoAttack({
 }) {
   let enabled = false;
   let nextAttackAt = null;
+  let attackNotBefore = null;
   let pause = false;
   let timer = null;
   let runId = 0;
@@ -68,11 +67,12 @@ export function createBossBattleAutoAttack({
   let state = controller.getSnapshot();
   let targetBattleId = null;
   let refreshResumeAt = null;
+  let notice = null;
   let cachedSnapshot = { enabled, nextAttackAt, pause };
 
   const snapshot = () => cachedSnapshot;
   function publish() {
-    cachedSnapshot = { enabled, nextAttackAt, pause };
+    cachedSnapshot = { enabled, nextAttackAt, pause, notice };
     for (const listener of listeners) listener(cachedSnapshot);
   }
   function clearTimer() {
@@ -86,13 +86,17 @@ export function createBossBattleAutoAttack({
     enabled = false;
     clearTimer();
     refreshResumeAt = null;
+    attackNotBefore = null;
     publish();
   }
   function delayNext(id, base, isPause = false) {
     if (!enabled || disposed || id !== runId) return;
     clearTimer();
     const delay = base + (isPause ? intBetween(random, 5, 10) * 1000 : 0);
-    nextAttackAt = now() + delay;
+    attackNotBefore = now() + delay;
+    nextAttackAt = attackNotBefore;
+    const wakeAt =
+      controller.nextActionAt?.(attackNotBefore) ?? attackNotBefore;
     pause = isPause;
     timer = schedule(
       () => {
@@ -109,13 +113,13 @@ export function createBossBattleAutoAttack({
           halt();
           return;
         }
-        if (state.battle.readyAt > now()) {
+        if (!controller.nextActionAt && state.battle.readyAt > now()) {
           delayNext(id, state.battle.readyAt - now());
           return;
         }
         void perform(id);
       },
-      Math.max(0, delay),
+      Math.max(0, wakeAt - now()),
     );
     publish();
   }
@@ -134,8 +138,13 @@ export function createBossBattleAutoAttack({
     const before = state.battle;
     ownAttack = true;
     let failed = false;
+    let result;
     try {
-      await controller.attack();
+      result = await controller.attack({ notBefore: attackNotBefore ?? now() });
+      if (result?.kind === "stop") {
+        notice = result.notice ?? null;
+        failed = true;
+      }
     } catch {
       failed = true;
       // The controller owns errors and refresh requirements; never retry here.
@@ -150,7 +159,8 @@ export function createBossBattleAutoAttack({
       state.battle.id !== battleId ||
       state.pending ||
       state.needsRefresh ||
-      (state.battle.playerHealth === before.playerHealth &&
+      ((!result || result.kind === "attack") &&
+        state.battle.playerHealth === before.playerHealth &&
         state.battle.bossHealth === before.bossHealth &&
         state.battle.readyAt === before.readyAt &&
         state.battle.status === before.status &&
@@ -159,14 +169,24 @@ export function createBossBattleAutoAttack({
       halt();
       return;
     }
-    strikes++;
+    if (!result || result.kind === "attack") strikes++;
     let yawning = strikes >= pauseAfter;
     if (yawning) {
       strikes = 0;
       pauseAfter = intBetween(random, 5, 10);
     }
     const cooldown = Math.max(0, state.battle.readyAt - now());
-    delayNext(id, cooldown + intBetween(random, 2, 4) * 1000, yawning);
+    if (result && result.kind !== "attack") {
+      const idle = result.kind === "wait" || result.kind === "invite";
+      delayNext(
+        id,
+        Math.max(
+          cooldown,
+          (attackNotBefore ?? now()) - now(),
+          (result.retryAt ?? now()) - now(),
+        ) + (idle ? 0 : intBetween(random, 2, 4) * 1000),
+      );
+    } else delayNext(id, cooldown + intBetween(random, 2, 4) * 1000, yawning);
   }
   function onControllerChange() {
     state = controller.getSnapshot();
@@ -185,14 +205,17 @@ export function createBossBattleAutoAttack({
       publish();
       return;
     }
-    const intermediateOwnAttack = ownAttack && state.pending === "attack";
+    const intermediateOwnAttack =
+      ownAttack &&
+      ["attack", "heal", "buy", "stock", "invite", "refresh"].includes(
+        state.pending,
+      );
     if (
       state.battle?.id !== targetBattleId ||
       state.battle?.status !== "active" ||
       !state.battle ||
       state.battle.playerHealth <= 0 ||
       state.battle.bossHealth <= 0 ||
-      state.medicineOpen ||
       state.purchase ||
       state.purchaseUncertain ||
       state.error ||
@@ -229,6 +252,7 @@ export function createBossBattleAutoAttack({
         strikes,
         pauseAfter,
         targetBattleId,
+        attackNotBefore,
       };
     },
     start({ resumeAt = null, checkpoint = null } = {}) {
@@ -239,6 +263,7 @@ export function createBossBattleAutoAttack({
         state.pending
       )
         return false;
+      notice = null;
       enabled = true;
       const id = ++runId;
       targetBattleId = state.battle.id;
@@ -255,6 +280,10 @@ export function createBossBattleAutoAttack({
       const cooldown = Math.max(
         0,
         state.battle.readyAt - now(),
+        controller.nextActionAt ? 2000 : 0,
+        Number.isFinite(checkpoint?.attackNotBefore)
+          ? checkpoint.attackNotBefore - now()
+          : 0,
         Number.isFinite(resumeAt) ? resumeAt - now() : 0,
       );
       // The first strike has no artificial lead-in. Only a real server

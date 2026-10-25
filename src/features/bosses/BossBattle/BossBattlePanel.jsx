@@ -165,6 +165,47 @@ export function BossBattlePanel({
           />
         </>
       )}
+      {battle &&
+        Number.isFinite(battle.dropDamageRequired) &&
+        battle.dropDamageRequired > 0 &&
+        Number.isFinite(battle.totalDamage) && (
+          <div className="boss-battle-panel-stack">
+            {battle.quotaFresh !== true && (
+              <CardDescription>
+                Последнее подтверждённое значение нормы. Для приглашения сервер
+                перепроверит бой.
+              </CardDescription>
+            )}
+            <div className="boss-battle-panel-row">
+              <CardDescription>Норма урона</CardDescription>
+              <CardTitle>
+                {fmt(battle.totalDamage)} / {fmt(battle.dropDamageRequired)}
+              </CardTitle>
+            </div>
+            <ProgressBar
+              label="Прогресс нормы урона"
+              value={battle.totalDamage}
+              max={battle.dropDamageRequired}
+              valueText={`${fmt(battle.totalDamage)} из ${fmt(battle.dropDamageRequired)}`}
+            />
+            <CardDescription>
+              Осталось нанести:{" "}
+              {fmt(Math.max(0, battle.dropDamageRequired - battle.totalDamage))}
+              . Выполнение нормы не гарантирует выпадение предмета.
+            </CardDescription>
+          </div>
+        )}
+      {battle?.status === "active" &&
+        (battle.dropDamageRequired == null || battle.totalDamage == null) && (
+          <CardDescription>
+            Норма урона пока неизвестна. Приглашения отложены.
+          </CardDescription>
+        )}
+      {battle?.dropDamageRequired === 0 && battle.quotaFresh && (
+        <CardDescription>
+          Сервер не требует минимального урона в этом бою.
+        </CardDescription>
+      )}
       {battle?.outcome ? (
         <div className="boss-battle-panel-stack" role="status">
           <CardTitle>Результат: {battle.outcome}</CardTitle>

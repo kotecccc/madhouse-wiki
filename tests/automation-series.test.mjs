@@ -63,6 +63,7 @@ function setup({
       const response = () =>
         Response.json({
           id: 7,
+          damageMax: 10,
           activeBattle:
             current?.status === "active" || bossReads === 1 ? current : null,
           state: { canStartFight: current?.status !== "active" },
@@ -238,11 +239,13 @@ test("goal-bound series wins two battles and does not start a third", async () =
     await ctx.command(entry, "autostart01", "auto.start");
     assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
     await ctx.advance(0, entry);
+    await ctx.advance(2000, entry);
     assert.equal(ctx.service.snapshot(entry).battle.battle.id, "battle-1");
     assert.equal(ctx.service.snapshot(entry).battle.battle.status, "won");
     assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
     await ctx.advance(1000, entry);
     assert.equal(ctx.starts, 2);
+    await ctx.advance(2000, entry);
     assert.equal(ctx.service.snapshot(entry).goal.status, "completed");
     assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
     assert.equal(ctx.starts, 2);
@@ -277,6 +280,7 @@ test("business item goal continues after a win with no item and completes on nex
     await ctx.command(entry, "autostart03", "auto.start");
     await ctx.settleAttack(entry);
     await ctx.advance(0, entry);
+    await ctx.advance(2000, entry);
     assert.equal(ctx.service.snapshot(entry).goal.status, "active");
     await ctx.advance(1000, entry);
     assert.equal(ctx.starts, 2);
@@ -342,7 +346,7 @@ test("stop during next battle preflight prevents its start POST", async () => {
   );
 });
 
-test("failed start POST stops automatic execution without retry", async () => {
+test("unknown start result preserves waiting intent without retry", async () => {
   await withSetup({ startFails: true }, async (ctx) => {
     const entry = await ctx.openAndConfigure();
     await ctx.command(entry, "autostart07", "auto.start");
@@ -354,7 +358,7 @@ test("failed start POST stops automatic execution without retry", async () => {
       ).length,
       1,
     );
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
   });
 });
 
@@ -385,6 +389,7 @@ test("enabled series restored at terminal checkpoint resumes once after prefligh
           if (path === bossPath)
             return Response.json({
               id: 7,
+              damageMax: 10,
               activeBattle: null,
               state: { canStartFight: true },
             });

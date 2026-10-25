@@ -123,7 +123,7 @@ test("uncertain restart checkpoint pauses and never accepts again", async () => 
   assert.deepEqual(ctx.calls, []);
   ctx.worker.resume();
   await ctx.worker.tick();
-  assert.equal(ctx.worker.getSnapshot().status, "paused");
+  assert.equal(ctx.worker.getSnapshot().status, "waiting_confirmation");
   assert.deepEqual(ctx.calls, []);
 });
 
@@ -139,7 +139,7 @@ test("confirmed waiting intent resumes after restart and deadline stops polling"
   assert.deepEqual(ctx.calls, ["refresh"]);
 });
 
-test("read failure pauses raid instead of retrying mutations", async () => {
+test("read failure keeps raid enabled and backs off without retrying mutations", async () => {
   const ctx = setup({
     refresh: () => {
       throw new Error("offline");
@@ -149,6 +149,7 @@ test("read failure pauses raid instead of retrying mutations", async () => {
   await ctx.worker.tick();
   ctx.advance();
   await ctx.worker.tick();
-  assert.equal(ctx.worker.getSnapshot().status, "paused");
+  assert.equal(ctx.worker.getSnapshot().status, "waiting");
+  assert.equal(ctx.worker.getSnapshot().enabled, true);
   assert.deepEqual(ctx.calls, ["refresh"]);
 });

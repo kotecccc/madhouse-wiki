@@ -452,6 +452,8 @@ export function createRemoteBattleSession({
     hydrateDetails: () => send("hydrate"),
     openMedicines: () => send("medicines.open"),
     closeMedicines: () => send("medicines.close"),
+    configureHealing: (settings) => send("healing.configure", { settings }),
+    acknowledgeHealing: () => send("healing.ack"),
     useMedicine: (type) => send("medicine.use", { type }),
     preparePurchase: (type, currency, quantity) =>
       send("purchase.prepare", { type, currency, quantity }),

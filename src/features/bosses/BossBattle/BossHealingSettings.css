@@ -1,0 +1,29 @@
+.boss-healing-settings {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.boss-healing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.boss-healing-item {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.boss-healing-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+}
+
+@media (max-width: 650px) {
+  .boss-healing-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

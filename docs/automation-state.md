@@ -20,9 +20,9 @@ The directory is private (0700), the SQLite database and encryption key are 0600
 
 One wiki process runs the actors. A durable singleton lease in the same SQLite database excludes competing workers; it is renewed every second, expires after fifteen seconds, and is checked before state writes and game mutations. This is a **single-host, shared-volume** design. Do not deploy independent replicas with separate volumes. Move coordination to a shared transactional database before introducing multiple hosts.
 
-Auto runs independently of browser connections. Closing or reloading the page does not stop it. On server restart, enabled work resumes only after reading the current battle, retaining the saved next-action deadline. If the previous process stopped during a pending action, or the state was already uncertain, auto stays off: its POST is never replayed. The user can inspect and refresh the battle explicitly. Server-side storage failure or lease loss prevents new game actions.
+Auto runs independently of browser connections. Closing or reloading the page does not stop it. On server restart, enabled work resumes only after reading the current battle, retaining the saved next-action deadline. If the previous process stopped during a pending action, or the state was already uncertain, the enabled mode waits for reconciliation: its POST is never replayed. The user can inspect and refresh the battle explicitly. Server-side storage failure or lease loss prevents new game actions.
 
-When Auto is enabled with an active goal, a server-only series supervisor starts the next fight after a confirmed result. It rechecks goal progress, limits and the game start preflight before each new battle. It does not buy or use medicine automatically. Without a goal Auto remains a single-battle mode.
+When Auto is enabled with an active goal, a server-only series supervisor starts the next fight after a confirmed result. It rechecks goal progress, limits and the game start preflight before each new battle. The shared battle assistant applies the configured per-battle medicine limits and run purchase budgets. Without a goal Auto remains a single-battle mode.
 
 The series keeps Auto enabled between fights and saves its `phase`, `nextBattleAt` and single-battle strike checkpoint. A pending/uncertain start is never replayed after restart. A clean between-battle checkpoint resumes after the same preflight. Refused starts, unknown required rewards and request errors stop the series without retries.
 
@@ -171,3 +171,96 @@ queue must distinguish unsent, submitted and uncertain operations and reuse the
 same account/receipt/checkpoint boundary. The single-host worker lease and volume
 backup requirements above still apply. Neither deploy nor live-game verification
 is required by this local implementation; tests inject fake upstream responses.
+
+## Boss healing and invitations
+
+`healing.configure` accepts `{settings}` for the selected boss. Settings contain
+`enabled`, `autoBuy`, `items.heal_10/heal_full` (`enabled`, integer `limit`, explicit
+`currency`) and `budgets.gold/dollar/pills`. Zero means no permitted use/spend.
+These profiles live in the encrypted account record. React only holds an unsaved
+form draft. The battle projection exposes `healing.settings`, per-battle `used`,
+per-run `spent`, notices and an advisory quota forecast. Inventory/HP and quota
+remain private; none of these fields enter the public catalogue.
+
+The server `battle-assistant.mjs` shares the strike scheduler with both solo
+series and invitation raids. Opening the medicine panel no longer stops Auto.
+Manual resource mutations pause the strike engine and use the same accounting.
+Each confirmed battle ID owns independent counters, preserved across mode
+switches and reloads. A run key follows the boss and goal's `startedAt`; pausing
+and resuming the same goal does not replenish the budget. A genuinely new goal
+starts a new budget. Purchasing does not replenish per-battle use limits.
+
+Before a healing, buying or bulk-invitation POST, the encrypted record stores
+`assistant.pending` with the operation ID, battle ID, type and maximum reserved
+expense. A crash or lost result blocks automatic replay, including after restart.
+The explicit `healing.ack` command refreshes the battle and inventory and counts
+the reserved maximum as spent/used before removing uncertainty. Unknown invitations
+stay disabled for that battle after acknowledgement. Acknowledgement clears the reserved uncertainty; an already enabled waiting
+mode can continue on its next scheduled check. It is available only after a successful state reconciliation.
+
+Automatic medicine use requires a matching item-result receipt, exact inventory
+change and increased HP. Automatic purchase preflights the current price and
+balance, then verifies an exact inventory increase and exact wallet debit.
+Concurrent actions in another game client can make that result ambiguous; the
+assistant then waits for reconciliation while keeping the mode enabled. It never switches currency or purchases more than one item
+at a time. Deadline, game-health and storage checks still guard every POST.
+
+### API damageMax and stable execution
+
+The damage threshold comes directly from the selected boss's authenticated API
+response: `damageMax`. The controller saves `{bossId, value, checkedAt,
+source:"api.damageMax"}` in the private `damageLimit` projection. No environment
+variable or manually entered per-boss values are used. The startup reads the boss
+again, each new battle uses its existing live preflight, accepted invitations
+refresh the selected boss, and server restoration rereads the value before
+resuming. Persisted limits are invalidated on restore; catalogue values do not
+supply an execution fallback.
+
+The accepted game rule is `damageMax` as the upper bound. The assistant attacks
+only when player HP is strictly above it, otherwise it uses configured medicines
+or waits for treatment. There is no separate speculative “damage exceeded the
+maximum” stop, critical multiplier guess or temporary-buff subtraction.
+
+Blocked treatment and temporary read failures keep Auto enabled. The common
+supervisor enters `waiting`, saves its next read recovery time, and retries reads
+after 30 seconds. The assistant also keeps its treatment wait deadline durable;
+invitation checks cannot shorten this wait. Fresh inventory/battle state or changed
+settings can let it continue without resetting per-battle usage or run budgets.
+The raid waiter preserves its enabled intent during outages or unresolved joining,
+using bounded read checks rather than accepting the same invitation again.
+Explicit user stop and configured goal/deadline completion still end the run.
+
+Unknown mutations are not read failures. Starts and strikes now have the same
+operation-ID reservation boundary as medicine actions. Their pending receipts
+survive restart and keep the mode waiting; they are never automatically replayed.
+`healing.ack` provides explicit reconciliation after fresh state reads, including
+unknown starts or strikes that carry no medicine expense. A stop received while
+an API startup read is in flight invalidates that pending start intent.
+
+### Quota and invitations
+
+The battle projection retains `dropDamageRequired`, `myRewardEligible`,
+`maxParticipants`, own damage and received boss hits. Missing threshold/own-damage
+fields in a mutation response retain display values but mark `quotaFresh=false`.
+Eligibility is not interpreted as a guaranteed item drop. The helper displays
+remaining damage and a bounded, advisory forecast using noncritical own hits,
+cooldowns and changes in boss HP under a stable participant count. This forecast
+never authorizes faster actions or claims another player's future pace is known.
+
+Invitation policy is conservative: no new bulk invitation before the latest
+server-reported quota is met. A fresh read immediately before a candidate send
+must confirm it again; partial/unknown quota and full/unknown capacity defer it.
+An otherwise idle attack cooldown is used, with a persisted randomized 35–45
+second invitation interval. Server `retryAfterSeconds`/`Retry-After` can extend
+that interval. A scheduled check that cannot send advances its next check too,
+so missing quota never causes a tight GET loop. Due safe attacks take priority.
+The first strike in a new server run also waits at least two seconds.
+
+One bulk request sends `{operationId, onlyAvailable:true, onlyOnline:true}` with
+no player list, matching the game's “all available online friends” action.
+There is no fan-out fallback. Known invitation-only 403/429 responses disable that
+battle's invitation capability or extend the deadline without invalidating safe
+attacks. Other ambiguous errors pause automation and preserve its checkpoint.
+All action times are server-owned and survive restart. This implements the
+conservative first policy from `boss-battle-assistant-plan.md`; forecasting is
+advisory and does not enable speculative invitations before the quota.

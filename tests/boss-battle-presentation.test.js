@@ -62,6 +62,9 @@ test("static battle markup separates countdown from the header and journal damag
     const { BossBattlePanel, BossBattleDetails } = await server.ssrLoadModule(
       "/src/features/bosses/BossBattle/BossBattlePanel.jsx",
     );
+    const { BossHealingSettings } = await server.ssrLoadModule(
+      "/src/features/bosses/BossBattle/BossHealingSettings.jsx",
+    );
     const { BossBattleGoalPanel } = await server.ssrLoadModule(
       "/src/features/bosses/BossBattle/BossBattleGoalPanel.jsx",
     );
@@ -297,6 +300,63 @@ test("static battle markup separates countdown from the header and journal damag
       }),
     );
     assert.ok(largeHealthPanel.includes("12 млн / 13,6 млн"));
+    const quotaPanel = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: {
+          boss,
+          battle: {
+            ...battle,
+            quotaFresh: true,
+            totalDamage: 75,
+            dropDamageRequired: 100,
+          },
+        },
+        now: 1000,
+      }),
+    );
+    assert.ok(quotaPanel.includes("Норма урона"));
+    assert.ok(quotaPanel.includes("Осталось нанести: 25"));
+    const staleQuotaPanel = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: {
+          boss,
+          battle: {
+            ...battle,
+            quotaFresh: false,
+            totalDamage: 75,
+            dropDamageRequired: 100,
+          },
+        },
+        now: 1000,
+      }),
+    );
+    assert.ok(
+      staleQuotaPanel.includes("Последнее подтверждённое значение нормы"),
+    );
+    const healingMarkup = renderToStaticMarkup(
+      createElement(BossHealingSettings, {
+        state: {
+          boss: { id: 7 },
+          pending: null,
+          healing: {
+            settings: {
+              enabled: true,
+              autoBuy: true,
+              items: {
+                heal_10: { enabled: true, limit: 2, currency: "gold" },
+              },
+              budgets: { gold: 500 },
+            },
+            used: { heal_10: 1 },
+          },
+        },
+        onSave() {},
+      }),
+    );
+    assert.ok(healingMarkup.includes("Лимит на бой"));
+    assert.ok(healingMarkup.includes("0 — не использовать"));
+    assert.ok(healingMarkup.includes("Использовано в этом бою: 1 / 2"));
+    assert.ok(healingMarkup.includes("0 — покупки запрещены"));
     const referenceHealthPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: { boss, battle: null },

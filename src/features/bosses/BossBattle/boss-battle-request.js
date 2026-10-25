@@ -9,9 +9,10 @@ export function createBossBattleRequest({
     if (!(
       (method === "GET" &&
         (/^\/api\/bosses\/(?:\d+|battles\/[A-Za-z0-9_-]+)$/.test(path) ||
-          path === "/api/me/bag")) ||
+          path === "/api/me/bag" ||
+          path === "/api/me")) ||
       (method === "POST" &&
-        (/^\/api\/bosses\/(?:\d+\/battles|battles\/[A-Za-z0-9_-]+\/(?:attack|items\/use))$/.test(
+        (/^\/api\/bosses\/(?:\d+\/battles|battles\/[A-Za-z0-9_-]+\/(?:attack|items\/use|invitations\/bulk))$/.test(
           path,
         ) ||
           /^\/api\/bosses\/invitations\/[A-Za-z0-9_-]+\/accept$/.test(path) ||
@@ -60,6 +61,19 @@ export function createBossBattleRequest({
     if (!response.ok) {
       const error = new Error("Не удалось выполнить действие боя");
       error.status = response.status;
+      if (path.endsWith("/invitations/bulk")) {
+        let value;
+        try {
+          value = await response.json();
+        } catch {
+          /* Keep an unknown cooldown conservative. */
+        }
+        const seconds = Number(
+          value?.retryAfterSeconds ?? response.headers.get("Retry-After"),
+        );
+        error.retryAfterSeconds =
+          Number.isFinite(seconds) && seconds > 0 ? seconds : 60;
+      }
       throw error;
     }
     if (

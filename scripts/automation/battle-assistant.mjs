@@ -1,0 +1,587 @@
+import { forecastQuota } from "./quota-forecast.mjs";
+import { medicinePurchaseQuote } from "../../src/features/bosses/BossBattle/boss-medicines.js";
+
+const types = ["heal_10", "heal_full"];
+const currencies = ["gold", "dollar", "pills"];
+const counts = () => ({ heal_10: 0, heal_full: 0 });
+const money = () => ({ gold: 0, dollar: 0, pills: 0 });
+const integer = (x) => Number.isSafeInteger(x) && x >= 0;
+export function defaultHealingSettings() {
+  return {
+    enabled: false,
+    autoBuy: false,
+    items: {
+      heal_10: { enabled: false, limit: 0, currency: "gold" },
+      heal_full: { enabled: false, limit: 0, currency: "pills" },
+    },
+    budgets: money(),
+  };
+}
+export function validateHealingSettings(input) {
+  if (
+    !input ||
+    typeof input.enabled !== "boolean" ||
+    typeof input.autoBuy !== "boolean"
+  )
+    throw new Error("invalid_healing_settings");
+  const result = defaultHealingSettings();
+  result.enabled = input.enabled;
+  result.autoBuy = input.autoBuy;
+  for (const type of types) {
+    const item = input.items?.[type];
+    if (
+      !item ||
+      typeof item.enabled !== "boolean" ||
+      !integer(item.limit) ||
+      item.limit > 10000 ||
+      !currencies.includes(item.currency)
+    )
+      throw new Error("invalid_healing_settings");
+    result.items[type] = {
+      enabled: item.enabled,
+      limit: item.limit,
+      currency: item.currency,
+    };
+  }
+  for (const currency of currencies) {
+    if (!integer(input.budgets?.[currency]))
+      throw new Error("invalid_healing_budget");
+    result.budgets[currency] = input.budgets[currency];
+  }
+  return result;
+}
+
+// The user-selected policy uses the API's declared damageMax, without assuming
+// a critical multiplier or subtracting temporary damage-reduction bonuses.
+export function chooseBattleAction(state, healing, bound) {
+  const b = state.battle;
+  if (!b || b.status !== "active")
+    return { kind: "stop", notice: "Бой не активен." };
+  if (!Number.isSafeInteger(bound) || bound < 0)
+    return {
+      kind: "stop",
+      notice: "Ждём корректный damageMax из API.",
+    };
+  if (b.playerHealth > bound) return { kind: "attack" };
+  if (b.playerMaxHealth <= bound)
+    return {
+      kind: "stop",
+      notice: "Даже полного здоровья недостаточно для безопасного удара.",
+    };
+  if (!healing.settings.enabled)
+    return {
+      kind: "stop",
+      notice: "Ждём лечения перед следующим ударом. Автолечение выключено.",
+    };
+  if (!state.medicines) return { kind: "stock" };
+  const purchases = [];
+  for (const type of types) {
+    const config = healing.settings.items[type];
+    if (!config.enabled || healing.used[type] >= config.limit) continue;
+    const restored =
+      type === "heal_full"
+        ? b.playerMaxHealth
+        : Math.floor(b.playerMaxHealth / 10);
+    if (Math.min(b.playerMaxHealth, b.playerHealth + restored) <= bound)
+      continue;
+    const item = state.medicines.find((item) => item.type === type);
+    if (item?.quantity > 0) return { kind: "heal", type };
+    if (!healing.settings.autoBuy || item?.quantity !== 0) continue;
+    const quote = medicinePurchaseQuote(
+      state.medicines,
+      type,
+      config.currency,
+      1,
+    );
+    if (
+      quote &&
+      quote.total <=
+        healing.settings.budgets[config.currency] -
+          healing.spent[config.currency]
+    )
+      purchases.push({ kind: "buy", type, quote });
+  }
+  if (purchases.length) return purchases[0];
+  return {
+    kind: "stop",
+    notice: "Ждём лечения: проверьте лимиты, запас и бюджет аптечек.",
+  };
+}
+
+export function invitationDecision(battle) {
+  if (!battle || battle.status !== "active") return "Бой не активен.";
+  if (
+    !battle.quotaFresh ||
+    battle.dropDamageRequired == null ||
+    battle.totalDamage == null
+  )
+    return "Приглашения отложены — норма урона не подтверждена.";
+  if (battle.totalDamage < battle.dropDamageRequired)
+    return battle.bossHealth < battle.dropDamageRequired - battle.totalDamage
+      ? "Приглашения отложены — HP босса меньше остатка нормы."
+      : "Приглашения отложены — набираем норму урона.";
+  if (battle.maxParticipants == null || battle.participantCount == null)
+    return "Приглашения отложены — число свободных мест неизвестно.";
+  if (battle.participantCount >= battle.maxParticipants)
+    return "В бою нет свободных мест.";
+  return null;
+}
+
+export function createBattleAssistant({
+  controller,
+  saved,
+  now = Date.now,
+  random = Math.random,
+  onChange = () => {},
+  available = () => true,
+  readAvailable = available,
+  refreshAvailability = async () => {},
+}) {
+  let record = saved
+    ? structuredClone(saved)
+    : {
+        profiles: {},
+        battles: {},
+        runKey: null,
+        spent: money(),
+        pending: null,
+      };
+  record.profiles ??= {};
+  record.battles ??= {};
+  record.spent ??= money();
+  let notice = record.pending
+    ? "Предыдущее действие не подтверждено. Автоматического повтора не будет."
+    : null;
+  let invitationNotice = null;
+  let stopped = false;
+  let generation = 0;
+  const settings = () =>
+    record.profiles[controller.getSnapshot().boss?.id] ??
+    defaultHealingSettings();
+  const hasProfile = () =>
+    Object.hasOwn(record.profiles, controller.getSnapshot().boss?.id);
+  function damageBound() {
+    const state = controller.getSnapshot();
+    return state.damageLimit?.bossId === state.boss?.id
+      ? state.damageLimit.value
+      : null;
+  }
+  function battleRecord() {
+    const id = controller.getSnapshot().battle?.id;
+    if (!id) return { used: counts(), inviteAt: null };
+    return (record.battles[id] ??= {
+      used: counts(),
+      inviteAt: null,
+      inviteBlocked: false,
+    });
+  }
+  function publish() {
+    onChange();
+  }
+  function projection() {
+    return {
+      settings: structuredClone(settings()),
+      used: { ...battleRecord().used },
+      spent: { ...record.spent },
+      notice: notice ?? record.waiting?.notice ?? null,
+      invitationNotice,
+      uncertain: Boolean(record.pending),
+      forecast: forecastQuota(
+        controller.getSnapshot().battle,
+        battleRecord().samples,
+        now(),
+      ),
+    };
+  }
+  function stop(message) {
+    notice = message;
+    publish();
+    return { kind: "stop", notice };
+  }
+  function wait(message) {
+    notice = message;
+    record.waiting = { notice: message, retryAt: now() + 30000 };
+    publish();
+    return { kind: "wait", retryAt: record.waiting.retryAt };
+  }
+  async function recover() {
+    if (stopped || !readAvailable() || record.pending) return false;
+    const recoveryGeneration = generation;
+    await refreshAvailability();
+    if (stopped || !readAvailable() || recoveryGeneration !== generation)
+      return false;
+    const state = controller.getSnapshot();
+    if (state.battle?.status === "active") await controller.loadMedicines();
+    else await controller.refresh();
+    if (
+      controller.getSnapshot().needsRefresh ||
+      stopped ||
+      !readAvailable() ||
+      recoveryGeneration !== generation
+    )
+      return false;
+    await controller.refreshDamageLimit();
+    const recovered = !controller.getSnapshot().needsRefresh;
+    if (
+      recovered &&
+      !stopped &&
+      readAvailable() &&
+      recoveryGeneration === generation
+    ) {
+      record.waiting = null;
+      notice = null;
+      publish();
+    }
+    return recovered;
+  }
+  function configure(input) {
+    const bossId = controller.getSnapshot().boss?.id;
+    if (!bossId) throw new Error("healing_boss_required");
+    record.profiles[bossId] = validateHealingSettings(input);
+    publish();
+  }
+  function begin(key) {
+    // A resumed/paused run keeps its budget. A new confirmed goal is a new run.
+    stopped = false;
+    generation++;
+    if (record.runKey !== key && !record.pending) {
+      record.runKey = key;
+      record.spent = money();
+    }
+    notice = null;
+    publish();
+    return true;
+  }
+  function reserve(operation, automatic = true) {
+    if (record.pending || (automatic && stopped) || !available())
+      throw new Error("battle_assistant_stopped");
+    record.pending = {
+      ...operation,
+      battleId: controller.getSnapshot().battle?.id ?? null,
+    };
+    publish(); // Durable account write occurs before the controller sends POST.
+  }
+  function complete() {
+    record.pending = null;
+    publish();
+  }
+  function allowed() {
+    return !stopped && available();
+  }
+  async function use(type, automatic = false) {
+    if (!types.includes(type)) throw new Error("invalid_medicine_type");
+    const actionGeneration = generation;
+    const config = settings();
+    const ledger = battleRecord();
+    if (
+      (automatic || hasProfile()) &&
+      (!config.items[type]?.enabled ||
+        ledger.used[type] >= config.items[type].limit)
+    )
+      return stop("Лимит этой аптечки исчерпан.");
+    const result = await controller.useMedicine(type, {
+      automatic,
+      allowed: (operation, before) => {
+        if (automatic && (stopped || generation !== actionGeneration))
+          return false;
+        const latest = settings();
+        if (
+          (automatic || hasProfile()) &&
+          (!latest.items[type]?.enabled ||
+            ledger.used[type] >= latest.items[type].limit)
+        )
+          return false;
+        if (automatic && !latest.enabled) return false;
+        if (
+          automatic &&
+          chooseBattleAction(
+            { ...controller.getSnapshot(), ...before },
+            projection(),
+            damageBound(),
+          ).type !== type
+        )
+          return false;
+        reserve({ kind: "heal", type, ...operation }, automatic);
+        return true;
+      },
+    });
+    if (result?.confirmed === true) {
+      ledger.used[type]++;
+      complete();
+      return { kind: "heal" };
+    }
+    return wait(
+      "Применение аптечки не подтверждено. Проверьте бой; автоматического повтора не будет.",
+    );
+  }
+  async function buy(quote, automatic = false) {
+    if (!quote) return stop("Цена аптечки неизвестна.");
+    const actionGeneration = generation;
+    const result = await controller.buyMedicine({
+      automatic,
+      quote,
+      allowed: (fresh, operation, before) => {
+        if (automatic && (stopped || generation !== actionGeneration))
+          return false;
+        const config = settings();
+        if (
+          automatic &&
+          (!config.enabled ||
+            !config.autoBuy ||
+            !config.items[fresh.type].enabled ||
+            config.items[fresh.type].currency !== fresh.currency ||
+            battleRecord().used[fresh.type] >= config.items[fresh.type].limit)
+        )
+          return false;
+        if (
+          (automatic || hasProfile()) &&
+          fresh.total >
+            config.budgets[fresh.currency] - record.spent[fresh.currency]
+        )
+          return false;
+        if (automatic) {
+          const currentChoice = chooseBattleAction(
+            { ...controller.getSnapshot(), ...before },
+            projection(),
+            damageBound(),
+          );
+          if (currentChoice.kind !== "buy" || currentChoice.type !== fresh.type)
+            return false;
+        }
+        reserve({ kind: "buy", quote: fresh, ...operation }, automatic);
+        return true;
+      },
+    });
+    if (result?.confirmed === true) {
+      record.spent[quote.currency] += quote.total;
+      complete();
+      return { kind: "buy" };
+    }
+    return wait(
+      "Покупка не подтверждена или недоступна. Проверьте запас и бюджет; повторной покупки не будет.",
+    );
+  }
+  async function startBattle({
+    next = false,
+    allowed: canStart = () => true,
+  } = {}) {
+    if (!allowed() || record.pending) return;
+    const actionGeneration = generation;
+    const beforeSend = (operation) => {
+      if (
+        !allowed() ||
+        generation !== actionGeneration ||
+        !canStart() ||
+        !Number.isSafeInteger(damageBound())
+      )
+        return false;
+      reserve({ kind: "start", ...operation });
+      return true;
+    };
+    if (next)
+      await controller.startNextBattle({ allowed: canStart, beforeSend });
+    else await controller.start({ beforeSend });
+    if (!controller.getSnapshot().needsRefresh) complete();
+    else
+      wait(
+        "Проверяем состояние входа в бой. Повторный вход автоматически не отправляется.",
+      );
+  }
+  async function step({ notBefore = 0 } = {}) {
+    const stepGeneration = generation;
+    const stillAllowed = () => allowed() && generation === stepGeneration;
+    if (stopped || record.pending)
+      return wait(
+        notice ||
+          "Действия приостановлены: предыдущее действие не подтверждено.",
+      );
+    if (!available()) {
+      try {
+        await recover();
+      } catch {
+        return wait("Ждём восстановления связи с игрой.");
+      }
+      if (!available()) return wait("Ждём восстановления связи с игрой.");
+    }
+    if (record.waiting) {
+      if (record.waiting.retryAt > now())
+        return { kind: "wait", retryAt: record.waiting.retryAt };
+      await recover();
+      if (controller.getSnapshot().needsRefresh)
+        return wait("Ждём восстановления связи с игрой.");
+      record.waiting = null;
+    }
+    if (!stillAllowed()) return { kind: "wait", retryAt: now() + 30000 };
+    let state = controller.getSnapshot();
+    const choice = chooseBattleAction(state, projection(), damageBound());
+    if (choice.kind === "stop") return wait(choice.notice);
+    if (choice.kind === "stock") {
+      await controller.loadMedicines();
+      return controller.getSnapshot().needsRefresh
+        ? wait("Ждём обновления запаса аптечек.")
+        : { kind: "stock" };
+    }
+    if (
+      Math.max(state.battle.readyAt, notBefore) > now() &&
+      choice.kind !== "attack"
+    )
+      return { kind: "wait" };
+    if (choice.kind === "heal") {
+      notice = "Лечимся…";
+      return use(choice.type, true);
+    }
+    if (choice.kind === "buy") {
+      notice = "Покупаем одну аптечку…";
+      return buy(choice.quote, true);
+    }
+    const ledger = battleRecord();
+    invitationNotice = invitationDecision(state.battle);
+    const forecast = forecastQuota(state.battle, ledger.samples, now());
+    if (forecast?.atRisk && forecast.remaining > 0)
+      invitationNotice =
+        "Приглашения отложены — есть риск не успеть набрать норму.";
+    if (ledger.inviteAt == null) {
+      ledger.inviteAt = now() + 35000 + Math.floor(random() * 10001);
+      publish();
+    }
+    // Prefer an already-ready strike. Invitations use an otherwise idle cooldown.
+    if (Math.max(state.battle.readyAt, notBefore) > now()) {
+      if (ledger.inviteBlocked || ledger.inviteAt > now())
+        return { kind: "wait" };
+      // One bounded fresh read before the mutation; stale quota never authorizes it.
+      await controller.refresh();
+      state = controller.getSnapshot();
+      invitationNotice = invitationDecision(state.battle);
+      ledger.inviteAt = now() + 35000 + Math.floor(random() * 10001);
+      publish();
+      if (
+        !stillAllowed() ||
+        state.needsRefresh ||
+        state.battle?.status !== "active"
+      )
+        return { kind: "stop" };
+      if (
+        invitationNotice ||
+        Math.max(state.battle.readyAt, notBefore) <= now()
+      )
+        return { kind: "wait" };
+      const result = await controller.inviteAll({
+        allowed: stillAllowed,
+        beforeSend: (operation) => reserve({ kind: "invite", ...operation }),
+      });
+      if (result?.known) {
+        complete();
+        ledger.inviteBlocked = result.forbidden === true;
+        ledger.inviteAt =
+          now() +
+          Math.max(
+            35000 + Math.floor(random() * 10001),
+            (result.retryAfterSeconds ?? 0) * 1000,
+          );
+        invitationNotice = result.forbidden
+          ? "Приглашать в этот бой нельзя."
+          : result.rateLimited
+            ? "Приглашения ожидают серверного КД."
+            : `Приглашено: ${result.invitedCount ?? 0}`;
+        publish();
+        return { kind: "invite" };
+      }
+      ledger.inviteBlocked = true;
+      return wait(
+        "Результат приглашения неизвестен. Проверьте бой; рассылка не повторена.",
+      );
+    }
+    notice = null;
+    record.waiting = null;
+    publish();
+    await controller.attack({
+      automatic: true,
+      beforeSend: (operation) => {
+        if (!stillAllowed() || record.pending) return false;
+        reserve({ kind: "attack", ...operation });
+        return true;
+      },
+    });
+    const after = controller.getSnapshot();
+    if (!after.needsRefresh) complete();
+    if (after.needsRefresh)
+      return wait(
+        "Результат удара проверяется. Автоматического повтора не будет.",
+      );
+    if (!after.needsRefresh && after.battle?.id === state.battle.id) {
+      // Participant changes invalidate the previous speed window.
+      const previous = ledger.samples ?? [];
+      ledger.samples = [
+        ...(previous.at(-1)?.participantCount === after.battle.participantCount
+          ? previous
+          : []),
+        {
+          battleId: after.battle.id,
+          at: now(),
+          bossHealth: after.battle.bossHealth,
+          totalDamage: after.battle.totalDamage,
+          participantCount: after.battle.participantCount,
+          ownHit: after.battle.lastPlayerDamage ?? null,
+          cooldownMs: Math.max(0, after.battle.readyAt - now()),
+        },
+      ].slice(-12);
+      publish();
+    }
+    return { kind: "attack" };
+  }
+  return {
+    projection,
+    configure,
+    begin,
+    recover,
+    startBattle,
+    use,
+    buy,
+    step,
+    cancel() {
+      stopped = true;
+      generation++;
+    },
+    acknowledge() {
+      const state = controller.getSnapshot();
+      if (
+        state.pending ||
+        state.needsRefresh ||
+        state.error ||
+        !record.pending ||
+        (record.pending.kind !== "start" &&
+          !record.battles[record.pending.battleId])
+      )
+        throw new Error("healing_reconciliation_required");
+      // Explicit user acknowledgement counts the reserved maximum conservatively.
+      const pending = record.pending;
+      if (pending.kind === "heal")
+        record.battles[pending.battleId].used[pending.type]++;
+      if (pending.kind === "buy")
+        record.spent[pending.quote.currency] += pending.quote.total;
+      if (pending.kind === "invite")
+        record.battles[pending.battleId].inviteBlocked = true;
+      notice =
+        "Неизвестный расход учтён по резерву. Автобой можно включить вручную.";
+      record.waiting = null;
+      complete();
+    },
+    exportState: () => structuredClone(record),
+    nextActionAt(attackAt) {
+      const state = controller.getSnapshot(),
+        ledger = battleRecord();
+      if (
+        record.pending ||
+        record.waiting ||
+        ledger.inviteBlocked ||
+        !state.battle
+      )
+        return attackAt;
+      if (ledger.inviteAt == null) {
+        ledger.inviteAt = now() + 35000 + Math.floor(random() * 10001);
+        publish();
+      }
+      return Math.min(attackAt, Math.max(now() + 2000, ledger.inviteAt));
+    },
+  };
+}

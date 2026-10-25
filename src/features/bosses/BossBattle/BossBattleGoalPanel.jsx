@@ -22,12 +22,16 @@ function executionStatus(state, goal, auto, raid) {
   if (raid.enabled) {
     if (raid.status === "joining")
       return { label: "Вступление", variant: "scheduled" };
+    if (auto.enabled && (auto.phase === "waiting" || state.healing?.notice))
+      return { label: "Ожидание", variant: "scheduled" };
     if (auto.enabled)
       return auto.pause
         ? { label: "На паузе", variant: "warning" }
         : { label: "Рейд идёт", variant: "active" };
     return { label: "Ожидание боя", variant: "scheduled" };
   }
+  if (auto.enabled && (auto.phase === "waiting" || state.healing?.notice))
+    return { label: "Ожидание", variant: "scheduled" };
   if (auto.enabled)
     return auto.pause
       ? { label: "На паузе", variant: "warning" }

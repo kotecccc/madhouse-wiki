@@ -44,7 +44,7 @@ for (const [cap, restart] of [
       stock = new Map();
     let current = null,
       starts = 0;
-    const now = 1_000_000;
+    let now = 1_000_000;
     const battle = (id, bossId, status) => ({
       battleId: id,
       bossId,
@@ -101,6 +101,7 @@ for (const [cap, restart] of [
       if (bossId && method === "GET")
         return Response.json({
           id: bossId,
+          damageMax: 10,
           activeBattle:
             current?.bossId === bossId && current.status === "active"
               ? current
@@ -168,11 +169,10 @@ for (const [cap, restart] of [
       });
       if (restart) {
         for (let i = 0; i < 2; i++) {
-          const timer = timers.find(
-            (timer) => !timer.canceled && !timer.done && timer.delay === 0,
-          );
+          const timer = timers.find((timer) => !timer.canceled && !timer.done);
           assert.ok(timer);
           timer.done = true;
+          now += timer.delay;
           timer.callback();
           await new Promise((resolve) => setImmediate(resolve));
         }
@@ -183,11 +183,10 @@ for (const [cap, restart] of [
         entry = await service.identify("Bearer collector.payload.sig");
       }
       for (let i = 0; i < 30; i++) {
-        const timer = timers.find(
-          (timer) => !timer.canceled && !timer.done && timer.delay === 0,
-        );
+        const timer = timers.find((timer) => !timer.canceled && !timer.done);
         if (timer) {
           timer.done = true;
+          now += timer.delay;
           timer.callback();
         }
         await new Promise((resolve) => setImmediate(resolve));

@@ -141,6 +141,7 @@ function setup(directory, options = {}) {
     if (url.pathname === "/api/bosses/7")
       return Response.json({
         id: 7,
+        damageMax: 10,
         activeBattle: null,
         state: { canStartFight: true },
       });
@@ -388,14 +389,17 @@ test("raid uncertain accept is durable and server restart never replays its POST
       settings: raidSettings,
     });
     await entry.raidWorker.tick();
-    assert.equal(ctx.service.snapshot(entry).raid.status, "paused");
+    assert.equal(
+      ctx.service.snapshot(entry).raid.status,
+      "waiting_confirmation",
+    );
     assert.ok(ctx.store.read("101").battle.pendingInvitation);
     ctx.close();
     ctx = setup(directory);
     await ctx.service.boot();
     const restored = await ctx.service.identify(token);
     await restored.raidWorker.tick();
-    assert.equal(ctx.service.snapshot(restored).raid.enabled, false);
+    assert.equal(ctx.service.snapshot(restored).raid.enabled, true);
     assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
   } finally {
     ctx.close();

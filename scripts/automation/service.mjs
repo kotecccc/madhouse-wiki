@@ -1,3 +1,4 @@
+import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { workGameUnavailable } from "../../shared/game-health-features.js";
 import {
@@ -55,6 +56,8 @@ const commands = new Set([
   "attack",
   "medicines.open",
   "medicines.close",
+  "healing.configure",
+  "healing.ack",
   "medicine.use",
   "purchase.prepare",
   "purchase.cancel",
@@ -127,6 +130,7 @@ export function createAutomationService({
       businessHelper: entry.businessHelper,
       workFarm: entry.workFarm.exportState(),
       auto: entry.auto.exportState(),
+      assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
       preferences: entry.preferences,
       invitations: entry.invitations,
@@ -167,6 +171,11 @@ export function createAutomationService({
       now() >= goal.deadlineAt &&
       goal.status !== "stopped"
     );
+  }
+  async function refreshAutoDamageLimit(entry) {
+    const generation = entry.autoStartGeneration ?? 0;
+    await entry.controller.refreshDamageLimit();
+    return generation === (entry.autoStartGeneration ?? 0);
   }
   function reconcileFinishedBattle(entry) {
     const state = entry.controller.getSnapshot(),
@@ -223,6 +232,7 @@ export function createAutomationService({
       },
       battle: {
         ...state,
+        healing: entry.assistant.projection(),
         visible: false,
         ...(entry.storageFailed
           ? {
@@ -310,8 +320,44 @@ export function createAutomationService({
     if (saved?.battle) entry.controller.restoreState(saved.battle);
     entry.goal = createBossBattleGoal({ controller: entry.controller, now });
     if (saved?.goalRecord) entry.goal.restoreState(saved.goalRecord);
-    entry.auto = createBattleSeries({
+    const refreshAvailability = async () => {
+      if (accountHealth(entry.credential)?.status === "unavailable")
+        await gameJson(entry.credential, "/api/me");
+    };
+    entry.assistant = createBattleAssistant({
       controller: entry.controller,
+      saved: saved?.assistant,
+      now,
+      random,
+      available: () => !closed && !entry.storageFailed && canAct(entry),
+      readAvailable: () =>
+        !closed && !entry.storageFailed && Boolean(entry.credential),
+      refreshAvailability,
+      onChange: () => save(entry),
+    });
+    const startAssistant = () =>
+      entry.assistant.begin(
+        `${entry.controller.getSnapshot().boss?.id}:${entry.goal.getSnapshot()?.startedAt ?? "single"}`,
+      );
+    entry.auto = createBattleSeries({
+      controller: {
+        ...entry.controller,
+        attack: (options) => entry.assistant.step(options),
+        start: () => entry.assistant.startBattle(),
+        nextActionAt: (at) => entry.assistant.nextActionAt(at),
+        startNextBattle: ({ allowed = () => true } = {}) =>
+          entry.assistant.startBattle({
+            next: true,
+            allowed: () =>
+              allowed() &&
+              Number.isSafeInteger(
+                entry.controller.getSnapshot().damageLimit?.value,
+              ),
+          }),
+        beginAutomation: startAssistant,
+        recoverAutomation: () => entry.assistant.recover(),
+        stopAutomation: () => entry.assistant.cancel(),
+      },
       goal: entry.goal,
       now,
       schedule,
@@ -398,7 +444,10 @@ export function createAutomationService({
       unlock: () => {
         entry.busy = false;
       },
-      refresh: () => refreshInvitations(entry),
+      refresh: async () => {
+        await refreshAvailability();
+        await refreshInvitations(entry);
+      },
       invitations: () => entry.invitations.items,
       accept: (id, allowed) => acceptInvitation(entry, id, allowed),
       onChange: () => save(entry),
@@ -823,6 +872,12 @@ export function createAutomationService({
     try {
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
+      if (
+        ["auto.stop", "raid.stop", "goal.stop", "business.run.stop"].includes(
+          input.command,
+        )
+      )
+        entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
         case "raid.start":
           if (
@@ -838,7 +893,14 @@ export function createAutomationService({
             state.medicineOpen
           )
             throw failure(409, "raid_start_unavailable");
+          if (!(await refreshAutoDamageLimit(entry))) break;
           configureAutoGoal(entry, args.settings, state);
+          if (
+            !entry.assistant.begin(
+              `${state.boss.id}:${entry.goal.getSnapshot()?.startedAt ?? "single"}`,
+            )
+          )
+            throw failure(409, "raid_safety_unconfirmed");
           if (!entry.raidWorker.start(state.boss.id))
             throw failure(409, "raid_start_unavailable");
           break;
@@ -910,18 +972,31 @@ export function createAutomationService({
           await entry.controller.attack();
           break;
         case "medicines.open":
-          if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
-          entry.collector.stop();
-          entry.auto.stop();
           await entry.controller.openMedicines();
           break;
         case "medicines.close":
           entry.controller.closeMedicines();
           break;
+        case "healing.configure":
+          try {
+            entry.assistant.configure(args.settings);
+          } catch {
+            throw failure(400, "invalid_healing_settings");
+          }
+          break;
+        case "healing.ack":
+          // Refresh stock as part of the explicit reconciliation, never replay POST.
+          await entry.controller.loadMedicines();
+          entry.assistant.acknowledge();
+          entry.controller.acknowledgePurchase();
+          break;
         case "medicine.use":
-          await entry.controller.useMedicine(args.type);
+          entry.auto.stop();
+          await entry.assistant.use(args.type);
           break;
         case "purchase.prepare":
+          entry.auto.stop();
+          if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
           entry.controller.preparePurchase(
             args.type,
             args.currency,
@@ -932,12 +1007,13 @@ export function createAutomationService({
           entry.controller.cancelPurchase();
           break;
         case "purchase.buy":
-          await entry.controller.buyMedicine();
+          await entry.assistant.buy(entry.controller.getSnapshot().purchase);
           break;
         case "purchase.ack":
           entry.controller.acknowledgePurchase();
           break;
         case "auto.start":
+          if (!(await refreshAutoDamageLimit(entry))) break;
           configureAutoGoal(entry, args.settings, state);
           if (
             !entry.goal.getSnapshot() ||
@@ -1149,6 +1225,8 @@ export function createAutomationService({
             !value.battle?.needsRefresh
           )
             await entry.controller.refresh();
+          if (!entry.controller.getSnapshot().needsRefresh)
+            await entry.controller.refreshDamageLimit();
           entry.raidWorker.resume();
           if (
             entry.raidWorker.getSnapshot().enabled &&
@@ -1177,12 +1255,20 @@ export function createAutomationService({
           prior?.needsRefresh ||
           prior?.purchaseUncertain
         ) {
-          entry.collector.resume(value.auto, true);
+          if (entry.collector.running())
+            entry.collector.resume(value.auto, true);
+          else if (value.auto?.enabled)
+            entry.auto.start({
+              checkpoint: value.auto,
+              resumeAt: value.auto?.nextAttackAt,
+            });
           save(entry);
           continue;
         }
         if (entry.controller.getSnapshot().boss)
           await entry.controller.refresh();
+        if (!entry.controller.getSnapshot().needsRefresh)
+          await entry.controller.refreshDamageLimit();
         if (entry.collector.running()) {
           entry.collector.resume(
             value.auto,

@@ -12,6 +12,7 @@ import {
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
 import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
 import { BossMedicinePanel } from "./BossMedicinePanel.jsx";
+import { BossHealingSettings } from "./BossHealingSettings.jsx";
 import { isTerminalBossBattle } from "./boss-battle-status.js";
 import { battleActionHint } from "./boss-battle-controller.js";
 import { bossById, departmentById } from "../../../model/knowledge-base.js";
@@ -178,6 +179,15 @@ export function BossBattleDialog() {
             </div>
           )}
           {goalPanel}
+          <BossHealingSettings
+            key={`healing-${state.boss.id}`}
+            state={state}
+            onSave={(settings) =>
+              settings === null
+                ? bossBattle.acknowledgeHealing()
+                : bossBattle.configureHealing(settings)
+            }
+          />
           {state.medicineOpen && (
             <BossMedicinePanel state={state} now={Math.max(now, Date.now())} />
           )}

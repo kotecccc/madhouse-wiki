@@ -157,7 +157,7 @@ test("stops and cancels on invalidated state or explicit stop; late attack compl
   f.auto.start();
   const due = [...f.timers.values()][0].at;
   f.advance(due - f.time());
-  f.controller.update({ medicineOpen: true });
+  f.controller.update({ error: "Состояние неизвестно" });
   assert.equal(f.auto.getSnapshot().enabled, false);
   f.resolve();
   await new Promise(setImmediate);
@@ -202,4 +202,36 @@ test("a no-op or rejected attack stops without scheduling a retry", async () => 
   await new Promise(setImmediate);
   assert.equal(f.auto.getSnapshot().enabled, false);
   assert.equal(f.timers.size, 0);
+});
+
+test("invitation wakeups keep the original human attack deadline", async () => {
+  const f = fixture();
+  const attack = f.controller.attack;
+  let invitations = 0;
+  f.controller.nextActionAt = (deadline) => Math.min(deadline, f.time() + 1000);
+  f.controller.attack = (options) => {
+    if (f.time() < options.notBefore) {
+      invitations++;
+      return Promise.resolve({ kind: "invite" });
+    }
+    return attack();
+  };
+  assert.equal(f.auto.start(), true);
+  assert.equal(f.auto.getSnapshot().nextAttackAt, 102000);
+  f.advance(1000);
+  await new Promise(setImmediate);
+  assert.equal(invitations, 1);
+  assert.equal(f.attackCount, 0);
+  assert.equal(f.auto.getSnapshot().nextAttackAt, 102000);
+  assert.equal(f.auto.exportState().attackNotBefore, 102000);
+  f.advance(1000);
+  assert.equal(f.attackCount, 1);
+  f.resolve();
+  await new Promise(setImmediate);
+  assert.equal(f.auto.getSnapshot().nextAttackAt, 104000);
+  f.advance(1000);
+  await new Promise(setImmediate);
+  assert.equal(f.attackCount, 1);
+  assert.equal(f.auto.getSnapshot().nextAttackAt, 104000);
+  f.auto.dispose();
 });

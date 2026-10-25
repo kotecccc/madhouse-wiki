@@ -58,10 +58,13 @@ export function createRaidWaiter({
     resume() {
       if (!value.enabled) return;
       if (uncertain() || value.status === "joining") {
-        stop(
-          "paused",
-          "Состояние вступления не подтверждено. Проверьте бой перед новым запуском.",
-        );
+        ready = true;
+        publish({
+          status: "waiting_confirmation",
+          nextCheckAt: now() + 30000,
+          notice:
+            "Проверяем вступление в рейд. Повторный запрос принятия не отправляется.",
+        });
         return;
       }
       ready = true;
@@ -70,33 +73,71 @@ export function createRaidWaiter({
     async tick() {
       if (!ready || !value.enabled || running) return;
       const currentGoal = goal.getSnapshot();
-      if (
-        !currentGoal ||
-        currentGoal.status !== "active" ||
-        currentGoal.rewardUncertain
-      ) {
+      if (!currentGoal || currentGoal.status !== "active") {
         stop(
           currentGoal?.status ?? "stopped",
           "Рейд завершён по настройкам автобоя.",
         );
         return;
       }
+      if (auto.getSnapshot().enabled) return;
+      if (now() < (value.nextCheckAt ?? 0)) return;
+      if (currentGoal.rewardUncertain) {
+        publish({
+          status: "waiting_confirmation",
+          nextCheckAt: now() + 30000,
+          notice: "Ждём подтверждения награды рейда.",
+        });
+        return;
+      }
       if (!available()) {
-        stop(
-          "paused",
-          "Рейд остановлен: состояние игры или хранилища недоступно.",
-        );
+        publish({
+          status: "waiting",
+          nextCheckAt: now() + 30000,
+          notice: "Ждём восстановления связи с игрой.",
+        });
+        if (lock()) {
+          running = true;
+          try {
+            await refresh();
+          } catch {
+            /* Only reads are retried while the mode waits. */
+          } finally {
+            running = false;
+            unlock();
+          }
+        }
         return;
       }
       if (auto.getSnapshot().enabled) return;
       if (!lock()) return;
       running = true;
       try {
-        if (uncertain()) throw new Error("uncertain");
+        if (uncertain()) {
+          publish({
+            status: "waiting_confirmation",
+            nextCheckAt: now() + 30000,
+            notice: "Проверяем состояние рейда без повторного вступления.",
+          });
+          await refresh();
+          if (
+            value.enabled &&
+            !uncertain() &&
+            state().invitationOnly &&
+            state().battle?.status === "active"
+          ) {
+            if (auto.start())
+              publish({ status: "fighting", notice: "Рейд идёт." });
+          }
+          return;
+        }
         const current = state();
         if (current.boss?.id !== value.bossId) throw new Error("boss_changed");
         if (current.battle?.status === "active") {
-          // Never restart a halted strike engine or adopt an unrelated fight.
+          if (current.invitationOnly && auto.start()) {
+            publish({ status: "fighting", notice: "Рейд идёт." });
+            return;
+          }
           throw new Error("active_battle");
         }
         if (now() < (value.nextCheckAt ?? 0)) return;
@@ -135,10 +176,14 @@ export function createRaidWaiter({
         if (!auto.start()) throw new Error("attack_unavailable");
       } catch {
         if (value.enabled)
-          stop(
-            "paused",
-            "Рейд приостановлен. Проверьте состояние боя; повторного вступления не будет.",
-          );
+          publish({
+            status: state().pendingInvitation
+              ? "waiting_confirmation"
+              : "waiting",
+            nextCheckAt: now() + 30000,
+            notice:
+              "Ждём подтверждения состояния рейда. Запрос вступления не повторяется.",
+          });
       } finally {
         running = false;
         unlock();

@@ -153,6 +153,14 @@ export function normalizeBattle(
     rewardKnown: Array.isArray(reward?.drops),
     attackCount: null,
     totalDamage: number(raw.myDamage),
+    dropDamageRequired: number(raw.dropDamageRequired),
+    quotaFresh:
+      number(raw.dropDamageRequired) !== null && number(raw.myDamage) !== null,
+    maxParticipants: number(raw.maxParticipants),
+    myRewardEligible:
+      typeof raw.myRewardEligible === "boolean" ? raw.myRewardEligible : null,
+    receivedHits: [],
+    lastPlayerDamage: null,
     participantCount:
       number(raw.participantCount) ??
       (Array.isArray(raw.participants) &&
@@ -190,6 +198,13 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
   if (!Object.hasOwn(raw, "expiresAtUtc")) next.expiresAt = previous.expiresAt;
   next.readyAt = Math.max(next.readyAt, previous.readyAt);
   if (!Object.hasOwn(raw, "myDamage")) next.totalDamage = previous.totalDamage;
+  if (!Object.hasOwn(raw, "dropDamageRequired"))
+    next.dropDamageRequired = previous.dropDamageRequired;
+  if (!Object.hasOwn(raw, "maxParticipants"))
+    next.maxParticipants = previous.maxParticipants;
+  if (!Object.hasOwn(raw, "myRewardEligible"))
+    next.myRewardEligible = previous.myRewardEligible;
+  next.receivedHits = previous.receivedHits ?? [];
   if (number(raw.participantCount) === null)
     next.participantCount = previous.participantCount;
   if (!Array.isArray(raw.participants)) {
@@ -303,6 +318,7 @@ const emptyState = () => ({
   invitationOnly: false,
   pendingInvitation: null,
   notice: null,
+  damageLimit: null,
 });
 
 export function createBossBattleController({
@@ -363,7 +379,7 @@ export function createBossBattleController({
       return request(method, path, body, { signal });
     };
     try {
-      await task(call, version);
+      return await task(call, version);
     } catch (error) {
       if (version === generation)
         publish({
@@ -388,10 +404,29 @@ export function createBossBattleController({
       if (version === generation) publish({ pending: null });
     }
   }
+  function projectDamageLimit(detail, bossId) {
+    if (String(detail?.id) !== String(bossId))
+      throw new Error("Другой босс в ответе");
+    const value = detail.damageMax;
+    return Number.isSafeInteger(value) && value >= 0
+      ? { bossId, value, checkedAt: now(), source: "api.damageMax" }
+      : null;
+  }
+  async function refreshDamageLimit() {
+    if (!state.boss) return;
+    const bossId = state.boss.id;
+    return run("refresh", async (call, version) => {
+      publish({ damageLimit: null });
+      const detail = await call("GET", `/api/bosses/${bossId}`);
+      if (version === generation)
+        publish({ damageLimit: projectDamageLimit(detail, bossId) });
+    });
+  }
   async function readCurrent(call, boss, battleId, withMedicines) {
     let battle;
     let canStart = false;
     let readSummary = !battleId;
+    let damageLimit = state.damageLimit;
     if (battleId) {
       try {
         battle = normalizeBattle(
@@ -420,6 +455,7 @@ export function createBossBattleController({
       const detail = await call("GET", `/api/bosses/${boss.id}`);
       if (String(detail?.id) !== String(boss.id))
         throw new Error("Другой босс в ответе");
+      damageLimit = projectDamageLimit(detail, boss.id);
       if (!Object.hasOwn(detail, "activeBattle"))
         throw new Error("Неполное состояние босса");
       if (detail.activeBattle) {
@@ -454,6 +490,7 @@ export function createBossBattleController({
         : null,
       canStart,
       medicines,
+      damageLimit,
       needsRefresh: false,
     };
   }
@@ -483,7 +520,11 @@ export function createBossBattleController({
       "GET",
       `/api/bosses/battles/${encodeURIComponent(invitation.battleId)}`,
     );
-    return projectInvitationBattle(boss, raw, invitation);
+    const detail = await call("GET", `/api/bosses/${boss.id}`);
+    return {
+      ...projectInvitationBattle(boss, raw, invitation),
+      damageLimit: projectDamageLimit(detail, boss.id),
+    };
   }
   function applyCurrent(current, version, extra = {}) {
     if (version !== generation) return;
@@ -525,7 +566,7 @@ export function createBossBattleController({
       applyCurrent(current, version, { purchase: null });
     });
   }
-  async function mutate(kind) {
+  async function mutate(kind, automatic = false, beforeSend = () => true) {
     if (!state.boss || state.pending || state.needsRefresh) return;
     if (
       kind === "start"
@@ -533,7 +574,10 @@ export function createBossBattleController({
           !state.canStart ||
           state.battle ||
           !canStartBattle()
-        : !canAttackBattle(state, now())
+        : !canAttackBattle(
+            automatic ? { ...state, medicineOpen: false } : state,
+            now(),
+          )
     )
       return;
     const boss = state.boss;
@@ -544,7 +588,9 @@ export function createBossBattleController({
         kind === "start"
           ? `/api/bosses/${boss.id}/battles`
           : `/api/bosses/battles/${encodeURIComponent(battleId)}/attack`;
-      const response = await call("POST", path, { operationId: operationId() });
+      const actionId = operationId();
+      if (!beforeSend({ operationId: actionId })) return;
+      const response = await call("POST", path, { operationId: actionId });
       if (version !== generation) return;
       const previous = state.battle;
       const battle = mergeBattleReply(
@@ -571,6 +617,15 @@ export function createBossBattleController({
           number(response.battle.playerHealth) !== null &&
           number(response.battle.bossHealth) !== null &&
           response.isDuplicate !== true;
+        battle.receivedHits = (
+          Array.isArray(response.hits) ? response.hits : []
+        )
+          .filter((hit) => hit?.actor === "boss" && number(hit.damage) !== null)
+          .map((hit) => ({
+            damage: hit.damage,
+            critical: hit.critical === true,
+            targetHealth: number(hit.targetHealth),
+          }));
         const playerHits = Array.isArray(response.hits)
           ? response.hits.filter(
               (hit) =>
@@ -579,6 +634,10 @@ export function createBossBattleController({
                 number(hit.damage) !== null,
             )
           : [];
+        battle.lastPlayerDamage =
+          playerHits.length && !playerHits.some((hit) => hit.critical === true)
+            ? playerHits.reduce((sum, hit) => sum + hit.damage, 0)
+            : null;
         const damage = playerHits.length
           ? playerHits.reduce((sum, hit) => sum + hit.damage, 0)
           : null;
@@ -616,7 +675,11 @@ export function createBossBattleController({
           battle.events = [...events.values()].sort(sortEvents).slice(0, 100);
         }
         applyCurrent(
-          { battle, canStart: false, needsRefresh: !complete },
+          {
+            battle,
+            canStart: false,
+            needsRefresh: !complete,
+          },
           version,
         );
       } else {
@@ -625,7 +688,10 @@ export function createBossBattleController({
       }
     });
   }
-  async function startNextBattle({ allowed = () => true } = {}) {
+  async function startNextBattle({
+    allowed = () => true,
+    beforeSend = () => true,
+  } = {}) {
     if (
       !state.boss ||
       state.invitationOnly ||
@@ -655,6 +721,7 @@ export function createBossBattleController({
         publish({ notice: "Сейчас напасть снова нельзя. Попробуйте позже." });
         return;
       }
+      publish({ damageLimit: current.damageLimit });
       // A goal can be stopped while the read-only preflight is in flight.
       if (!canStartBattle() || !allowed()) return;
       // Once the user starts the next attempt, manual refresh must discover its
@@ -666,8 +733,10 @@ export function createBossBattleController({
         medicineOpen: false,
         purchase: null,
       });
+      const actionId = operationId();
+      if (!beforeSend({ operationId: actionId })) return;
       const response = await call("POST", `/api/bosses/${boss.id}/battles`, {
-        operationId: operationId(),
+        operationId: actionId,
       });
       if (version !== generation) return;
       const battle = normalizeBattle(
@@ -682,8 +751,17 @@ export function createBossBattleController({
       applyCurrent(await readCurrent(call, boss, battle.id, false), version);
     });
   }
-  async function useMedicine(type) {
-    if (!canUseMedicine(state, type, now())) return;
+  async function useMedicine(
+    type,
+    { automatic = false, allowed = () => true } = {},
+  ) {
+    const eligible = (current) =>
+      canUseMedicine(
+        automatic ? { ...current, medicineOpen: true } : current,
+        type,
+        now(),
+      );
+    if (!eligible(state)) return;
     const boss = state.boss;
     const battleId = state.battle.id;
     return run("heal", async (call, version) => {
@@ -691,7 +769,7 @@ export function createBossBattleController({
       if (version !== generation) return;
       if (
         before.battle?.id !== battleId ||
-        !canUseMedicine({ ...state, ...before, pending: null }, type, now())
+        !eligible({ ...state, ...before, pending: null })
       ) {
         applyCurrent(before, version, {
           purchase: null,
@@ -699,11 +777,13 @@ export function createBossBattleController({
         });
         return;
       }
+      const actionId = operationId();
+      if (!allowed({ operationId: actionId }, before)) return;
       publish({ ...before, needsRefresh: true, purchase: null });
       const response = await call(
         "POST",
         `/api/bosses/battles/${encodeURIComponent(battleId)}/items/use`,
-        { type, operationId: operationId() },
+        { type, operationId: actionId },
       );
       if (version !== generation) return;
       const battle = normalizeBattle(
@@ -719,23 +799,40 @@ export function createBossBattleController({
         (m) => m.type === type,
       ).quantity;
       const quantity = after.medicines?.find((m) => m.type === type)?.quantity;
-      const confirmed =
-        (quantity !== null &&
-          quantity !== undefined &&
-          quantity < previousQuantity) ||
-        (after.battle?.id === battleId &&
-          after.battle.playerHealth > before.battle.playerHealth);
+      const receipt = response?.itemResult;
+      const confirmed = automatic
+        ? response.isDuplicate !== true &&
+          receipt?.type === type &&
+          receipt.quantity === previousQuantity - 1 &&
+          receipt.healthRestored > 0 &&
+          quantity === previousQuantity - 1 &&
+          after.battle?.id === battleId &&
+          after.battle.playerHealth > before.battle.playerHealth
+        : (quantity !== null &&
+            quantity !== undefined &&
+            quantity < previousQuantity) ||
+          (after.battle?.id === battleId &&
+            after.battle.playerHealth > before.battle.playerHealth);
       applyCurrent(after, version, {
         needsRefresh: !confirmed,
         notice: confirmed
           ? "Здоровье и запас аптечек обновлены."
           : "Использование аптечки не подтверждено. Обновите состояние.",
       });
+      return { confirmed };
     });
   }
-  async function buyMedicine() {
-    const quote = state.purchase;
-    if (!quote || !canShopMedicines(state, now())) return;
+  async function buyMedicine({
+    automatic = false,
+    quote = state.purchase,
+    allowed = () => true,
+  } = {}) {
+    const eligible = (current) =>
+      canShopMedicines(
+        automatic ? { ...current, medicineOpen: true } : current,
+        now(),
+      );
+    if (!quote || !eligible(state)) return;
     const boss = state.boss;
     const battleId = state.battle.id;
     return run("buy", async (call, version) => {
@@ -749,7 +846,7 @@ export function createBossBattleController({
       );
       if (
         before.battle?.id !== battleId ||
-        !canShopMedicines({ ...state, ...before, pending: null }, now()) ||
+        !eligible({ ...state, ...before, pending: null }) ||
         !freshQuote ||
         freshQuote.unitPrice !== quote.unitPrice
       ) {
@@ -760,13 +857,28 @@ export function createBossBattleController({
         });
         return;
       }
+      const walletBefore = automatic
+        ? (await call("GET", "/api/me"))?.wallet?.[quote.currency]
+        : null;
+      if (
+        automatic &&
+        (!Number.isSafeInteger(walletBefore) || walletBefore < freshQuote.total)
+      ) {
+        applyCurrent(before, version, {
+          notice: "Не удалось подтвердить достаточный баланс для покупки.",
+          purchase: null,
+        });
+        return;
+      }
+      const actionId = operationId();
+      if (!allowed(freshQuote, { operationId: actionId }, before)) return;
       publish({ ...before, needsRefresh: true, purchase: null });
       // The successful purchase body is undocumented; verify stock using GET.
       await call("POST", "/api/me/bag/combat-items/buy", {
         type: quote.type,
         currency: quote.currency,
         quantity: quote.quantity,
-        operationId: operationId(),
+        operationId: actionId,
       });
       const after = await readCurrent(call, boss, battleId, true);
       const previousQuantity = before.medicines.find(
@@ -775,15 +887,20 @@ export function createBossBattleController({
       const quantity = after.medicines?.find(
         (m) => m.type === quote.type,
       )?.quantity;
+      const walletAfter = automatic
+        ? (await call("GET", "/api/me"))?.wallet?.[quote.currency]
+        : null;
       const confirmed =
         Number.isSafeInteger(quantity) &&
-        quantity >= previousQuantity + quote.quantity;
+        quantity === previousQuantity + quote.quantity &&
+        (!automatic || walletAfter === walletBefore - quote.total);
       applyCurrent(after, version, {
         purchaseUncertain: !confirmed,
         notice: confirmed
           ? "Покупка подтверждена. Аптечки добавлены в запас."
           : "Покупка не подтверждена. Проверьте запас; не повторяйте её автоматически.",
       });
+      return { confirmed };
     });
   }
   return {
@@ -804,6 +921,7 @@ export function createBossBattleController({
             }
           : null,
         visible: false,
+        damageLimit: null,
         pending: null,
         canStart: false,
         needsRefresh: true,
@@ -893,6 +1011,7 @@ export function createBossBattleController({
     },
     close: () => publish({ visible: false }),
     refresh,
+    refreshDamageLimit,
     async acceptInvitation(
       boss,
       { invitationId, battleId, bossId, expiresAt } = {},
@@ -1026,11 +1145,11 @@ export function createBossBattleController({
       hydratedBattles.add(id);
       return refresh();
     },
-    start: () => mutate("start"),
+    start: ({ beforeSend } = {}) => mutate("start", false, beforeSend),
     startNextBattle,
-    attack: ({ automatic = false } = {}) => {
+    attack: ({ automatic = false, beforeSend } = {}) => {
       if (!automatic && !canManualAttack()) return;
-      return mutate("attack");
+      return mutate("attack", automatic, beforeSend);
     },
     openMedicines() {
       if (
@@ -1046,6 +1165,50 @@ export function createBossBattleController({
       if (!state.pending) publish({ medicineOpen: false, purchase: null });
     },
     useMedicine,
+    loadMedicines() {
+      if (!state.boss || !state.battle) return;
+      return run("stock", async (call, version) => {
+        applyCurrent(
+          await readCurrent(call, state.boss, state.battle.id, true),
+          version,
+        );
+      });
+    },
+    async inviteAll({ allowed = () => true, beforeSend = () => {} } = {}) {
+      if (!battleAvailable(state, now(), false) || !allowed()) return;
+      const id = state.battle.id;
+      return run("invite", async (call) => {
+        if (!allowed()) return;
+        try {
+          const actionId = operationId();
+          beforeSend({ operationId: actionId });
+          const reply = await call(
+            "POST",
+            `/api/bosses/battles/${encodeURIComponent(id)}/invitations/bulk`,
+            { operationId: actionId, onlyAvailable: true, onlyOnline: true },
+          );
+          if (
+            !Number.isSafeInteger(reply?.invitedCount) ||
+            reply.invitedCount < 0
+          )
+            throw new Error("invalid_invitation_result");
+          return {
+            known: true,
+            invitedCount: reply.invitedCount,
+            retryAfterSeconds: reply.retryAfterSeconds,
+          };
+        } catch (error) {
+          if (error.status === 403 || error.status === 429)
+            return {
+              known: true,
+              forbidden: error.status === 403,
+              rateLimited: error.status === 429,
+              retryAfterSeconds: error.retryAfterSeconds,
+            };
+          throw error;
+        }
+      });
+    },
     preparePurchase(type, currency, quantity) {
       if (!canShopMedicines(state, now())) return;
       const purchase = medicinePurchaseQuote(

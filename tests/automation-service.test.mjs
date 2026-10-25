@@ -55,6 +55,7 @@ function fakeGame({ now = 1_000_000 } = {}) {
     if (url.pathname === "/api/bosses/7" && (init.method || "GET") === "GET")
       return Response.json({
         id: 7,
+        damageMax: 10,
         activeBattle: null,
         state: { canStartFight: true },
       });
@@ -406,7 +407,7 @@ test("boot resumes one auto strike without a browser connection", async () => {
       false,
     );
     assert.ok(timers.length > 0);
-    now += 1_000;
+    now += 2_000;
     timers[0].callback();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(

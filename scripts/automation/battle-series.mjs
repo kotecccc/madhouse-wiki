@@ -23,14 +23,15 @@ export function createBattleSeries({
   let phase = "stopped",
     nextBattleAt = null,
     timer = null,
-    bossId = null;
+    bossId = null,
+    nextRecoveryAt = null;
   let checkpoint = null;
   const listeners = new Set();
   let cached = { enabled: false, nextAttackAt: null, pause: false, phase };
   const strike = createBossBattleAutoAttack({
     controller: {
       ...controller,
-      attack: () => controller.attack({ automatic: true }),
+      attack: (options) => controller.attack({ ...options, automatic: true }),
     },
     now,
     schedule,
@@ -44,6 +45,8 @@ export function createBattleSeries({
       nextAttackAt: current.nextAttackAt,
       pause: current.pause,
       phase,
+      notice: current.notice ?? null,
+      nextRecoveryAt,
     };
     for (const listener of [...listeners]) listener(cached);
   }
@@ -51,8 +54,10 @@ export function createBattleSeries({
     if (timer != null) cancel(timer);
     timer = null;
     nextBattleAt = null;
+    nextRecoveryAt = null;
   }
   function stop() {
+    controller.stopAutomation?.();
     generation++;
     enabled = false;
     phase = "stopped";
@@ -77,9 +82,50 @@ export function createBattleSeries({
       !state.error &&
       !state.needsRefresh &&
       !state.purchase &&
-      !state.purchaseUncertain &&
-      !state.medicineOpen
+      !state.purchaseUncertain
     );
+  }
+  function waitForRecovery() {
+    if (!controller.recoverAutomation) {
+      stop();
+      return;
+    }
+    if (!enabled || disposed || timer != null) return;
+    phase = "waiting";
+    nextBattleAt = null;
+    nextRecoveryAt = Math.max(
+      now(),
+      checkpoint?.nextRecoveryAt ?? now() + 30000,
+    );
+    checkpoint = null;
+    const id = generation;
+    timer = schedule(
+      async () => {
+        timer = null;
+        nextRecoveryAt = null;
+        if (!enabled || disposed || id !== generation) return;
+        stepping = true;
+        let recovered = false;
+        try {
+          recovered = await controller.recoverAutomation();
+        } catch {
+          /* A failed reader keeps the saved intent; no mutation is replayed. */
+        } finally {
+          stepping = false;
+        }
+        if (!enabled || disposed || id !== generation) return;
+        if (recovered) {
+          phase = "ready";
+          evaluate();
+        } else waitForRecovery();
+      },
+      Math.max(0, nextRecoveryAt - now()),
+    );
+    const previous = stepping;
+    stepping = true;
+    strike.stop();
+    stepping = previous;
+    publish();
   }
   async function advance(id) {
     timer = null;
@@ -90,7 +136,7 @@ export function createBattleSeries({
     }
     const before = controller.getSnapshot();
     if (before.pending || !healthy(before)) {
-      stop();
+      waitForRecovery();
       return;
     }
     stepping = true;
@@ -100,7 +146,7 @@ export function createBattleSeries({
       if (!before.battle) await controller.start();
       else await controller.startNextBattle({ allowed: () => eligible(id) });
     } catch {
-      if (id === generation && enabled) stop();
+      if (id === generation && enabled) waitForRecovery();
     } finally {
       stepping = false;
     }
@@ -114,12 +160,12 @@ export function createBattleSeries({
       !canStartAutoAttack(state, now()) ||
       state.battle?.id === before.battle?.id
     ) {
-      stop();
+      waitForRecovery();
       return;
     }
     phase = "attacking";
     publish();
-    if (!strike.start()) stop();
+    if (!strike.start()) waitForRecovery();
   }
   function evaluate() {
     if (!enabled || disposed || stepping) return;
@@ -135,11 +181,17 @@ export function createBattleSeries({
     }
     if (state.pending) {
       // The strike engine may temporarily publish needsRefresh during its POST.
-      if (!["attack", "refresh"].includes(state.pending)) stop();
+      if (
+        !["attack", "refresh", "heal", "buy", "stock", "invite"].includes(
+          state.pending,
+        )
+      )
+        stop();
       return;
     }
+    if (phase === "waiting" && timer != null) return;
     if (!healthy(state)) {
-      stop();
+      waitForRecovery();
       return;
     }
     if (state.battle?.status === "active") {
@@ -147,7 +199,7 @@ export function createBattleSeries({
       // Auto was halted inside an active fight (for example unknown cooldown).
       // Only start() or our successful advance may enable a fresh strike engine.
       if (phase === "attacking") {
-        stop();
+        waitForRecovery();
         return;
       }
       phase = "attacking";
@@ -158,7 +210,7 @@ export function createBattleSeries({
           checkpoint: checkpoint?.strike || checkpoint,
         })
       )
-        stop();
+        waitForRecovery();
       checkpoint = null;
       return;
     }
@@ -222,17 +274,21 @@ export function createBattleSeries({
         !state.boss ||
         (state.invitationOnly && state.battle?.status !== "active") ||
         state.pending ||
-        !healthy(state) ||
+        (!healthy(state) && !controller.recoverAutomation) ||
         (currentGoal && currentGoal.status !== "active") ||
-        (!currentGoal && !canStartAutoAttack(state, now()))
+        (!currentGoal &&
+          !canStartAutoAttack(state, now()) &&
+          !controller.recoverAutomation)
       )
         return false;
       if (
         state.battle?.status === "active" &&
-        !canStartAutoAttack(state, now())
+        !canStartAutoAttack(state, now()) &&
+        !controller.recoverAutomation
       )
         return false;
       if (state.battle?.status !== "active" && !goal.canStart()) return false;
+      if (controller.beginAutomation?.() === false) return false;
       enabled = true;
       generation++;
       bossId = state.boss.id;
