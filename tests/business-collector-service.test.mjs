@@ -346,3 +346,103 @@ for (const stop of [false, true])
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+test("business without a catalogue recipe advances using each fresh game requirement", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "business-live-requirements-"));
+  const store = createAutomationStateStore({ directory });
+  const timers = [];
+  const reference = {
+    ...catalogue,
+    businesses: [{ ...catalogue.businesses[0], maxLevel: 3 }],
+    businessUpgrades: [],
+  };
+  let level = 1;
+  let posts = 0;
+  const fetcher = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (path === "/api/me")
+      return Response.json({ playerId: 101, wallet: { gold: 1000 } });
+    if (path === "/api/combat") return Response.json({ activeBattle: null });
+    if (path === "/api/me/bag")
+      return Response.json({
+        activityItems: materials.map((itemId) => ({ itemId, quantity: 1 })),
+      });
+    if (path === "/api/businesses/7")
+      return Response.json({
+        id: 7,
+        level,
+        maxLevel: 3,
+        canUpgrade: true,
+        nextUpgradePrice: 10,
+        nextUpgradeCurrency: "gold",
+        requiredItems: [
+          { itemId: level === 1 ? 55 : 56, requiredAmount: 1, playerAmount: 1 },
+        ],
+      });
+    if (path === "/api/businesses/7/upgrade") {
+      posts++;
+      level++;
+      return Response.json({ success: true });
+    }
+    throw new Error(`Unexpected fake route ${init.method || "GET"} ${path}`);
+  };
+  const service = createAutomationService({
+    store,
+    fetcher,
+    getBoss: () => null,
+    getBusinessCatalogue: () => reference,
+    now: () => 1000,
+    schedule: (callback, delay) => {
+      const timer = { callback, delay };
+      timers.push(timer);
+      return timer;
+    },
+    cancel: (timer) => {
+      timer.canceled = true;
+    },
+  });
+  try {
+    const entry = await service.identify("Bearer nextlevels.payload.sig");
+    let counter = 0;
+    const command = (name, args) =>
+      service.command(entry, {
+        id: `nextlevelcmd${++counter}`,
+        command: name,
+        expectedVersion: service.snapshot(entry).version,
+        args,
+      });
+    await command("business.select", { businessId });
+    await command("business.save", {
+      businessId,
+      targetLevel: 3,
+      maxAttempts: 5,
+      durationHours: 1,
+      autoUpgrade: true,
+    });
+    await command("business.refresh", { businessId });
+    const plan = service.snapshot(entry).businessAssistant.plans[0];
+    assert.equal(plan.materials[0].entityId, 55);
+    await command("business.run.start", {
+      businessId,
+      expectedPlan: plan.config,
+      expectedMissing: [],
+    });
+    for (let i = 0; i < 10; i++) {
+      const timer = timers.find((item) => !item.canceled && !item.done);
+      if (!timer) break;
+      timer.done = true;
+      timer.callback();
+      for (let j = 0; j < 5; j++)
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(posts, 2);
+    assert.equal(
+      service.snapshot(entry).businessAssistant.run.status,
+      "completed",
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -132,15 +132,18 @@ function itemBosses(bosses, itemId) {
 
 function knownRequirements(upgrade, targetLevel, currentLevel) {
   if (
-    upgrade &&
-    Array.isArray(upgrade.items) &&
     positiveSafeInteger(targetLevel) &&
     nonnegativeSafeInteger(currentLevel) &&
     currentLevel >= targetLevel
   )
     return {
       known: true,
-      totals: upgrade.items.map((item) => ({ ...item, requiredAmount: 0 })),
+      totals: (Array.isArray(upgrade?.items) ? upgrade.items : []).map(
+        (item) => ({
+          ...item,
+          requiredAmount: 0,
+        }),
+      ),
     };
   if (
     !upgrade ||
