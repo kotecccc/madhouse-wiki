@@ -118,6 +118,32 @@ test("a failed launch retries its read-only reconciliation rather than losing th
   h.disconnect();
 });
 
+test("a busy launch preserves server state and retries without showing an error", async () => {
+  let attempts = 0;
+  const h = harness({
+    launchBattle: () => ({ battleId: "manual-fight", bossId: 7 }),
+    request: async (method, path) => {
+      if (path.endsWith("/launch") && ++attempts === 1) {
+        const error = new Error("busy");
+        error.status = 409;
+        error.snapshot = initialState();
+        throw error;
+      }
+      return initialState();
+    },
+  });
+  await h.connect();
+  assert.equal(h.bossBattle.getSnapshot().error, null);
+  assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
+  assert.equal([...h.tasks.values()][0].delay, 5000);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(attempts, 2);
+  assert.equal(h.bossBattle.getSnapshot().error, null);
+  assert.equal([...h.tasks.values()][0].delay, 180000);
+  h.disconnect();
+});
+
 test("open merges local visibility and boss metadata; close and reset do not send server mutations", async () => {
   const h = harness();
   await h.connect();
