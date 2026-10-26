@@ -26,7 +26,9 @@ function redirectApiDocs(server) {
 
 export default defineConfig({
   // Keep optimizer state local even when worktrees share node_modules.
-  cacheDir: fileURLToPath(new URL("./local-data/.vite", import.meta.url)),
+  cacheDir: fileURLToPath(
+    new URL("../.madhouse-wiki-vite-cache/", import.meta.url),
+  ),
   plugins: [
     dockerSourceHmrPlugin(),
     react(),

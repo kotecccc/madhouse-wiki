@@ -123,6 +123,10 @@ export function inventoryItems(type, responses, references) {
                 ),
               )
             : null,
+        installedMutagen:
+          item.owned === true
+            ? normalizeInstalledMutagen(item.installedMutagen)
+            : null,
         facts: { ...reference?.facts, purchasePrice },
       });
     }
@@ -282,4 +286,22 @@ export function inventoryDisplayStats(item) {
     if (Number.isFinite(value)) result[key] = value;
   }
   return result;
+}
+
+export function normalizeInstalledMutagen(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const type =
+    typeof raw.type === "string" &&
+    ["I", "A", "F", "X", "S", "Z", "W"].includes(raw.type.toUpperCase())
+      ? raw.type.toUpperCase()
+      : null;
+  const level =
+    Number.isSafeInteger(raw.level) && raw.level > 0 ? raw.level : null;
+  const name =
+    typeof raw.name === "string" && raw.name.trim()
+      ? raw.name.trim()
+      : type
+        ? `Мутаген ${type}${level ? `-${level}` : raw.rank === "Special" ? "-S" : ""}`
+        : null;
+  return name ? { type, level, name } : null;
 }

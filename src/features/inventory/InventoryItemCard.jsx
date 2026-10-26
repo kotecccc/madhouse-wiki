@@ -1,3 +1,4 @@
+import { MutagenLabel } from "../../components/ui/MutagenLabel/MutagenLabel.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { inventoryDisplayStats } from "./inventory.js";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
@@ -161,7 +162,14 @@ export function InventoryItemCard({ item, onEquip, equipmentBusy = false }) {
           )}
         </div>
       )}
-      <InventoryStats values={inventoryDisplayStats(item)} />
+      <div className="inventory-item-details">
+        <InventoryStats values={inventoryDisplayStats(item)} />
+        {item.installedMutagen && (
+          <div className="inventory-item-mutagen">
+            <MutagenLabel mutagen={item.installedMutagen} />
+          </div>
+        )}
+      </div>
       {price && item.status !== "owned" && item.status !== "locked" && (
         <div className="inventory-item-price">
           <Icon

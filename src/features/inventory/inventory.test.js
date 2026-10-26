@@ -4,6 +4,7 @@ import {
   inventoryPaths,
   inventoryPotential,
   inventoryDisplayStats,
+  normalizeInstalledMutagen,
   inventoryCategoryOptions,
   inventoryItems,
   filterInventory,
@@ -392,4 +393,43 @@ test("weapon list object durability and currentBonus reach card model without lo
   assert.equal(items[1].durability, 0);
   assert.equal(items[1].durabilityMax, 45);
   assert.equal(items[2].durability, null);
+});
+
+test("installed mutagens preserve explicit type and name without leaking installation metadata", () => {
+  const raw = {
+    type: "A",
+    level: 17,
+    name: "Мутаген A-17",
+    mutagenId: 88,
+    installedAtUtc: "private",
+    weaponId: 7,
+  };
+  assert.deepEqual(normalizeInstalledMutagen(raw), {
+    type: "A",
+    level: 17,
+    name: "Мутаген A-17",
+  });
+  assert.equal(normalizeInstalledMutagen(null), null);
+  assert.equal(normalizeInstalledMutagen({}), null);
+  assert.deepEqual(normalizeInstalledMutagen({ type: "I", rank: "Special" }), {
+    type: "I",
+    level: null,
+    name: "Мутаген I-S",
+  });
+  const items = inventoryItems(
+    "weapon",
+    {
+      "/api/clothing/by-category/1": {
+        items: [
+          { weaponId: 1, owned: true, installedMutagen: raw },
+          { weaponId: 2, owned: true, installedMutagen: null },
+          { weaponId: 3, owned: false, installedMutagen: raw },
+        ],
+      },
+    },
+    [],
+  );
+  assert.deepEqual(items[0].installedMutagen, normalizeInstalledMutagen(raw));
+  assert.equal(items[1].installedMutagen, null);
+  assert.equal(items[2].installedMutagen, null);
 });

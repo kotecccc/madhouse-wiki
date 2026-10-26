@@ -33,6 +33,14 @@ test("weapon progress uses durability, never level, and disappears when durabili
     const html = render(item);
     assert.match(html, /aria-valuemax="90" aria-valuenow="27"/);
     assert.match(html, /Остаток прочности оружия/);
+    assert.match(
+      render({
+        ...item,
+        installedMutagen: { type: "A", level: 17, name: "Мутаген A-17" },
+      }),
+      /Установлен: Мутаген A-17/,
+    );
+    assert.doesNotMatch(html, /Установлен:/);
     const copy = html.slice(
       html.indexOf('class="inventory-item-copy"'),
       html.indexOf('class="inventory-item-status"'),
