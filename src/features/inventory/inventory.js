@@ -1,9 +1,9 @@
 export const inventoryCategories = [
   { id: "clothing_item", label: "Одежда" },
-  { id: "room", label: "Комнаты" },
   { id: "weapon", label: "Оружие" },
   { id: "pet", label: "Питомцы" },
   { id: "ornament", label: "Тату" },
+  { id: "room", label: "Комнаты" },
 ];
 export function inventoryPaths(type, references) {
   if (type === "room") return ["/api/rooms"];
