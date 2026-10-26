@@ -168,7 +168,14 @@ test("account-owned work runner persists before POST, resumes without browser an
     await command("work.plan", args);
     assert.equal(service.snapshot(entry).workFarm.configs[7].targetCycles, 5);
     assert.equal(service.snapshot(entry).workFarm.view.plan.remainingEnergy, 2);
-    await command("work.start", args);
+    // Background reads/other workers can advance the account version after
+    // the user selected this job. Named work intent remains valid.
+    await service.command(entry, {
+      id: "stale-work-intent",
+      command: "work.start",
+      expectedVersion: 0,
+      args,
+    });
     await drainOne();
     assert.equal(progress, 2);
     assert.equal(service.snapshot(entry).workFarm.run.status, "running");

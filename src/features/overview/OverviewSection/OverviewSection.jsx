@@ -264,7 +264,7 @@ function ProfileSummary({ state }) {
                 Данные о временных эффектах недоступны
               </CardDescription>
             )}
-            {experienceKnown && Number.isSafeInteger(profile.playerLevel) && (
+            {Number.isSafeInteger(profile.playerLevel) && (
               <div
                 className="overview-level-progress"
                 role="group"
@@ -274,18 +274,26 @@ function ProfileSummary({ state }) {
                   <span className="overview-level-label">
                     Уровень {fmt(profile.playerLevel)}
                   </span>
-                  <CardTitle as="span" size="sm" aria-hidden="true">
-                    {numberFormat.format(profile.experience.current)} /{" "}
-                    {numberFormat.format(profile.experience.toNextLevel)}
-                  </CardTitle>
+                  {experienceKnown && (
+                    <CardTitle as="span" size="sm" aria-hidden="true">
+                      {numberFormat.format(profile.experience.current)} /{" "}
+                      {numberFormat.format(profile.experience.toNextLevel)}
+                    </CardTitle>
+                  )}
                 </div>
-                <ProgressBar
-                  value={profile.experience.current}
-                  max={profile.experience.toNextLevel}
-                  size="sm"
-                  label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
-                  valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
-                />
+                {experienceKnown ? (
+                  <ProgressBar
+                    value={profile.experience.current}
+                    max={profile.experience.toNextLevel}
+                    size="sm"
+                    label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
+                    valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
+                  />
+                ) : (
+                  <CardDescription size="xs">
+                    Данные об опыте пока недоступны.
+                  </CardDescription>
+                )}
               </div>
             )}
           </div>

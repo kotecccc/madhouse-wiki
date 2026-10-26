@@ -18,14 +18,23 @@ import {
 import { workFarm } from "../bosses/BossBattle/boss-battle-session.js";
 
 function playerProfile(data, previous) {
-  const profile = retainProfileProgress(normalizePlayerProfile(data), previous);
   const session = readSession();
-  profile.playerLevel ??= session.playerLevel;
+  const normalized = normalizePlayerProfile(data);
+  normalized.playerLevel ??= session.playerLevel;
+  if (
+    normalized.playerLevel === session.playerLevel &&
+    session.experience &&
+    (!Number.isSafeInteger(normalized.experience.current) ||
+      !Number.isSafeInteger(normalized.experience.toNextLevel))
+  )
+    normalized.experience = session.experience;
+  const profile = retainProfileProgress(normalized, previous);
   if (
     !Number.isSafeInteger(profile.experience.current) ||
     !Number.isSafeInteger(profile.experience.toNextLevel)
   )
-    profile.experience = session.experience ?? profile.experience;
+    if (profile.playerLevel === session.playerLevel)
+      profile.experience = session.experience ?? profile.experience;
   const bag = peekSessionJson("/api/me/bag", { allowStale: true });
   return {
     ...profile,

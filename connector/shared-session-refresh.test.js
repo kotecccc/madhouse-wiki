@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { silentlyRefreshActiveBossBattle } from "./shared-session-refresh.js";
+import {
+  silentlyRefreshActiveBossBattle,
+  silentlyRefreshSharedSessionData,
+} from "./shared-session-refresh.js";
 
 test("silent refresh returns a normalized active battle from fresh game auth", async () => {
   let calls = 0;
@@ -50,6 +53,45 @@ test("silent refresh falls back without interactive login for missing Telegram a
 test("silent refresh falls back after an exchange error", async () => {
   assert.equal(
     await silentlyRefreshActiveBossBattle(async () => {
+      throw new Error("game_unavailable");
+    }),
+    null,
+  );
+});
+
+test("shared refresh returns fresh validated progress without exposing the token", async () => {
+  const result = await silentlyRefreshSharedSessionData(async () => ({
+    status: "connected",
+    accessToken: "secret-token",
+    playerLevel: 136,
+    currentExp: 42,
+    expToNextLevel: 350,
+    activeBossBattle: null,
+    ignored: "field",
+  }));
+
+  assert.deepEqual(result, {
+    playerLevel: 136,
+    currentExp: 42,
+    expToNextLevel: 350,
+    activeBossBattle: null,
+  });
+  assert.equal(JSON.stringify(result).includes("secret-token"), false);
+});
+
+test("shared refresh omits partial progress so the shared snapshot remains the fallback", async () => {
+  const result = await silentlyRefreshSharedSessionData(async () => ({
+    status: "connected",
+    playerLevel: 136,
+    currentExp: 42,
+  }));
+
+  assert.deepEqual(result, { activeBossBattle: null });
+});
+
+test("shared refresh outage returns null so the caller can keep shared progress", async () => {
+  assert.equal(
+    await silentlyRefreshSharedSessionData(async () => {
       throw new Error("game_unavailable");
     }),
     null,

@@ -177,7 +177,10 @@ export function LoginControl() {
   };
   const label = formatExpiry(session);
   const activeProfile = authenticated
-    ? profile || (!restoring ? { name: "Профиль", username: "" } : null)
+    ? profile || {
+        name: restoring ? "Обновляем профиль…" : "Профиль",
+        username: "",
+      }
     : null;
   const logout = async () => {
     try {

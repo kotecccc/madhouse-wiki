@@ -233,3 +233,19 @@ test("confirmed farm energy updates profile, but old or invalid snapshots cannot
   );
   assert.equal(applyWorkFarmEnergy(null, view), null);
 });
+
+test("current level changes invalidate experience from a previous level", async () => {
+  const { retainProfileProgress } =
+    await import("../src/features/auth/profile.js");
+  const prior = normalizePlayerProfile({
+    playerId: 1,
+    exp: { level: 135, currentExp: 100, expToNextLevel: 500 },
+  });
+  const current = retainProfileProgress(
+    normalizePlayerProfile({ playerId: 1, exp: { level: 136 } }),
+    prior,
+  );
+  assert.equal(current.playerLevel, 136);
+  assert.equal(current.experience.current, undefined);
+  assert.equal(current.experience.toNextLevel, undefined);
+});

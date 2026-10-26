@@ -78,14 +78,15 @@ test("app launch passes the auth battle reference once per connection; polls sta
   const ref = { battleId: "manual-fight", bossId: 7 };
   const h = harness({ launchBattle: () => ref });
   await h.connect();
-  assert.deepEqual(h.calls[0], [
+  assert.deepEqual(h.calls[0], ["GET", "/api/automation/state"]);
+  assert.deepEqual(h.calls[1], [
     "POST",
     "/api/automation/launch",
     { activeBossBattle: ref },
   ]);
   h.runTimer();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(h.calls[1], ["GET", "/api/automation/state"]);
+  assert.deepEqual(h.calls[2], ["GET", "/api/automation/state"]);
   h.disconnect();
   await h.connect();
   assert.equal(h.calls.at(-1)[1], "/api/automation/launch");
@@ -96,8 +97,9 @@ test("a failed launch retries its read-only reconciliation rather than losing th
   let attempts = 0;
   const h = harness({
     launchBattle: () => ({ battleId: "manual-fight", bossId: 7 }),
-    request: async () => {
-      if (++attempts === 1) throw new Error("offline");
+    request: async (method, path) => {
+      if (path.endsWith("/launch") && ++attempts === 1)
+        throw new Error("offline");
       return initialState();
     },
   });
@@ -106,7 +108,11 @@ test("a failed launch retries its read-only reconciliation rather than losing th
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(
     h.calls.map((call) => call[1]),
-    ["/api/automation/launch", "/api/automation/launch"],
+    [
+      "/api/automation/state",
+      "/api/automation/launch",
+      "/api/automation/launch",
+    ],
   );
   assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
   h.disconnect();
@@ -744,4 +750,24 @@ test("raid intent comes from server state and start/stop send commands without l
   assert.equal(h.calls.at(-1)[2].command, "raid.stop");
   h.disconnect();
   assert.equal(h.tasks.size, 0);
+});
+
+test("a failed live launch still exposes the saved work goal and its stop command", async () => {
+  const state = {
+    ...initialState(),
+    workFarm: { run: { status: "running", workId: 28, phase: "retrying" } },
+  };
+  const h = harness({
+    launchBattle: () => null,
+    request: async (method, path) => {
+      if (path.endsWith("/launch"))
+        throw Object.assign(new Error("game offline"), { status: 503 });
+      return state;
+    },
+  });
+  await h.connect();
+  assert.equal(h.workFarm.getSnapshot().run.status, "running");
+  assert.equal(await h.workFarm.stop(), true);
+  assert.equal(h.calls.at(-1)[2].command, "work.stop");
+  h.disconnect();
 });

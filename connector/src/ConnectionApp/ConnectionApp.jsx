@@ -7,7 +7,7 @@ import { Title } from "../../../src/components/ui/Title/Title.jsx";
 import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { normalizePhoneNumber } from "../../phone-auth.js";
 import { createConnection } from "../../session.js";
-import { silentlyRefreshActiveBossBattle } from "../../shared-session-refresh.js";
+import { silentlyRefreshSharedSessionData } from "../../shared-session-refresh.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
 
@@ -417,7 +417,7 @@ export function ConnectionApp() {
       const shared = await accountSession(request, "restore");
       if (currentRequest.current !== request) return;
       if (shared?.status === "connected" && hasLevelProgress(shared)) {
-        const activeBossBattle = await silentlyRefreshActiveBossBattle(() =>
+        const refreshed = await silentlyRefreshSharedSessionData(() =>
           connection.current.gameLogin(request.data.expectedUserId),
         );
         if (currentRequest.current !== request) return;
@@ -435,7 +435,10 @@ export function ConnectionApp() {
           status: "connected",
           accessToken: shared.accessToken,
           ...levelProgressFields(shared),
-          ...(activeBossBattle ? { activeBossBattle } : {}),
+          ...levelProgressFields(refreshed),
+          ...(refreshed?.activeBossBattle
+            ? { activeBossBattle: refreshed.activeBossBattle }
+            : {}),
         });
         return;
       }
