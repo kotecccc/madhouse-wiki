@@ -17,6 +17,8 @@ function makeHarness({
   walletDollar = 100,
   holdPerform = false,
   losePerformReply = false,
+  failReads = () => false,
+  available = () => true,
 } = {}) {
   const workId = 7;
   const calls = [];
@@ -74,6 +76,8 @@ function makeHarness({
   }
   const request = async (method, path, body = {}) => {
     calls.push({ method, path, body });
+    if (path !== "/api/works/tasks/perform" && failReads())
+      throw new TypeError("offline");
     if (path === "/api/works/open") return stateResponse();
     if (path === "/api/me")
       return {
@@ -122,6 +126,7 @@ function makeHarness({
   };
   const farm = createWorkFarm({
     request,
+    available,
     getWork: (id) => (id === workId ? definition : null),
     now: () => now,
     random: () => 0,
@@ -309,20 +314,21 @@ test("energy mode keeps the uncertain mutation checkpoint and does not replay it
   start(h.farm, { mode: "energy", targetCycles: 10 });
   await h.fireNext({ advance: false });
   const saved = structuredClone(h.farm.exportState());
-  assert.equal(saved.run.status, "error");
+  assert.equal(saved.run.status, "running");
   assert.equal(saved.run.pending.kind, "performing");
   assert.equal(saved.run.energyBudget, 4);
   assert.equal(saved.run.energySpent, 0);
   const restored = createWorkFarm({
     saved,
     request: h.request,
+    now: () => 1_000_000,
     getWork: () => ({ workId: 7 }),
     schedule: () => null,
     cancel: () => {},
   });
   restored.resume();
   await h.flush();
-  assert.equal(restored.getSnapshot().run.status, "error");
+  assert.equal(restored.getSnapshot().run.status, "running");
   assert.equal(
     h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
     1,
@@ -367,20 +373,22 @@ test("booster use and purchase are verified against inventory and wallet within 
   );
 });
 
-test("lost perform reply stops with a pending checkpoint and never replays", async () => {
+test("lost perform reply is reconciled by reading progress and completes without replay", async () => {
   const h = makeHarness({ required: [1], losePerformReply: true });
   await refresh(h);
   start(h.farm);
   await h.fireNext({ advance: false });
   const run = h.farm.getSnapshot().run;
-  assert.equal(run.status, "error");
+  assert.equal(run.status, "running");
+  assert.equal(run.phase, "reconciling");
   assert.equal(run.pending.kind, "performing");
   assert.equal(
     h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
     1,
   );
-  h.farm.resume();
-  await h.flush();
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.energySpent, 1);
   assert.equal(
     h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
     1,
@@ -411,7 +419,7 @@ test("stop during a held task request prevents the queued next action", async ()
   );
 });
 
-test("restart with a pending saved action stops without sending requests", async () => {
+test("legacy pending checkpoint keeps intent without replaying mutations", async () => {
   const h = makeHarness();
   const pendingFarm = createWorkFarm({
     saved: {
@@ -431,11 +439,7 @@ test("restart with a pending saved action stops without sending requests", async
     cancel: () => {},
   });
   pendingFarm.resume();
-  assert.equal(pendingFarm.getSnapshot().run.status, "error");
-  assert.match(
-    pendingFarm.getSnapshot().run.reason,
-    /Автоматический повтор запрещён/,
-  );
+  assert.equal(pendingFarm.getSnapshot().run.status, "running");
   assert.equal(h.calls.length, 0);
 });
 
@@ -499,5 +503,34 @@ test("energy mode clamps its budget to fresh energy before the first action", as
   for (let index = 0; index < 5 && h.farm.running(); index++)
     await h.fireNext({ advance: false });
   assert.equal(h.farm.getSnapshot().run.energySpent, 2);
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+});
+
+test("outage before first read queues a new energy goal and recovers automatically", async () => {
+  let offline = true;
+  const h = makeHarness({ required: [2], energy: 2, failReads: () => offline });
+  start(h.farm, { mode: "energy" });
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.phase, "retrying");
+  assert.equal(h.farm.getSnapshot().run.energyBudget, null);
+  offline = false;
+  for (let index = 0; index < 4 && h.farm.running(); index++)
+    await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.energySpent, 2);
+  assert.equal(h.game.completedCycles, 1);
+});
+
+test("work yields to combat and resumes after the priority action", async () => {
+  let combat = true;
+  const h = makeHarness({ available: () => !combat });
+  await refresh(h);
+  start(h.farm);
+  const count = h.calls.length;
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.phase, "queued");
+  assert.equal(h.calls.length, count);
+  combat = false;
+  await h.fireNext();
   assert.equal(h.farm.getSnapshot().run.status, "completed");
 });

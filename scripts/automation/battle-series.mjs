@@ -215,17 +215,18 @@ export function createBattleSeries({
       return;
     }
     if (
-      !currentGoal ||
-      !goal.canStart() ||
-      (state.battle && !TERMINAL.has(state.battle.status)) ||
-      (["business_items", "drops"].includes(currentGoal.kind) &&
-        currentGoal.rewardUncertain)
+      currentGoal?.rewardUncertain ||
+      (state.battle && !TERMINAL.has(state.battle.status))
     ) {
+      waitForRecovery();
+      return;
+    }
+    if (!currentGoal || !goal.canStart()) {
       stop();
       return;
     }
     if (!state.battle && !state.canStart) {
-      stop();
+      waitForRecovery();
       return;
     }
     if (timer != null) return;

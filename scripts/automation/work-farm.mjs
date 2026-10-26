@@ -21,6 +21,7 @@ export function createWorkFarm({
   schedule = setTimeout,
   cancel = clearTimeout,
   random = Math.random,
+  available = () => true,
 }) {
   let record = {
     view: saved.view ?? null,
@@ -29,6 +30,7 @@ export function createWorkFarm({
     configs: saved.configs ?? {},
     refreshRetryAt: saved.refreshRetryAt ?? null,
   };
+  let runController = new AbortController();
   let timer = null,
     generation = 0,
     working = false,
@@ -42,6 +44,7 @@ export function createWorkFarm({
   function finish(status, reason) {
     if (!running()) return;
     generation++;
+    runController.abort();
     clear();
     record.run.status = status;
     record.run.phase = "stopped";
@@ -149,15 +152,76 @@ export function createWorkFarm({
       operationId: body.operationId ?? randomUUID(),
       at: now(),
       ...details,
+      before: structuredClone(record.view),
     };
     run.phase = kind;
     run.actionsDone++;
     publish();
-    const result = await request("POST", path, body);
-    if (result?.success === false && result?.isDuplicate !== true)
-      throw new Error("Игра отказала в действии. Фарм остановлен.");
+    const result = await request("POST", path, body, {
+      signal: runController.signal,
+    });
+    if (result?.success === false && result?.isDuplicate !== true) {
+      // An explicit rejection is different from a lost reply. Re-read before
+      // planning another action; no resource was confirmed as consumed.
+      if (kind === "buying") run.spentDollar -= details.price;
+      if (kind === "refilling") run.usedBoosters--;
+      run.pending = null;
+      throw new Error("Игра отклонила действие. Перепроверяем состояние.");
+    }
     if (id !== generation || !running()) return null;
     return result;
+  }
+  async function reconcilePending(run, valid) {
+    const pending = run.pending;
+    const before = pending.before;
+    const after = await readView(run.workId, run.config.mode === "energy");
+    if (!valid()) return false;
+    let confirmed = false;
+    if (before && pending.kind === "performing") {
+      const task = before.tasks.find((item) => item.id === pending.taskId);
+      const changed = after.tasks.find((item) => item.id === pending.taskId);
+      const cycleFinished =
+        task &&
+        before.tasks.every((item) =>
+          item.id === task.id
+            ? item.progress + 1 === item.required
+            : item.progress === item.required,
+        );
+      confirmed = Boolean(
+        task &&
+        ((after.completedCycles === before.completedCycles &&
+          changed?.progress === task.progress + 1) ||
+          (cycleFinished &&
+            after.completedCycles === before.completedCycles + 1)),
+      );
+      if (confirmed) run.energySpent += task.energyCost;
+    } else if (before && pending.kind === "buying") {
+      confirmed =
+        after.boosters.find((item) => item.type === pending.type)?.count ===
+          before.boosters.find((item) => item.type === pending.type)?.count +
+            1 && after.walletDollar === before.walletDollar - pending.price;
+    } else if (before && pending.kind === "refilling") {
+      confirmed =
+        after.boosters.find((item) => item.type === pending.type)?.count ===
+        before.boosters.find((item) => item.type === pending.type)?.count - 1;
+    }
+    if (!confirmed) {
+      run.phase = "reconciling";
+      run.reason = "Проверяем результат действия в игре. Цель сохранена.";
+      publish();
+      return false;
+    }
+    record.view = after;
+    run.completedCycles = after.completedCycles;
+    run.pending = null;
+    run.phase = "ready";
+    run.reason = null;
+    log(
+      "recovered",
+      "Результат действия подтверждён после восстановления связи.",
+    );
+    publish();
+    return true;
   }
   async function step(id) {
     if (working || disposed || id !== generation || !checkTime()) return;
@@ -166,22 +230,46 @@ export function createWorkFarm({
     const valid = () => id === generation && !disposed && checkTime();
     try {
       const run = record.run;
+      if (!available(run.config.mode)) {
+        run.phase = "queued";
+        run.reason = "Цель в очереди: ждём завершения приоритетного действия.";
+        delay = 3000;
+        publish();
+        return;
+      }
+      if (run.pending && !(await reconcilePending(run, valid))) {
+        delay = 30000;
+        return;
+      }
       if (
         run.phase === "preparing" ||
         run.phase === "waiting" ||
+        run.phase === "queued" ||
+        run.phase === "retrying" ||
         !record.view ||
         record.view.workId !== run.workId
       ) {
         const initialEnergyCheck =
-          run.phase === "preparing" && run.config.mode === "energy";
+          !run.energyChecked && run.config.mode === "energy";
         record.run.phase = "checking";
         publish();
         const view = await readView(run.workId, run.config.mode === "energy");
         if (!valid()) return;
         record.view = view;
-        if (initialEnergyCheck) {
-          run.energyBudget = Math.min(run.energyBudget, view.energy.current);
+        if (run.queuedCycles != null) {
+          run.targetCycles = view.completedCycles + run.queuedCycles;
+          run.queuedCycles = null;
+        }
+        if (
+          initialEnergyCheck ||
+          (run.config.mode === "energy" && run.energyBudget == null)
+        ) {
+          run.energyBudget =
+            run.energyBudget == null
+              ? view.energy.current
+              : Math.min(run.energyBudget, view.energy.current);
           run.config.energyBudget = run.energyBudget;
+          run.energyChecked = true;
           publish();
         }
       }
@@ -209,6 +297,15 @@ export function createWorkFarm({
             item.energyCost <= available,
         );
         if (!task) {
+          if (
+            record.view.tasks.some(
+              (item) =>
+                item.progress < item.required && item.energyCost <= available,
+            )
+          )
+            throw new Error(
+              "Задания временно недоступны. Проверим состояние снова.",
+            );
           finish(
             "completed",
             "Доступная энергия для выбранной работёнки израсходована.",
@@ -482,12 +579,17 @@ export function createWorkFarm({
         }
       }
     } catch (error) {
-      if (id === generation)
-        finish(
-          "error",
-          error.message ||
-            "Не удалось выполнить действие. Проверьте состояние вручную.",
-        );
+      if (id === generation && running()) {
+        const run = record.run;
+        run.failures = (run.failures ?? 0) + 1;
+        run.phase = run.pending ? "reconciling" : "retrying";
+        run.reason = run.pending
+          ? "Проверяем результат действия в игре. Цель сохранена."
+          : "Игра временно недоступна. Продолжим автоматически.";
+        record.notice = error.message;
+        delay = Math.min(300000, 15000 * 2 ** Math.min(run.failures, 4));
+        publish();
+      }
     } finally {
       working = false;
       if (id === generation && running()) queue(delay);
@@ -584,26 +686,16 @@ export function createWorkFarm({
         typeof args.allowPurchase !== "boolean"
       )
         throw new Error("Проверьте цель и лимиты фарма.");
-      if (!record.view || record.view.workId !== args.workId)
-        throw new Error("Сначала загрузите состояние работёнки.");
-      if (args.targetCycles - record.view.completedCycles > 1000)
+      const view = record.view?.workId === args.workId ? record.view : null;
+      if (args.targetCycles - (view?.completedCycles ?? 0) > 1000)
         throw new Error(
           "За один запуск можно запланировать не более 1000 выполнений.",
-        );
-      if (
-        args.mode === "boosters" &&
-        (record.view.boosters.length !== 2 || record.view.walletDollar == null)
-      )
-        throw new Error("Не удалось подтвердить цены и запас дефибрилляторов.");
-      if (args.mode === "energy" && !positive(record.view.energy?.current))
-        throw new Error(
-          "Для режима расхода энергии нужен положительный запас энергии.",
         );
       const config =
         args.mode === "energy"
           ? {
               ...args,
-              energyBudget: record.view.energy.current,
+              energyBudget: view?.energy?.current ?? null,
               maxBoosters: 0,
               maxDollar: 0,
               allowPurchase: false,
@@ -611,11 +703,18 @@ export function createWorkFarm({
           : { ...args };
       record.configs[args.workId] = config;
       generation++;
+      runController = new AbortController();
       record.run = {
         workId: args.workId,
-        title: record.view.title,
+        title: view?.title ?? `Работёнка №${args.workId}`,
         targetCycles: args.targetCycles,
-        completedCycles: record.view.completedCycles,
+        queuedCycles: view
+          ? null
+          : args.targetCycles -
+            (nonnegative(args.expectedCompletedCycles)
+              ? args.expectedCompletedCycles
+              : 0),
+        completedCycles: view?.completedCycles ?? 0,
         config,
         energyBudget: config.energyBudget ?? null,
         startedAt: now(),
@@ -646,19 +745,14 @@ export function createWorkFarm({
     },
     resume() {
       if (!running()) return;
-      if (record.run.pending) {
-        finish(
-          "error",
-          "Перед перезапуском выполнялся игровой запрос. Автоматический повтор запрещён; проверьте результат вручную.",
-        );
-        return;
-      }
+      runController = new AbortController();
       if (!checkTime()) return;
       record.run.phase = "preparing";
       queue(0);
     },
     dispose() {
       disposed = true;
+      runController.abort();
       generation++;
       clear();
     },

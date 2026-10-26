@@ -3,7 +3,7 @@ import { inventoryAction } from "./inventory-actions.mjs";
 import { weaponEquipment } from "./weapon-equipment.mjs";
 import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
-import { workGameUnavailable } from "../../shared/game-health-features.js";
+import { createAccountQueue } from "./account-queue.mjs";
 import {
   emptyBusinessHelper,
   selectBusiness,
@@ -111,6 +111,12 @@ export function createAutomationService({
   const actors = new Map();
   const loading = new Map();
   const identities = new Map();
+  fetcher = createAccountQueue(fetcher, {
+    accountKey: (authorization) =>
+      identities.get(createHash("sha256").update(authorization).digest("hex"))
+        ?.playerId ?? authorization,
+    now,
+  });
   let closed = false;
   let heartbeat = null;
   const owner = randomUUID();
@@ -120,7 +126,13 @@ export function createAutomationService({
   }
   const gameJson = async (authorization, path) => {
     const response = await fetcher(`https://cargohustle.online${path}`, {
-      headers: { Authorization: authorization, Accept: "application/json" },
+      headers: {
+        Authorization: authorization,
+        Accept: "application/json",
+        ...(path === "/api/me"
+          ? { "X-Madhouse-Snapshot-Refresh": "live" }
+          : {}),
+      },
       redirect: "error",
       cache: "no-store",
       signal: AbortSignal.timeout(20000),
@@ -171,11 +183,7 @@ export function createAutomationService({
     return goal;
   }
   function canAct(entry) {
-    if (
-      ["unavailable", "credentials_invalid"].includes(
-        accountHealth(entry.credential)?.status,
-      )
-    )
+    if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
     const goal = updateGoal(entry);
     if (entry.collector && !entry.collector.withinTime()) return false;
@@ -394,7 +402,11 @@ export function createAutomationService({
     const restoredGoal = restoredShopDropGoal(saved?.goalRecord);
     if (restoredGoal) entry.goal.restoreState(restoredGoal);
     const refreshAvailability = async () => {
-      if (accountHealth(entry.credential)?.status === "unavailable")
+      if (
+        ["unavailable", "credentials_invalid"].includes(
+          accountHealth(entry.credential)?.status,
+        )
+      )
         await gameJson(entry.credential, "/api/me");
     };
     entry.assistant = createBattleAssistant({
@@ -452,6 +464,16 @@ export function createAutomationService({
     });
     entry.workFarm = createWorkFarm({
       saved: saved?.workFarm,
+      available: (mode) =>
+        !closed &&
+        !entry.storageFailed &&
+        Boolean(entry.credential) &&
+        !entry.inventoryBusy &&
+        !entry.equipment?.pending &&
+        (mode === "energy" ||
+          (!entry.auto.getSnapshot().enabled &&
+            !entry.collector.running() &&
+            entry.controller.getSnapshot().battle?.status !== "active")),
       getStash: async () => {
         const response = await snapshotFetch(
           "https://cargohustle.online/api/stash/sets",
@@ -464,7 +486,7 @@ export function createAutomationService({
         (getBusinessCatalogue().works || []).find(
           (work) => Number(work.workId ?? work.numericId ?? work.apiId) === id,
         ),
-      request: async (method, path, body) => {
+      request: async (method, path, body, { signal } = {}) => {
         if (closed || entry.storageFailed || !entry.credential)
           throw failure(503, "automation_stopped");
         save(entry);
@@ -480,7 +502,9 @@ export function createAutomationService({
           ...(body ? { body: JSON.stringify(body) } : {}),
           redirect: "error",
           cache: "no-store",
-          signal: AbortSignal.timeout(20000),
+          signal: signal
+            ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
+            : AbortSignal.timeout(20000),
         });
         if (!response.ok)
           throw failure(
@@ -519,6 +543,13 @@ export function createAutomationService({
       },
       refresh: async ({ force = false } = {}) => {
         await refreshAvailability();
+        const state = entry.controller.getSnapshot();
+        if (
+          state.boss &&
+          !state.pendingInvitation &&
+          (state.error || state.needsRefresh)
+        )
+          await entry.controller.refresh({ discover: true });
         await refreshInvitations(entry, force);
       },
       invitations: () => entry.invitations.items,
@@ -901,28 +932,6 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
-    if (
-      (input.command === "work.start"
-        ? workGameUnavailable(accountHealth(entry.credential))
-        : ["unavailable", "credentials_invalid"].includes(
-            accountHealth(entry.credential)?.status,
-          )) &&
-      [
-        "start",
-        "next",
-        "attack",
-        "medicine.use",
-        "purchase.buy",
-        "auto.start",
-        "invitations.accept",
-        "raid.start",
-        "work.start",
-        "business.run.start",
-        "equipment.weapon",
-        "inventory.action",
-      ].includes(input.command)
-    )
-      throw failure(503, "game_unavailable_actions_paused");
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");
@@ -966,29 +975,6 @@ export function createAutomationService({
     )
       throw failure(409, "business_collection_controls_the_battle");
     if (
-      entry.workFarm.running() &&
-      [
-        "auto.start",
-        "invitations.accept",
-        "start",
-        "next",
-        "attack",
-        "business.run.start",
-        "business.goal",
-        "goal.configure",
-        "medicine.use",
-        "purchase.buy",
-      ].includes(input.command)
-    )
-      throw failure(409, "work_farm_controls_resources");
-    if (
-      input.command === "work.start" &&
-      (entry.auto.getSnapshot().enabled ||
-        entry.collector.running() ||
-        entry.controller.getSnapshot().pending)
-    )
-      throw failure(409, "automation_controls_resources");
-    if (
       entry.raidWorker.getSnapshot().enabled &&
       [
         "start",
@@ -998,7 +984,6 @@ export function createAutomationService({
         "auto.start",
         "goal.configure",
         "goal.reset",
-        "work.start",
         "business.run.start",
         "business.goal",
         "medicine.use",
@@ -1014,9 +999,7 @@ export function createAutomationService({
       throw failure(409, "raid_controls_the_battle");
     if (
       input.command === "raid.start" &&
-      (entry.auto.getSnapshot().enabled ||
-        entry.collector.running() ||
-        entry.workFarm.running())
+      (entry.auto.getSnapshot().enabled || entry.collector.running())
     )
       throw failure(409, "automation_controls_resources");
     if (
@@ -1088,21 +1071,22 @@ export function createAutomationService({
             save,
           });
           break;
-        case "raid.start":
+        case "raid.start": {
+          const startGeneration = entry.autoStartGeneration ?? 0;
           if (
             !args.settings ||
             !state.boss ||
             state.battle?.status === "active" ||
             state.pending ||
-            state.needsRefresh ||
             state.pendingInvitation ||
-            state.error ||
             state.purchase ||
             state.purchaseUncertain ||
             state.medicineOpen
           )
             throw failure(409, "raid_start_unavailable");
-          if (!(await refreshAutoDamageLimit(entry))) break;
+          configureAutoGoal(entry, args.settings, state);
+          await refreshAutoDamageLimit(entry);
+          if (startGeneration !== (entry.autoStartGeneration ?? 0)) break;
           state = entry.controller.getSnapshot();
           if (state.battle?.status === "active")
             throw failure(409, "raid_start_unavailable");
@@ -1116,6 +1100,7 @@ export function createAutomationService({
           if (!entry.raidWorker.start(state.boss.id))
             throw failure(409, "raid_start_unavailable");
           break;
+        }
         case "raid.stop":
           entry.raidWorker.stop();
           entry.goal.stop({ clearProgress: true });
@@ -1225,10 +1210,12 @@ export function createAutomationService({
         case "purchase.ack":
           entry.controller.acknowledgePurchase();
           break;
-        case "auto.start":
-          if (!(await refreshAutoDamageLimit(entry))) break;
-          state = entry.controller.getSnapshot();
+        case "auto.start": {
+          const startGeneration = entry.autoStartGeneration ?? 0;
           configureAutoGoal(entry, args.settings, state);
+          await refreshAutoDamageLimit(entry);
+          if (startGeneration !== (entry.autoStartGeneration ?? 0)) break;
+          state = entry.controller.getSnapshot();
           if (
             !entry.goal.getSnapshot() ||
             entry.goal.getSnapshot().status === "active"
@@ -1238,6 +1225,7 @@ export function createAutomationService({
               throw failure(409, "automation_start_unavailable");
           }
           break;
+        }
         case "auto.stop":
           if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
           entry.collector.stop();
@@ -1430,7 +1418,12 @@ export function createAutomationService({
         if (value?.workFarm?.run?.status === "running") {
           entry.workFarm.resume();
           save(entry);
-          continue;
+          if (
+            !value?.raid?.enabled &&
+            !value?.auto?.enabled &&
+            value?.businessHelper?.run?.status !== "running"
+          )
+            continue;
         }
         if (value?.raid?.enabled) {
           // A pending accept is never replayed. Only confirmed joined fights resume strikes.

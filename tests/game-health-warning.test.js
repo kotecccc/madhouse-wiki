@@ -63,7 +63,7 @@ test("game health warning keeps error details unmounted until requested", async 
     const unavailable = details("unavailable");
     assert.match(
       unavailable,
-      /При обращении к игровому серверу возникли ошибки/,
+      /Цели сохраняются, автоматизация проверяет связь/,
     );
     assert.doesNotMatch(
       unavailable,

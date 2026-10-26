@@ -354,10 +354,16 @@ test("raid command persists waiting intent, accepts with checkpoint, and blocks 
       issue(ctx.service, entry, "compete-raid-01", "start"),
       /raid_controls_the_battle/,
     );
-    await assert.rejects(
-      issue(ctx.service, entry, "compete-raid-02", "work.start"),
-      /raid_controls_the_battle/,
-    );
+    await issue(ctx.service, entry, "compete-raid-02", "work.start", {
+      workId: 7,
+      targetCycles: 1,
+      mode: "energy",
+      maxActions: 10,
+      maxBoosters: 0,
+      maxDollar: 0,
+      allowPurchase: false,
+    });
+    assert.equal(ctx.service.snapshot(entry).workFarm.run.status, "running");
     await entry.raidWorker.tick();
     const state = ctx.service.snapshot(entry);
     assert.equal(state.raid.status, "fighting");

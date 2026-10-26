@@ -9,7 +9,6 @@ import { CardDescription } from "../../../components/ui/CardDescription/CardDesc
 import { FieldLabel } from "../../../components/ui/FieldLabel/FieldLabel.jsx";
 import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
-import { canStartAutoSeries } from "./boss-battle-auto.js";
 import {
   BOSS_GOAL_KINDS,
   goalDropOptions,
@@ -50,11 +49,14 @@ export function BossBattleGoalPanel({
   const config = battleSettingsConfig(settings, state.boss);
   const pending = Boolean(state.pending);
   const busy = auto.enabled || raid.enabled || pending;
-  const eligible = canStartAutoSeries(state, {
-    status: "active",
-    canStart: true,
-    canContinue: true,
-  });
+  const eligible = Boolean(
+    state.boss &&
+    !pending &&
+    !state.purchase &&
+    !state.purchaseUncertain &&
+    !state.pendingInvitation &&
+    (!state.invitationOnly || state.battle?.status === "active"),
+  );
   const soloEnabled = auto.enabled && !raid.enabled;
   const progressStatus = goalProgressPresentation(current, now);
   const toggle = async () => {
@@ -102,11 +104,9 @@ export function BossBattleGoalPanel({
           disabled={
             auto.enabled ||
             pending ||
-            state.needsRefresh ||
             state.purchaseUncertain ||
             Boolean(state.purchase) ||
             state.medicineOpen ||
-            Boolean(state.error) ||
             Boolean(state.pendingInvitation) ||
             state.battle?.status === "active" ||
             !config

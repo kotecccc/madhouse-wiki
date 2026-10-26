@@ -55,9 +55,11 @@ const enabledSettings = (patch = {}) =>
 
 function fakeController(initial = baseState(), handlers = {}) {
   const calls = [];
+  const refreshOptions = [];
   let snapshot = initial;
   const controller = {
     calls,
+    refreshOptions,
     getSnapshot: () => snapshot,
     setSnapshot: (next) => {
       snapshot = next;
@@ -77,9 +79,13 @@ function fakeController(initial = baseState(), handlers = {}) {
     async loadMedicines() {
       calls.push(["stock"]);
     },
-    async refresh() {
+    async refresh(options) {
       calls.push(["refresh"]);
-      await handlers.refresh?.(controller);
+      refreshOptions.push(options);
+      await handlers.refresh?.(controller, options);
+    },
+    async refreshDamageLimit() {
+      calls.push(["limit"]);
     },
     async inviteAll({ beforeSend }) {
       calls.push(["invite"]);
@@ -263,6 +269,62 @@ test("reservations are persisted before callbacks resolve and unknown actions ar
   const callsBefore = controller.calls.length;
   assert.equal((await restored.step()).kind, "wait");
   assert.deepEqual(controller.calls.slice(callsBefore), [["refresh"]]);
+});
+
+test("lost start response is reconciled from a discovered active battle for the intended boss", async () => {
+  const controller = fakeController(
+    baseState({ battle: null, needsRefresh: true, canStart: false }),
+    {
+      refresh: (current, options) => {
+        assert.deepEqual(options, { discover: true });
+        current.setSnapshot(
+          baseState({ battle: { ...baseState().battle, id: "battle-new" } }),
+        );
+      },
+    },
+  );
+  const assistant = createBattleAssistant({
+    controller,
+    saved: {
+      pending: {
+        kind: "start",
+        operationId: "start-op",
+        bossId: 7,
+        beforeBattleId: null,
+        battleId: null,
+      },
+      battles: {},
+    },
+  });
+
+  assert.equal(await assistant.recover(), true);
+  assert.equal(assistant.projection().uncertain, false);
+  assert.deepEqual(controller.refreshOptions, [{ discover: true }]);
+  assert.deepEqual(controller.calls, [["refresh"], ["stock"], ["limit"]]);
+});
+
+test("unknown start state stays pending after discovery and never retries the start", async () => {
+  const controller = fakeController(
+    baseState({ battle: null, needsRefresh: true, canStart: false }),
+  );
+  const assistant = createBattleAssistant({
+    controller,
+    saved: {
+      pending: {
+        kind: "start",
+        operationId: "start-op",
+        bossId: 7,
+        beforeBattleId: null,
+        battleId: null,
+      },
+      battles: {},
+    },
+  });
+
+  assert.equal(await assistant.recover(), false);
+  assert.equal(assistant.projection().uncertain, true);
+  assert.deepEqual(controller.refreshOptions, [{ discover: true }]);
+  assert.deepEqual(controller.calls, [["refresh"]]);
 });
 
 test("battle use counts reset by battle identity; run budgets persist until a new goal", async () => {

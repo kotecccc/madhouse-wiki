@@ -135,19 +135,18 @@ test("account-owned work runner persists before POST, resumes without browser an
       (path) =>
         path.startsWith("/api/works/tasks/") || path.includes("/boosters/"),
     ).length;
-    await assert.rejects(
-      command("work.start", {
-        workId: 7,
-        targetCycles: 5,
-        mode: "boosters",
-        maxActions: 10,
-        durationHours: 1,
-        maxBoosters: 10,
-        allowPurchase: true,
-        maxDollar: 100,
-      }),
-      (error) => error.status === 409,
-    );
+    await command("work.start", {
+      workId: 7,
+      targetCycles: 5,
+      mode: "boosters",
+      maxActions: 10,
+      durationHours: 1,
+      maxBoosters: 10,
+      allowPurchase: true,
+      maxDollar: 100,
+    });
+    assert.equal(service.snapshot(entry).workFarm.run.status, "running");
+    await command("work.stop", {});
     assert.equal(
       calls.filter(
         (path) =>
@@ -170,12 +169,6 @@ test("account-owned work runner persists before POST, resumes without browser an
     assert.equal(service.snapshot(entry).workFarm.configs[7].targetCycles, 5);
     assert.equal(service.snapshot(entry).workFarm.view.plan.remainingEnergy, 2);
     await command("work.start", args);
-    await assert.rejects(
-      command("auto.start", {}),
-      (error) =>
-        error.status === 503 &&
-        error.message === "game_unavailable_actions_paused",
-    );
     await drainOne();
     assert.equal(progress, 2);
     assert.equal(service.snapshot(entry).workFarm.run.status, "running");

@@ -4,7 +4,11 @@ import {
   peekSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
-import { readSession, subscribeSession } from "../../../shared/auth-session.js";
+import {
+  authorizeRequest,
+  readSession,
+  subscribeSession,
+} from "../../../shared/auth-session.js";
 import {
   normalizeActiveStashBuffs,
   normalizePlayerProfile,
@@ -44,15 +48,23 @@ export function usePlayerProfile() {
 
   useEffect(() => {
     let controller;
-    let identity = readSession().token;
+    const sessionIdentity = () => {
+      try {
+        return authorizeRequest({ url: "/api/me" }).headers.Authorization;
+      } catch {
+        return null;
+      }
+    };
+    let identity = sessionIdentity();
     let workStatus = workFarm.getSnapshot().run?.status;
-    const load = async ({ fresh = false } = {}) => {
+    const load = async () => {
       controller?.abort();
       controller = new AbortController();
       const { signal } = controller;
       const session = readSession();
-      const changed = identity !== session.token;
-      identity = session.token;
+      const currentIdentity = sessionIdentity();
+      const changed = identity !== currentIdentity;
+      identity = currentIdentity;
       if (session.status !== "ready") {
         setState({ status: "idle", profile: null });
         return;
@@ -60,7 +72,14 @@ export function usePlayerProfile() {
       // Clear only for an account change; revalidation keeps the current view.
       if (changed) setState(cachedState());
       try {
-        const data = await getSessionJson("/api/me", { signal, fresh });
+        // The public account snapshot can be old even when it is returned with
+        // a successful HTTP response. Revalidate it on mount and keep the
+        // current profile in state if the live refresh fails.
+        const data = await getSessionJson("/api/me", {
+          signal,
+          fresh: true,
+          serverRefresh: "live",
+        });
         if (signal.aborted) return;
         setState((current) => ({
           status: "ready",
@@ -125,7 +144,7 @@ export function usePlayerProfile() {
       }
     });
     const unsubscribeWork = workFarm.subscribe(() => {
-      if (readSession().token !== identity) return;
+      if (sessionIdentity() !== identity) return;
       const view = workFarm.getSnapshot().view;
       setState((current) => {
         const profile = applyWorkFarmEnergy(current.profile, view);
@@ -134,7 +153,7 @@ export function usePlayerProfile() {
       const status = workFarm.getSnapshot().run?.status;
       const finished = workStatus === "running" && status !== "running";
       workStatus = status;
-      if (finished) void load({ fresh: true });
+      if (finished) void load();
     });
     void load();
     const unsubscribe = subscribeSession(load);

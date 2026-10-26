@@ -598,9 +598,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       assert.ok(markup.includes('aria-pressed="false"'));
       assert.ok(!markup.includes("Предварительный расчёт по справочнику"));
       assert.ok(markup.includes('aria-pressed="true"'));
-      assert.match(
-        markup,
-        /<footer[\s\S]*<button[^>]*disabled[^>]*>Начать фарм/,
+      assert.match(markup, /<footer[\s\S]*>Начать фарм/);
+      assert.equal(
+        /<button[^>]*disabled[^>]*>Начать фарм/.test(markup),
+        Boolean(snapshot.pending || !snapshot.loaded),
       );
       assert.ok(!markup.includes("стоимость энергии"));
       assert.ok(!markup.includes("Целевое количество выполнений достигнуто"));
@@ -614,7 +615,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!failedFarmMarkup.includes("Сервис недоступен"));
     assert.match(
       failedFarmMarkup,
-      /<footer[\s\S]*Закрыть[\s\S]*Не удалось обновить работу[\s\S]*Обновить/,
+      /<footer[\s\S]*Закрыть[\s\S]*Обновить данные[\s\S]*Не удалось обновить работу/,
     );
     assert.ok(failedFarmMarkup.includes("Обновить"));
     assert.ok(failedFarmMarkup.includes("shared-modal-footer--split"));
