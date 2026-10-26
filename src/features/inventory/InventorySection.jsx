@@ -12,7 +12,7 @@ import {
   filterInventory,
 } from "./inventory.js";
 import { ContentSection } from "../../components/ui/ContentSection/ContentSection.jsx";
-import { Title } from "../../components/ui/Title/Title.jsx";
+import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { Input } from "../../components/ui/Input/Input.jsx";
@@ -42,6 +42,7 @@ const initialFilters = {
   sort: "name",
 };
 const PAGE_SIZE = 36;
+const SHOW_FILTERS = false;
 
 export function InventorySection({ active }) {
   const [category, setCategory] = useState("clothing_item");
@@ -113,13 +114,31 @@ export function InventorySection({ active }) {
     setLimit(PAGE_SIZE);
   }
   return (
-    <ContentSection
-      className="inventory-section"
-      aria-labelledby="inventory-title"
-    >
-      <div className="inventory-heading">
-        <Title id="inventory-title">Инвентарь</Title>
+    <ContentSection className="inventory-section" aria-label="Инвентарь">
+      <div className="inventory-toolbar">
+        <div className="inventory-category-scroll">
+          <SegmentedControl
+            label="Категория предметов"
+            size="sm"
+            className="inventory-category-control"
+            options={inventoryCategories.map(({ id, label }) => ({
+              value: id,
+              label,
+            }))}
+            value={category}
+            onChange={(id) => {
+              setCategory(id);
+              setRevision(0);
+              setFilters(initialFilters);
+              setLimit(PAGE_SIZE);
+            }}
+          />
+        </div>
         <Button
+          variant="icon-copy"
+          icon="refresh"
+          aria-label="Обновить категорию"
+          title="Обновить категорию"
           disabled={loading}
           onClick={() => {
             refreshRequested.current = true;
@@ -129,114 +148,86 @@ export function InventorySection({ active }) {
           Обновить категорию
         </Button>
       </div>
-      <CardDescription>
-        Гардероб и каталог покупок. Выберите категорию, чтобы увидеть свои вещи
-        и доступные предложения.
-      </CardDescription>
-      <div
-        className="inventory-categories"
-        role="group"
-        aria-label="Категория предметов"
-      >
-        {inventoryCategories.map(({ id, label }) => (
+      {SHOW_FILTERS && (
+        <BaseCard className="inventory-filters">
+          <Input
+            type="search"
+            aria-label="Поиск по названию"
+            placeholder="Найти предмет"
+            value={filters.search}
+            onChange={(event) => changeFilter("search", event.target.value)}
+          />
+          <SelectField
+            id="inventory-status"
+            label="Наличие"
+            value={filters.status}
+            onChange={(event) => changeFilter("status", event.target.value)}
+            options={options([
+              ["all", "Все предметы"],
+              ["owned", "Мои"],
+              ["buyable", "Можно купить"],
+              ["equipped", "Экипировано"],
+              ["locked", "Закрыто"],
+              ["unknown", "Статус неизвестен"],
+            ])}
+          />
+          <SelectField
+            id="inventory-currency"
+            label="Валюта"
+            value={filters.currency}
+            onChange={(event) => changeFilter("currency", event.target.value)}
+            options={options([
+              ["all", "Любая валюта"],
+              ["gold", "Монеты"],
+              ["dollar", "Доллары"],
+              ["pills", "Пилюли"],
+              ["stars", "Звёзды"],
+            ])}
+          />
+          <SelectField
+            id="inventory-sort"
+            label="Сортировка"
+            value={filters.sort}
+            onChange={(event) => changeFilter("sort", event.target.value)}
+            options={options([
+              ["name", "По названию"],
+              ["price", "Цена ↑ внутри валюты"],
+            ])}
+          />
+          {["clothing_item", "ornament"].includes(category) && (
+            <SelectField
+              id="inventory-slot"
+              label={category === "ornament" ? "Зона" : "Слот"}
+              value={filters.slot}
+              onChange={(event) => changeFilter("slot", event.target.value)}
+              options={options([
+                ["all", "Все"],
+                ...slotValues.map((value) => [
+                  String(value),
+                  category === "ornament"
+                    ? `Зона ${value}`
+                    : items.find(
+                        (item) => String(item.categoryId) === String(value),
+                      )?.slotLabel || `Слот ${value}`,
+                ]),
+              ])}
+            />
+          )}
           <Button
-            key={id}
-            variant="toggle"
-            aria-pressed={category === id}
             onClick={() => {
-              setCategory(id);
-              setRevision(0);
               setFilters(initialFilters);
               setLimit(PAGE_SIZE);
             }}
           >
-            {label}
+            Сбросить фильтры
           </Button>
-        ))}
-      </div>
-      <BaseCard className="inventory-filters">
-        <Input
-          type="search"
-          aria-label="Поиск по названию"
-          placeholder="Найти предмет"
-          value={filters.search}
-          onChange={(event) => changeFilter("search", event.target.value)}
-        />
-        <SelectField
-          id="inventory-status"
-          label="Наличие"
-          value={filters.status}
-          onChange={(event) => changeFilter("status", event.target.value)}
-          options={options([
-            ["all", "Все предметы"],
-            ["owned", "Мои"],
-            ["buyable", "Можно купить"],
-            ["equipped", "Экипировано"],
-            ["locked", "Закрыто"],
-            ["unknown", "Статус неизвестен"],
-          ])}
-        />
-        <SelectField
-          id="inventory-currency"
-          label="Валюта"
-          value={filters.currency}
-          onChange={(event) => changeFilter("currency", event.target.value)}
-          options={options([
-            ["all", "Любая валюта"],
-            ["gold", "Монеты"],
-            ["dollar", "Доллары"],
-            ["pills", "Пилюли"],
-            ["stars", "Звёзды"],
-          ])}
-        />
-        <SelectField
-          id="inventory-sort"
-          label="Сортировка"
-          value={filters.sort}
-          onChange={(event) => changeFilter("sort", event.target.value)}
-          options={options([
-            ["name", "По названию"],
-            ["price", "Цена ↑ внутри валюты"],
-          ])}
-        />
-        {["clothing_item", "ornament"].includes(category) && (
-          <SelectField
-            id="inventory-slot"
-            label={category === "ornament" ? "Зона" : "Слот"}
-            value={filters.slot}
-            onChange={(event) => changeFilter("slot", event.target.value)}
-            options={options([
-              ["all", "Все"],
-              ...slotValues.map((value) => [
-                String(value),
-                category === "ornament"
-                  ? `Зона ${value}`
-                  : items.find(
-                      (item) => String(item.categoryId) === String(value),
-                    )?.slotLabel || `Слот ${value}`,
-              ]),
-            ])}
-          />
-        )}
-        <Button
-          onClick={() => {
-            setFilters(initialFilters);
-            setLimit(PAGE_SIZE);
-          }}
-        >
-          Сбросить фильтры
-        </Button>
-      </BaseCard>
+        </BaseCard>
+      )}
       <div role="status" aria-live="polite" className="inventory-summary">
         <CardDescription>
           {loading
-            ? `Загрузка: ${loaded} из ${paths.length} разделов`
-            : `Найдено: ${filtered.length} из ${items.length} предметов`}
-        </CardDescription>
-        <CardDescription>
-          В гардеробе: {items.filter((item) => item.status === "owned").length}{" "}
-          · Открыто для покупки:{" "}
-          {items.filter((item) => item.status === "buyable").length}
+            ? `Загрузка ${loaded}/${paths.length}`
+            : `Всего ${items.length} · Мои ${items.filter((item) => item.status === "owned").length} · Купить ${items.filter((item) => item.status === "buyable").length}`}
         </CardDescription>
       </div>
       {failed > 0 && (
@@ -246,11 +237,6 @@ export function InventorySection({ active }) {
           description="Показаны сохранённые данные и успешно загруженные разделы. Попробуйте обновить категорию позже."
         />
       )}
-      <CardDescription>
-        Снимок может устареть. «Можно купить» означает, что предмет открыт и
-        имеет цену; баланс и возможность покупки сейчас не проверяются.
-        Неизвестный статус не означает отсутствие предмета.
-      </CardDescription>
       {!loading && !filtered.length && (
         <StatusMessage
           compact
@@ -262,7 +248,7 @@ export function InventorySection({ active }) {
           }
           description={
             paths.length
-              ? "Измените фильтры или обновите категорию."
+              ? "Обновите категорию."
               : "Идентификаторы зон ещё не получены в справочник."
           }
         />
