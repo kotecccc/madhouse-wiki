@@ -25,6 +25,8 @@ export function inventoryPaths(type, references) {
     ];
   return [];
 }
+const nonnegative = (value) =>
+  Number.isFinite(value) && value >= 0 ? value : null;
 const list = (value) => (Array.isArray(value) ? value : []);
 export function inventoryItems(type, responses, references) {
   const known = new Map(
@@ -85,6 +87,30 @@ export function inventoryItems(type, responses, references) {
         zoneId: item.zoneId ?? reference?.zoneId,
         status,
         equipped: item.equipped === true,
+        ownedLevel: item.owned === true ? nonnegative(item.level) : null,
+        maxLevel: nonnegative(item.maxLevel),
+        durability: item.owned === true ? nonnegative(item.durability) : null,
+        durabilityMax: nonnegative(item.durabilityMax),
+        currentStats:
+          item.owned === true &&
+          item.currentStats &&
+          typeof item.currentStats === "object"
+            ? Object.fromEntries(
+                Object.entries(item.currentStats).filter(
+                  ([key, value]) =>
+                    [
+                      "madness",
+                      "aggression",
+                      "rage",
+                      "endurance",
+                      "maxHealth",
+                      "baseDamage",
+                      "attackCooldownSeconds",
+                      "attackCooldownReductionSeconds",
+                    ].includes(key) && Number.isFinite(value),
+                ),
+              )
+            : null,
         facts: { ...reference?.facts, purchasePrice },
       });
     }

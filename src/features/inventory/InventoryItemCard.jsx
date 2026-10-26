@@ -1,0 +1,155 @@
+import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
+import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
+import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
+import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
+import { Pill } from "../../components/ui/Pill/Pill.jsx";
+import { Icon } from "../../components/ui/Icon/Icon.jsx";
+import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
+import { fmt } from "../../lib/format.js";
+import "./InventoryItemCard.css";
+
+const states = {
+  owned: "В гардеробе",
+  buyable: "Можно купить",
+  locked: "Закрыто",
+  unknown: "Статус неизвестен",
+};
+const stats = {
+  madness: ["brain", "Безумие"],
+  aggression: ["aggression", "Агрессия"],
+  rage: ["rage", "Ярость"],
+  endurance: ["madness", "Выносливость"],
+  maxHealth: ["madness", "Здоровье"],
+  baseDamage: ["sword", "Урон"],
+  attackCooldownSeconds: ["timer", "Интервал атак"],
+  attackCooldownReductionSeconds: ["timer", "Сокращение интервала"],
+};
+const currencies = {
+  gold: "монет",
+  dollar: "долларов",
+  pills: "пилюль",
+  stars: "звёзд",
+};
+function InventoryStats({ values, perLevel = false }) {
+  const entries = Object.entries(values || {}).filter(
+    ([key, value]) => stats[key] && Number.isFinite(value) && value !== 0,
+  );
+  if (!entries.length) return null;
+  return (
+    <div
+      className="inventory-item-stats"
+      aria-label={perLevel ? "Бонус за уровень" : "Характеристики"}
+    >
+      {entries.map(([key, value]) => (
+        <span
+          className="inventory-item-stat"
+          key={key}
+          title={`${stats[key][1]}${perLevel ? " за уровень" : ""}`}
+        >
+          <Icon type={stats[key][0]} />
+          <CardTitle
+            as="span"
+            size="sm"
+            aria-label={`${stats[key][1]}: ${value}${perLevel ? " за уровень" : ""}`}
+          >
+            {key === "attackCooldownReductionSeconds"
+              ? "−"
+              : !key.startsWith("attackCooldown") && value > 0
+                ? "+"
+                : ""}
+            {fmt(value)}
+            {key.startsWith("attackCooldown") ? " с" : ""}
+            {perLevel ? " / ур." : ""}
+          </CardTitle>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function InventoryItemCard({ item }) {
+  const room = item.type === "room";
+  const levelKnown =
+    item.ownedLevel != null &&
+    item.maxLevel > 0 &&
+    item.ownedLevel <= item.maxLevel;
+  const maxed = levelKnown && item.ownedLevel === item.maxLevel;
+  const price = item.facts?.purchasePrice;
+  const currentStats =
+    item.currentStats && Object.keys(item.currentStats).length
+      ? item.currentStats
+      : null;
+  return (
+    <BaseCard as="article" className="inventory-item-card">
+      {room && (
+        <ImageCard variant="landscape" src={item.image} alt={item.name} />
+      )}
+      <div className="inventory-item-heading">
+        {!room && <ImageCard src={item.image} alt={item.name} />}
+        <div className="inventory-item-copy">
+          <CardTitle as="h3" title={item.name}>
+            {item.name}
+          </CardTitle>
+          <CardDescription>
+            {room
+              ? "Комната"
+              : levelKnown
+                ? `${item.ownedLevel} из ${item.maxLevel} ур.`
+                : "Оружие"}
+            {item.equipped ? (room ? " · Выбрана" : " · В руках") : ""}
+          </CardDescription>
+        </div>
+        <Pill
+          size="xs"
+          dot={false}
+          variant={maxed || item.equipped ? "completed" : "scheduled"}
+        >
+          {maxed ? "Максимум" : item.equipped ? "Выбрано" : states[item.status]}
+        </Pill>
+      </div>
+      {!room && levelKnown && (
+        <ProgressBar
+          value={item.ownedLevel}
+          max={item.maxLevel}
+          label="Уровень оружия"
+          valueText={`${item.ownedLevel} из ${item.maxLevel}`}
+        />
+      )}
+      {!room && (
+        <CardDescription>
+          {item.currentStats
+            ? "Текущие характеристики"
+            : "Базовые характеристики"}
+        </CardDescription>
+      )}
+      <InventoryStats values={currentStats ?? item.facts?.stats} />
+      {!room && !currentStats && (
+        <InventoryStats values={item.facts?.perLevelStats} perLevel />
+      )}
+      {!room && item.durability != null && (
+        <CardDescription>
+          Прочность: {fmt(item.durability)}
+          {item.durabilityMax != null ? ` / ${fmt(item.durabilityMax)}` : ""}
+        </CardDescription>
+      )}
+      {price && item.status !== "owned" && (
+        <div className="inventory-item-price">
+          <Icon
+            type={
+              price.currency === "gold"
+                ? "coin"
+                : price.currency === "pills"
+                  ? "pill"
+                  : price.currency === "stars"
+                    ? "star"
+                    : "banknote"
+            }
+          />
+          <CardTitle size="sm">
+            Покупка · {fmt(price.amount)} {currencies[price.currency]}
+          </CardTitle>
+        </div>
+      )}
+    </BaseCard>
+  );
+}

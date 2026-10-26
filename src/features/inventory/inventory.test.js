@@ -177,3 +177,57 @@ test("category counters include only confirmed purchases from fully loaded categ
   responses["/api/rooms"].catalog.rooms[0].owned = true;
   assert.equal(labels().room, "Комнаты");
 });
+
+test("weapon cards preserve explicit personal details without deriving them from reference bonuses", () => {
+  const references = [
+    {
+      id: "1",
+      type: "weapon",
+      facts: { stats: { aggression: 10 }, perLevelStats: { aggression: 2 } },
+    },
+  ];
+  const items = inventoryItems(
+    "weapon",
+    {
+      "/api/clothing/by-category/1": {
+        items: [
+          {
+            weaponId: 1,
+            owned: true,
+            level: 50,
+            maxLevel: 50,
+            durability: 90,
+            durabilityMax: 90,
+            currentStats: {
+              aggression: 1950,
+              attackCooldownSeconds: 2,
+              token: "private",
+              secret: 1,
+            },
+          },
+          { weaponId: 2, owned: true },
+          {
+            weaponId: 3,
+            owned: false,
+            level: 25,
+            durability: 10,
+            currentStats: { aggression: 100 },
+          },
+        ],
+      },
+    },
+    references,
+  );
+  assert.equal(items[0].ownedLevel, 50);
+  assert.equal(items[0].durability, 90);
+  assert.deepEqual(items[0].currentStats, {
+    aggression: 1950,
+    attackCooldownSeconds: 2,
+  });
+  assert.deepEqual(items[0].facts.stats, { aggression: 10 });
+  assert.equal(items[1].ownedLevel, null);
+  assert.equal(items[1].durability, null);
+  assert.equal(items[1].currentStats, null);
+  assert.equal(items[2].ownedLevel, null);
+  assert.equal(items[2].currentStats, null);
+});

@@ -1,3 +1,4 @@
+import { InventoryItemCard } from "./InventoryItemCard.jsx";
 import { useEffect, useRef, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import {
@@ -278,19 +279,23 @@ export function InventorySection({ active }) {
         />
       )}
       <div className="inventory-grid" aria-busy={loading}>
-        {filtered.slice(0, limit).map((item) => (
-          <ItemCard
-            key={`${item.type}:${item.id}`}
-            item={item}
-            as="article"
-            showAllStats
-          >
-            <CardDescription>
-              {statuses[item.status]}
-              {item.equipped ? " · Экипировано" : ""}
-            </CardDescription>
-          </ItemCard>
-        ))}
+        {filtered.slice(0, limit).map((item) =>
+          ["weapon", "room"].includes(item.type) ? (
+            <InventoryItemCard key={`${item.type}:${item.id}`} item={item} />
+          ) : (
+            <ItemCard
+              key={`${item.type}:${item.id}`}
+              item={item}
+              as="article"
+              showAllStats
+            >
+              <CardDescription>
+                {statuses[item.status]}
+                {item.equipped ? " · Экипировано" : ""}
+              </CardDescription>
+            </ItemCard>
+          ),
+        )}
       </div>
       {filtered.length > limit && (
         <Button onClick={() => setLimit((value) => value + PAGE_SIZE)}>

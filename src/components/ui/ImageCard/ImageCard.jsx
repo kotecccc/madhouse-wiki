@@ -32,6 +32,7 @@ function asCssLength(value) {
 }
 
 export function ImageCard({
+  variant,
   src,
   alt = "",
   label,
@@ -64,7 +65,7 @@ export function ImageCard({
     <BaseCard
       as={as}
       variant="image"
-      className={`image-card ${className} ${editing.className}`}
+      className={`image-card ${variant === "landscape" ? "image-card--landscape" : ""} ${className} ${editing.className}`}
       aria-label={label}
       title={title}
       {...editing.targetProps}

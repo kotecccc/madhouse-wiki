@@ -54,3 +54,16 @@
   --work-image-size: var(--content-image-content-size);
   justify-self: start;
 }
+
+.image-card--landscape {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: var(--space-64);
+  aspect-ratio: auto;
+  flex: none;
+}
+.image-card--landscape img {
+  width: 100%;
+  height: auto;
+}
