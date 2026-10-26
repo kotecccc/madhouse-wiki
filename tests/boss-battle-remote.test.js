@@ -74,6 +74,21 @@ test("connect reads server state once, publishes stable snapshots, and polls loc
   assert.equal(h.calls.length, 1);
 });
 
+test("raid subscription stays unavailable until server state has loaded", async () => {
+  let resolveState;
+  const h = harness({
+    request: () => new Promise((resolve) => (resolveState = resolve)),
+  });
+  assert.equal(h.raidSubscriptions.getSnapshot().loaded, false);
+  const connecting = h.connect();
+  assert.equal(h.raidSubscriptions.getSnapshot().loaded, false);
+  resolveState(initialState());
+  await connecting;
+  assert.equal(h.raidSubscriptions.getSnapshot().loaded, true);
+  h.disconnect();
+  assert.equal(h.raidSubscriptions.getSnapshot().loaded, false);
+});
+
 test("app launch passes the auth battle reference once per connection; polls stay local", async () => {
   const ref = { battleId: "manual-fight", bossId: 7 };
   const h = harness({ launchBattle: () => ref });

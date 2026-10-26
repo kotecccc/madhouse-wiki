@@ -77,6 +77,7 @@ export function RaidPost({
                 title={actionLabel}
                 aria-label={actionLabel}
                 disabled={
+                  !subscriptionState?.loaded ||
                   subscriptionState?.pending ||
                   (selected && !subscription?.enabled) ||
                   (!selected &&
