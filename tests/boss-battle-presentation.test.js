@@ -10,6 +10,9 @@ import { join } from "node:path";
 import {
   formatBattleCountdown,
   bossExecutionStatus,
+  isBossAutomationWaiting,
+  bossAutomationEligible,
+  formatBattleCompletedAt,
   goalProgressPresentation,
   sameBattleEvent,
   sameBattleEvents,
@@ -65,6 +68,34 @@ test("battle header contains countdown, hides automation manual controls and kee
     const { BossBattlePanel, BossBattleDetails } = await server.ssrLoadModule(
       "/src/features/bosses/BossBattle/BossBattlePanel.jsx",
     );
+    const finishedExample = {
+      boss: { id: 7, name: "Boss" },
+      battle: {
+        id: "last",
+        status: "won",
+        outcome: "won",
+        completedAt: Date.parse("2026-10-26T18:30:00Z"),
+      },
+    };
+    const terminalHeader = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: finishedExample,
+        now: Date.now(),
+      }),
+    );
+    assert.match(terminalHeader, /dateTime="2026-10-26T18:30:00.000Z"/);
+    assert.match(terminalHeader, /Последний бой/);
+    const waitingHeader = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: {
+          ...finishedExample,
+          raid: { enabled: true, bossId: 7, status: "starting" },
+        },
+        now: Date.now(),
+      }),
+    );
+    assert.match(waitingHeader, /Ждём приглашений/);
+    assert.doesNotMatch(waitingHeader, /Победа|<time/);
     const { BossHealingSettings } = await server.ssrLoadModule(
       "/src/features/bosses/BossBattle/BossHealingSettings.jsx",
     );
@@ -682,7 +713,7 @@ test("execution status distinguishes raid waiting, joining, fighting and result"
         battle,
         raid: { ...state.raid, status: "fighting" },
       }).label,
-      status === "won" ? "Победа" : "Поражение",
+      "Ждём приглашений",
     );
   }
 });
@@ -725,18 +756,55 @@ test("goal summary has kind icon, progress and deadline clock without a fake inf
   );
 });
 
-test("reward confirmation after victory is never labelled invitation confirmation", () => {
+test("waiting for the next raid hides the previous terminal result even while rewards are unconfirmed", () => {
   const state = {
     boss: { id: 7 },
     battle: { status: "won", rewardKnown: false },
     raid: { enabled: true, bossId: 7, status: "waiting_confirmation" },
   };
-  assert.equal(bossExecutionStatus(state).label, "Победа");
+  assert.equal(bossExecutionStatus(state).label, "Ждём приглашений");
   assert.equal(
     bossExecutionStatus({
       ...state,
       battle: { ...state.battle, rewardKnown: true },
     }).label,
-    "Победа",
+    "Ждём приглашений",
   );
+});
+
+test("completed invitation fights allow a new solo intent, but uncertain operations block both modes", () => {
+  const state = {
+    boss: { id: 7 },
+    invitationOnly: true,
+    battle: { status: "won" },
+  };
+  assert.equal(bossAutomationEligible(state), true);
+  for (const patch of [
+    { pending: "attack" },
+    { pendingInvitation: {} },
+    { purchase: {} },
+    { purchaseUncertain: true },
+    { medicineOpen: true },
+  ])
+    assert.equal(bossAutomationEligible({ ...state, ...patch }), false);
+});
+
+test("automation waiting hides past outcomes while actual terminal timestamps remain explicit", () => {
+  const state = {
+    boss: { id: 7 },
+    battle: { status: "won", completedAt: Date.parse("2026-10-26T18:30:00Z") },
+    raid: { enabled: true, bossId: 7, status: "starting" },
+  };
+  assert.equal(isBossAutomationWaiting(state), true);
+  assert.equal(bossExecutionStatus(state).label, "Ждём приглашений");
+  assert.equal(
+    isBossAutomationWaiting({ ...state, battle: { status: "active" } }),
+    false,
+  );
+  assert.equal(
+    isBossAutomationWaiting({ ...state, raid: { enabled: false } }),
+    false,
+  );
+  assert.equal(formatBattleCompletedAt({ completedAt: null }), null);
+  assert.match(formatBattleCompletedAt(state.battle), /26\.10/);
 });

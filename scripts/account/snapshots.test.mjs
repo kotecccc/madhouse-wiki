@@ -312,6 +312,14 @@ test("manual profile refresh is performed before unrelated failed sections", asy
   );
   assert.equal(store.readSnapshots()[0].manualHealthRefreshAt, now);
   assert.equal(
+    JSON.parse(response.headers.get("X-Madhouse-Feature-Failed-At")).weapons,
+    now - 30_002,
+  );
+  assert.equal(
+    snapshots.health("Bearer health-refresh-user").featureFailedAt.ornaments,
+    now - 1,
+  );
+  assert.equal(
     snapshots.health("Bearer health-refresh-user").featureCheckedAt.weapons,
     now - 30_002,
   );

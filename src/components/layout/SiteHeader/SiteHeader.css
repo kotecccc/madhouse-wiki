@@ -1,5 +1,6 @@
 .topbar {
   position: relative;
+  z-index: 40;
   isolation: isolate;
   height: var(--space-64);
   display: flex;

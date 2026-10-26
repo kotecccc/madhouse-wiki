@@ -155,11 +155,28 @@ export function createAccountSnapshots({
       failedFeatures,
       successfulFeatures,
       featureCheckedAt,
+      featureFailedAt: Object.fromEntries(
+        GAME_HEALTH_FEATURES.flatMap((feature) => {
+          const times = Object.entries(record?.health?.failedAt || {})
+            .filter(
+              ([path]) =>
+                record?.health?.failedSections?.includes(path) &&
+                featureForGamePath(path) === feature,
+            )
+            .map(([, timestamp]) => timestamp)
+            .filter(Number.isFinite);
+          return times.length ? [[feature, Math.max(...times)]] : [];
+        }),
+      ),
     };
   };
   function withMetadata(response, record, section, stale = false) {
     const headers = new Headers(response.headers);
     headers.set("X-Madhouse-Game-Status", state(record).status);
+    headers.set(
+      "X-Madhouse-Feature-Failed-At",
+      JSON.stringify(state(record).featureFailedAt),
+    );
     headers.set(
       "X-Madhouse-Failed-Features",
       state(record).failedFeatures.join(","),

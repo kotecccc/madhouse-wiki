@@ -182,6 +182,9 @@ export function normalizeBattle(
     id: raw.battleId,
     status,
     outcome: outcomes[status] || null,
+    completedAt: Number.isFinite(Date.parse(raw.completedAtUtc))
+      ? Date.parse(raw.completedAtUtc)
+      : null,
     playerHealth: number(raw.playerHealth),
     playerMaxHealth: number(raw.playerMaxHealth),
     bossHealth: number(raw.bossHealth),
@@ -239,6 +242,7 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
   const next = normalizeBattle(raw, bossId, now, identity);
   if (!previous || previous.id !== next.id) return next;
   next.localEvents = previous.localEvents ?? [];
+  if (next.completedAt == null) next.completedAt = previous.completedAt ?? null;
   if (!Array.isArray(raw.participants))
     next.joinEvents = previous.joinEvents ?? [];
   for (const key of [
@@ -1245,12 +1249,11 @@ export function createBossBattleController({
       });
       return true;
     },
-    allowSoloContinuation() {
+    allowSoloContinuation({ allowRecovery = false } = {}) {
       if (
         state.pending ||
         state.pendingInvitation ||
-        state.needsRefresh ||
-        state.error ||
+        (!allowRecovery && (state.needsRefresh || state.error)) ||
         state.purchase ||
         state.purchaseUncertain ||
         state.medicineOpen ||
@@ -1287,7 +1290,11 @@ export function createBossBattleController({
       if (
         !id ||
         state.pending ||
-        state.battle.detailsLoaded ||
+        (state.battle.detailsLoaded &&
+          !(
+            isTerminalBossBattle(state.battle) &&
+            !Number.isFinite(state.battle.completedAt)
+          )) ||
         hydratedBattles.has(id)
       )
         return;

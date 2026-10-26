@@ -560,6 +560,14 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     const { WorkFarmDialog } = await load(
       "features/works/WorkCard/WorkFarmDialog.jsx",
     );
+    const assertStopAvailable = (markup) => {
+      const buttons = [
+        ...markup.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g),
+      ].filter(([, , body]) => body.includes(">Остановить</span>"));
+      assert.equal(buttons.length, 1);
+      assert.doesNotMatch(buttons[0][1], /disabled/);
+      assert.match(buttons[0][2], /tabler-icon-player-stop/);
+    };
     const loadingFarmSnapshot = {
       loaded: true,
       pending: false,
@@ -583,10 +591,12 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       assert.ok(markup.includes("ui-border-loader"));
       assert.ok(!markup.includes("ui-skeleton"));
       assert.ok(markup.includes("work-calculator-count"));
-      assert.ok(markup.includes("Необходимо энергии"));
-      assert.ok(markup.includes("Вариант 1: ждать энергию"));
-      assert.ok(markup.includes("Вариант 2: купить дефибрилляторы"));
-      assert.ok(markup.includes("Есть 360"));
+      assert.ok(markup.includes("Будут выполнены"));
+      assert.ok(
+        markup.includes("Получаем задания. Повторим проверку автоматически."),
+      );
+      assert.ok(markup.includes("Восстановление энергии"));
+      assert.ok(!markup.includes("Необходимо энергии"));
       assert.ok(markup.includes("Количество выполнений"));
       assert.match(markup, /id="work-calculator-count"[^>]*min="1"/);
       assert.ok(markup.includes("MAX"));
@@ -595,9 +605,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         markup.indexOf('aria-label="Режим выполнения работы"') <
           markup.indexOf('id="work-calculator-count"'),
       );
-      assert.ok(markup.includes('aria-pressed="false"'));
+      assert.ok(markup.includes('aria-checked="false"'));
       assert.ok(!markup.includes("Предварительный расчёт по справочнику"));
-      assert.ok(markup.includes('aria-pressed="true"'));
+      assert.ok(markup.includes('aria-checked="true"'));
       assert.match(markup, /<footer[\s\S]*>Начать фарм/);
       assert.equal(
         /<button[^>]*disabled[^>]*>Начать фарм/.test(markup),
@@ -611,23 +621,24 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       loaded: false,
       error: "Не удалось загрузить работу",
     });
-    assert.ok(failedFarmMarkup.includes("Не удалось загрузить работу"));
-    assert.ok(!failedFarmMarkup.includes("Сервис недоступен"));
-    assert.match(
-      failedFarmMarkup,
-      /<footer[\s\S]*Закрыть[\s\S]*Обновить данные[\s\S]*Не удалось обновить работу/,
+    assert.ok(
+      failedFarmMarkup.includes(
+        "Получаем задания. Повторим проверку автоматически.",
+      ),
     );
-    assert.ok(failedFarmMarkup.includes("Обновить"));
-    assert.ok(failedFarmMarkup.includes("shared-modal-footer--split"));
+    assert.doesNotMatch(
+      failedFarmMarkup,
+      /Не удалось загрузить работу|Обновить данные|Не удалось обновить работу/,
+    );
+    assert.match(failedFarmMarkup, /<footer[\s\S]*Закрыть[\s\S]*Начать фарм/);
     assert.ok(!failedFarmMarkup.includes("ui-skeleton"));
-    assert.ok(!failedFarmMarkup.includes("ui-border-loader"));
     const rejectedRefreshMarkup = renderFarmState({
       ...loadingFarmSnapshot,
       notice: "Не удалось подтвердить прогресс работёнки.",
     });
     assert.ok(
       rejectedRefreshMarkup.includes(
-        "Не удалось подтвердить прогресс работёнки.",
+        "Получаем задания. Повторим проверку автоматически.",
       ),
     );
     assert.ok(!rejectedRefreshMarkup.includes("Сервис недоступен"));
@@ -652,6 +663,14 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         title: "Блиндаж",
         targetCycles: 25,
         completedCycles: 20,
+        config: {
+          mode: "wait",
+          maxActions: 30000,
+          maxBoosters: 0,
+          maxDollar: 0,
+          allowPurchase: false,
+        },
+        energySpent: 0,
         actionsDone: 2,
         usedBoosters: 0,
         spentDollar: 0,
@@ -681,7 +700,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
             },
             run: {
               ...farmSnapshot.run,
-              config: { mode: "energy" },
+              config: { mode: "energy", maxActions: 30000 },
               energyBudget: 360,
               energySpent: 0,
             },
@@ -689,12 +708,13 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         },
       }),
     );
-    assert.ok(energyModeMarkup.includes('aria-pressed="true"'));
+    assert.ok(energyModeMarkup.includes('aria-checked="true"'));
     assert.ok(!energyModeMarkup.includes('id="work-calculator-count"'));
     assert.ok(
       energyModeMarkup.includes('aria-label="Режим выполнения работы"'),
     );
-    assert.ok(energyModeMarkup.includes("Потратить доступную энергию"));
+    assert.ok(energyModeMarkup.includes("Будут выполнены"));
+    assert.ok(energyModeMarkup.includes("×36"));
     assert.ok(!energyModeMarkup.includes("Вариант 2: купить дефибрилляторы"));
     const farmMarkup = renderToStaticMarkup(
       createElement(WorkFarmDialog, {
@@ -721,22 +741,16 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!farmMarkup.includes("Предварительный расчёт по справочнику"));
     assert.ok(!farmMarkup.includes("Итого (оценка)"));
     assert.ok(!farmMarkup.includes('class="requirement-calculator-action"'));
-    assert.match(
-      farmMarkup,
-      /class="requirement-calculator-energy-value">44\s/,
-    );
-    assert.ok(farmMarkup.includes("Вариант 1: ждать энергию"));
-    assert.ok(farmMarkup.includes("Вариант 2: купить дефибрилляторы"));
+    assert.ok(farmMarkup.includes("Задание"));
+    assert.ok(farmMarkup.includes("×22"));
+    assert.ok(farmMarkup.includes("Восстановление энергии"));
     assert.ok(!farmMarkup.includes("Начать фарм"));
-    assert.match(farmMarkup, /<footer[\s\S]*>Остановить<\/button>/);
+    assert.match(farmMarkup, /<footer[\s\S]*>Остановить<\/span><\/button>/);
     assert.ok(!farmMarkup.includes("Максимум действий"));
     assert.ok(!farmMarkup.includes("Ограничение времени"));
     assert.ok(!farmMarkup.includes("Настройки фарма"));
     assert.ok(farmMarkup.includes('class="requirement-calculator-card"'));
-    assert.match(
-      farmMarkup,
-      /<button(?![^>]*disabled)[^>]*>Остановить<\/button>/,
-    );
+    assertStopAvailable(farmMarkup);
     assert.ok(farmMarkup.includes('aria-busy="true"'));
     assert.ok(farmMarkup.includes('class="shared-modal-heading-loader"'));
     assert.ok(farmMarkup.includes('class="ui-border-loader"'));
@@ -744,17 +758,15 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     const waitProgressIndex = farmMarkup.indexOf(
       'aria-label="Прогресс выбранного варианта"',
     );
-    assert.ok(
-      waitProgressIndex > farmMarkup.indexOf("Вариант 1: ждать энергию"),
-    );
-    assert.ok(
-      waitProgressIndex >
-        farmMarkup.indexOf("Вариант 2: купить дефибрилляторы"),
-    );
+    assert.ok(waitProgressIndex > farmMarkup.indexOf("Будут выполнены"));
+    assert.ok(waitProgressIndex > farmMarkup.indexOf("Восстановление энергии"));
     assert.ok(!farmMarkup.includes("Фарм идёт · 20 / 25"));
     const activePurchaseSnapshot = {
       ...farmSnapshot,
-      run: { ...farmSnapshot.run, config: { mode: "boosters" } },
+      run: {
+        ...farmSnapshot.run,
+        config: { ...farmSnapshot.run.config, mode: "boosters" },
+      },
     };
     const activePurchaseMarkup = renderToStaticMarkup(
       createElement(WorkFarmDialog, {
@@ -776,16 +788,14 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(
       activePurchaseMarkup.indexOf(
         'aria-label="Прогресс выбранного варианта"',
-      ) > activePurchaseMarkup.indexOf("Вариант 2: купить дефибрилляторы"),
+      ) > activePurchaseMarkup.indexOf("Восстановление энергии"),
     );
     assert.equal(
-      (activePurchaseMarkup.match(/>Остановить<\/button>/g) || []).length,
+      (activePurchaseMarkup.match(/>Остановить<\/span><\/button>/g) || [])
+        .length,
       1,
     );
-    assert.match(
-      activePurchaseMarkup,
-      /<button(?![^>]*disabled)[^>]*>Остановить<\/button>/,
-    );
+    assertStopAvailable(activePurchaseMarkup);
     const farmPurchaseMarkup = (owned) => {
       const snapshot = {
         ...farmSnapshot,
@@ -839,7 +849,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.match(paidFarmMarkup, /<footer[\s\S]*Фарм за 14 купюр/);
     assert.match(
       paidFarmMarkup,
-      /class="base-card[^"]*base-card--target[^"]*requirement-calculator-option--purchase"[^>]*role="button"[^>]*aria-pressed="true"/,
+      /role="radio"[^>]*aria-checked="true"[^>]*>[\s\S]*Дефибрилляторы/,
     );
 
     const freeFarmMarkup = farmPurchaseMarkup(5);

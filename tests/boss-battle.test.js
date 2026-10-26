@@ -1012,3 +1012,36 @@ test("join journal uses server join timestamps and verified inviter identity", (
   assert.equal(battle.joinEvents[1].invitedBySelf, false);
   assert.equal(battle.joinEvents[0].at, Date.parse("2026-10-26T00:00:00Z"));
 });
+
+test("battle completion time is taken from the game, never inferred from the current clock", () => {
+  const time = "2026-10-26T18:30:00Z";
+  assert.equal(
+    normalizeBattle(rawBattle({ status: "won", completedAtUtc: time }), 7)
+      .completedAt,
+    Date.parse(time),
+  );
+  assert.equal(
+    normalizeBattle(rawBattle({ status: "lost" }), 7).completedAt,
+    null,
+  );
+});
+
+test("a persisted terminal battle missing completion time hydrates once despite loaded participant details", async () => {
+  const time = "2026-10-26T18:30:00Z";
+  const { store, calls } = setup((method, path) =>
+    path === "/api/bosses/7"
+      ? detail()
+      : rawBattle({ status: "won", completedAtUtc: time, participants: [] }),
+  );
+  store.restoreState({
+    boss: { id: 7, name: "Boss" },
+    battle: { id: "battle-1", status: "won", detailsLoaded: true },
+  });
+  await store.hydrateDetails();
+  await store.hydrateDetails();
+  assert.equal(store.getSnapshot().battle.completedAt, Date.parse(time));
+  assert.equal(
+    calls.filter(([, path]) => path === "/api/bosses/battles/battle-1").length,
+    1,
+  );
+});

@@ -9,6 +9,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   getSessionJson,
   readGameHealth,
+  readGameHealthWarning,
+  readConfirmedGameHealthFeatures,
   readSessionRefreshState,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
@@ -18,25 +20,13 @@ import { Icon } from "../../ui/Icon/Icon.jsx";
 import { Modal } from "../../ui/Modal/Modal.jsx";
 import { CardDescription } from "../../ui/CardDescription/CardDescription.jsx";
 import { StatusMessage } from "../../ui/StatusMessage/StatusMessage.jsx";
-import "./GameHealthWarning.css";
+import { Toast } from "../../ui/Toast/Toast.jsx";
+import {
+  newlyConfirmedFeatures,
+  pruneDismissedFeatures,
+} from "./toast-dismissal.js";
 
 const HEALTH_RETRY_KEY = "madhouse:game-health-refresh-started-at:v1";
-let bannerDismissed = false;
-const bannerDismissedListeners = new Set();
-
-function subscribeBannerDismissed(listener) {
-  bannerDismissedListeners.add(listener);
-  return () => bannerDismissedListeners.delete(listener);
-}
-
-function readBannerDismissed() {
-  return bannerDismissed;
-}
-
-function dismissBanner() {
-  bannerDismissed = true;
-  for (const listener of bannerDismissedListeners) listener();
-}
 
 const failedFeatureLabels = {
   profile: "Профиль",
@@ -141,18 +131,22 @@ export function healthRefreshLabel(seconds, checking) {
 }
 
 function useGameHealthSnapshot() {
-  const [health, setHealth] = useState(() => readGameHealth());
+  const snapshot = () => ({
+    ...readGameHealth(),
+    warningConfirmed: readGameHealthWarning(),
+  });
+  const [health, setHealth] = useState(snapshot);
   useEffect(() => {
-    const update = (event) => setHealth(event.detail || readGameHealth());
+    const update = () => setHealth(snapshot());
     window.addEventListener("madhouse:game-health", update);
-    setHealth(readGameHealth());
+    setHealth(snapshot());
     return () => window.removeEventListener("madhouse:game-health", update);
   }, []);
   return health;
 }
 
 function hasHealthWarning(health) {
-  return health && !["available", "unknown"].includes(health.status);
+  return Boolean(health?.warningConfirmed);
 }
 
 export function GameHealthWarningIndicator() {
@@ -162,11 +156,6 @@ export function GameHealthWarningIndicator() {
     () => false,
   );
   const health = useGameHealthSnapshot();
-  const bannerWasDismissed = useSyncExternalStore(
-    subscribeBannerDismissed,
-    readBannerDismissed,
-    () => false,
-  );
   const [open, setOpen] = useState(false);
   const [manualChecking, setManualChecking] = useState(false);
   const [initialRefreshAt] = useState(() =>
@@ -213,11 +202,7 @@ export function GameHealthWarningIndicator() {
     <>
       <Button
         variant="icon-ghost"
-        className={
-          bannerWasDismissed
-            ? undefined
-            : "game-health-warning-indicator--banner-visible"
-        }
+        className="game-health-warning-indicator--banner-visible"
         accent="gold"
         icon="warning"
         iconOnly
@@ -261,39 +246,42 @@ export function GameHealthWarningIndicator() {
 
 export function GameHealthWarningBanner() {
   const health = useGameHealthSnapshot();
-  const dismissed = useSyncExternalStore(
-    subscribeBannerDismissed,
-    readBannerDismissed,
-    () => false,
+  const confirmedFeatures =
+    health.status === "credentials_invalid"
+      ? ["credentials_invalid"]
+      : readConfirmedGameHealthFeatures();
+  const [dismissedFeatures, setDismissedFeatures] = useState([]);
+  const retainedDismissals = pruneDismissedFeatures(
+    dismissedFeatures,
+    confirmedFeatures,
   );
-  if (!hasHealthWarning(health) || dismissed) return null;
-
-  const message = healthMessage(health.status);
-  const label =
-    health.status === "unavailable"
-      ? "Наблюдаются сбои игровых серверов"
-      : message.label;
+  const newFeatures = newlyConfirmedFeatures(
+    retainedDismissals,
+    confirmedFeatures,
+  );
+  useEffect(() => {
+    if (retainedDismissals.join("\u0000") !== dismissedFeatures.join("\u0000"))
+      setDismissedFeatures(retainedDismissals);
+  }, [dismissedFeatures, retainedDismissals]);
+  const message =
+    health.status === "credentials_invalid" && newFeatures.length
+      ? "Требуется повторный вход: игровые данные недоступны."
+      : newFeatures.length
+        ? `Могут быть недоступны функции игры: ${newFeatures.map((feature) => failedFeatureLabels[feature]).join(", ")}.`
+        : "";
+  if (!message) return null;
   return (
-    <BaseCard
-      state="warning"
-      padding="8"
-      paddingInline="12"
-      className="game-health-warning-banner"
+    <Toast
+      onDismiss={() =>
+        setDismissedFeatures((current) =>
+          pruneDismissedFeatures(
+            [...new Set([...current, ...newFeatures])],
+            confirmedFeatures,
+          ),
+        )
+      }
     >
-      <div className="game-health-warning-banner-copy">
-        <Icon type="warning" size="small" motion="pulse" />
-        <CardDescription size="sm">{label}</CardDescription>
-      </div>
-      <Button
-        variant="icon-ghost"
-        size="sm"
-        accent="gold"
-        icon="close"
-        iconOnly
-        aria-label="Закрыть предупреждение"
-        title="Закрыть"
-        onClick={dismissBanner}
-      />
-    </BaseCard>
+      {message}
+    </Toast>
   );
 }

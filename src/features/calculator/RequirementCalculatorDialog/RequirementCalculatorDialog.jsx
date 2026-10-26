@@ -43,6 +43,7 @@ export function RequirementCalculatorDialog({
   optionActions,
   optionSelection,
   afterOptions,
+  showCalculation = true,
   loading = false,
   contentLoading = false,
   boostersLoading = false,
@@ -179,6 +180,12 @@ export function RequirementCalculatorDialog({
     };
   };
 
+  const showEnergySummary =
+    showCalculation && (requirementCalc != null || profileStatus === "loading");
+  const showEnergyInput =
+    showCalculation && !profileEnergy && profileStatus !== "loading";
+  const showRecoveryOptions =
+    showCalculation && (requirementCalc == null || energyPlan);
   return (
     <Modal
       className="requirement-calculator-dialog"
@@ -257,7 +264,7 @@ export function RequirementCalculatorDialog({
                 }
               />
             )}
-          {(requirementCalc != null || profileStatus === "loading") && (
+          {showEnergySummary && (
             <BaseCard
               variant="floor-data"
               className="requirement-calculator-energy-summary"
@@ -307,7 +314,7 @@ export function RequirementCalculatorDialog({
               )}
             </BaseCard>
           )}
-          {!profileEnergy && profileStatus !== "loading" && (
+          {showEnergyInput && (
             <div className="requirement-calculator-energy-field">
               <NumberField
                 id="requirement-energy-limit"
@@ -321,7 +328,7 @@ export function RequirementCalculatorDialog({
               />
             </div>
           )}
-          {(requirementCalc == null || energyPlan) && (
+          {showRecoveryOptions && (
             <div className="requirement-calculator-result" aria-live="polite">
               {requirementCalc == null ? (
                 <CardDescription size="sm">

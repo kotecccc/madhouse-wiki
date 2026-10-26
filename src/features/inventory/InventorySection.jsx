@@ -9,7 +9,9 @@ import {
   peekSessionJson,
   peekSessionUpdatedAt,
   subscribeSessionData,
+  readGameHealth,
 } from "../../../shared/session-api.js";
+import { featureForGamePath } from "../../../shared/game-health-features.js";
 import {
   inventoryCategories,
   inventoryGroups,
@@ -18,6 +20,7 @@ import {
   inventoryPaths,
   filterInventory,
 } from "./inventory.js";
+import { runInventoryReadAttempts } from "./read-retry.js";
 import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
@@ -102,6 +105,7 @@ export function InventorySection({ active }) {
   );
   const [updatedAt, setUpdatedAt] = useState({});
   const [requestState, setRequestState] = useState({});
+  const loadController = useRef(null);
   const refreshRequested = useRef(false);
   const [revision, setRevision] = useState(0);
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -111,6 +115,8 @@ export function InventorySection({ active }) {
     () =>
       subscribeSessionData((event) => {
         if (event.cleared) {
+          loadController.current?.abort();
+          setRevision((value) => value + 1);
           setResponses({});
           setUpdatedAt({});
           setRequestState({});
@@ -126,7 +132,8 @@ export function InventorySection({ active }) {
   );
   useEffect(() => {
     if (!active) return;
-    let cancelled = false;
+    const controller = new AbortController();
+    loadController.current = controller;
     const fresh = refreshRequested.current;
     refreshRequested.current = false;
     setRequestState((current) => ({
@@ -140,9 +147,8 @@ export function InventorySection({ active }) {
     }));
     // Session API deduplicates requests and paces them across every account view.
     // revalidate:false prevents timer/focus refreshes of inventory sections.
-    async function load() {
+    function load() {
       for (const path of pathKey.split("|").filter(Boolean)) {
-        if (cancelled) return;
         const cached = peekSessionJson(path, { allowStale: true });
         setUpdatedAt((current) => ({
           ...current,
@@ -150,21 +156,38 @@ export function InventorySection({ active }) {
         }));
         if (cached) setResponses((current) => ({ ...current, [path]: cached }));
         setRequestState((current) => ({ ...current, [path]: "loading" }));
-        try {
-          const data = await getSessionJson(path, { revalidate: false, fresh });
-          if (!cancelled) {
+        void runInventoryReadAttempts({
+          signal: controller.signal,
+          read: (attempt, signal) =>
+            getSessionJson(path, {
+              signal,
+              revalidate: false,
+              fresh: attempt > 1 || fresh,
+              serverRefresh: attempt > 1 ? "live" : false,
+            }),
+          isFailedResponse: () =>
+            readGameHealth().failedFeatures.includes(featureForGamePath(path)),
+          onData: (data) => {
+            if (controller.signal.aborted) return;
             setResponses((current) => ({ ...current, [path]: data }));
-            setRequestState((current) => ({ ...current, [path]: "ready" }));
-          }
-        } catch {
-          if (!cancelled)
-            setRequestState((current) => ({ ...current, [path]: "error" }));
-        }
+            setUpdatedAt((current) => ({
+              ...current,
+              [path]: peekSessionUpdatedAt(path),
+            }));
+          },
+        }).then(({ status }) => {
+          if (controller.signal.aborted || status === "cancelled") return;
+          setRequestState((current) => ({
+            ...current,
+            [path]: status === "ready" ? "ready" : "error",
+          }));
+        });
       }
     }
     load();
     return () => {
-      cancelled = true;
+      controller.abort();
+      if (loadController.current === controller) loadController.current = null;
     };
   }, [active, pathKey, revision]);
   const items = inventoryItems(category, responses, references);
@@ -331,14 +354,7 @@ export function InventorySection({ active }) {
           </CardDescription>
         </div>
       )}
-      {failed > 0 && (
-        <StatusMessage
-          compact
-          title="Часть данных недоступна"
-          description="Показаны сохранённые данные и успешно загруженные разделы. Попробуйте обновить категорию позже."
-        />
-      )}
-      {!loading && !filtered.length && (
+      {!loading && !failed && !filtered.length && (
         <StatusMessage
           compact
           icon="loot"

@@ -23,7 +23,10 @@ import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { BossPortrait } from "../../bosses/BossPortrait/BossPortrait.jsx";
 import { fmt } from "../../../lib/format.js";
+import { bossExecutionStatus } from "../../bosses/BossBattle/boss-battle-presentation.js";
 import { activeBattleEntries } from "./active-battle-state.js";
+import { ProgressButton } from "../../../components/ui/ProgressButton/ProgressButton.jsx";
+import { workFarmProgress } from "../../works/WorkFarm/work-farm-presentation.js";
 import { WorkFarmDialog } from "../../works/WorkCard/WorkFarmDialog.jsx";
 import "./ActiveBattleDock.css";
 
@@ -61,7 +64,14 @@ export function ActiveBattleAutoStatus({ auto, onStop }) {
   );
 }
 
-export function BossActiveBattleBar({ battle, auto, boss, onOpen, onStop }) {
+export function BossActiveBattleBar({
+  battle,
+  auto,
+  boss,
+  onOpen,
+  onStop,
+  status,
+}) {
   const healthText = (value, max) =>
     value == null
       ? "нет данных"
@@ -89,36 +99,46 @@ export function BossActiveBattleBar({ battle, auto, boss, onOpen, onStop }) {
         onKeyDown={activate}
       >
         <BossPortrait src={boss.reference?.image} alt={boss.name} />
-        <div className="active-battle-health">
-          <CardDescription>
-            HP босса · {healthText(battle?.bossHealth, battle?.bossMaxHealth)}
-          </CardDescription>
-          <ProgressBar
-            animateLoss
-            animationKey={battle?.id}
-            label="HP босса"
-            value={battle?.bossHealth ?? 0}
-            max={battle?.bossMaxHealth ?? 1}
-            valueText={healthText(battle?.bossHealth, battle?.bossMaxHealth)}
-          />
-        </div>
-        <div className="active-battle-health">
-          <CardDescription>
-            Ваше HP ·{" "}
-            {healthText(battle?.playerHealth, battle?.playerMaxHealth)}
-          </CardDescription>
-          <ProgressBar
-            animateLoss
-            animationKey={battle?.id}
-            label="Ваше HP"
-            value={battle?.playerHealth ?? 0}
-            max={battle?.playerMaxHealth ?? 1}
-            valueText={healthText(
-              battle?.playerHealth,
-              battle?.playerMaxHealth,
-            )}
-          />
-        </div>
+        {battle?.status !== "active" ? (
+          <CardDescription>{status || "Ждём боя"}</CardDescription>
+        ) : (
+          <>
+            <div className="active-battle-health">
+              <CardDescription>
+                HP босса ·{" "}
+                {healthText(battle?.bossHealth, battle?.bossMaxHealth)}
+              </CardDescription>
+              <ProgressBar
+                animateLoss
+                animationKey={battle?.id}
+                label="HP босса"
+                value={battle?.bossHealth ?? 0}
+                max={battle?.bossMaxHealth ?? 1}
+                valueText={healthText(
+                  battle?.bossHealth,
+                  battle?.bossMaxHealth,
+                )}
+              />
+            </div>
+            <div className="active-battle-health">
+              <CardDescription>
+                Ваше HP ·{" "}
+                {healthText(battle?.playerHealth, battle?.playerMaxHealth)}
+              </CardDescription>
+              <ProgressBar
+                animateLoss
+                animationKey={battle?.id}
+                label="Ваше HP"
+                value={battle?.playerHealth ?? 0}
+                max={battle?.playerMaxHealth ?? 1}
+                valueText={healthText(
+                  battle?.playerHealth,
+                  battle?.playerMaxHealth,
+                )}
+              />
+            </div>
+          </>
+        )}
       </div>
       <ActiveBattleAutoStatus auto={auto} onStop={onStop} />
     </BaseCard>
@@ -203,30 +223,19 @@ export function ActiveBattleControl() {
     : auto.enabled
       ? "robot"
       : "combat";
+  const bossHealthKnown =
+    Number.isFinite(boss.battle?.bossHealth) &&
+    Number.isFinite(boss.battle?.bossMaxHealth) &&
+    boss.battle.bossMaxHealth > 0;
   return (
     <>
       {farmRun && (
-        <BaseCard variant="glass-nav" className="active-battle-control">
-          <div className="active-battle-desktop">
-            <Button icon="energy" onClick={() => setFarmOpen(true)}>
-              Фарм · {farmRun.title} ·{" "}
-              {farm.view?.completedCycles ?? farmRun.completedCycles} /{" "}
-              {farmRun.targetCycles}
-            </Button>
-          </div>
-          <div className="active-battle-mobile">
-            <Button
-              variant="nav-tab"
-              aria-label={`Фарм: ${farmRun.title}`}
-              onClick={() => setFarmOpen(true)}
-            >
-              <Icon type="energy" size="large" />
-            </Button>
-          </div>
-          <Button size="sm" onClick={() => void workFarm.stop()}>
-            Стоп
-          </Button>
-        </BaseCard>
+        <ProgressButton
+          {...workFarmProgress(farmRun, farm.view)}
+          icon="energy"
+          label={`Фарм: ${farmRun.title}. Открыть прогресс и остановку`}
+          onClick={() => setFarmOpen(true)}
+        />
       )}
       {farmOpen && farm.run && (
         <WorkFarmDialog
@@ -264,21 +273,40 @@ export function ActiveBattleControl() {
                   boss={boss.boss}
                   battle={boss.battle}
                   auto={auto}
+                  status={bossExecutionStatus(boss, auto)?.label}
                   onOpen={() => open(bossEntry)}
                   onStop={bossBattleAuto.stop}
                 />
               </div>
-              <BaseCard variant="glass-nav" className="active-battle-mobile">
-                <Button
-                  variant="nav-tab"
-                  aria-label={`${bossMode}: ${boss.boss.name}`}
-                  title={`${bossMode}: ${boss.boss.name}`}
-                  aria-haspopup="dialog"
+              <div className="active-battle-mobile">
+                <ProgressButton
+                  icon={bossModeIcon}
+                  label={`${bossMode}: ${boss.boss.name}. ${bossExecutionStatus(boss, auto)?.label ?? ""}`}
+                  value={
+                    boss.battle?.status === "active"
+                      ? boss.battle.bossHealth
+                      : null
+                  }
+                  max={
+                    boss.battle?.status === "active"
+                      ? boss.battle.bossMaxHealth
+                      : null
+                  }
+                  valueText={
+                    boss.battle?.status === "active"
+                      ? bossHealthKnown
+                        ? `HP босса: ${fmt(boss.battle.bossHealth)} из ${fmt(boss.battle.bossMaxHealth)}`
+                        : "HP босса пока неизвестно"
+                      : bossExecutionStatus(boss, auto)?.label
+                  }
+                  displayText={
+                    boss.battle?.status === "active" ? undefined : "Ждём"
+                  }
+                  animateLoss
+                  animationKey={boss.battle?.id}
                   onClick={() => open(bossEntry)}
-                >
-                  <Icon type={bossModeIcon} size="large" motion="pulse" />
-                </Button>
-              </BaseCard>
+                />
+              </div>
             </>
           )}
           {pvpEntry && (

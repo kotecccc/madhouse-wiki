@@ -10,6 +10,7 @@ import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
 import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
 import { BossHealingSettings } from "./BossHealingSettings.jsx";
 import { isTerminalBossBattle } from "./boss-battle-status.js";
+import { isBossAutomationWaiting } from "./boss-battle-presentation.js";
 import { battleActionHint } from "./boss-battle-controller.js";
 import { bossById, departmentById } from "../../../model/knowledge-base.js";
 import {
@@ -86,11 +87,15 @@ export function BossBattleDialog() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [state.visible]);
+  const automationWaiting = isBossAutomationWaiting(state, auto);
   const needsDetails = Boolean(
+    !automationWaiting &&
     state.visible &&
     state.battle &&
     !state.pending &&
-    !state.battle.detailsLoaded,
+    (!state.battle.detailsLoaded ||
+      (isTerminalBossBattle(state.battle) &&
+        !Number.isFinite(state.battle.completedAt))),
   );
   useEffect(() => {
     if (needsDetails) void bossBattle.hydrateDetails();
@@ -153,9 +158,9 @@ export function BossBattleDialog() {
                 void bossBattle.attack();
             }}
           />
-          {showNext && (
+          {showNext && !automationRunning && (
             <div className="boss-battle-actions">
-              {showNext && (
+              {showNext && !automationRunning && (
                 <Button
                   variant="primary"
                   icon="combat"
@@ -180,7 +185,7 @@ export function BossBattleDialog() {
               )}
             </div>
           )}
-          {battle?.outcome && (
+          {!automationWaiting && battle?.outcome && (
             <BossBattleReceivedDrops boss={state.boss} battle={battle} />
           )}
         </div>

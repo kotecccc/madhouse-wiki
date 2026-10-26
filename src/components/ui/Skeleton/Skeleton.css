@@ -32,3 +32,35 @@
     animation: none;
   }
 }
+
+.ui-skeleton-profile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.ui-skeleton-profile-avatar {
+  width: var(--space-32);
+  height: var(--space-32);
+  border-radius: var(--radius-control);
+  background: var(--border-strong);
+}
+
+.ui-skeleton-profile-copy {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ui-skeleton-profile-name,
+.ui-skeleton-profile-detail {
+  display: block;
+  width: var(--space-64);
+  height: var(--font-size-xs);
+  border-radius: var(--radius-control);
+  background: var(--border-strong);
+}
+
+.ui-skeleton-profile-detail {
+  width: var(--space-48);
+  height: var(--font-size-2xs);
+}

@@ -180,12 +180,12 @@ export function App() {
       </div>
       <BottomDock>
         <GameHealthWarningBanner />
+        <ActiveBattleControl />
         <MobileNavigation
           activeScreen={visibleScreen}
           authenticated={authenticated}
           onScreenChange={changeScreen}
         />
-        <ActiveBattleControl />
       </BottomDock>
       <RequirementCalculatorDialog
         conditionDialog={conditionDialog}

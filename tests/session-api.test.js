@@ -438,7 +438,7 @@ test("observed game errors accept only safe function names and clear on recovery
   assert.deepEqual(readGameHealth().successfulFeatures, []);
 });
 
-test("manual health refresh sends the internal force header for profile only", async () => {
+test("explicit health refresh sends the internal force header for snapshot reads", async () => {
   const calls = [];
   const api = createSessionApi({
     interval: 0,
@@ -454,7 +454,7 @@ test("manual health refresh sends the internal force header for profile only", a
   await api.get("/api/me", { fresh: true, serverRefresh: true });
   await api.get("/api/clothing", { fresh: true, serverRefresh: true });
   assert.equal(calls[0].headers["X-Madhouse-Snapshot-Refresh"], "1");
-  assert.equal(calls[1].headers["X-Madhouse-Snapshot-Refresh"], undefined);
+  assert.equal(calls[1].headers["X-Madhouse-Snapshot-Refresh"], "1");
 });
 
 test("a forced profile refresh asks the server for current account data and keeps the last good profile on failure", async () => {
@@ -552,4 +552,52 @@ test("section update dates use server timestamps, survive cache hits and remain 
   assert.equal(api.updatedAt("/api/rooms"), null);
   api.clear();
   assert.equal(api.updatedAt("/api/rooms"), null);
+});
+
+test("explicit retry refresh headers apply to snapshot GETs without leaking to mutations", async () => {
+  const calls = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: {} }),
+    fetcher: async (url, init) => {
+      calls.push({
+        method: init.method,
+        refresh: init.headers["X-Madhouse-Snapshot-Refresh"],
+      });
+      return Response.json({ ok: true });
+    },
+  });
+  await api.get("/api/weapons/1", { fresh: true, serverRefresh: "live" });
+  assert.equal(calls[0].refresh, "live");
+  await api.post("/api/works/tasks/perform", { workId: 7, taskId: 1 });
+  assert.equal(calls[1].refresh, undefined);
+  api.clear();
+});
+
+test("failure-specific timestamps survive response metadata without counting successful checks as failures", async () => {
+  const {
+    observeGameResponse,
+    readGameHealthWarning,
+    readConfirmedGameHealthFeatures,
+    reportGameHealth,
+  } = await import("../shared/session-api.js");
+  reportGameHealth({ status: "unknown" });
+  const observe = (checked, failed) =>
+    observeGameResponse(
+      new Response(null, {
+        headers: {
+          "X-Madhouse-Game-Status": "unavailable",
+          "X-Madhouse-Failed-Features": "bosses",
+          "X-Madhouse-Feature-Checked-At": JSON.stringify({ bosses: checked }),
+          "X-Madhouse-Feature-Failed-At": JSON.stringify({ bosses: failed }),
+        },
+      }),
+    );
+  for (const checked of [1000, 16000, 31000]) observe(checked, 1000);
+  assert.equal(readGameHealthWarning(), false);
+  observe(32000, 16000);
+  observe(33000, 31000);
+  assert.deepEqual(readConfirmedGameHealthFeatures(), ["bosses"]);
+  reportGameHealth({ status: "available" });
+  assert.deepEqual(readConfirmedGameHealthFeatures(), []);
 });

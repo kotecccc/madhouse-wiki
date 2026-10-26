@@ -30,12 +30,36 @@ test("game health warning keeps error details unmounted until requested", async 
     assert.equal(healthRefreshLabel(0, true), "Проверяем…");
     assert.equal(healthRefreshLabel(0, false), "Обновить");
     for (const status of ["unavailable", "credentials_invalid"]) {
-      reportGameHealth({ status });
+      reportGameHealth({ status: "unknown" });
+      if (status === "unavailable") {
+        const now = Date.now();
+        const failure = (checkedAt) =>
+          reportGameHealth({
+            status,
+            failedFeatures: ["bosses", "inventory"],
+            featureCheckedAt: { bosses: checkedAt },
+          });
+        failure(now - 30000);
+        assert.equal(
+          renderToStaticMarkup(createElement(GameHealthWarningBanner)),
+          "",
+        );
+        failure(now - 30000); // The cached observation is not a new check.
+        failure(now - 15000);
+        assert.equal(
+          renderToStaticMarkup(createElement(GameHealthWarningIndicator)),
+          "",
+        );
+        failure(now);
+      } else reportGameHealth({ status });
       const html = renderToStaticMarkup(createElement(GameHealthWarningBanner));
-      assert.match(html, /Закрыть предупреждение/);
+      assert.match(html, /Закрыть уведомление/);
       assert.match(html, /base-card--warning/);
-      assert.match(html, /button-icon-ghost/);
-      assert.match(html, /ui-icon--pulse/);
+      assert.match(html, /ui-toast-region/);
+      if (status === "unavailable") {
+        assert.match(html, /Могут быть недоступны функции игры: Боссы/);
+        assert.doesNotMatch(html, /Инвентарь|Игровые данные/);
+      } else assert.match(html, /Требуется повторный вход/);
       const indicator = renderToStaticMarkup(
         createElement(GameHealthWarningIndicator),
       );
@@ -54,6 +78,15 @@ test("game health warning keeps error details unmounted until requested", async 
         "",
       );
     }
+    const { Toast } = await server.ssrLoadModule(
+      "/src/components/ui/Toast/Toast.jsx",
+    );
+    const toast = renderToStaticMarkup(
+      createElement(Toast, { children: "Недоступно" }),
+    );
+    assert.match(toast, /role="status" aria-live="polite"/);
+    assert.match(toast, /Недоступно/);
+    assert.match(toast, /Закрыть уведомление/);
     const details = (status) =>
       renderToStaticMarkup(
         createElement(GameHealthDetails, {
@@ -124,6 +157,17 @@ test("game health warning keeps error details unmounted until requested", async 
       "14:51 25.10.2026",
     );
     assert.equal(formatLastSuccess(null), "—");
+    const { Skeleton } = await server.ssrLoadModule(
+      "/src/components/ui/Skeleton/Skeleton.jsx",
+    );
+    const profileSkeleton = renderToStaticMarkup(
+      createElement(Skeleton, { variant: "profile" }),
+    );
+    assert.match(profileSkeleton, /ui-skeleton-profile-avatar/);
+    assert.match(profileSkeleton, /ui-skeleton-profile-name/);
+    assert.match(profileSkeleton, /ui-skeleton-profile-detail/);
+    assert.match(profileSkeleton, /aria-hidden="true"/);
+    assert.doesNotMatch(profileSkeleton, /<button|Обновляем профиль/);
   } finally {
     await server.close();
   }

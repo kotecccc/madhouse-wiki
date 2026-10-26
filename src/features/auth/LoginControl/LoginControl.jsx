@@ -17,6 +17,7 @@ import {
   subscribeSession,
   formatExpiry,
 } from "../../../../shared/auth-session.js";
+import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
@@ -203,7 +204,7 @@ export function LoginControl() {
   const label = formatExpiry(session);
   const activeProfile = authenticated
     ? profile || {
-        name: restoring ? "Обновляем профиль…" : "Профиль",
+        name: "Профиль",
         username: "",
       }
     : null;
@@ -254,7 +255,11 @@ export function LoginControl() {
   return (
     <>
       <div className="login-control" ref={controlRef}>
-        {activeProfile ? (
+        {restoring && !profile ? (
+          <div role="status" aria-label="Загружаем профиль" aria-busy="true">
+            <Skeleton variant="profile" />
+          </div>
+        ) : activeProfile ? (
           <BaseCard
             as="button"
             type="button"

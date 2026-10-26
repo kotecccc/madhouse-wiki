@@ -29,7 +29,7 @@
   display: grid;
   grid-column: span 2;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: var(--space-12);
 }
 

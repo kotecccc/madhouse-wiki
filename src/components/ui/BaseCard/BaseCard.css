@@ -29,6 +29,7 @@
 
 .base-card--popover {
   --card-background: var(--surface-page);
+  background: var(--surface-page);
 }
 
 .base-card--glass-nav {
