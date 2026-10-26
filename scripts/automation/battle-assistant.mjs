@@ -221,12 +221,34 @@ export function createBattleAssistant({
     return { kind: "wait", retryAt: record.waiting.retryAt };
   }
   async function recover() {
-    if (stopped || !readAvailable() || record.pending) return false;
+    if (stopped || !readAvailable()) return false;
     const recoveryGeneration = generation;
     await refreshAvailability();
     if (stopped || !readAvailable() || recoveryGeneration !== generation)
       return false;
     const state = controller.getSnapshot();
+    if (record.pending) {
+      const pending = record.pending;
+      await controller.refresh();
+      if (stopped || recoveryGeneration !== generation || !readAvailable())
+        return false;
+      const current = controller.getSnapshot();
+      const battle = current.battle;
+      const beforeDamage =
+        pending.beforeDamage ??
+        record.battles[pending.battleId]?.samples?.at(-1)?.totalDamage;
+      const confirmed =
+        pending.kind === "attack" &&
+        !current.needsRefresh &&
+        !current.error &&
+        battle?.id &&
+        (battle.id !== pending.battleId ||
+          (Number.isFinite(beforeDamage) &&
+            Number.isFinite(battle.totalDamage) &&
+            battle.totalDamage > beforeDamage));
+      if (!confirmed) return false;
+      complete();
+    }
     if (state.battle?.status === "active") await controller.loadMedicines();
     else await controller.refresh();
     if (
@@ -272,6 +294,9 @@ export function createBattleAssistant({
     record.pending = {
       ...operation,
       battleId: controller.getSnapshot().battle?.id ?? null,
+      ...(operation.kind === "attack"
+        ? { beforeDamage: controller.getSnapshot().battle?.totalDamage ?? null }
+        : {}),
     };
     publish(); // Durable account write occurs before the controller sends POST.
   }
@@ -405,6 +430,13 @@ export function createBattleAssistant({
   async function step({ notBefore = 0 } = {}) {
     const stepGeneration = generation;
     const stillAllowed = () => allowed() && generation === stepGeneration;
+    if (!stopped && record.pending) {
+      try {
+        await recover();
+      } catch {
+        /* Keep the reservation until a read confirms the result. */
+      }
+    }
     if (stopped || record.pending)
       return wait(
         notice ||

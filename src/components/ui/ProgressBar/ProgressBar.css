@@ -119,6 +119,10 @@
     display: none;
     animation: none;
   }
+
+  .ui-progress-bar--animate-fill .ui-progress-bar-active-fill {
+    transition: none;
+  }
 }
 
 .ui-progress-bar-highlight {
@@ -128,4 +132,25 @@
   border-radius: var(--radius-pill);
   background: var(--status-active);
   pointer-events: none;
+}
+
+.ui-progress-bar--active .ui-progress-bar-segment {
+  visibility: hidden;
+}
+
+.ui-progress-bar-active-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: var(--status-active);
+}
+
+.ui-progress-bar--active .ui-progress-bar-loss {
+  background: var(--status-active);
+}
+
+.ui-progress-bar--animate-fill .ui-progress-bar-active-fill {
+  transition: width var(--control-transition-duration) ease;
 }

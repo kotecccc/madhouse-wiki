@@ -21,6 +21,10 @@
   --icon-size: var(--font-size-lg);
 }
 
+.ui-icon--xlarge {
+  --icon-size: var(--space-32);
+}
+
 .ui-icon--hero {
   --icon-size: var(--space-64);
 }
@@ -32,6 +36,10 @@
 
 .ui-icon--energy {
   color: var(--icon-energy, var(--status-business));
+}
+
+.ui-icon--sparkles-2 {
+  color: var(--status-active);
 }
 
 .ui-icon--pill {

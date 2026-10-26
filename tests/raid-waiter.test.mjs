@@ -9,6 +9,7 @@ function setup({ saved, refresh } = {}) {
   const state = { boss: { id: 7 }, battle: null };
   const goal = { status: "active" };
   const calls = [];
+  const refreshOptions = [];
   let items = [];
   const worker = createRaidWaiter({
     saved,
@@ -35,8 +36,9 @@ function setup({ saved, refresh } = {}) {
     unlock() {
       locked = false;
     },
-    async refresh() {
+    async refresh(options) {
       calls.push("refresh");
+      refreshOptions.push(options);
       await refresh?.();
     },
     invitations: () => items,
@@ -53,11 +55,12 @@ function setup({ saved, refresh } = {}) {
     state,
     goal,
     calls,
+    refreshOptions,
     setItems(value) {
       items = value;
     },
-    advance() {
-      clock += 10000;
+    advance(ms = 10000) {
+      clock += ms;
     },
     finish() {
       state.battle.status = "won";
@@ -95,6 +98,40 @@ test("raid waits on server, filters boss, joins once, attacks and waits again wi
   ctx.goal.status = "completed";
   await ctx.worker.tick();
   assert.equal(ctx.worker.getSnapshot().enabled, false);
+});
+
+test("raid force-checks invitations immediately after a fight ends", async () => {
+  const ctx = setup();
+  assert.equal(ctx.worker.start(7), true);
+  ctx.setItems([invitation]);
+  await ctx.worker.tick();
+  assert.deepEqual(ctx.calls, ["refresh", "invite-7", "auto.start"]);
+
+  ctx.finish();
+  ctx.advance(1000);
+  ctx.setItems([]);
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().status, "waiting");
+
+  ctx.advance(1000);
+  ctx.setItems([invitation]);
+  await ctx.worker.tick();
+
+  assert.deepEqual(ctx.calls, [
+    "refresh",
+    "invite-7",
+    "auto.start",
+    "refresh",
+    "refresh",
+    "invite-7",
+    "auto.start",
+  ]);
+  assert.deepEqual(ctx.refreshOptions, [
+    { force: false },
+    { force: true },
+    { force: true },
+  ]);
+  assert.equal(ctx.worker.getSnapshot().status, "fighting");
 });
 
 test("stop during pending invitation read prevents joining and concurrent ticks serialize", async () => {

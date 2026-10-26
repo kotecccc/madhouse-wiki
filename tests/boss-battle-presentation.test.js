@@ -55,6 +55,7 @@ test("battle header contains countdown, hides automation manual controls and kee
   const cacheDir = mkdtempSync(join(tmpdir(), "madhouse-battle-presentation-"));
   const server = await createServer({
     configFile: false,
+    optimizeDeps: { noDiscovery: true, include: [] },
     cacheDir,
     plugins: [react()],
     appType: "custom",
@@ -147,17 +148,18 @@ test("battle header contains countdown, hides automation manual controls and kee
       healing: { invitation: { attempted: false, nextAt: null } },
     };
     const waitingInvitations = renderToStaticMarkup(
-      createElement(BossBattlePanel, {
-        state: invitationState,
-        auto: { enabled: true },
+      createElement(BossBattleDetails, {
+        boss: invitationState.boss,
+        invitation: invitationState.healing.invitation,
         now: 1000,
       }),
     );
     assert.ok(!waitingInvitations.includes("Приглашаем друзей"));
     const activeInvitations = renderToStaticMarkup(
-      createElement(BossBattlePanel, {
-        state: { ...invitationState, battle: { status: "active" } },
-        auto: { enabled: true },
+      createElement(BossBattleDetails, {
+        boss: invitationState.boss,
+        battle: { status: "active" },
+        invitation: invitationState.healing.invitation,
         now: 1000,
       }),
     );
@@ -437,14 +439,12 @@ test("battle header contains countdown, hides automation manual controls and kee
         now: 1000,
       }),
     );
-    assert.ok(quotaPanel.includes("ui-progress-bar-highlight"));
-    assert.ok(quotaPanel.includes("До нормы урона: 25"));
+    assert.ok(quotaPanel.includes("ui-progress-bar--active"));
+    assert.ok(quotaPanel.includes("Урон: 75"));
+    assert.ok(quotaPanel.includes("Норма: 100"));
+    assert.ok(quotaPanel.includes('aria-valuenow="75"'));
     assert.ok(!quotaPanel.includes("Осталось нанести:"));
-    for (const [bossHealth, left, width] of [
-      [50, 25, 25],
-      [40, 15, 25],
-      [10, 0, 10],
-    ]) {
+    for (const bossHealth of [50, 40, 10]) {
       const personalQuota = renderToStaticMarkup(
         createElement(BossBattlePanel, {
           state: {
@@ -459,11 +459,7 @@ test("battle header contains countdown, hides automation manual controls and kee
           now: 1000,
         }),
       );
-      assert.ok(
-        personalQuota.includes(
-          `class="ui-progress-bar-highlight" aria-hidden="true" style="left:${left}%;width:${width}%"`,
-        ),
-      );
+      assert.ok(personalQuota.includes('aria-label="Прогресс нормы урона"'));
     }
     const completedQuotaPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {

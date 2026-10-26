@@ -31,6 +31,12 @@
   transform: translateX(-50%);
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+
 @media (max-width: 650px) {
   .topbar {
     height: 60px;

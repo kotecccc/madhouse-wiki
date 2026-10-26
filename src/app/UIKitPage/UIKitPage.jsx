@@ -40,11 +40,18 @@ const buttonVariants = [
   { name: "Tab", variant: "nav-tab", state: "selected" },
   { name: "Icon only", variant: "icon-copy", icon: "copy" },
   { name: "Inline icon only", variant: "icon-copy-inline", icon: "copy" },
+  {
+    name: "Ghost icon",
+    variant: "icon-ghost",
+    icon: "close",
+    iconOnly: true,
+  },
 ];
 
 const iconTypes = [
   "boss",
   "character",
+  "user-plus",
   "chevron",
   "external-link",
   "message",
@@ -317,25 +324,29 @@ export function UIKitPage() {
                     <CardTitle>Buttons</CardTitle>
                   </div>
                   <div className="ui-kit-button-grid">
-                    {buttonVariants.map(({ name, variant, icon, state }) => (
-                      <div className="ui-kit-button-sample" key={variant}>
-                        <MonoLabel>{name}</MonoLabel>
-                        <Button
-                          variant={variant}
-                          aria-pressed={
-                            state === "toggle" ? toggle : state === "selected"
-                          }
-                          onClick={
-                            state === "toggle"
-                              ? () => setToggle(!toggle)
-                              : undefined
-                          }
-                          icon={icon}
-                        >
-                          {name}
-                        </Button>
-                      </div>
-                    ))}
+                    {buttonVariants.map(
+                      ({ name, variant, icon, state, iconOnly }) => (
+                        <div className="ui-kit-button-sample" key={variant}>
+                          <MonoLabel>{name}</MonoLabel>
+                          <Button
+                            variant={variant}
+                            aria-pressed={
+                              state === "toggle" ? toggle : state === "selected"
+                            }
+                            onClick={
+                              state === "toggle"
+                                ? () => setToggle(!toggle)
+                                : undefined
+                            }
+                            icon={icon}
+                            iconOnly={iconOnly}
+                            aria-label={iconOnly ? name : undefined}
+                          >
+                            {name}
+                          </Button>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </ExamplePanel>
                 <ExamplePanel>

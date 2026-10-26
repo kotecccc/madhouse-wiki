@@ -235,20 +235,14 @@ export function LoginControl() {
             }}
           >
             <ImageCard
+              variant="avatar"
               as="span"
               src={activeProfile.avatarUrl}
               alt=""
               size={32}
               imageSize={32}
-              className="profile-avatar"
             >
-              {activeProfile.name
-                .replace(/^\[[^\]]+\]\s*/, "")
-                .split(/\s+/)
-                .slice(0, 2)
-                .map((part) => Array.from(part)[0])
-                .join("")
-                .toUpperCase()}
+              <Icon type="character" size="large" />
             </ImageCard>
             <span className="profile-copy">
               <CardTitle as="span" size="xs" className="profile-name">

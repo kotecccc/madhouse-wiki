@@ -7,11 +7,13 @@ const variants = new Set([
   "primary",
   "secondary",
   "locked",
+  "warning",
   "card-action",
   "toggle",
   "nav-tab",
   "icon-copy",
   "icon-copy-inline",
+  "icon-ghost",
   "warning-icon",
 ]);
 
@@ -45,7 +47,9 @@ export function Button({
     "button",
     iconOnly && "button--icon-only",
     safeVariant === "icon-copy-inline" && "button-icon-copy",
+    safeVariant === "icon-ghost" && "button-icon-ghost",
     safeVariant === "warning-icon" && "button-warning-icon",
+    safeVariant === "warning" && "button-warning",
     `button-${safeVariant}`,
     accent === "gold" && "button--accent-gold",
     `button-size-${safeSize}`,

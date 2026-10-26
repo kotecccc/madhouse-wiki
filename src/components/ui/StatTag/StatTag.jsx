@@ -11,6 +11,7 @@ export function StatTag({
   description,
   details = [],
   mutagenType,
+  inactive = false,
 }) {
   const [anchor, setAnchor] = useState(null);
   const hint = [description, ...details].filter(Boolean).join("\n");
@@ -25,8 +26,17 @@ export function StatTag({
         aria-expanded={Boolean(anchor)}
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
       >
-        <Icon type={icon} size="text" mutagenType={mutagenType} />
-        {label}
+        {inactive ? (
+          <s>
+            <Icon type={icon} size="text" mutagenType={mutagenType} />
+            {label}
+          </s>
+        ) : (
+          <>
+            <Icon type={icon} size="text" mutagenType={mutagenType} />
+            {label}
+          </>
+        )}
       </Button>
       {anchor && (
         <Popover

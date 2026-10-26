@@ -1,0 +1,23 @@
+.game-health-warning-banner {
+  display: none;
+}
+
+.game-health-warning-banner-copy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+@media (max-width: 650px) {
+  .game-health-warning-indicator--banner-visible {
+    display: none;
+  }
+
+  .game-health-warning-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+  }
+}

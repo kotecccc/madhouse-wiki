@@ -23,7 +23,7 @@ import { UpgradeDialog } from "../../features/businesses/UpgradeDialog/UpgradeDi
 import { RaidScheduleSection } from "../../features/raids/RaidScheduleSection/RaidScheduleSection.jsx";
 import { TelegramLaunchScreen } from "../../features/telegram/TelegramLaunchScreen/TelegramLaunchScreen.jsx";
 import { MobileNavigation } from "../../components/layout/MobileNavigation/MobileNavigation.jsx";
-import { GameHealthWarning } from "../../components/layout/BottomDock/GameHealthWarning.jsx";
+import { GameHealthWarningBanner } from "../../components/layout/BottomDock/GameHealthWarning.jsx";
 import { FeedbackWidget } from "../../features/support/FeedbackWidget/FeedbackWidget.jsx";
 import { useFloorAvailability } from "../../features/floors/useFloorAvailability.js";
 import { readSession, subscribeSession } from "../../../shared/auth-session.js";
@@ -179,7 +179,7 @@ export function App() {
         </SiteFooter>
       </div>
       <BottomDock>
-        <GameHealthWarning />
+        <GameHealthWarningBanner />
         <MobileNavigation
           activeScreen={visibleScreen}
           authenticated={authenticated}

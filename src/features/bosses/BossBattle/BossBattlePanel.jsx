@@ -3,7 +3,10 @@ import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
-import { Disclosure } from "../../../components/ui/Disclosure/Disclosure.jsx";
+import {
+  Disclosure,
+  DisclosureHeader,
+} from "../../../components/ui/Disclosure/Disclosure.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
@@ -25,7 +28,7 @@ const formatHealth = (amount) =>
     ? `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(amount / 1_000_000)} млн`
     : fmt(amount);
 
-function Health({ label, value, max, animationKey, remainingDamage = 0 }) {
+function Health({ label, value, max, animationKey, quota = null }) {
   const known = Number.isFinite(value) && Number.isFinite(max) && max > 0;
   const text = known
     ? `${formatHealth(value)} / ${formatHealth(max)}`
@@ -43,13 +46,30 @@ function Health({ label, value, max, animationKey, remainingDamage = 0 }) {
           label={`Здоровье: ${label}`}
           value={value}
           max={max}
-          highlightAmount={remainingDamage}
-          valueText={
-            remainingDamage > 0
-              ? `${text}. До нормы урона: ${fmt(remainingDamage)}`
-              : text
-          }
+          valueText={text}
         />
+      )}
+      {quota && (
+        <div className="boss-battle-panel-stack">
+          <div className="boss-battle-panel-row">
+            <CardTitle title={`Фактически нанесено: ${fmt(quota.actual)}`}>
+              Урон: {fmt(quota.actual)}
+            </CardTitle>
+            <CardTitle title={`Норма урона: ${fmt(quota.max)}`}>
+              Норма: {fmt(quota.max)}
+            </CardTitle>
+          </div>
+          <ProgressBar
+            animateFill
+            animationKey={animationKey}
+            label="Прогресс нормы урона"
+            value={quota.value}
+            max={quota.max}
+            segments={quota.segments}
+            variant="active"
+            valueText={`${fmt(quota.value)} из ${fmt(quota.max)}`}
+          />
+        </div>
       )}
     </div>
   );
@@ -222,45 +242,46 @@ export function BossBattlePanel({
           )
         )}
       </div>
-      {automationRunning &&
-        battle?.status === "active" &&
-        !battle.outcome &&
-        state.healing?.invitation && (
-          <div className="boss-battle-panel-row">
-            <CardDescription
-              size="xs"
-              title={state.healing.invitationNotice || undefined}
-            >
-              <Icon type="group" size="small" />{" "}
-              {state.healing.invitation.attempted
-                ? `Приглашено друзей: ${fmt(state.healing.invitation.invitedCount)}`
-                : "Приглашаем друзей"}
-            </CardDescription>
-            <CardDescription size="xs">
-              {state.healing.invitation.blocked
-                ? "Рассылка недоступна"
-                : state.healing.invitation.nextAt != null
-                  ? `Через ${formatBattleCountdown(state.healing.invitation.nextAt, now)}`
-                  : "—"}
-            </CardDescription>
-          </div>
-        )}
       {battle && !battle.outcome && (
         <>
           <Health
             label="Босс"
-            remainingDamage={
-              Number.isFinite(battle.dropDamageRequired) &&
-              Number.isFinite(battle.totalDamage)
-                ? Math.max(0, battle.dropDamageRequired - battle.totalDamage)
-                : 0
-            }
             animationKey={battle.id}
             value={battle.bossHealth}
             max={battle.bossMaxHealth}
           />
           <Health
             label="Вы"
+            quota={
+              Number.isFinite(battle.dropDamageRequired) &&
+              Number.isFinite(battle.totalDamage)
+                ? (() => {
+                    const baseDamage =
+                      Number.isFinite(battle.lastPlayerDamage) &&
+                      battle.lastPlayerDamage > 0
+                        ? battle.lastPlayerDamage
+                        : battle.events?.find(
+                            (event) =>
+                              event.isSelf &&
+                              event.critical === false &&
+                              Number.isFinite(event.damage) &&
+                              event.damage > 0,
+                          )?.damage;
+                    return {
+                      actual: battle.totalDamage,
+                      value: Math.min(
+                        battle.dropDamageRequired,
+                        battle.totalDamage,
+                      ),
+                      max: battle.dropDamageRequired,
+                      segments:
+                        baseDamage == null
+                          ? 1
+                          : Math.ceil(battle.dropDamageRequired / baseDamage),
+                    };
+                  })()
+                : null
+            }
             animationKey={battle.id}
             value={battle.playerHealth}
             max={battle.playerMaxHealth}
@@ -339,9 +360,14 @@ const BattleParticipants = memo(function BattleParticipants({
                 role="listitem"
                 key={index}
               >
-                <Icon type="character" size="small" />
                 <CardDescription title={participant.nickname}>
-                  {participant.nickname || `Участник ${index + 1}`}
+                  {participant.isSelf ? (
+                    <strong>
+                      {participant.nickname || `Участник ${index + 1}`}
+                    </strong>
+                  ) : (
+                    participant.nickname || `Участник ${index + 1}`
+                  )}
                 </CardDescription>
                 <CardTitle as="span" size="sm" title="Урон по боссу">
                   {participant.damageDealt != null
@@ -397,7 +423,7 @@ const BattleJournalEvent = memo(
               })
             : `Ход ${fmt(event.turn)}`}
         </CardDescription>
-        <CardDescription title={battleEventText(event)}>
+        <CardDescription size="xs" title={battleEventText(event)}>
           {event.isSelf ? (
             <strong>
               {actor} · {action}
@@ -457,7 +483,13 @@ const BattleJournal = memo(
   (previous, next) => sameBattleEvents(previous.events, next.events),
 );
 
-export function BossBattleDetails({ boss, battle }) {
+export function BossBattleDetails({
+  boss,
+  battle,
+  invitation,
+  invitationNotice,
+  now,
+}) {
   if (!battle) return null;
   const combinedEvents = new Map();
   for (const event of [
@@ -471,6 +503,30 @@ export function BossBattleDetails({ boss, battle }) {
     .slice(0, 200);
   return (
     <>
+      {invitation && battle.status === "active" && !battle.outcome && (
+        <BaseCard padding="12">
+          <DisclosureHeader
+            size="sm"
+            leading={<Icon type="user-plus" size="medium" />}
+            title={
+              <span title={invitationNotice || undefined}>
+                {invitation.attempted
+                  ? `Приглашено друзей: ${fmt(invitation.invitedCount)}`
+                  : "Приглашаем друзей"}
+              </span>
+            }
+            status={
+              <CardDescription size="xs">
+                {invitation.blocked
+                  ? "Рассылка недоступна"
+                  : invitation.nextAt != null
+                    ? `Приглашу через ${formatBattleCountdown(invitation.nextAt, now)}`
+                    : "—"}
+              </CardDescription>
+            }
+          />
+        </BaseCard>
+      )}
       <BattleParticipants
         participants={battle.participants || EMPTY_LIST}
         participantCount={battle.participantCount}

@@ -98,6 +98,12 @@ export function BossBattleDialog() {
   if (!state.visible || !state.boss) return null;
   const battle = state.battle;
   const showBattleDetails = Boolean(battle && !isTerminalBossBattle(battle));
+  const automationRunning = Boolean(
+    auto.enabled ||
+    (state.raid?.enabled &&
+      (state.raid.bossId == null ||
+        Number(state.raid.bossId) === Number(state.boss.id))),
+  );
   const catalogueBoss = Object.values(bossById).find(
     (boss) => Number(boss.numericId ?? boss.apiId) === Number(state.boss.id),
   );
@@ -180,7 +186,13 @@ export function BossBattleDialog() {
         </div>
         {showBattleDetails && (
           <div className="boss-battle-column boss-battle-details-column">
-            <BossBattleDetails boss={state.boss} battle={battle} />
+            <BossBattleDetails
+              boss={state.boss}
+              battle={battle}
+              invitation={automationRunning ? state.healing?.invitation : null}
+              invitationNotice={state.healing?.invitationNotice}
+              now={Math.max(now, Date.now())}
+            />
           </div>
         )}
         <div className="boss-battle-column boss-battle-settings-column">

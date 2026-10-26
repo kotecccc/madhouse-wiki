@@ -589,6 +589,34 @@ test("partial attack reply preserves confirmed participants and journal without 
   assert.equal(calls.length, 2);
 });
 
+test("successive partial strikes retain the quota highlight threshold", async () => {
+  let strikes = 0;
+  const { store, calls } = setup((method) => {
+    if (method === "GET")
+      return detail({
+        activeBattle: rawBattle({ myDamage: 20, dropDamageRequired: 100 }),
+      });
+    strikes++;
+    return {
+      battle: rawBattle({
+        bossHealth: 200 - strikes * 10,
+        myDamage: 20 + strikes * 10,
+        ...(strikes === 1 ? { dropDamageRequired: null } : {}),
+      }),
+    };
+  });
+  store.open(boss);
+  await settle();
+  for (let strike = 1; strike <= 2; strike++) {
+    await store.attack();
+    const battle = store.getSnapshot().battle;
+    assert.equal(battle.dropDamageRequired, 100);
+    assert.equal(battle.totalDamage, 20 + strike * 10);
+    assert.equal(battle.quotaFresh, false);
+  }
+  assert.equal(calls.length, 3);
+});
+
 test("attack journal adds a new event without dropping existing history", async () => {
   const { store, calls } = setup((method) =>
     method === "GET"

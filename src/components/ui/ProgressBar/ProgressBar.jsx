@@ -13,6 +13,8 @@ export function ProgressBar({
   label,
   valueText,
   size = "sm",
+  variant = "default",
+  animateFill = false,
   displayText,
   className = "",
   animateLoss = false,
@@ -80,7 +82,7 @@ export function ProgressBar({
 
   return (
     <div
-      className={`ui-progress-bar ui-progress-bar--${safeSize} ${className}`.trim()}
+      className={`ui-progress-bar ui-progress-bar--${safeSize}${variant === "active" ? " ui-progress-bar--active" : ""}${animateFill ? " ui-progress-bar--animate-fill" : ""} ${className}`.trim()}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={safeMax}
@@ -97,7 +99,7 @@ export function ProgressBar({
         const progress = (
           <progress
             className="ui-progress-bar-segment"
-            value={segmentValue}
+            value={variant === "active" ? 0 : segmentValue}
             max={segmentMax}
             aria-hidden="true"
           />
@@ -117,16 +119,6 @@ export function ProgressBar({
           Number.isFinite(highlightAmount) &&
           highlightAmount > 0 &&
           highlightWidth > 0;
-        if (!animateLoss && !highlighted)
-          return (
-            <progress
-              className="ui-progress-bar-segment"
-              key={index}
-              value={segmentValue}
-              max={segmentMax}
-              aria-hidden="true"
-            />
-          );
         const damaged = progressLossSegment(loss, segmentStart, segmentMax);
         return (
           <span className="ui-progress-bar-segment-shell" key={index}>
@@ -145,6 +137,13 @@ export function ProgressBar({
               />
             )}
             {progress}
+            {variant === "active" && (
+              <span
+                className="ui-progress-bar-active-fill"
+                aria-hidden="true"
+                style={{ width: `${(segmentValue / segmentMax) * 100}%` }}
+              />
+            )}
             {highlighted && (
               <span
                 className="ui-progress-bar-highlight"

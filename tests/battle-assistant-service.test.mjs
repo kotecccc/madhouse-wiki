@@ -36,6 +36,7 @@ function createHarness({
   winOnAttack = false,
   omitHits = false,
   unknownAttack = false,
+  attackApplied = true,
   bagUnavailable = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "battle-assistant-service-"));
@@ -182,7 +183,7 @@ function createHarness({
       path === `/api/bosses/battles/${currentId}/attack` &&
       method === "POST"
     ) {
-      currentDamage += 50;
+      if (attackApplied) currentDamage += 50;
       if (unknownAttack) throw new Error("simulated lost attack reply");
       currentReadyAt = now + 60_000;
       hp = Math.max(0, hp - healthLoss);
@@ -710,7 +711,11 @@ test("inventory recovery heals and resumes without toggling the run or resetting
 });
 
 test("an uncertain strike waits durably and never replays after server restart", async () => {
-  const ctx = createHarness({ health: 80, unknownAttack: true });
+  const ctx = createHarness({
+    health: 80,
+    unknownAttack: true,
+    attackApplied: false,
+  });
   try {
     const entry = await ctx.open();
     await ctx.command(entry, "unknown-strike-start", "auto.start");

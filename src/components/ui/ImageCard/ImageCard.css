@@ -27,6 +27,14 @@
   object-fit: contain;
 }
 
+.image-card--avatar {
+  background: inherit;
+}
+
+.image-card--avatar .image-card-placeholder {
+  background: inherit;
+}
+
 .image-card-placeholder {
   grid-area: 1 / 1;
   display: grid;
@@ -38,8 +46,8 @@
 }
 
 .image-card-placeholder > svg {
-  width: var(--image-card-image-size, var(--space-24));
-  height: var(--image-card-image-size, var(--space-24));
+  width: var(--icon-size, var(--image-card-image-size, var(--space-24)));
+  height: var(--icon-size, var(--image-card-image-size, var(--space-24)));
   stroke-width: 1.4;
 }
 

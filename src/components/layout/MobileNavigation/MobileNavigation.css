@@ -17,12 +17,6 @@
   }
 }
 
-@container (max-width: 400px) {
-  .mobile-navigation-label {
-    display: none;
-  }
-}
-
 .desktop-navigation {
   margin-block: var(--space-16);
 }

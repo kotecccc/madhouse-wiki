@@ -65,6 +65,7 @@ test("damage crossing segment boundaries stays inside each affected segment, inc
 test("animated and ordinary bars preserve native progress semantics without showing an initial damage effect", async () => {
   const server = await createServer({
     configFile: false,
+    optimizeDeps: { noDiscovery: true, include: [] },
     plugins: [react()],
     server: { middlewareMode: true, hmr: false },
     appType: "custom",
@@ -90,7 +91,7 @@ test("animated and ordinary bars preserve native progress semantics without show
       assert.ok(html.includes('aria-valuetext="60 / 100"'));
       assert.equal((html.match(/<progress /g) || []).length, 2);
       assert.ok(!html.includes('class="ui-progress-bar-loss"'));
-      assert.equal(html.includes("ui-progress-bar-segment-shell"), animateLoss);
+      assert.ok(html.includes("ui-progress-bar-segment-shell"));
     }
   } finally {
     await server.close();

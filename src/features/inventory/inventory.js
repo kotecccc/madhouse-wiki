@@ -46,6 +46,7 @@ export function inventoryItems(type, responses, references) {
               list(set?.items).map((item) => ({
                 ...item,
                 setId: item.setId ?? set.id,
+                setName: item.setName ?? set.name,
               })),
             )
           : list(body?.items);
@@ -108,7 +109,7 @@ export function inventoryItems(type, responses, references) {
             ? item.setName
             : (reference?.setName ?? null),
         slotLabel: reference?.slotLabel ?? null,
-        mutagenActive: equipped && !broken,
+        mutagenActive: type === "clothing_item" || (equipped && !broken),
         ownedLevel: item.owned === true ? nonnegative(item.level) : null,
         maxLevel: nonnegative(item.maxLevel ?? reference?.maxLevel),
         durability:

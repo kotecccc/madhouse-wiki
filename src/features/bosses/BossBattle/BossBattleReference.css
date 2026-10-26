@@ -1,18 +1,17 @@
 .boss-battle-loot-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-8);
+  gap: var(--space-4);
 }
 
 .boss-battle-loot-tile {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: var(--space-8);
+  gap: var(--space-4);
   min-width: 0;
 }
 
-.boss-battle-received-drops {
-  display: grid;
-  gap: var(--card-content-gap);
+.boss-battle-loot-end-space {
+  width: var(--space-4);
 }

@@ -17,6 +17,17 @@
   gap: var(--space-12);
   min-width: 0;
 }
+.inventory-item-heading--room {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.inventory-room-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
 .inventory-item-stats {
   display: flex;
   flex-wrap: wrap;

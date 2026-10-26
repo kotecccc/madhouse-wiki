@@ -33,23 +33,6 @@
   gap: var(--space-12);
 }
 
-.overview-avatar {
-  flex: 0 0 64px;
-  width: 64px;
-  height: 64px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
-  object-fit: cover;
-}
-
-.overview-avatar-fallback {
-  display: grid;
-  place-items: center;
-  color: var(--paper);
-  background: var(--panel);
-  font-size: var(--font-size-xl);
-}
-
 .overview-player-identity {
   display: grid;
   min-width: 0;

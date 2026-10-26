@@ -262,7 +262,7 @@ test("reservations are persisted before callbacks resolve and unknown actions ar
   });
   const callsBefore = controller.calls.length;
   assert.equal((await restored.step()).kind, "wait");
-  assert.equal(controller.calls.length, callsBefore);
+  assert.deepEqual(controller.calls.slice(callsBefore), [["refresh"]]);
 });
 
 test("battle use counts reset by battle identity; run budgets persist until a new goal", async () => {
@@ -523,6 +523,52 @@ test("read recovery can clear an outage while mutation availability remains gate
     false,
   );
   assert.ok(controller.calls.some(([kind]) => kind === "stock"));
+});
+
+test("uncertain strikes refresh the battle and clear only after confirmed personal damage", async () => {
+  const controller = fakeController(baseState());
+  controller.refreshDamageLimit = async () => {};
+  const assistant = createBattleAssistant({
+    controller,
+    saved: {
+      pending: { kind: "attack", battleId: "battle-1", beforeDamage: 0 },
+      battles: { "battle-1": { used: {}, samples: [] } },
+    },
+  });
+  assert.equal(await assistant.recover(), false);
+  assert.equal(assistant.projection().uncertain, true);
+  controller.setSnapshot({
+    ...controller.getSnapshot(),
+    battle: { ...controller.getSnapshot().battle, totalDamage: 50 },
+  });
+  assert.equal(await assistant.recover(), true);
+  assert.equal(assistant.projection().uncertain, false);
+  assert.equal(
+    controller.calls.filter(([kind]) => kind === "refresh").length,
+    2,
+  );
+  assert.equal(
+    controller.calls.some(([kind]) => kind === "attack"),
+    false,
+  );
+});
+
+test("a confirmed new battle releases an old strike reservation without replay", async () => {
+  const controller = fakeController(baseState());
+  controller.refreshDamageLimit = async () => {};
+  const assistant = createBattleAssistant({
+    controller,
+    saved: {
+      pending: { kind: "attack", battleId: "previous-battle" },
+      battles: {},
+    },
+  });
+  assert.equal(await assistant.recover(), true);
+  assert.equal(assistant.projection().uncertain, false);
+  assert.equal(
+    controller.calls.some(([kind]) => kind === "attack"),
+    false,
+  );
 });
 
 test("stop during outage recovery cannot submit a late attack", async () => {

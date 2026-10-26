@@ -25,6 +25,7 @@ import { Input } from "../../components/ui/Input/Input.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
+import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
 import { StatusMessage } from "../../components/ui/StatusMessage/StatusMessage.jsx";
 import "./InventorySection.css";
 
@@ -128,6 +129,15 @@ export function InventorySection({ active }) {
     let cancelled = false;
     const fresh = refreshRequested.current;
     refreshRequested.current = false;
+    setRequestState((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        pathKey
+          .split("|")
+          .filter(Boolean)
+          .map((path) => [path, "pending"]),
+      ),
+    }));
     // Session API deduplicates requests and paces them across every account view.
     // revalidate:false prevents timer/focus refreshes of inventory sections.
     async function load() {
@@ -182,6 +192,10 @@ export function InventorySection({ active }) {
     setFilters((current) => ({ ...current, [key]: value }));
     setLimit(PAGE_SIZE);
   }
+  const processedTattooZones = paths.filter((path) =>
+    ["ready", "error"].includes(requestState[path]),
+  ).length;
+
   return (
     <section className="inventory-section" aria-label="Инвентарь">
       <div className="inventory-toolbar">
@@ -297,6 +311,23 @@ export function InventorySection({ active }) {
             ) : (
               "Дата неизвестна"
             )}
+          </CardDescription>
+        </div>
+      )}
+      {category === "ornament" && loading && (
+        <div
+          className="inventory-tattoo-loading"
+          role="status"
+          aria-live="polite"
+        >
+          <ProgressBar
+            value={processedTattooZones}
+            max={paths.length}
+            label="Загрузка татуировок"
+            valueText={`${processedTattooZones} из ${paths.length} зон`}
+          />
+          <CardDescription className="inventory-tattoo-loading-label">
+            Загружено {processedTattooZones} из {paths.length}
           </CardDescription>
         </div>
       )}

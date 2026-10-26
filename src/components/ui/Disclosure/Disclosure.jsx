@@ -5,6 +5,22 @@ import { CardDescription } from "../CardDescription/CardDescription.jsx";
 import { Icon } from "../Icon/Icon.jsx";
 import "./Disclosure.css";
 
+export function DisclosureHeader({ title, leading, status, size = "md" }) {
+  return (
+    <div
+      className={`ui-disclosure-heading${leading ? " ui-disclosure-heading--leading" : ""}${status ? " ui-disclosure-heading--status" : ""}${size === "sm" ? " ui-disclosure-heading--sm" : ""}`}
+    >
+      {leading}
+      <span className="ui-disclosure-copy">
+        <CardTitle as="span" size={size === "sm" ? "sm" : undefined}>
+          {title}
+        </CardTitle>
+      </span>
+      {status}
+    </div>
+  );
+}
+
 export function Disclosure({
   title,
   count,

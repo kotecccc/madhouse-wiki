@@ -1,9 +1,13 @@
-.ui-disclosure-summary {
+.ui-disclosure-summary,
+.ui-disclosure-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-12);
   min-height: var(--control-height-md);
+}
+
+.ui-disclosure-summary {
   list-style: none;
   cursor: pointer;
 }
@@ -12,12 +16,24 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
+.ui-disclosure-heading--leading {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
 .ui-disclosure-summary--status {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
+.ui-disclosure-heading--status {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .ui-disclosure-summary--leading.ui-disclosure-summary--status {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.ui-disclosure-heading--leading.ui-disclosure-heading--status {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .ui-disclosure-copy {
@@ -45,7 +61,8 @@
   padding-top: var(--space-12);
 }
 
-.ui-disclosure--sm > .ui-disclosure-summary {
+.ui-disclosure--sm > .ui-disclosure-summary,
+.ui-disclosure-heading--sm {
   min-height: var(--control-height-sm);
   gap: var(--space-8);
 }

@@ -63,3 +63,10 @@
   justify-content: space-between;
   gap: var(--space-8);
 }
+.inventory-tattoo-loading {
+  display: grid;
+  gap: var(--space-8);
+}
+.inventory-tattoo-loading-label {
+  text-align: center;
+}

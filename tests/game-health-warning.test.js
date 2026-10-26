@@ -18,33 +18,30 @@ test("game health warning keeps error details unmounted until requested", async 
       "/shared/session-api.js",
     );
     const {
-      GameHealthWarning,
+      GameHealthWarningBanner,
+      GameHealthWarningIndicator,
       GameHealthDetails,
-      GameHealthIndicator,
       healthRefreshLabel,
       formatLastSuccess,
     } = await server.ssrLoadModule(
       "/src/components/layout/BottomDock/GameHealthWarning.jsx",
     );
-    const checkingIcon = renderToStaticMarkup(
-      createElement(GameHealthIndicator, { checking: true }),
-    );
-    assert.match(checkingIcon, /ui-icon--spin/);
-    assert.doesNotMatch(checkingIcon, /ui-icon--pulse/);
-    const warningIcon = renderToStaticMarkup(
-      createElement(GameHealthIndicator, { checking: false }),
-    );
-    assert.match(warningIcon, /ui-icon--pulse/);
-    assert.doesNotMatch(warningIcon, /ui-icon--spin/);
     assert.equal(healthRefreshLabel(59, true), "Обновить 0:59");
     assert.equal(healthRefreshLabel(0, true), "Проверяем…");
     assert.equal(healthRefreshLabel(0, false), "Обновить");
     for (const status of ["unavailable", "credentials_invalid"]) {
       reportGameHealth({ status });
-      const html = renderToStaticMarkup(createElement(GameHealthWarning));
-      assert.match(html, /aria-haspopup="dialog"/);
-      assert.match(html, /base-card--glass-nav/);
-      assert.match(html, /button-nav-tab/);
+      const html = renderToStaticMarkup(createElement(GameHealthWarningBanner));
+      assert.match(html, /Закрыть предупреждение/);
+      assert.match(html, /base-card--warning/);
+      assert.match(html, /button-icon-ghost/);
+      assert.match(html, /ui-icon--pulse/);
+      const indicator = renderToStaticMarkup(
+        createElement(GameHealthWarningIndicator),
+      );
+      assert.match(indicator, /game-health-warning-indicator--banner-visible/);
+      assert.match(indicator, /aria-haspopup="dialog"/);
+      assert.doesNotMatch(indicator, /ui-icon--pulse|ui-icon--spin|<dialog\b/);
       assert.doesNotMatch(
         html,
         /<dialog\b|Последнее успешное обновление|Успешных обновлений/,
@@ -52,7 +49,10 @@ test("game health warning keeps error details unmounted until requested", async 
     }
     for (const status of ["available", "unknown"]) {
       reportGameHealth({ status });
-      assert.equal(renderToStaticMarkup(createElement(GameHealthWarning)), "");
+      assert.equal(
+        renderToStaticMarkup(createElement(GameHealthWarningBanner)),
+        "",
+      );
     }
     const details = (status) =>
       renderToStaticMarkup(

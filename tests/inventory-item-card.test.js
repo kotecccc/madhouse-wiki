@@ -155,6 +155,18 @@ test("all inventory categories share cards, show appropriate actions and mark in
       name: "Мутаген A-17",
       bonuses: { aggression: 95 },
     };
+    const clothing = render({
+      type: "clothing_item",
+      installedMutagen: mutagen,
+      equipped: false,
+      mutagenActive: false,
+    });
+    assert.match(clothing, /Установлен: Мутаген A-17/);
+    assert.doesNotMatch(clothing, /tabler-icon-flask-off|<s>/);
+    assert.match(
+      render({ type: "pet", installedMutagen: mutagen, equipped: false }),
+      /<s><svg\b[^]*?<\/svg>Мутаген A-17<\/s>/,
+    );
     assert.match(
       render({ type: "pet", installedMutagen: mutagen, equipped: false }),
       /Неактивен: Мутаген A-17/,

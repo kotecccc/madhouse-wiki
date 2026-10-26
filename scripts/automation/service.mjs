@@ -517,9 +517,9 @@ export function createAutomationService({
       unlock: () => {
         entry.busy = false;
       },
-      refresh: async () => {
+      refresh: async ({ force = false } = {}) => {
         await refreshAvailability();
-        await refreshInvitations(entry);
+        await refreshInvitations(entry, force);
       },
       invitations: () => entry.invitations.items,
       accept: (id, allowed) => acceptInvitation(entry, id, allowed),

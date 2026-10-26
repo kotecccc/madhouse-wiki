@@ -34,6 +34,7 @@ export function MutagenLabel({
     <StatTag
       icon={active ? "flask" : "flask-off"}
       mutagenType={mutagen.type}
+      inactive={!active}
       label={mutagen.name}
       description={`${active ? "Установлен" : "Неактивен"}: ${mutagen.name}`}
       details={active ? details : [inactiveReason, ...details]}

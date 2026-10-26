@@ -96,6 +96,12 @@ export function normalizeBattle(
           if (number(participant[key]) !== null)
             projected[key] = participant[key];
         }
+        if (
+          identity?.playerId != null &&
+          participant.playerId != null &&
+          String(participant.playerId) === String(identity.playerId)
+        )
+          projected.isSelf = true;
         return [projected];
       })
     : [];
@@ -248,7 +254,9 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
   if (next.totalDamage == null) next.totalDamage = previous.totalDamage;
   else if (previous.totalDamage != null)
     next.totalDamage = Math.max(next.totalDamage, previous.totalDamage);
-  if (!Object.hasOwn(raw, "dropDamageRequired"))
+  // Strike replies can include a null quota instead of omitting it. Keep the
+  // confirmed threshold for this battle; quotaFresh still describes this reply.
+  if (next.dropDamageRequired == null)
     next.dropDamageRequired = previous.dropDamageRequired;
   if (!Object.hasOwn(raw, "maxParticipants"))
     next.maxParticipants = previous.maxParticipants;

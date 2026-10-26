@@ -97,6 +97,17 @@
   background: var(--control-locked-background-hover);
 }
 
+.button-warning {
+  border-color: var(--status-business);
+  color: var(--text-secondary);
+  background: var(--control-warning-background);
+}
+
+.button-warning:hover:not(:disabled) {
+  border-color: var(--status-business);
+  background: var(--control-warning-background-hover);
+}
+
 .button-warning-icon {
   width: var(--control-height-md);
   min-width: var(--control-height-md);
@@ -166,6 +177,7 @@
   height: 1em;
   padding: 0;
   border: 0;
+  color: var(--text-muted);
   gap: 0;
   font-size: inherit;
   line-height: 1;
@@ -185,6 +197,18 @@
 .button-icon-copy-inline > .ui-icon {
   width: 1em;
   height: 1em;
+}
+
+.button-icon-ghost {
+  border-color: transparent;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.button-icon-ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .button-icon-copy > .button-label {
@@ -218,6 +242,11 @@
 }
 
 @media (max-width: 650px) {
+  .button-nav-tab {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
   .button-card-action:has(> .ui-icon),
   .button-icon-copy:not(.button-icon-copy-inline) {
     width: var(--touch-target-size);
@@ -253,6 +282,12 @@
 .button--accent-gold,
 .button--accent-gold:hover:not(:disabled) {
   border-color: var(--status-business);
+  color: var(--status-business);
+}
+
+.button-icon-ghost.button--accent-gold,
+.button-icon-ghost.button--accent-gold:hover:not(:disabled) {
+  border-color: transparent;
 }
 
 .button-nav-tab.button--accent-gold,

@@ -1,4 +1,6 @@
 const INTERVAL_MS = 10000;
+const POST_BATTLE_POLL_MS = 1000;
+const POST_BATTLE_WINDOW_MS = 4000;
 
 // The account heartbeat owns polling. Intent/checkpoints are persisted by onChange.
 export function createRaidWaiter({
@@ -50,6 +52,7 @@ export function createRaidWaiter({
         status: "waiting",
         bossId,
         nextCheckAt: now(),
+        postBattleUntil: null,
         notice: "Ждём приглашения на выбранного босса.",
       });
       return true;
@@ -81,6 +84,19 @@ export function createRaidWaiter({
         return;
       }
       if (auto.getSnapshot().enabled) return;
+      const observedState = state();
+      const battleJustEnded =
+        value.status === "fighting" &&
+        observedState.battle &&
+        observedState.battle.status !== "active";
+      if (battleJustEnded) {
+        publish({
+          status: "waiting",
+          nextCheckAt: now(),
+          postBattleUntil: now() + POST_BATTLE_WINDOW_MS,
+          notice: "Бой завершён. Проверяем новые приглашения.",
+        });
+      }
       if (now() < (value.nextCheckAt ?? 0)) return;
       if (currentGoal.rewardUncertain) {
         publish({
@@ -146,7 +162,8 @@ export function createRaidWaiter({
           nextCheckAt: now() + INTERVAL_MS,
           notice: "Ждём приглашения на выбранного босса.",
         });
-        await refresh();
+        const recentBattle = (value.postBattleUntil ?? 0) >= now();
+        await refresh({ force: battleJustEnded || recentBattle });
         if (!value.enabled) return;
         const invitation = invitations().find(
           (item) =>
@@ -154,7 +171,15 @@ export function createRaidWaiter({
             item.available &&
             item.expiresAt > now(),
         );
-        if (!invitation) return;
+        if (!invitation) {
+          const keepPolling = (value.postBattleUntil ?? 0) >= now();
+          publish({
+            nextCheckAt:
+              now() + (keepPolling ? POST_BATTLE_POLL_MS : INTERVAL_MS),
+            ...(keepPolling ? {} : { postBattleUntil: null }),
+          });
+          return;
+        }
         publish({
           status: "joining",
           notice: "Вступаем в рейд по приглашению…",
@@ -171,6 +196,7 @@ export function createRaidWaiter({
           throw new Error("join_unconfirmed");
         publish({
           status: "fighting",
+          postBattleUntil: null,
           notice: "Рейд идёт. После боя ждём следующее приглашение.",
         });
         if (!auto.start()) throw new Error("attack_unavailable");

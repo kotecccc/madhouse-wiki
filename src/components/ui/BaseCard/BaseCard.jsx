@@ -11,6 +11,7 @@ const paddingSizes = new Set([
   "48",
   "64",
 ]);
+const inlinePaddingSizes = new Set(["4", "8", "12", "16", "24", "32"]);
 
 export function BaseCard({
   as: Tag = "div",
@@ -18,6 +19,7 @@ export function BaseCard({
   variant,
   state,
   padding,
+  paddingInline,
   editKey,
   children,
   ...props
@@ -30,6 +32,9 @@ export function BaseCard({
   const paddingClass = paddingSizes.has(String(padding))
     ? `base-card--padding-${padding}`
     : "";
+  const inlinePaddingClass = inlinePaddingSizes.has(String(paddingInline))
+    ? `base-card--padding-inline-${paddingInline}`
+    : "";
   return (
     <Tag
       className={[
@@ -39,6 +44,7 @@ export function BaseCard({
         state === "target" && "base-card--target",
         state === "warning" && "base-card--warning",
         paddingClass,
+        inlinePaddingClass,
         editing.className,
         className,
       ]

@@ -22,6 +22,7 @@ export const BUTTON_VARIANTS = [
   "nav-tab",
   "icon-copy",
   "icon-copy-inline",
+  "icon-ghost",
 ];
 export const STATUSES = [
   "scheduled",

@@ -19,11 +19,11 @@ const states = {
   unknown: "Статус неизвестен",
 };
 const stats = {
-  madness: ["brain", "Безумие"],
+  madness: ["madness", "Безумие"],
   aggression: ["aggression", "Агрессия"],
   rage: ["rage", "Ярость"],
-  endurance: ["madness", "Выносливость"],
-  maxHealth: ["madness", "Здоровье"],
+  endurance: ["energy", "Выносливость"],
+  maxHealth: ["health", "Здоровье"],
   baseDamage: ["sword", "Урон"],
   attackCooldownSeconds: ["timer", "Интервал атак"],
   attackCooldownReductionSeconds: ["timer", "Сокращение интервала"],
@@ -91,6 +91,51 @@ export function InventoryItemCard({
     item.ownedLevel <= item.maxLevel;
   const maxed = levelKnown && item.ownedLevel === item.maxLevel;
   const price = item.facts?.purchasePrice;
+  const status = locked ? (
+    <span
+      className={room ? "inventory-room-status" : "inventory-item-status"}
+      role="img"
+      aria-label="Предмет недоступен"
+      title="Предмет недоступен"
+    >
+      <Icon type="lock" size="text" />
+    </span>
+  ) : (
+    !locked &&
+    (item.equipped ||
+      levelKnown ||
+      item.isBroken ||
+      item.status !== "owned") && (
+      <div className={room ? "inventory-room-status" : "inventory-item-status"}>
+        {item.equipped && (
+          <Pill size="xs" dot={false} variant="scheduled">
+            <Icon type={equippedIcon} size="text" />
+            {wornLabel}
+          </Pill>
+        )}
+        {item.isBroken && (
+          <Pill size="xs" dot={false} variant="locked">
+            Сломан
+          </Pill>
+        )}
+        {maxed && (
+          <Pill size="xs" dot={false} variant="completed">
+            Максимум
+          </Pill>
+        )}
+        {levelKnown && !maxed && (
+          <Pill size="xs" dot={false}>
+            Ур. {item.ownedLevel}
+          </Pill>
+        )}
+        {!levelKnown && !item.equipped && item.status !== "owned" && (
+          <Pill size="xs" dot={false}>
+            {states[item.status]}
+          </Pill>
+        )}
+      </div>
+    )
+  );
   return (
     <BaseCard
       as="article"
@@ -98,16 +143,7 @@ export function InventoryItemCard({
       className="inventory-item-card"
       state={item.status === "locked" ? "locked" : undefined}
     >
-      {locked && (
-        <span
-          className="inventory-item-status"
-          role="img"
-          aria-label="Предмет недоступен"
-          title="Предмет недоступен"
-        >
-          <Icon type="lock" size="text" />
-        </span>
-      )}
+      {!room && locked && status}
       {room && (
         <ImageCard
           className="inventory-item-media"
@@ -124,17 +160,17 @@ export function InventoryItemCard({
           <CardTitle as="h3" size="sm" title={item.name}>
             {item.name}
           </CardTitle>
-          <CardDescription size="xs">
-            {room
-              ? "Комната"
-              : durabilityKnown
+          {!room && (
+            <CardDescription size="xs">
+              {durabilityKnown
                 ? `Прочность: ${fmt(item.durability)} / ${fmt(item.durabilityMax)}`
                 : item.slotLabel ||
                   item.setName ||
                   (item.type === "ornament" && item.zoneId
                     ? `Зона ${item.zoneId}`
                     : typeLabels[item.type])}
-          </CardDescription>
+            </CardDescription>
+          )}
           {!room && durabilityKnown && (
             <div className="inventory-item-condition">
               <ProgressBar
@@ -146,41 +182,9 @@ export function InventoryItemCard({
             </div>
           )}
         </div>
+        {room && status}
       </div>
-      {!locked &&
-        (item.equipped ||
-          levelKnown ||
-          item.isBroken ||
-          item.status !== "owned") && (
-          <div className="inventory-item-status">
-            {item.equipped && (
-              <Pill size="xs" dot={false} variant="scheduled">
-                <Icon type={equippedIcon} size="text" />
-                {wornLabel}
-              </Pill>
-            )}
-            {item.isBroken && (
-              <Pill size="xs" dot={false} variant="locked">
-                Сломан
-              </Pill>
-            )}
-            {maxed && (
-              <Pill size="xs" dot={false} variant="completed">
-                Максимум
-              </Pill>
-            )}
-            {levelKnown && !maxed && (
-              <Pill size="xs" dot={false}>
-                Ур. {item.ownedLevel}
-              </Pill>
-            )}
-            {!levelKnown && !item.equipped && item.status !== "owned" && (
-              <Pill size="xs" dot={false}>
-                {states[item.status]}
-              </Pill>
-            )}
-          </div>
-        )}
+      {!room && !locked && status}
       <div className="inventory-item-details">
         <InventoryStats values={inventoryDisplayStats(item)} />
         {item.installedMutagen && (
@@ -188,7 +192,9 @@ export function InventoryItemCard({
             <MutagenLabel
               mutagen={item.installedMutagen}
               active={
-                item.mutagenActive ?? (item.equipped === true && !item.isBroken)
+                item.type === "clothing_item" ||
+                (item.mutagenActive ??
+                  (item.equipped === true && !item.isBroken))
               }
               inactiveReason={
                 item.isBroken
@@ -203,6 +209,7 @@ export function InventoryItemCard({
       </div>
       {item.status === "buyable" && price && onAction && (
         <Button
+          variant="primary"
           disabled={equipmentBusy}
           icon={
             price.currency === "gold"

@@ -6,6 +6,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
@@ -167,29 +168,16 @@ function bossRequirementName(requirement) {
 }
 
 function PlayerAvatar({ profile }) {
-  const [imageAvailable, setImageAvailable] = useState(
-    Boolean(profile.avatarUrl),
-  );
-  useEffect(
-    () => setImageAvailable(Boolean(profile.avatarUrl)),
-    [profile.avatarUrl],
-  );
-  if (imageAvailable)
-    return (
-      <img
-        className="overview-avatar"
-        src={profile.avatarUrl}
-        alt=""
-        onError={() => setImageAvailable(false)}
-      />
-    );
   return (
-    <span
-      className="overview-avatar overview-avatar-fallback"
-      aria-hidden="true"
+    <ImageCard
+      variant="avatar"
+      src={profile.avatarUrl}
+      alt=""
+      size={64}
+      imageSize={64}
     >
-      {(profile.name || "И").slice(0, 1).toLocaleUpperCase("ru-RU")}
-    </span>
+      <Icon type="character" size="xlarge" />
+    </ImageCard>
   );
 }
 

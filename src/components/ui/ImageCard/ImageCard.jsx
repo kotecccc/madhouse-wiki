@@ -60,12 +60,18 @@ export function ImageCard({
   const imageFailed = Boolean(src) && failedSrc === src;
   const showImage = Boolean(src) && !imageFailed;
   const imageLoaded = showImage && (loadedSrc === src || loadedImages.has(src));
+  const variantClass =
+    variant === "landscape"
+      ? "image-card--landscape"
+      : variant === "avatar"
+        ? "image-card--avatar"
+        : "";
 
   return (
     <BaseCard
       as={as}
       variant="image"
-      className={`image-card ${variant === "landscape" ? "image-card--landscape" : ""} ${className} ${editing.className}`}
+      className={`image-card ${variantClass} ${className} ${editing.className}`}
       aria-label={label}
       title={title}
       {...editing.targetProps}

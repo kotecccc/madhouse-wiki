@@ -16,9 +16,27 @@ import { BaseCard } from "../../ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../ui/Button/Button.jsx";
 import { Icon } from "../../ui/Icon/Icon.jsx";
 import { Modal } from "../../ui/Modal/Modal.jsx";
+import { CardDescription } from "../../ui/CardDescription/CardDescription.jsx";
 import { StatusMessage } from "../../ui/StatusMessage/StatusMessage.jsx";
+import "./GameHealthWarning.css";
 
 const HEALTH_RETRY_KEY = "madhouse:game-health-refresh-started-at:v1";
+let bannerDismissed = false;
+const bannerDismissedListeners = new Set();
+
+function subscribeBannerDismissed(listener) {
+  bannerDismissedListeners.add(listener);
+  return () => bannerDismissedListeners.delete(listener);
+}
+
+function readBannerDismissed() {
+  return bannerDismissed;
+}
+
+function dismissBanner() {
+  bannerDismissed = true;
+  for (const listener of bannerDismissedListeners) listener();
+}
 
 const failedFeatureLabels = {
   profile: "Профиль",
@@ -116,29 +134,39 @@ export function GameHealthDetails({ health }) {
   );
 }
 
-export function GameHealthIndicator({ checking }) {
-  return (
-    <Icon
-      type={checking ? "loader" : "warning"}
-      size="large"
-      motion={checking ? "spin" : "pulse"}
-    />
-  );
-}
-
 export function healthRefreshLabel(seconds, checking) {
   if (seconds > 0)
     return `Обновить ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   return checking ? "Проверяем…" : "Обновить";
 }
 
-export function GameHealthWarning() {
+function useGameHealthSnapshot() {
+  const [health, setHealth] = useState(() => readGameHealth());
+  useEffect(() => {
+    const update = (event) => setHealth(event.detail || readGameHealth());
+    window.addEventListener("madhouse:game-health", update);
+    setHealth(readGameHealth());
+    return () => window.removeEventListener("madhouse:game-health", update);
+  }, []);
+  return health;
+}
+
+function hasHealthWarning(health) {
+  return health && !["available", "unknown"].includes(health.status);
+}
+
+export function GameHealthWarningIndicator() {
   const refreshing = useSyncExternalStore(
     subscribeSessionData,
     readSessionRefreshState,
     () => false,
   );
-  const [health, setHealth] = useState(() => readGameHealth());
+  const health = useGameHealthSnapshot();
+  const bannerWasDismissed = useSyncExternalStore(
+    subscribeBannerDismissed,
+    readBannerDismissed,
+    () => false,
+  );
   const [open, setOpen] = useState(false);
   const [manualChecking, setManualChecking] = useState(false);
   const [initialRefreshAt] = useState(() =>
@@ -175,15 +203,7 @@ export function GameHealthWarning() {
     }
   };
 
-  useEffect(() => {
-    const update = (event) => setHealth(event.detail || readGameHealth());
-    window.addEventListener("madhouse:game-health", update);
-    setHealth(readGameHealth());
-    return () => window.removeEventListener("madhouse:game-health", update);
-  }, []);
-
-  if (!health || health.status === "available" || health.status === "unknown")
-    return null;
+  if (!hasHealthWarning(health)) return null;
   const message = healthMessage(health.status);
   const checking =
     manualChecking || (refreshing && health.status === "unavailable");
@@ -191,24 +211,22 @@ export function GameHealthWarning() {
 
   return (
     <>
-      <BaseCard
-        variant="glass-nav"
-        state="warning"
-        className="game-health-warning"
-      >
-        <Button
-          variant="nav-tab"
-          size="md"
-          accent="gold"
-          aria-label={label}
-          aria-busy={checking}
-          title={label}
-          aria-haspopup="dialog"
-          onClick={() => setOpen(true)}
-        >
-          <GameHealthIndicator checking={checking} />
-        </Button>
-      </BaseCard>
+      <Button
+        variant="icon-ghost"
+        className={
+          bannerWasDismissed
+            ? undefined
+            : "game-health-warning-indicator--banner-visible"
+        }
+        accent="gold"
+        icon="warning"
+        iconOnly
+        aria-label={label}
+        aria-busy={checking}
+        title={label}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      />
       {open && (
         <Modal
           title={
@@ -238,5 +256,44 @@ export function GameHealthWarning() {
         </Modal>
       )}
     </>
+  );
+}
+
+export function GameHealthWarningBanner() {
+  const health = useGameHealthSnapshot();
+  const dismissed = useSyncExternalStore(
+    subscribeBannerDismissed,
+    readBannerDismissed,
+    () => false,
+  );
+  if (!hasHealthWarning(health) || dismissed) return null;
+
+  const message = healthMessage(health.status);
+  const label =
+    health.status === "unavailable"
+      ? "Наблюдаются сбои игровых серверов"
+      : message.label;
+  return (
+    <BaseCard
+      state="warning"
+      padding="8"
+      paddingInline="12"
+      className="game-health-warning-banner"
+    >
+      <div className="game-health-warning-banner-copy">
+        <Icon type="warning" size="small" motion="pulse" />
+        <CardDescription size="sm">{label}</CardDescription>
+      </div>
+      <Button
+        variant="icon-ghost"
+        size="sm"
+        accent="gold"
+        icon="close"
+        iconOnly
+        aria-label="Закрыть предупреждение"
+        title="Закрыть"
+        onClick={dismissBanner}
+      />
+    </BaseCard>
   );
 }
