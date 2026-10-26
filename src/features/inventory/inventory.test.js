@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   inventoryPaths,
+  inventoryPotential,
   inventoryCategoryOptions,
   inventoryItems,
   filterInventory,
@@ -230,4 +231,81 @@ test("weapon cards preserve explicit personal details without deriving them from
   assert.equal(items[1].currentStats, null);
   assert.equal(items[2].ownedLevel, null);
   assert.equal(items[2].currentStats, null);
+});
+
+test("potential sorting groups purchases, inventory and locked items before comparing max-level bonuses", () => {
+  const weapon = (id, status, base, growth, level = 0) => ({
+    id,
+    name: id,
+    type: "weapon",
+    status,
+    ownedLevel: level,
+    maxLevel: 50,
+    facts: {
+      stats: { aggression: base, attackCooldownSeconds: 4 },
+      perLevelStats: {
+        aggression: growth,
+        attackCooldownReductionSeconds: 0.04,
+      },
+    },
+  });
+  const items = [
+    weapon("locked", "locked", 9999, 100),
+    weapon("strong-base", "owned", 100, 1, 50),
+    weapon("strong-max", "owned", 10, 10),
+    weapon("buy", "buyable", 1, 1),
+    { id: "unknown", name: "unknown", type: "weapon", status: "unknown" },
+  ];
+  assert.deepEqual(
+    filterInventory(items).map((item) => item.id),
+    ["buy", "strong-max", "strong-base", "locked", "unknown"],
+  );
+  assert.deepEqual(inventoryPotential(items[2]), { total: 510, cooldown: 2 });
+  assert.deepEqual(
+    inventoryPotential({
+      ...items[2],
+      ownedLevel: 50,
+      currentStats: { aggression: 99999 },
+    }),
+    inventoryPotential(items[2]),
+  );
+  assert.equal(inventoryPotential({ ...items[2], maxLevel: null }), null);
+  assert.deepEqual(inventoryPotential({ ...items[2], maxLevel: 10 }), {
+    total: 110,
+    cooldown: 3.6,
+  });
+});
+test("unknown upgrade definitions sort last within their group; non-upgradeable items use their static bonuses", () => {
+  const items = [
+    {
+      id: "unknown",
+      name: "А",
+      type: "pet",
+      status: "owned",
+      facts: { stats: { rage: 999 } },
+    },
+    {
+      id: "known",
+      name: "Я",
+      type: "pet",
+      status: "owned",
+      maxLevel: 20,
+      facts: { stats: { rage: 2 }, perLevelStats: { rage: 3 } },
+    },
+  ];
+  assert.deepEqual(
+    filterInventory(items).map((item) => item.id),
+    ["known", "unknown"],
+  );
+  assert.deepEqual(
+    inventoryPotential({
+      type: "room",
+      facts: { stats: { madness: 63, aggression: 14, rage: 1 } },
+    }),
+    { total: 78, cooldown: Infinity },
+  );
+  assert.equal(
+    inventoryPotential({ type: "room", facts: { stats: {} } }),
+    null,
+  );
 });

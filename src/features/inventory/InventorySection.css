@@ -47,3 +47,12 @@
   display: flex;
   justify-content: flex-end;
 }
+
+.inventory-groups {
+  display: grid;
+  gap: var(--space-16);
+}
+.inventory-group {
+  display: grid;
+  gap: var(--space-8);
+}

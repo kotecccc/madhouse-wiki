@@ -10,6 +10,7 @@ import {
 } from "../../../shared/session-api.js";
 import {
   inventoryCategories,
+  inventoryGroups,
   inventoryCategoryOptions,
   inventoryItems,
   inventoryPaths,
@@ -20,6 +21,7 @@ import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { Input } from "../../components/ui/Input/Input.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
+import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { StatusMessage } from "../../components/ui/StatusMessage/StatusMessage.jsx";
 import { ItemCard } from "../items/ItemCard/ItemCard.jsx";
@@ -42,7 +44,7 @@ const initialFilters = {
   status: "all",
   slot: "all",
   currency: "all",
-  sort: "name",
+  sort: "potential",
 };
 const PAGE_SIZE = 36;
 const SHOW_FILTERS = false;
@@ -203,6 +205,7 @@ export function InventorySection({ active }) {
             value={filters.sort}
             onChange={(event) => changeFilter("sort", event.target.value)}
             options={options([
+              ["potential", "По потенциалу на максимуме"],
               ["name", "По названию"],
               ["price", "Цена ↑ внутри валюты"],
             ])}
@@ -282,26 +285,48 @@ export function InventorySection({ active }) {
           }
         />
       )}
-      <div className="inventory-grid" aria-busy={loading}>
-        {filtered.slice(0, limit).map((item) =>
-          ["weapon", "room"].includes(item.type) ? (
-            <InventoryItemCard key={`${item.type}:${item.id}`} item={item} />
-          ) : (
-            <ItemCard
-              key={`${item.type}:${item.id}`}
-              item={item}
-              as="article"
-              state={item.status === "locked" ? "locked" : undefined}
-              hidePrice={item.status === "locked"}
+      <div className="inventory-groups" aria-busy={loading}>
+        {inventoryGroups.map((group) => {
+          const groupItems = filtered
+            .slice(0, limit)
+            .filter((item) => item.status === group.status);
+          if (!groupItems.length) return null;
+          return (
+            <section
+              className="inventory-group"
+              key={group.status}
+              aria-label={group.label}
             >
-              <CardDescription>
-                {item.status === "locked" && <Icon type="lock" size="small" />}
-                {statuses[item.status]}
-                {item.equipped ? " · Экипировано" : ""}
-              </CardDescription>
-            </ItemCard>
-          ),
-        )}
+              <CardTitle as="h3">{group.label}</CardTitle>
+              <div className="inventory-grid">
+                {groupItems.map((item) =>
+                  ["weapon", "room"].includes(item.type) ? (
+                    <InventoryItemCard
+                      key={`${item.type}:${item.id}`}
+                      item={item}
+                    />
+                  ) : (
+                    <ItemCard
+                      key={`${item.type}:${item.id}`}
+                      item={item}
+                      as="article"
+                      state={item.status === "locked" ? "locked" : undefined}
+                      hidePrice={item.status === "locked"}
+                    >
+                      <CardDescription>
+                        {item.status === "locked" && (
+                          <Icon type="lock" size="small" />
+                        )}
+                        {statuses[item.status]}
+                        {item.equipped ? " · Экипировано" : ""}
+                      </CardDescription>
+                    </ItemCard>
+                  ),
+                )}
+              </div>
+            </section>
+          );
+        })}
       </div>
       {filtered.length > limit && (
         <Button onClick={() => setLimit((value) => value + PAGE_SIZE)}>

@@ -88,7 +88,7 @@ export function inventoryItems(type, responses, references) {
         status,
         equipped: item.equipped === true,
         ownedLevel: item.owned === true ? nonnegative(item.level) : null,
-        maxLevel: nonnegative(item.maxLevel),
+        maxLevel: nonnegative(item.maxLevel ?? reference?.maxLevel),
         durability: item.owned === true ? nonnegative(item.durability) : null,
         durabilityMax: nonnegative(item.durabilityMax),
         currentStats:
@@ -124,7 +124,7 @@ export function filterInventory(
     status = "all",
     slot = "all",
     currency = "all",
-    sort = "name",
+    sort = "potential",
   } = {},
 ) {
   const query = search.trim().toLocaleLowerCase("ru");
@@ -141,6 +141,19 @@ export function filterInventory(
           item.facts?.purchasePrice?.currency === currency),
     )
     .sort((a, b) => {
+      const group =
+        inventoryGroupOrder(a.status) - inventoryGroupOrder(b.status);
+      if (group) return group;
+      if (sort === "potential") {
+        const ap = inventoryPotential(a),
+          bp = inventoryPotential(b);
+        if (ap === null || bp === null) {
+          if (ap !== bp) return ap === null ? 1 : -1;
+        } else {
+          const difference = bp.total - ap.total || ap.cooldown - bp.cooldown;
+          if (difference) return difference;
+        }
+      }
       if (sort === "price") {
         const ap = a.facts?.purchasePrice,
           bp = b.facts?.purchasePrice;
@@ -173,4 +186,52 @@ export function inventoryCategoryOptions(responses, references) {
       ariaLabel: count > 0 ? `${label}: доступно для покупки ${count}` : label,
     };
   });
+}
+
+export const inventoryGroups = [
+  { status: "buyable", label: "Доступно для покупки" },
+  { status: "owned", label: "В инвентаре" },
+  { status: "locked", label: "Закрыто" },
+  { status: "unknown", label: "Статус неизвестен" },
+];
+function inventoryGroupOrder(status) {
+  const index = inventoryGroups.findIndex((group) => group.status === status);
+  return index < 0 ? inventoryGroups.length : index;
+}
+const potentialStats = [
+  "madness",
+  "aggression",
+  "rage",
+  "endurance",
+  "maxHealth",
+  "baseDamage",
+];
+export function inventoryPotential(item) {
+  const base = item.facts?.stats;
+  if (!base || !Object.values(base).some(Number.isFinite)) return null;
+  const upgradeable = ["weapon", "pet"].includes(item.type);
+  if (
+    upgradeable &&
+    (!Number.isSafeInteger(item.maxLevel) ||
+      item.maxLevel < 0 ||
+      !Object.keys(item.facts?.perLevelStats || {}).length)
+  )
+    return null;
+  const levels = upgradeable ? item.maxLevel : 0;
+  const increments = item.facts?.perLevelStats || {};
+  let total = 0;
+  for (const key of potentialStats) {
+    const initial = base[key] ?? 0,
+      increment = increments[key] ?? 0;
+    if (!Number.isFinite(initial) || !Number.isFinite(increment)) return null;
+    total += initial + increment * levels;
+  }
+  const cooldown = Number.isFinite(base.attackCooldownSeconds)
+    ? Math.max(
+        0,
+        base.attackCooldownSeconds -
+          (increments.attackCooldownReductionSeconds || 0) * levels,
+      )
+    : Infinity;
+  return Number.isFinite(total) ? { total, cooldown } : null;
 }

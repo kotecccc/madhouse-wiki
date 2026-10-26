@@ -502,6 +502,7 @@ export function readKnowledgeBase(
             id: String(entity.apiId),
             type,
             name: text(entity.name),
+            maxLevel: entity.maxLevel ?? null,
             categoryId: entity.categoryId ?? null,
             zoneId: entity.zoneId ?? null,
             setId: entity.setId ?? null,
