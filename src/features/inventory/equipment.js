@@ -1,8 +1,11 @@
-export async function sendEquipmentCommand({
+export async function sendInventoryCommand({
   get,
   post,
   item,
+  action,
   refreshOnly = false,
+  type = item?.type,
+  zoneId = item?.zoneId,
   makeId = () => crypto.randomUUID(),
 }) {
   const state = await get("/api/automation/state", {
@@ -10,15 +13,36 @@ export async function sendEquipmentCommand({
     revalidate: false,
   });
   if (!refreshOnly && state.equipment?.pending)
-    throw new Error("equipment_pending");
+    throw new Error("inventory_pending");
+  const price =
+    action === "repair"
+      ? { currency: "pills", amount: item?.repairCost }
+      : item?.facts?.purchasePrice;
+  const args = refreshOnly
+    ? { type, ...(zoneId != null ? { zoneId: Number(zoneId) } : {}) }
+    : {
+        type,
+        id: Number(item.id),
+        action,
+        ...(zoneId != null ? { zoneId: Number(zoneId) } : {}),
+        ...(["buy", "repair"].includes(action) ? { price } : {}),
+      };
   const result = await post("/api/automation/commands", {
     id: makeId(),
     expectedVersion: state.version,
-    command: refreshOnly ? "equipment.refresh" : "equipment.weapon",
-    args: refreshOnly
-      ? {}
-      : { weaponId: Number(item.id), equip: !item.equipped },
+    command: refreshOnly ? "inventory.refresh" : "inventory.action",
+    args,
   });
-  if (result.equipment?.pending) throw new Error("equipment_pending");
-  return get("/api/clothing/by-category/1", { fresh: true, revalidate: false });
+  if (result.equipment?.pending) throw new Error("inventory_pending");
+  const paths = result.equipment?.paths || [];
+  for (const path of paths) await get(path, { fresh: true, revalidate: false });
+  if (paths.length) await get("/api/me", { fresh: true, revalidate: false });
+  return result;
+}
+export function sendEquipmentCommand(options) {
+  return sendInventoryCommand({
+    ...options,
+    type: options.item?.type ?? "weapon",
+    action: options.item?.equipped ? "unequip" : "equip",
+  });
 }

@@ -11,7 +11,11 @@ const statLabels = {
   attackCooldownSeconds: "Интервал атак",
   attackCooldownReductionSeconds: "Сокращение интервала атак",
 };
-export function MutagenLabel({ mutagen }) {
+export function MutagenLabel({
+  mutagen,
+  active = true,
+  inactiveReason = "Наденьте предмет, чтобы мутаген добавлял бонусы к общим характеристикам.",
+}) {
   if (!mutagen) return null;
   const bonuses = Object.entries(mutagen.bonuses || {}).filter(
     ([key, value]) => statLabels[key] && Number.isFinite(value) && value !== 0,
@@ -28,11 +32,11 @@ export function MutagenLabel({ mutagen }) {
       ];
   return (
     <StatTag
-      icon="flask"
+      icon={active ? "flask" : "flask-off"}
       mutagenType={mutagen.type}
       label={mutagen.name}
-      description={`Установлен: ${mutagen.name}`}
-      details={details}
+      description={`${active ? "Установлен" : "Неактивен"}: ${mutagen.name}`}
+      details={active ? details : [inactiveReason, ...details]}
     />
   );
 }

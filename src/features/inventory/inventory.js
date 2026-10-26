@@ -1,3 +1,4 @@
+import { itemFacts } from "../../../scripts/catalogue/item-facts.mjs";
 export const inventoryCategories = [
   { id: "clothing_item", label: "Одежда" },
   { id: "weapon", label: "Оружие" },
@@ -75,6 +76,15 @@ export function inventoryItems(type, responses, references) {
               ? "locked"
               : "unknown";
       const currentBonus = item.currentBonus ?? item.currentStats;
+      const liveFacts = itemFacts(item, type);
+      const equipped =
+        type === "room" ? item.selected === true : item.equipped === true;
+      const broken =
+        type === "weapon" &&
+        item.owned === true &&
+        (item.durability?.isBroken === true ||
+          item.durability?.current === 0 ||
+          item.durability === 0);
       result.set(`${type}:${id}`, {
         ...reference,
         id: String(id),
@@ -87,7 +97,18 @@ export function inventoryItems(type, responses, references) {
         setId: item.setId ?? reference?.setId,
         zoneId: item.zoneId ?? reference?.zoneId,
         status,
-        equipped: item.equipped === true,
+        equipped,
+        isBroken: broken,
+        repairCost:
+          type === "weapon" && item.owned === true
+            ? nonnegative(item.durability?.repairCost)
+            : null,
+        setName:
+          typeof item.setName === "string"
+            ? item.setName
+            : (reference?.setName ?? null),
+        slotLabel: reference?.slotLabel ?? null,
+        mutagenActive: equipped && !broken,
         ownedLevel: item.owned === true ? nonnegative(item.level) : null,
         maxLevel: nonnegative(item.maxLevel ?? reference?.maxLevel),
         durability:
@@ -127,7 +148,16 @@ export function inventoryItems(type, responses, references) {
           item.owned === true
             ? normalizeInstalledMutagen(item.installedMutagen)
             : null,
-        facts: { ...reference?.facts, purchasePrice },
+        facts: {
+          ...reference?.facts,
+          stats: Object.keys(liveFacts?.stats || {}).length
+            ? liveFacts.stats
+            : (reference?.facts?.stats ?? {}),
+          perLevelStats: Object.keys(liveFacts?.perLevelStats || {}).length
+            ? liveFacts.perLevelStats
+            : (reference?.facts?.perLevelStats ?? {}),
+          purchasePrice,
+        },
       });
     }
   }

@@ -57,3 +57,13 @@
   margin-inline-start: auto;
   min-width: 0;
 }
+
+.inventory-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+.inventory-item-action {
+  flex: 1;
+  min-width: 0;
+}

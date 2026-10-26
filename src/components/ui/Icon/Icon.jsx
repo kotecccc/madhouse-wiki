@@ -24,6 +24,7 @@ import {
   IconExternalLink,
   IconFlame,
   IconFlask,
+  IconFlaskOff,
   IconHandGrab,
   IconHandStop,
   IconHeart,
@@ -117,6 +118,7 @@ const iconComponents = {
   "hand-stop": IconHandStop,
   fire: IconFlame,
   flask: IconFlask,
+  "flask-off": IconFlaskOff,
   timer: IconStopwatch,
   "infinity-2": IconInfinity2,
   energy: IconBolt,
@@ -146,7 +148,7 @@ export function Icon({ type, size, motion, mutagenType, className = "" }) {
   const IconComponent = iconComponents[type] || IconMessage;
   const iconClasses = [
     "ui-icon",
-    type === "flask" &&
+    ["flask", "flask-off"].includes(type) &&
       ["I", "A", "F", "X", "S", "Z", "W"].includes(mutagenType) &&
       `ui-icon--mutagen-${mutagenType}`,
     [

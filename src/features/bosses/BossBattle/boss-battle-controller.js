@@ -692,6 +692,19 @@ export function createBossBattleController({
       if (!beforeSend({ operationId: actionId })) return;
       const response = await call("POST", path, { operationId: actionId });
       if (version !== generation) return;
+      if (
+        kind === "attack" &&
+        automatic &&
+        response?.weaponMaintenance?.confirmed === true
+      ) {
+        applyCurrent(await readCurrent(call, boss, battleId, false), version, {
+          notice:
+            response.weaponMaintenance.action === "repair"
+              ? "Оружие автоматически починено. Продолжаем бой."
+              : "Сломанное оружие снято. Продолжаем бой кулаками.",
+        });
+        return { kind: "equipment", action: response.weaponMaintenance.action };
+      }
       const previous = state.battle;
       const battle = mergeBattleReply(
         previous,

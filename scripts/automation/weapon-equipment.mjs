@@ -8,6 +8,8 @@ export async function weaponEquipment({
   fetcher,
   save,
 }) {
+  if (refreshOnly && entry.equipment?.pending?.type)
+    throw fail(409, "inventory_pending");
   if (
     !refreshOnly &&
     (!Number.isSafeInteger(args.weaponId) ||

@@ -528,7 +528,7 @@ export function createBattleAssistant({
     notice = null;
     record.waiting = null;
     publish();
-    await controller.attack({
+    const attackResult = await controller.attack({
       automatic: true,
       beforeSend: (operation) => {
         if (!stillAllowed() || record.pending) return false;
@@ -538,6 +538,11 @@ export function createBattleAssistant({
     });
     const after = controller.getSnapshot();
     if (!after.needsRefresh) complete();
+    if (!after.needsRefresh && attackResult?.kind === "equipment") {
+      notice = after.notice;
+      publish();
+      return attackResult;
+    }
     if (after.needsRefresh)
       return wait(
         "Результат удара проверяется. Автоматического повтора не будет.",

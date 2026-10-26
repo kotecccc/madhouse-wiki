@@ -1,5 +1,5 @@
-import { sendEquipmentCommand } from "./equipment.js";
-import { Icon } from "../../components/ui/Icon/Icon.jsx";
+import { sendInventoryCommand } from "./equipment.js";
+import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
 import { useEffect, useRef, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
@@ -26,19 +26,12 @@ import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { StatusMessage } from "../../components/ui/StatusMessage/StatusMessage.jsx";
-import { ItemCard } from "../items/ItemCard/ItemCard.jsx";
 import "./InventorySection.css";
 
 const references = knowledgeBase.inventoryItems || [];
 const inventoryRequestPaths = new Set(
   inventoryCategories.flatMap(({ id }) => inventoryPaths(id, references)),
 );
-const statuses = {
-  owned: "В гардеробе",
-  buyable: "Открыто для покупки",
-  locked: "Закрыто",
-  unknown: "Статус неизвестен",
-};
 const options = (values) =>
   values.map(([value, label]) => ({ id: value, value, label }));
 const initialFilters = {
@@ -59,15 +52,25 @@ export function InventorySection({ active }) {
     needsCheck: false,
     notice: null,
   });
-  async function equip(item, refreshOnly = false) {
+  async function equip(
+    item,
+    action = item?.equipped ? "unequip" : "equip",
+    refreshOnly = false,
+  ) {
     if (equipmentPending.current) return;
     equipmentPending.current = true;
     setEquipmentState({ busy: true, needsCheck: false, notice: null });
     try {
-      await sendEquipmentCommand({
+      await sendInventoryCommand({
         get: getSessionJson,
         post: postSessionJson,
         item,
+        action,
+        type: item?.type ?? category,
+        zoneId:
+          item?.zoneId ??
+          references.find((entry) => entry.type === category && entry.zoneId)
+            ?.zoneId,
         refreshOnly,
       });
       setEquipmentState({
@@ -332,36 +335,30 @@ export function InventorySection({ active }) {
               key={group.status}
               aria-label={group.label}
             >
-              <CardTitle as="h3">{group.label}</CardTitle>
+              <div className="inventory-group-heading">
+                <CardTitle as="h3">{group.label}</CardTitle>
+                <Pill
+                  size="2xs"
+                  dot={false}
+                  aria-label={`Всего в группе: ${filtered.filter((item) => item.status === group.status).length}`}
+                >
+                  {
+                    filtered.filter((item) => item.status === group.status)
+                      .length
+                  }
+                </Pill>
+              </div>
               <div className="inventory-grid">
-                {groupItems.map((item) =>
-                  ["weapon", "room"].includes(item.type) ? (
-                    <InventoryItemCard
-                      key={`${item.type}:${item.id}`}
-                      item={item}
-                      onEquip={equip}
-                      equipmentBusy={
-                        equipmentState.busy || equipmentState.needsCheck
-                      }
-                    />
-                  ) : (
-                    <ItemCard
-                      key={`${item.type}:${item.id}`}
-                      item={item}
-                      as="article"
-                      state={item.status === "locked" ? "locked" : undefined}
-                      hidePrice={item.status === "locked"}
-                    >
-                      <CardDescription>
-                        {item.status === "locked" && (
-                          <Icon type="lock" size="small" />
-                        )}
-                        {statuses[item.status]}
-                        {item.equipped ? " · Экипировано" : ""}
-                      </CardDescription>
-                    </ItemCard>
-                  ),
-                )}
+                {groupItems.map((item) => (
+                  <InventoryItemCard
+                    key={`${item.type}:${item.id}`}
+                    item={item}
+                    onAction={equip}
+                    equipmentBusy={
+                      equipmentState.busy || equipmentState.needsCheck
+                    }
+                  />
+                ))}
               </div>
             </section>
           );
@@ -390,7 +387,7 @@ export function InventorySection({ active }) {
           disabled={loading || equipmentState.busy}
           onClick={() => {
             if (equipmentState.needsCheck) {
-              equip(null, true);
+              equip(null, null, true);
               return;
             }
             refreshRequested.current = true;

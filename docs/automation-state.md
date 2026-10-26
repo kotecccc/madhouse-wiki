@@ -281,3 +281,19 @@ or failed confirmation reads retain pending state across restart, without replay
 checkpoint after reading current equipment; it never repeats the mutation.
 The browser then reads the server snapshot to update cards. No inventory polling
 is added. Tests use fake game responses; live equipment changes are not exercised.
+
+`inventory.action` generalizes this flow with `{ type, id, action, zoneId?, price? }`
+for weapons, pets, clothing, ornaments and rooms. Purchases and repairs require
+an exact fresh price and sufficient fresh wallet balance. Repairs require a broken
+owned weapon; rooms support selection without removal. `inventory.refresh` reads
+the category stored in the pending checkpoint, including the ornament zone, before
+clearing uncertainty. Legacy weapon refresh cannot clear a generic checkpoint.
+Confirmed actions refresh the relevant inventory snapshot and profile once.
+
+When an automated attack is definitively rejected and a fresh inventory read
+confirms a broken equipped weapon, the server repairs only if fresh pills are
+strictly greater than 5000 and cover the actual repair cost. Otherwise it removes
+the weapon and continues the battle without it. An uncertain repair is never
+replayed or followed by removal. A stop during verification prevents submission;
+pending maintenance also blocks attacks. Fake-transport tests cover continued
+attacks in both autobattle and raids, boundary balances and restart uncertainty.

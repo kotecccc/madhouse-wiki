@@ -11,7 +11,9 @@ test("equipment client sends one versioned command and reads confirmed inventory
   };
   const post = async (path, body) => {
     calls.push({ path, body });
-    return { equipment: { pending: null } };
+    return {
+      equipment: { pending: null, paths: ["/api/clothing/by-category/1"] },
+    };
   };
   await sendEquipmentCommand({
     get,
@@ -22,10 +24,11 @@ test("equipment client sends one versioned command and reads confirmed inventory
   assert.deepEqual(calls[1].body, {
     id: "receipt123",
     expectedVersion: 3,
-    command: "equipment.weapon",
-    args: { weaponId: 7, equip: false },
+    command: "inventory.action",
+    args: { type: "weapon", id: 7, action: "unequip" },
   });
-  assert.equal(calls.at(-1), "/api/clothing/by-category/1");
+  assert.ok(calls.includes("/api/clothing/by-category/1"));
+  assert.equal(calls.at(-1), "/api/me");
 });
 test("uncertain state is never automatically resubmitted", async () => {
   let posts = 0;
@@ -35,7 +38,7 @@ test("uncertain state is never automatically resubmitted", async () => {
       post: async () => posts++,
       item: { id: "1" },
     }),
-    /equipment_pending/,
+    /inventory_pending/,
   );
   assert.equal(posts, 0);
 });

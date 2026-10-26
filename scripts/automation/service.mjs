@@ -1,3 +1,5 @@
+import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
+import { inventoryAction } from "./inventory-actions.mjs";
 import { weaponEquipment } from "./weapon-equipment.mjs";
 import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
@@ -33,6 +35,7 @@ import {
 const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
 const safeCommands = new Set([
+  "inventory.refresh",
   "raid.stop",
   "invitations.refresh",
   "business.run.stop",
@@ -45,6 +48,8 @@ const safeCommands = new Set([
   "business.refresh",
 ]);
 const commands = new Set([
+  "inventory.action",
+  "inventory.refresh",
   "equipment.weapon",
   "equipment.refresh",
   "raid.start",
@@ -328,7 +333,50 @@ export function createAutomationService({
           if (entry.storageFailed)
             throw failure(503, "automation_storage_unavailable");
         }
-        return fetcher(url, { ...init, redirect: "error" });
+        const response = await fetcher(url, { ...init, redirect: "error" });
+        const automated = () =>
+          !closed &&
+          !entry.storageFailed &&
+          canAct(entry) &&
+          (entry.auto?.getSnapshot().enabled ||
+            entry.raidWorker?.getSnapshot().enabled ||
+            entry.collector?.running());
+        if (
+          init.method === "POST" &&
+          /\/api\/bosses\/battles\/[A-Za-z0-9_-]+\/attack$/.test(
+            new URL(url).pathname,
+          ) &&
+          [400, 409, 422].includes(response.status) &&
+          automated()
+        ) {
+          let errorBody;
+          try {
+            errorBody = await response.clone().json();
+          } catch {
+            /* Unknown failures remain unconfirmed. */
+          }
+          if (
+            typeof errorBody?.error === "string" &&
+            errorBody.error !== "battle_finished" &&
+            !entry.equipment?.pending &&
+            !entry.inventoryBusy
+          ) {
+            entry.inventoryBusy = true;
+            try {
+              const maintenance = await recoverBrokenWeapon({
+                entry,
+                fetcher,
+                save,
+                allowed: automated,
+              });
+              if (maintenance)
+                return Response.json({ weaponMaintenance: maintenance });
+            } finally {
+              entry.inventoryBusy = false;
+            }
+          }
+        }
+        return response;
       },
     });
     entry.controller = createBossBattleController({
@@ -338,7 +386,7 @@ export function createAutomationService({
         !entry.auto.getSnapshot().enabled && !entry.collector?.running(),
       canStartBattle: () =>
         entry.goal.canStart() && (entry.collector?.canStartBattle() ?? true),
-      canSendMutation: () => canAct(entry),
+      canSendMutation: () => canAct(entry) && !entry.equipment?.pending,
       getPlayerIdentity: () => entry.player,
     });
     if (saved?.battle) entry.controller.restoreState(saved.battle);
@@ -871,6 +919,7 @@ export function createAutomationService({
         "work.start",
         "business.run.start",
         "equipment.weapon",
+        "inventory.action",
       ].includes(input.command)
     )
       throw failure(503, "game_unavailable_actions_paused");
@@ -878,7 +927,7 @@ export function createAutomationService({
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");
     if (
-      entry.busy &&
+      (entry.busy || entry.inventoryBusy) &&
       ![
         "raid.stop",
         "auto.stop",
@@ -971,7 +1020,7 @@ export function createAutomationService({
     )
       throw failure(409, "automation_controls_resources");
     if (
-      input.command === "equipment.weapon" &&
+      ["equipment.weapon", "inventory.action"].includes(input.command) &&
       (entry.auto.getSnapshot().enabled ||
         entry.collector.running() ||
         entry.workFarm.running() ||
@@ -981,7 +1030,7 @@ export function createAutomationService({
       throw failure(409, "automation_controls_equipment");
     if (
       entry.equipment?.pending &&
-      input.command !== "equipment.refresh" &&
+      !["equipment.refresh", "inventory.refresh"].includes(input.command) &&
       !safeCommands.has(input.command)
     )
       throw failure(409, "weapon_equipment_uncertain");
@@ -1016,6 +1065,18 @@ export function createAutomationService({
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
+        case "inventory.action":
+        case "inventory.refresh":
+          await inventoryAction({
+            entry,
+            args,
+            commandId: input.id,
+            refreshOnly: input.command === "inventory.refresh",
+            fetcher,
+            save,
+            allowed: () => !closed && !entry.storageFailed,
+          });
+          break;
         case "equipment.weapon":
         case "equipment.refresh":
           await weaponEquipment({
