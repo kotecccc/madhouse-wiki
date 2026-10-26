@@ -23,6 +23,7 @@ export function Button({
   children,
   icon,
   iconSize,
+  iconOnly = false,
   editKey,
   liftOnHover = true,
   ...props
@@ -41,6 +42,7 @@ export function Button({
   const safeSize = ["sm", "md", "lg"].includes(size) ? size : "md";
   const classes = [
     "button",
+    iconOnly && "button--icon-only",
     safeVariant === "icon-copy-inline" && "button-icon-copy",
     safeVariant === "warning-icon" && "button-warning-icon",
     `button-${safeVariant}`,
@@ -63,7 +65,7 @@ export function Button({
       {icon ? (
         <>
           <Icon type={icon} size={iconSize} />
-          <span className="button-label">{children}</span>
+          {!iconOnly && <span className="button-label">{children}</span>}
         </>
       ) : (
         children

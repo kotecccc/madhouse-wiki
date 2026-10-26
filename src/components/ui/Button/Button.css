@@ -270,3 +270,24 @@
     background-color: var(--control-warning-background-hover);
   }
 }
+
+.button--icon-only {
+  width: var(--control-height-md);
+  min-width: var(--control-height-md);
+  height: var(--control-height-md);
+  padding: 0;
+}
+
+.button--icon-only.button-size-sm {
+  width: var(--control-height-sm);
+  min-width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+}
+
+.button--icon-only.button-size-lg {
+  width: var(--control-height-lg);
+  min-width: var(--control-height-lg);
+  height: var(--control-height-lg);
+  padding: 0;
+}
