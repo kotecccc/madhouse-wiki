@@ -7,6 +7,7 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { NumberStepper } from "../../../components/ui/NumberStepper/NumberStepper.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
+import { fmt } from "../../../lib/format.js";
 import "./BossHealingSettings.css";
 
 const ITEMS = [
@@ -99,8 +100,18 @@ export function BossHealingSettings({ state, onSave, collapsed = false }) {
       leading={<Icon type="medical-cross" size="medium" />}
       defaultOpen={!collapsed && !state.battle && Boolean(healing.uncertain)}
       status={
-        <Pill variant={draft.enabled ? "completed" : "unknown"} size="xs">
-          {draft.enabled ? "Вкл" : "Выкл"}
+        <Pill variant="unknown" size="xs" dot={false}>
+          {fmt(
+            draft.enabled
+              ? ITEMS.reduce(
+                  (total, { type }) =>
+                    total +
+                    (draft.items[type].enabled ? draft.items[type].limit : 0),
+                  0,
+                )
+              : 0,
+          )}{" "}
+          шт.
         </Pill>
       }
     >
