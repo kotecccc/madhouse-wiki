@@ -75,7 +75,7 @@ export function SegmentedControl({
         >
           {option.label}
           {Number.isSafeInteger(option.count) && option.count > 0 && (
-            <Pill size="xs" dot={false} aria-hidden="true">
+            <Pill size="2xs" dot={false} aria-hidden="true">
               {option.count}
             </Pill>
           )}
