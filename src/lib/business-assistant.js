@@ -13,13 +13,14 @@ function positiveSafeInteger(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
-function getQuote(raw) {
+export function getBusinessUpgradeQuote(raw) {
   if (!raw || typeof raw !== "object") return null;
   const price = raw.nextUpgradePrice;
   if (!nonnegativeSafeInteger(price)) return null;
-  const currency = Object.hasOwn(raw, "nextUpgradeCurrency")
-    ? raw.nextUpgradeCurrency
-    : raw.currency;
+  const currency = raw.nextUpgradeCurrency;
+  // The game client omits the currency slot for a zero-price upgrade.
+  // Only an explicit numeric zero proves this; missing/invalid prices remain unknown.
+  if (price === 0 && currency == null) return { currency: null, amount: 0 };
   if (!CURRENCIES.has(currency)) return null;
   return { currency, amount: price };
 }
@@ -64,7 +65,7 @@ export function normalizeBusinessDetails(raw, business) {
   return {
     level: nonnegativeSafeInteger(raw.level) ? raw.level : null,
     ...(positiveSafeInteger(raw.maxLevel) ? { maxLevel: raw.maxLevel } : {}),
-    quote: getQuote(raw),
+    quote: getBusinessUpgradeQuote(raw),
     requiredStock,
     nextRequirements,
   };

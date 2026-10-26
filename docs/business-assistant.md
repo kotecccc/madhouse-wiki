@@ -23,9 +23,9 @@ The bag parser accepts an `activityItems` array with safe integer item IDs and q
 
 Bosses are matched to each material by activity-item identity from canonical catalogue drops; displayed names are not an identity substitute. Source notes and discrepancies in source totals remain visible. Recipe rows missing for a level produce unknown requirements rather than invented values or boss-kill estimates.
 
-Only a recognized literal `nextUpgradePrice` and known `nextUpgradeCurrency`/`currency` can supply a monetary quote. It is bound to the actual current level. That quote is the exact total only for the next single level; no formula is assumed for later levels. Multi-level totals remain unknown unless supported by future verified data. Wallet sufficiency is not inferred from a price.
+Only a recognized literal `nextUpgradePrice` and known `nextUpgradeCurrency` can supply a positive monetary quote; the separate `currency` field describes the business and is not used as a substitute. An explicit numeric zero with no currency is treated as a zero-cost upgrade: the public game client renders a currency requirement only when the price is positive. Missing, null or malformed prices are not treated as zero. This client observation does not prove every server response shape. The quote is bound to the actual current level. That quote is the exact total only for the next single level; no formula is assumed for later levels. Multi-level totals remain unknown unless supported by future verified data.
 
-Local OpenAPI describes these fields but marks parts of business price/item wire formats unverified; unsupported response formats therefore remain unknown. Tests use synthetic responses for parsing, cost handling, deficits, account isolation, restart persistence and goal creation. No real game requests, upgrades or purchases are sent for verification.
+Local OpenAPI describes these fields but marks parts of business price/item wire formats unverified; unsupported response formats therefore remain unknown. Tests use synthetic responses for parsing, cost handling, deficits, account isolation, restart persistence and goal creation.
 
 ## Последовательный серверный сбор
 
@@ -39,8 +39,12 @@ Local OpenAPI describes these fields but marks parts of business price/item wire
 Материалы собираются последовательно. Для каждого создаётся внутренняя цель
 `business_items`, которой управляет существующая серверная серия боёв. После
 достижения цели снова проверяется инвентарь; случайно полученные материалы
-следующих этапов учитываются, собранные этапы пропускаются. Покупки, лечение и
-повышение уровня бизнеса автоматически не выполняются.
+следующих этапов учитываются, собранные этапы пропускаются. В режиме повышения
+сервер проверяет следующий уровень, требования, стоимость и баланс, сохраняет
+операцию до отправки и подтверждает результат чтением уровня. Неопределённый
+запрос не отправляется повторно. При отсутствии таблицы материалов план
+использует проверенные требования ближайшего уровня из ответа игры и перечитывает
+их после каждого улучшения.
 
 `maxAttempts` ограничивает число начатых боёв **всего маршрута**, включая
 проигранные бои и подхваченный активный бой. Последний разрешённый бой может
