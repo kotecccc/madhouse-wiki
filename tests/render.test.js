@@ -591,12 +591,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       assert.ok(markup.includes("ui-border-loader"));
       assert.ok(!markup.includes("ui-skeleton"));
       assert.ok(markup.includes("work-calculator-count"));
-      assert.ok(markup.includes("Будут выполнены"));
-      assert.ok(
-        markup.includes("Получаем задания. Повторим проверку автоматически."),
-      );
-      assert.ok(markup.includes("Восстановление энергии"));
-      assert.ok(!markup.includes("Необходимо энергии"));
+      assert.ok(!markup.includes("План заданий"));
+      assert.ok(markup.includes("Вариант 1: ждать энергию"));
+      assert.ok(markup.includes("Необходимо энергии"));
       assert.ok(markup.includes("Количество выполнений"));
       assert.match(markup, /id="work-calculator-count"[^>]*min="1"/);
       assert.ok(markup.includes("MAX"));
@@ -621,11 +618,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       loaded: false,
       error: "Не удалось загрузить работу",
     });
-    assert.ok(
-      failedFarmMarkup.includes(
-        "Получаем задания. Повторим проверку автоматически.",
-      ),
-    );
+    assert.ok(failedFarmMarkup.includes("Необходимо энергии"));
     assert.doesNotMatch(
       failedFarmMarkup,
       /Не удалось загрузить работу|Обновить данные|Не удалось обновить работу/,
@@ -636,11 +629,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       ...loadingFarmSnapshot,
       notice: "Не удалось подтвердить прогресс работёнки.",
     });
-    assert.ok(
-      rejectedRefreshMarkup.includes(
-        "Получаем задания. Повторим проверку автоматически.",
-      ),
-    );
+    assert.ok(rejectedRefreshMarkup.includes("Необходимо энергии"));
     assert.ok(!rejectedRefreshMarkup.includes("Сервис недоступен"));
     const farmSnapshot = {
       loaded: true,
@@ -741,9 +730,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!farmMarkup.includes("Предварительный расчёт по справочнику"));
     assert.ok(!farmMarkup.includes("Итого (оценка)"));
     assert.ok(!farmMarkup.includes('class="requirement-calculator-action"'));
-    assert.ok(farmMarkup.includes("Задание"));
-    assert.ok(farmMarkup.includes("×22"));
-    assert.ok(farmMarkup.includes("Восстановление энергии"));
+    assert.ok(farmMarkup.includes("Необходимо энергии"));
+    assert.ok(farmMarkup.includes("Вариант 1: ждать энергию"));
     assert.ok(!farmMarkup.includes("Начать фарм"));
     assert.match(farmMarkup, /<footer[\s\S]*>Остановить<\/span><\/button>/);
     assert.ok(!farmMarkup.includes("Максимум действий"));
@@ -758,8 +746,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     const waitProgressIndex = farmMarkup.indexOf(
       'aria-label="Прогресс выбранного варианта"',
     );
-    assert.ok(waitProgressIndex > farmMarkup.indexOf("Будут выполнены"));
-    assert.ok(waitProgressIndex > farmMarkup.indexOf("Восстановление энергии"));
+    assert.ok(waitProgressIndex > farmMarkup.indexOf("Необходимо энергии"));
+    assert.ok(
+      waitProgressIndex > farmMarkup.indexOf("Вариант 1: ждать энергию"),
+    );
     assert.ok(!farmMarkup.includes("Фарм идёт · 20 / 25"));
     const activePurchaseSnapshot = {
       ...farmSnapshot,
@@ -788,7 +778,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(
       activePurchaseMarkup.indexOf(
         'aria-label="Прогресс выбранного варианта"',
-      ) > activePurchaseMarkup.indexOf("Восстановление энергии"),
+      ) > activePurchaseMarkup.indexOf("Вариант 2: купить дефибрилляторы"),
     );
     assert.equal(
       (activePurchaseMarkup.match(/>Остановить<\/span><\/button>/g) || [])
@@ -849,7 +839,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.match(paidFarmMarkup, /<footer[\s\S]*Фарм за 14 купюр/);
     assert.match(
       paidFarmMarkup,
-      /role="radio"[^>]*aria-checked="true"[^>]*>[\s\S]*Дефибрилляторы/,
+      /role="button"[^>]*aria-pressed="true"[^>]*>[\s\S]*Вариант 2: купить дефибрилляторы/,
     );
 
     const freeFarmMarkup = farmPurchaseMarkup(5);

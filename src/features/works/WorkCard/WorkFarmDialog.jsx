@@ -25,8 +25,7 @@ import {
   latestWorkEnergy,
   workEnergyRemaining,
 } from "../WorkFarm/work-farm-plan.js";
-import { fmt, restoreTime } from "../../../lib/format.js";
-import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
+import { fmt } from "../../../lib/format.js";
 import {
   previewWorkTasks,
   workFarmProgress,
@@ -259,10 +258,15 @@ export function WorkFarmDialog({
     target - completed <= 1000 &&
     !state.pending &&
     !running &&
-    state.loaded,
+    state.loaded &&
+    !state.manualPending,
   );
   async function start(mode) {
-    if (!ready || (!energyOnly && mode === "boosters" && !purchase?.feasible))
+    if (
+      !ready ||
+      (energyOnly && taskPreview?.items.length === 0) ||
+      (!energyOnly && mode === "boosters" && !purchase?.feasible)
+    )
       return;
     if (energyOnly) mode = "energy";
     setLaunchError(null);
@@ -287,6 +291,15 @@ export function WorkFarmDialog({
         );
       }
     }
+  }
+  async function applyBooster(type) {
+    setLaunchError(null);
+    const ok = await farmStore.useBooster(workId, type);
+    if (!ok)
+      setLaunchError(
+        farmStore.getSnapshot().notice ||
+          "Применение пока не подтверждено. Проверяем состояние.",
+      );
   }
   const taskPreview = useMemo(
     () =>
@@ -344,9 +357,9 @@ export function WorkFarmDialog({
       boostersLoading={!view && !state.error && !state.notice}
       conditionDialog={condition}
       title={`Работа · ${work.title || work.name || "Работёнка"}`}
+      footerStart={<Button onClick={onClose}>Закрыть</Button>}
       footer={
         <>
-          <Button onClick={onClose}>Закрыть</Button>
           {running ? (
             <Button icon="stop" onClick={() => void farmStore.stop()}>
               Остановить
@@ -356,6 +369,7 @@ export function WorkFarmDialog({
               variant="primary"
               disabled={
                 !ready ||
+                (energyOnly && taskPreview?.items.length === 0) ||
                 (!energyOnly &&
                   effectiveOption === "purchase" &&
                   !purchase?.feasible)
@@ -374,69 +388,108 @@ export function WorkFarmDialog({
           )}
         </>
       }
-      showCalculation={false}
+      showCalculation={!energyOnly}
+      recoveryPlan={{
+        ...energyPlan,
+        smallRefills: purchase?.feasible
+          ? purchase.actions.filter(
+              (action) => action.kind === "refill" && action.type === "small",
+            ).length
+          : null,
+        largeRefills: purchase?.feasible
+          ? purchase.actions.filter(
+              (action) => action.kind === "refill" && action.type === "full",
+            ).length
+          : null,
+        banknotes: purchase?.feasible ? purchase.spentDollar : null,
+      }}
+      optionSelection={{
+        value: effectiveOption,
+        onChange: setSelectedOption,
+        disabled: running,
+      }}
       afterOptions={
         <>
-          {!energyOnly && (
-            <SegmentedControl
-              label="Восстановление энергии"
-              value={effectiveOption}
-              onChange={setSelectedOption}
-              options={[
-                {
-                  value: "wait",
-                  disabled: running,
-                  label: `Ждать · ${energyPlan?.minutes == null ? "—" : restoreTime(energyPlan.minutes)}`,
-                },
-                {
-                  value: "purchase",
-                  disabled: running,
-                  label: `Дефибрилляторы · ${purchase?.feasible ? fmt(purchase.spentDollar) : "—"} купюр`,
-                },
-              ]}
-            />
+          {energyOnly && (
+            <BaseCard className="work-calculator-goal">
+              <CardTitle as="h3">Применить дефибриллятор</CardTitle>
+              <CardDescription>
+                Использовать один из запаса, без покупки.
+              </CardDescription>
+              <div className="work-calculator-goal-row">
+                {["small", "full"].map((type) => {
+                  const booster = view?.boosters?.find(
+                    (item) => item.type === type,
+                  );
+                  return (
+                    <Button
+                      key={type}
+                      icon={
+                        type === "small"
+                          ? "defibrillator-small"
+                          : "defibrillator-large"
+                      }
+                      disabled={
+                        running ||
+                        state.pending ||
+                        Boolean(state.manualPending) ||
+                        !booster?.count ||
+                        !knownEnergy ||
+                        knownEnergy.current >=
+                          Math.min(booster.restoreEnergy, knownEnergy.max)
+                      }
+                      onClick={() => void applyBooster(type)}
+                    >
+                      {type === "small" ? "Малый" : "Большой"} ·{" "}
+                      {booster ? fmt(booster.count) : "—"}
+                    </Button>
+                  );
+                })}
+              </div>
+            </BaseCard>
           )}
-          {!energyOnly && effectiveOption === "purchase" && (
+          {energyOnly && (
+            <div className="work-calculator-goal" aria-label="План заданий">
+              <CardTitle as="h3">
+                {taskPreview?.items.length === 0
+                  ? "Некуда потратить энергию"
+                  : "Будут выполнены"}
+              </CardTitle>
+              {!taskPreview ? (
+                <LoadingStatus>
+                  Получаем задания. Повторим проверку автоматически.
+                </LoadingStatus>
+              ) : taskPreview.items.length === 0 ? (
+                <CardDescription>
+                  Нет заданий, на которые хватает доступной энергии.
+                </CardDescription>
+              ) : (
+                <>
+                  <CardDescription>
+                    В пределах оставшейся энергии, без покупок. План уточняется
+                    после каждого подтверждённого действия.
+                  </CardDescription>
+                  {taskPreview.items.map((task) => (
+                    <BaseCard variant="floor-data" key={task.id}>
+                      <CardTitle as="h4" size="sm">
+                        {task.title}
+                      </CardTitle>
+                      <CardDescription>
+                        ×{fmt(task.count)} · {fmt(task.energy)}{" "}
+                        <Icon type="energy" size="text" />
+                      </CardDescription>
+                    </BaseCard>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+          {state.manualPending && (
             <CardDescription>
-              {purchase?.feasible
-                ? `Дефибрилляторов: ${fmt(purchase.usedBoosters)}. Расход — не более ${fmt(purchase.spentDollar)} купюр.`
-                : "Проверяем запас и стоимость дефибрилляторов. Покупки начнутся только после подтверждения бюджета."}
+              Проверяем применение дефибриллятора. Повторный расход
+              заблокирован.
             </CardDescription>
           )}
-          <div className="work-calculator-goal" aria-label="План заданий">
-            <CardTitle as="h3">Будут выполнены</CardTitle>
-            {!taskPreview ? (
-              <LoadingStatus>
-                Получаем задания. Повторим проверку автоматически.
-              </LoadingStatus>
-            ) : taskPreview.items.length === 0 ? (
-              <CardDescription>
-                {energyOnly
-                  ? "Сейчас нет доступных заданий в пределах выбранного запаса энергии."
-                  : "Все задания выбранной цели выполнены."}
-              </CardDescription>
-            ) : (
-              <>
-                <CardDescription>
-                  {energyOnly
-                    ? "В пределах оставшейся энергии, без покупок."
-                    : "Оставшиеся действия до выбранной цели."}{" "}
-                  План уточняется после каждого подтверждённого действия.
-                </CardDescription>
-                {taskPreview.items.map((task) => (
-                  <BaseCard variant="floor-data" key={task.id}>
-                    <CardTitle as="h4" size="sm">
-                      {task.title}
-                    </CardTitle>
-                    <CardDescription>
-                      ×{fmt(task.count)} · {fmt(task.energy)}{" "}
-                      <Icon type="energy" size="text" />
-                    </CardDescription>
-                  </BaseCard>
-                ))}
-              </>
-            )}
-          </div>
           {active ? (
             <BaseCard>{activeProgress}</BaseCard>
           ) : running ? (
@@ -469,7 +522,7 @@ export function WorkFarmDialog({
         max: 1000,
         label: "Количество выполнений",
         rangeLabel: "Количество выполнений",
-        unitEnergy: null,
+        unitEnergy: energy ?? work.energyCycle?.full,
       }}
       accountState={account}
       energyOverride={totalEnergy}

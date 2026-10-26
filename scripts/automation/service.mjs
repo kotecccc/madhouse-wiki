@@ -59,6 +59,7 @@ const commands = new Set([
   "work.refresh",
   "work.plan",
   "work.start",
+  "work.booster.use",
   "work.stop",
   "open",
   "refresh",
@@ -186,6 +187,7 @@ export function createAutomationService({
     return goal;
   }
   function canAct(entry) {
+    if (entry.workFarm?.getSnapshot().manualPending) return false;
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
     const goal = updateGoal(entry);
@@ -1075,6 +1077,22 @@ export function createAutomationService({
       !safeCommands.has(input.command)
     )
       throw failure(409, "weapon_equipment_uncertain");
+    if (
+      entry.workFarm.getSnapshot().manualPending &&
+      !safeCommands.has(input.command)
+    )
+      throw failure(409, "work_booster_uncertain");
+    if (
+      input.command === "work.booster.use" &&
+      (entry.auto.getSnapshot().enabled ||
+        entry.collector.running() ||
+        entry.raidWorker.getSnapshot().enabled ||
+        entry.controller.getSnapshot().battle?.status === "active" ||
+        entry.controller.getSnapshot().pendingInvitation ||
+        entry.controller.getSnapshot().purchaseUncertain ||
+        entry.controller.getSnapshot().pending)
+    )
+      throw failure(409, "automation_controls_resources");
     const args = input.args ?? {};
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw failure(400, "invalid_command_arguments");
@@ -1179,6 +1197,9 @@ export function createAutomationService({
             save(entry);
             throw error;
           }
+          break;
+        case "work.booster.use":
+          await entry.workFarm.useBooster(args.workId, args.type);
           break;
         case "work.stop":
           entry.workFarm.stop();

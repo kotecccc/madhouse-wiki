@@ -133,10 +133,13 @@ test("farm progress controls expose real tasks and accessible progress without t
         farmStore: { getSnapshot: () => countState, subscribe: () => () => {} },
       }),
     );
-    assert.match(countHtml, /Укрепить стену/);
-    assert.match(countHtml, /×9/);
-    assert.match(countHtml, /Восстановление энергии/);
-    assert.doesNotMatch(countHtml, /Необходимо энергии|Обновить данные/);
+    assert.match(countHtml, /Необходимо энергии/);
+    assert.match(countHtml, /Вариант 1: ждать энергию/);
+    assert.match(countHtml, /Вариант 2: купить дефибрилляторы/);
+    assert.match(countHtml, /shared-modal-footer--spread/);
+    assert.doesNotMatch(countHtml, /План заданий|Обновить данные/);
+    assert.match(html, /Применить дефибриллятор/);
+    assert.match(known, /ui-icon--inherit/);
     const { RequirementCalculatorDialog } = await server.ssrLoadModule(
       "/src/features/calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx",
     );

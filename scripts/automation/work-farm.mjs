@@ -25,6 +25,7 @@ export function createWorkFarm({
 }) {
   let record = {
     view: saved.view ?? null,
+    manualPending: saved.manualPending ?? null,
     run: saved.run ?? null,
     notice: saved.notice ?? null,
     configs: saved.configs ?? {},
@@ -104,6 +105,20 @@ export function createWorkFarm({
       walletDollar: nonnegative(me.wallet?.dollar) ? me.wallet.dollar : null,
       updatedAt: now(),
     };
+  }
+  function reconcileManual(view) {
+    const pending = record.manualPending;
+    if (!pending || pending.workId !== view.workId) return;
+    const count = view.boosters.find(
+      (item) => item.type === pending.type,
+    )?.count;
+    if (count === pending.count - 1) {
+      record.manualPending = null;
+      record.notice = null;
+    } else {
+      record.notice =
+        "Проверяем применение дефибриллятора. Повторный расход заблокирован.";
+    }
   }
   function budget() {
     const run = record.run;
@@ -663,10 +678,63 @@ export function createWorkFarm({
       }
       working = true;
       try {
+        if (record.manualPending && record.manualPending.workId !== workId)
+          reconcileManual(await readView(record.manualPending.workId));
         record.view = await readView(workId, false, true);
         record.notice = null;
+        reconcileManual(record.view);
       } catch (error) {
         record.notice = error.message;
+        throw error;
+      } finally {
+        working = false;
+        publish();
+      }
+    },
+    async useBooster(workId, type) {
+      if (!positive(workId) || !["small", "full"].includes(type))
+        throw new Error("Выберите дефибриллятор.");
+      if (
+        running() ||
+        working ||
+        record.run?.pending ||
+        record.manualPending ||
+        !available("wait")
+      )
+        throw new Error("Дождитесь завершения текущего действия.");
+      working = true;
+      try {
+        const before = await readView(workId);
+        const booster = before.boosters.find((item) => item.type === type);
+        if (
+          !available("wait") ||
+          !booster?.count ||
+          before.energy.current >=
+            Math.min(booster.restoreEnergy, before.energy.max)
+        )
+          throw new Error(
+            "Нет доступного дефибриллятора для восстановления энергии.",
+          );
+        record.view = before;
+        record.manualPending = {
+          workId,
+          type,
+          count: booster.count,
+          operationId: randomUUID(),
+        };
+        record.notice = null;
+        publish();
+        const result = await request("POST", "/api/me/bag/boosters/use", {
+          type,
+        });
+        if (result?.success === false)
+          throw new Error("Применение дефибриллятора не подтверждено.");
+        record.view = await readView(workId);
+        reconcileManual(record.view);
+      } catch (error) {
+        record.notice = record.manualPending
+          ? "Проверяем применение дефибриллятора. Повторный расход заблокирован."
+          : error.message;
         throw error;
       } finally {
         working = false;
@@ -700,7 +768,7 @@ export function createWorkFarm({
       }
     },
     start(args) {
-      if (running() || working)
+      if (running() || working || record.manualPending)
         throw new Error("Фарм уже запущен или запрос ещё выполняется.");
       if (
         !positive(args.workId) ||

@@ -201,3 +201,7 @@
 .shared-modal-footer-note--center {
   text-align: center;
 }
+
+.shared-modal-footer--spread {
+  justify-content: space-between;
+}

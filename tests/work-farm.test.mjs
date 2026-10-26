@@ -21,6 +21,8 @@ function makeHarness({
   failBag = () => false,
   available = () => true,
   onProfileRead = () => {},
+  loseBoosterReply = false,
+  onChange,
 } = {}) {
   const workId = 7;
   const calls = [];
@@ -120,6 +122,7 @@ function makeHarness({
       assert.ok(game.boosters[type] > 0);
       game.boosters[type]--;
       game.energy.current = Math.min(game.energy.max, restoreEnergy[type]);
+      if (loseBoosterReply) throw new TypeError("reply lost");
       return { success: true, energy: { ...game.energy } };
     }
     if (path === "/api/me/bag/boosters/buy") {
@@ -132,6 +135,7 @@ function makeHarness({
   };
   const farm = createWorkFarm({
     request,
+    onChange,
     available,
     getWork: (id) => (id === workId ? definition : null),
     now: () => now,
@@ -624,4 +628,77 @@ test("a priority action beginning during work reads defers its mutation until th
   armed = false;
   await h.fireNext();
   assert.equal(h.farm.getSnapshot().run.status, "completed");
+});
+
+test("manual refill uses one owned booster, persists intent before POST and never purchases", async () => {
+  const records = [];
+  const h = makeHarness({
+    energy: 0,
+    boosters: { small: 2, full: 0 },
+    onChange: () => records.push(structuredClone(h.farm.exportState())),
+  });
+  await h.farm.useBooster(7, "small");
+  assert.equal(h.game.boosters.small, 1);
+  assert.equal(h.game.energy.current, 2);
+  assert.equal(h.farm.getSnapshot().manualPending, null);
+  assert.ok(
+    records.some(
+      (record) =>
+        record.manualPending?.type === "small" &&
+        record.manualPending.count === 2,
+    ),
+  );
+  assert.equal(
+    h.calls.filter((call) => call.path.endsWith("boosters/use")).length,
+    1,
+  );
+  assert.equal(
+    h.calls.filter((call) => call.path.endsWith("boosters/buy")).length,
+    0,
+  );
+  await assert.rejects(h.farm.useBooster(7, "small"));
+  assert.equal(h.game.boosters.small, 1);
+});
+
+test("lost manual refill response survives restart and reconciles with reads without replay", async () => {
+  const h = makeHarness({
+    energy: 0,
+    boosters: { small: 2, full: 0 },
+    loseBoosterReply: true,
+  });
+  await assert.rejects(h.farm.useBooster(7, "small"));
+  const saved = structuredClone(h.farm.exportState());
+  assert.ok(saved.manualPending);
+  const restored = createWorkFarm({
+    saved,
+    request: h.request,
+    getWork: () => ({ workId: 7 }),
+  });
+  await assert.rejects(restored.useBooster(7, "small"));
+  assert.throws(() => start(restored), /уже запущен|запрос/);
+  await restored.refresh(7);
+  assert.equal(restored.getSnapshot().manualPending, null);
+  assert.equal(h.game.boosters.small, 1);
+  assert.equal(
+    h.calls.filter((call) => call.path.endsWith("boosters/use")).length,
+    1,
+  );
+});
+
+test("manual refill checks priority again after reading and never dispatches when unavailable", async () => {
+  let available = true;
+  const h = makeHarness({
+    energy: 0,
+    boosters: { small: 1, full: 0 },
+    available: () => available,
+    onProfileRead: () => {
+      available = false;
+    },
+  });
+  await assert.rejects(h.farm.useBooster(7, "small"));
+  assert.equal(
+    h.calls.filter((call) => call.path.endsWith("boosters/use")).length,
+    0,
+  );
+  assert.equal(h.farm.getSnapshot().manualPending, null);
 });

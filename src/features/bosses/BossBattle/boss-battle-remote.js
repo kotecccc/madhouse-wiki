@@ -562,6 +562,7 @@ export function createRemoteBattleSession({
     getSnapshot: () => workFarmSnapshot,
     refresh: (workId, options = {}) =>
       send("work.refresh", { workId, ...options }),
+    useBooster: (workId, type) => send("work.booster.use", { workId, type }),
     plan: (args) => send("work.plan", args),
     start: (args) => send("work.start", args),
     stop: () => send("work.stop"),
