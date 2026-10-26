@@ -11,7 +11,9 @@ export function nextHealthWarningEvidence(previous = {}, health) {
   return Object.fromEntries(
     safeFailedFeatures(health.failedFeatures).map((feature) => {
       const before = previous[feature];
-      const checkedAt = health.featureCheckedAt?.[feature];
+      const checkedAt = (health.featureFailedAt ?? health.featureCheckedAt)?.[
+        feature
+      ];
       if (!Number.isFinite(checkedAt) || checkedAt <= 0)
         return [feature, before ?? { attempts: 0 }];
       if (before?.checkedAt != null && checkedAt <= before.checkedAt)

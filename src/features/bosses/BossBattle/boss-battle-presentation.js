@@ -39,6 +39,36 @@ export function sameBattleEvents(left, right) {
   );
 }
 
+export function isBossAutomationWaiting(state, auto = {}) {
+  const raid =
+    state.raid?.enabled &&
+    (state.raid.bossId == null ||
+      Number(state.raid.bossId) === Number(state.boss?.id));
+  return Boolean((raid || auto.enabled) && state.battle?.status !== "active");
+}
+
+export function bossAutomationEligible(state) {
+  return Boolean(
+    state.boss &&
+    !state.pending &&
+    !state.pendingInvitation &&
+    !state.purchase &&
+    !state.purchaseUncertain &&
+    !state.medicineOpen,
+  );
+}
+
+export function formatBattleCompletedAt(battle) {
+  if (!Number.isFinite(battle?.completedAt)) return null;
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(battle.completedAt));
+}
+
 export function bossExecutionStatus(state, auto = {}) {
   const raid =
     state.raid?.enabled &&
@@ -46,20 +76,18 @@ export function bossExecutionStatus(state, auto = {}) {
       Number(state.raid.bossId) === Number(state.boss?.id));
   if (state.battle?.status === "active")
     return { label: "Идёт бой", variant: "active" };
-  if (raid && ["waiting", "joining"].includes(state.raid.status))
-    return { label: "Ждём приглашений", variant: "scheduled" };
-  if (
-    !raid &&
-    auto.enabled &&
-    ["between_battles", "starting", "waiting"].includes(auto.phase)
-  )
-    return { label: "Ждём боя", variant: "scheduled" };
+  if (raid)
+    return {
+      label: state.pendingInvitation
+        ? "Проверяем вступление"
+        : "Ждём приглашений",
+      variant: "scheduled",
+    };
+  if (auto.enabled) return { label: "Ждём боя", variant: "scheduled" };
   if (state.battle?.status === "won")
     return { label: "Победа", variant: "completed" };
   if (state.battle?.status === "lost")
     return { label: "Поражение", variant: "locked" };
-  if (raid) return { label: "Ждём приглашений", variant: "scheduled" };
-  if (auto.enabled) return { label: "Ждём боя", variant: "scheduled" };
   if (state.battle) return { label: "Бой завершён", variant: "unknown" };
   return null;
 }

@@ -1274,6 +1274,15 @@ export function createAutomationService({
           await refreshAutoDamageLimit(entry);
           if (startGeneration !== (entry.autoStartGeneration ?? 0)) break;
           state = entry.controller.getSnapshot();
+          // A completed invitation fight does not restrict a new solo intent.
+          // Keep uncertain invitation/purchase checkpoints intact; any stale
+          // read still goes through the series' live recovery before a POST.
+          if (state.invitationOnly && state.battle?.status !== "active") {
+            if (
+              !entry.controller.allowSoloContinuation({ allowRecovery: true })
+            )
+              throw failure(409, "automation_start_unavailable");
+          }
           if (
             !entry.goal.getSnapshot() ||
             entry.goal.getSnapshot().status === "active"

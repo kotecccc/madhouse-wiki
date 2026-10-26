@@ -8,6 +8,9 @@ export function ProgressButton({
   valueText,
   icon,
   onClick,
+  animateLoss = false,
+  animationKey,
+  displayText,
 }) {
   const known = Number.isFinite(max) && max > 0 && Number.isFinite(value);
   const current = known ? Math.min(max, Math.max(0, value)) : 0;
@@ -30,7 +33,8 @@ export function ProgressButton({
           <circle className="ui-progress-button-track" cx="50" cy="50" r="48" />
           {known && (
             <circle
-              className="ui-progress-button-fill"
+              key={animationKey}
+              className={`ui-progress-button-fill${animateLoss ? " ui-progress-button-fill--animated" : ""}`}
               cx="50"
               cy="50"
               r="48"
@@ -40,7 +44,9 @@ export function ProgressButton({
           )}
         </svg>
         <Icon type={icon} size="large" />
-        <span aria-hidden="true">{percent == null ? "—" : `${percent}%`}</span>
+        <span aria-hidden="true">
+          {displayText ?? (percent == null ? "—" : `${percent}%`)}
+        </span>
       </button>
       <span
         className="sr-only"

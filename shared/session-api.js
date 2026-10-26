@@ -1,8 +1,17 @@
 import {
   nextHealthWarningEvidence,
+  HEALTH_WARNING_ATTEMPTS,
   hasConfirmedHealthWarning,
 } from "./game-health-warning.js";
 let healthWarningEvidence = {};
+export function readConfirmedGameHealthFeatures() {
+  return gameHealth.status === "unavailable"
+    ? Object.keys(healthWarningEvidence).filter(
+        (feature) =>
+          healthWarningEvidence[feature].attempts >= HEALTH_WARNING_ATTEMPTS,
+      )
+    : [];
+}
 export function readGameHealthWarning() {
   return hasConfirmedHealthWarning(gameHealth, healthWarningEvidence);
 }
@@ -53,6 +62,9 @@ export function reportGameHealth(value) {
       failedFeatures,
     ),
     featureCheckedAt: safeFeatureCheckedAt(value.featureCheckedAt),
+    ...(value.featureFailedAt && typeof value.featureFailedAt === "object"
+      ? { featureFailedAt: safeFeatureCheckedAt(value.featureFailedAt) }
+      : {}),
   };
   healthWarningEvidence = nextHealthWarningEvidence(
     healthWarningEvidence,
@@ -77,6 +89,19 @@ export function observeGameResponse(response) {
       successfulFeatures: response.headers
         .get("X-Madhouse-Successful-Features")
         ?.split(","),
+      ...(response.headers.get("X-Madhouse-Feature-Failed-At") != null
+        ? {
+            featureFailedAt: (() => {
+              try {
+                return JSON.parse(
+                  response.headers.get("X-Madhouse-Feature-Failed-At"),
+                );
+              } catch {
+                return {};
+              }
+            })(),
+          }
+        : {}),
       featureCheckedAt: (() => {
         try {
           return JSON.parse(
@@ -220,7 +245,7 @@ export function createSessionApi({
           headers: {
             ...request.headers,
             ...(snapshotOnly ? { "X-Madhouse-Snapshot-Only": "1" } : {}),
-            ...(serverRefresh && path === "/api/me"
+            ...(serverRefresh && method === "GET" && isSnapshotPath(path)
               ? {
                   "X-Madhouse-Snapshot-Refresh":
                     serverRefresh === "live" ? "live" : "1",

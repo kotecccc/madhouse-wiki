@@ -129,6 +129,6 @@ export function Popover({ anchor, point, onClose, children, label }) {
     >
       {children}
     </BaseCard>,
-    document.body,
+    anchor?.closest?.("dialog[open]") ?? document.body,
   );
 }

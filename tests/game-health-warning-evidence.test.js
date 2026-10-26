@@ -65,3 +65,15 @@ test("recovery, identity reset and long gaps reset an unconfirmed failure sequen
     unproven = nextHealthWarningEvidence(unproven, missing);
   assert.equal(hasConfirmedHealthWarning(missing, unproven), false);
 });
+
+test("successful checks in a partially failed feature cannot count as failed attempts", () => {
+  let evidence = {};
+  for (const checkedAt of [1000, 16000, 31000]) {
+    evidence = nextHealthWarningEvidence(evidence, {
+      ...health(checkedAt),
+      featureFailedAt: { bosses: 1000 },
+    });
+  }
+  assert.equal(evidence.bosses.attempts, 1);
+  assert.equal(hasConfirmedHealthWarning(health(31000), evidence), false);
+});

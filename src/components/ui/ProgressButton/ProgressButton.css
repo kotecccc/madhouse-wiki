@@ -50,3 +50,13 @@
 .ui-progress-button-fill {
   stroke: var(--icon-energy);
 }
+
+.ui-progress-button-fill--animated {
+  transition: stroke-dasharray var(--control-transition-duration) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-progress-button-fill--animated {
+    transition: none;
+  }
+}

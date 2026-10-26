@@ -999,3 +999,51 @@ test("a heartbeat failure in one account cannot disable another account or erase
     assert.deepEqual(service.snapshot(other).preferences.favoriteBossIds, [7]);
   });
 });
+
+test("a solo goal can replace completed invitation mode, while uncertain checkpoints remain protected", async () => {
+  for (const uncertain of [false, true]) {
+    await withContext(async ({ service, game }) => {
+      const entry = await service.identify(tokenA);
+      entry.controller.restoreState({
+        boss: { id: 7, name: "Boss" },
+        battle: {
+          id: "old-invitation",
+          status: "won",
+          detailsLoaded: true,
+          rewardKnown: true,
+        },
+        invitationOnly: true,
+        purchaseUncertain: uncertain,
+      });
+      const input = command(
+        `solo-after-raid-${uncertain}`,
+        "auto.start",
+        service.snapshot(entry).version,
+        {
+          settings: {
+            bossId: 7,
+            kind: "battles",
+            targetCount: 2,
+            maxAttempts: 2,
+          },
+        },
+      );
+      if (uncertain) {
+        await assert.rejects(
+          service.command(entry, input),
+          /automation_start_unavailable/,
+        );
+        assert.equal(service.snapshot(entry).battle.invitationOnly, true);
+        assert.equal(service.snapshot(entry).battle.purchaseUncertain, true);
+      } else {
+        await service.command(entry, input);
+        assert.equal(service.snapshot(entry).battle.invitationOnly, false);
+        assert.equal(service.snapshot(entry).auto.enabled, true);
+      }
+      assert.equal(
+        game.calls.filter((call) => call.method === "POST").length,
+        0,
+      );
+    });
+  }
+});

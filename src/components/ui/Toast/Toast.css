@@ -1,0 +1,20 @@
+.ui-toast-region {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: var(--space-8);
+  left: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ui-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  width: 100%;
+  pointer-events: auto;
+}

@@ -36,7 +36,7 @@ test("game health warning keeps error details unmounted until requested", async 
         const failure = (checkedAt) =>
           reportGameHealth({
             status,
-            failedFeatures: ["bosses"],
+            failedFeatures: ["bosses", "inventory"],
             featureCheckedAt: { bosses: checkedAt },
           });
         failure(now - 30000);
@@ -53,10 +53,13 @@ test("game health warning keeps error details unmounted until requested", async 
         failure(now);
       } else reportGameHealth({ status });
       const html = renderToStaticMarkup(createElement(GameHealthWarningBanner));
-      assert.match(html, /Закрыть предупреждение/);
+      assert.match(html, /Закрыть уведомление/);
       assert.match(html, /base-card--warning/);
-      assert.match(html, /button-icon-ghost/);
-      assert.match(html, /ui-icon--pulse/);
+      assert.match(html, /ui-toast-region/);
+      if (status === "unavailable") {
+        assert.match(html, /Могут быть недоступны функции игры: Боссы/);
+        assert.doesNotMatch(html, /Инвентарь|Игровые данные/);
+      } else assert.match(html, /Требуется повторный вход/);
       const indicator = renderToStaticMarkup(
         createElement(GameHealthWarningIndicator),
       );
@@ -75,6 +78,15 @@ test("game health warning keeps error details unmounted until requested", async 
         "",
       );
     }
+    const { Toast } = await server.ssrLoadModule(
+      "/src/components/ui/Toast/Toast.jsx",
+    );
+    const toast = renderToStaticMarkup(
+      createElement(Toast, { children: "Недоступно" }),
+    );
+    assert.match(toast, /role="status" aria-live="polite"/);
+    assert.match(toast, /Недоступно/);
+    assert.match(toast, /Закрыть уведомление/);
     const details = (status) =>
       renderToStaticMarkup(
         createElement(GameHealthDetails, {

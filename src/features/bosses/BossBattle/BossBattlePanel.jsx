@@ -18,6 +18,7 @@ import { fmt } from "../../../lib/format.js";
 import {
   formatBattleCountdown,
   bossExecutionStatus,
+  formatBattleCompletedAt,
   sameBattleEvent,
   sameBattleEvents,
 } from "./boss-battle-presentation.js";
@@ -107,6 +108,10 @@ export function BossBattlePanel({
       (state.raid.bossId == null ||
         Number(state.raid.bossId) === Number(boss.id))),
   );
+  const completedAt =
+    !automationRunning && ["won", "lost"].includes(battle?.status)
+      ? formatBattleCompletedAt(battle)
+      : null;
   const reference = boss.reference || {};
   const businessItem = reference.possibleDrops?.find(
     (item) => item.type === "activity_item",
@@ -219,7 +224,21 @@ export function BossBattlePanel({
             {battle?.status === "active" ? (
               <>Идёт{countdown !== null && ` · ${countdown}`}</>
             ) : (
-              execution.label
+              <>
+                {execution.label}
+                {completedAt && (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <time
+                      dateTime={new Date(battle.completedAt).toISOString()}
+                      title={`Последний бой: ${completedAt}`}
+                    >
+                      {completedAt}
+                    </time>
+                  </>
+                )}
+              </>
             )}
           </Pill>
         ) : (

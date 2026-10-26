@@ -42,6 +42,20 @@ test("farm progress controls expose real tasks and accessible progress without t
     assert.match(known, /aria-valuemax="27" aria-valuenow="16"/);
     assert.match(known, /aria-haspopup="dialog"/);
     assert.doesNotMatch(known, /Стоп/);
+    const health = renderToStaticMarkup(
+      createElement(ProgressButton, {
+        value: 50,
+        max: 100,
+        icon: "combat",
+        animateLoss: true,
+        animationKey: "battle-1",
+        label: "HP босса",
+        valueText: "50 из 100",
+      }),
+    );
+    assert.match(health, /ui-progress-button-fill--animated/);
+    assert.match(health, /stroke-dasharray="50 100"/);
+    assert.match(health, /aria-valuetext="50 из 100"/);
     const unknown = renderToStaticMarkup(
       createElement(ProgressButton, {
         icon: "energy",

@@ -1,4 +1,8 @@
-import { goalProgressPresentation } from "./boss-battle-presentation.js";
+import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
+import {
+  goalProgressPresentation,
+  bossAutomationEligible,
+} from "./boss-battle-presentation.js";
 import { useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
@@ -49,14 +53,7 @@ export function BossBattleGoalPanel({
   const config = battleSettingsConfig(settings, state.boss);
   const pending = Boolean(state.pending);
   const busy = auto.enabled || raid.enabled || pending;
-  const eligible = Boolean(
-    state.boss &&
-    !pending &&
-    !state.purchase &&
-    !state.purchaseUncertain &&
-    !state.pendingInvitation &&
-    (!state.invitationOnly || state.battle?.status === "active"),
-  );
+  const eligible = bossAutomationEligible(state);
   const soloEnabled = auto.enabled && !raid.enabled;
   const progressStatus = goalProgressPresentation(current, now);
   const toggle = async () => {
@@ -103,11 +100,7 @@ export function BossBattleGoalPanel({
           aria-label="Запустить рейд"
           disabled={
             auto.enabled ||
-            pending ||
-            state.purchaseUncertain ||
-            Boolean(state.purchase) ||
-            state.medicineOpen ||
-            Boolean(state.pendingInvitation) ||
+            !eligible ||
             state.battle?.status === "active" ||
             !config
           }
@@ -259,10 +252,10 @@ export function BossBattleGoalPanel({
           {error && <CardDescription role="alert">{error}</CardDescription>}
         </div>
       </Disclosure>
-      <CardDescription size="xs">
-        Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты
-        лечения и покупок сохраняются.
-      </CardDescription>
+      <InfoButton
+        label="Как работает рейд"
+        description="Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты лечения и покупок сохраняются."
+      />
       {actionsTarget === undefined
         ? actions
         : actionsTarget && createPortal(actions, actionsTarget)}
