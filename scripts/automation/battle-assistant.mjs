@@ -648,6 +648,15 @@ export function createBattleAssistant({
       record.waiting = null;
       complete();
     },
+    releaseUnsent(operationId) {
+      if (
+        typeof operationId !== "string" ||
+        record.pending?.operationId !== operationId
+      )
+        return false;
+      complete();
+      return true;
+    },
     exportState: () => structuredClone(record),
     nextActionAt(attackAt) {
       const state = controller.getSnapshot(),

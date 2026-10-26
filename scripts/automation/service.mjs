@@ -113,8 +113,11 @@ export function createAutomationService({
   const identities = new Map();
   fetcher = createAccountQueue(fetcher, {
     accountKey: (authorization) =>
+      [...actors.values()].find((entry) => entry.credential === authorization)
+        ?.playerId ??
       identities.get(createHash("sha256").update(authorization).digest("hex"))
-        ?.playerId ?? authorization,
+        ?.playerId ??
+      authorization,
     now,
   });
   let closed = false;
@@ -341,7 +344,32 @@ export function createAutomationService({
           if (entry.storageFailed)
             throw failure(503, "automation_storage_unavailable");
         }
-        const response = await fetcher(url, { ...init, redirect: "error" });
+        const dispatchGeneration = entry.autoStartGeneration ?? 0;
+        const credential = entry.credential;
+        const response = await fetcher(url, {
+          ...init,
+          redirect: "error",
+          canDispatch: () => {
+            if (
+              closed ||
+              entry.storageFailed ||
+              entry.credential !== credential
+            )
+              return false;
+            if (init.method !== "POST") return true;
+            ensureLease();
+            return (
+              dispatchGeneration === (entry.autoStartGeneration ?? 0) &&
+              canAct(entry)
+            );
+          },
+        }).catch((error) => {
+          if (error.notDispatched && init.method === "POST")
+            entry.assistant?.releaseUnsent(
+              JSON.parse(init.body || "null")?.operationId,
+            );
+          throw error;
+        });
         const automated = () =>
           !closed &&
           !entry.storageFailed &&
@@ -1389,18 +1417,29 @@ export function createAutomationService({
       heartbeat = setInterval(() => {
         try {
           ensureLease();
-          for (const entry of actors.values()) {
-            updateGoal(entry);
-            entry.collector.tick();
-            entry.workFarm.tick();
-            void entry.raidWorker.tick();
-            reconcileFinishedBattle(entry);
-          }
         } catch {
           for (const entry of actors.values()) {
             entry.storageFailed = true;
             entry.auto.stop();
             entry.workFarm.stop();
+          }
+          return;
+        }
+        for (const entry of actors.values()) {
+          if (now() < (entry.workerRetryAt ?? 0)) continue;
+          try {
+            updateGoal(entry);
+            entry.collector.tick();
+            entry.workFarm.tick();
+            void entry.raidWorker.tick().catch(() => {
+              entry.workerRetryAt = now() + 30000;
+            });
+            reconcileFinishedBattle(entry);
+            entry.workerRetryAt = null;
+          } catch {
+            // An account-specific reader/state error must not stop other
+            // accounts or overwrite durable execution intent with a stop.
+            entry.workerRetryAt = now() + 30000;
           }
         }
       }, 1000);
@@ -1442,16 +1481,10 @@ export function createAutomationService({
             entry.controller.getSnapshot().invitationOnly &&
             entry.controller.getSnapshot().battle?.status === "active"
           ) {
-            if (
-              !entry.auto.start({
-                checkpoint: value.auto,
-                resumeAt: value.auto?.nextAttackAt,
-              })
-            )
-              entry.raidWorker.stop(
-                "paused",
-                "Автобой рейда не удалось восстановить. Проверьте бой.",
-              );
+            entry.auto.start({
+              checkpoint: value.auto,
+              resumeAt: value.auto?.nextAttackAt,
+            });
           }
           save(entry);
           continue;
@@ -1487,7 +1520,7 @@ export function createAutomationService({
           continue;
         }
         if (
-          !entry.controller.getSnapshot().needsRefresh &&
+          value.auto?.enabled &&
           (!entry.goal.getSnapshot() ||
             entry.goal.getSnapshot().status === "active")
         )

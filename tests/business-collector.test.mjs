@@ -18,6 +18,7 @@ function harness({
   getImpl,
   run,
   goalStatus = null,
+  failOpenOnce = false,
 } = {}) {
   const helper = {
     configs: { [businessId]: structuredClone(config) },
@@ -71,6 +72,7 @@ function harness({
   };
   const controller = {
     opens: [],
+    refreshes: [],
     getSnapshot: () => state,
     subscribe(fn) {
       controllerListeners.add(fn);
@@ -79,8 +81,19 @@ function harness({
     emit() {
       for (const fn of [...controllerListeners]) fn();
     },
+    async refresh(options) {
+      this.refreshes.push(options);
+      Object.assign(state, { needsRefresh: false, error: null });
+      this.emit();
+    },
     async open(boss) {
       this.opens.push(boss);
+      if (failOpenOnce) {
+        failOpenOnce = false;
+        state.needsRefresh = true;
+        this.emit();
+        throw new TypeError("temporary open failure");
+      }
       Object.assign(state, {
         boss,
         battle: null,
@@ -310,6 +323,77 @@ test("deadline stops the collector without opening another boss", async () => {
   );
 });
 
+test("temporary read outage keeps the run and resumes from fresh reads", async () => {
+  let offline = true;
+  const h = harness({
+    getImpl: (path) => {
+      if (offline) throw new TypeError("offline");
+      return path === "/api/me/bag"
+        ? { activityItems: [] }
+        : { id: 1, level: 1 };
+    },
+  });
+  h.start();
+  await h.next();
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.phase, "retrying");
+  assert.equal(h.helper.run.nextRetryAt, 31000);
+  assert.equal(h.controller.opens.length, 0);
+
+  offline = false;
+  h.setNow(h.helper.run.nextRetryAt);
+  await h.drain();
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.phase, "farming");
+  assert.equal(h.helper.run.nextRetryAt, null);
+  assert.deepEqual(
+    h.controller.opens.map((boss) => boss.id),
+    [901],
+  );
+  assert.ok(
+    h.gets.length >= 4,
+    "recovery performs new inventory and detail reads",
+  );
+});
+
+test("stopping during a retry wait cancels the scheduled recovery", async () => {
+  const h = harness({
+    getImpl: () => {
+      throw new TypeError("offline");
+    },
+  });
+  h.start();
+  await h.next();
+  const retryTimer = h.timers.find((item) => !item.canceled);
+  assert.ok(retryTimer);
+  assert.ok(retryTimer.delay > 0);
+  h.collector.stop();
+  assert.equal(retryTimer.canceled, true);
+  assert.equal(h.helper.run.status, "stopped");
+  assert.equal(await h.next(), false);
+  assert.equal(h.gets.length, 2);
+});
+
+test("failed boss opening recovers controller state before retrying", async () => {
+  const h = harness({ failOpenOnce: true });
+  h.start();
+  await h.next();
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.phase, "retrying");
+  assert.equal(
+    h.helper.run.reason,
+    "Игровые данные временно недоступны. Цель сохранена; повторим проверку.",
+  );
+
+  h.setNow(h.helper.run.nextRetryAt);
+  await h.drain();
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.phase, "farming");
+  assert.equal(h.helper.run.reason, null);
+  assert.deepEqual(h.controller.refreshes, [{ discover: true }]);
+  assert.equal(h.goal.configurations.length, 1);
+});
+
 test("urgent stop during held inventory refresh invalidates the step", async () => {
   let release;
   const h = harness({
@@ -362,7 +446,7 @@ test("safe restart resumes an active farming goal without reopening or refreshin
   assert.equal(h.helper.run.status, "running");
 });
 
-test("unsafe restart checkpoint stops without replaying a battle", () => {
+test("unsafe restart checkpoint preserves intent for read reconciliation without replaying a battle", () => {
   const run = {
     id: "run-unsafe",
     status: "running",
@@ -372,11 +456,9 @@ test("unsafe restart checkpoint stops without replaying a battle", () => {
   };
   const h = harness({ run });
   h.collector.resume(null, true);
-  assert.equal(h.helper.run.status, "error");
-  assert.equal(
-    h.helper.run.reason,
-    "Бой требует проверки. Сбор остановлен без повторения игрового действия.",
-  );
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.phase, "retrying");
+  assert.ok(h.helper.run.nextRetryAt > 0);
   assert.equal(h.auto.starts.length, 0);
   assert.equal(h.controller.opens.length, 0);
 });

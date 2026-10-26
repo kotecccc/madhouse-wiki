@@ -18,6 +18,7 @@ function makeHarness({
   holdPerform = false,
   losePerformReply = false,
   failReads = () => false,
+  failBag = () => false,
   available = () => true,
 } = {}) {
   const workId = 7;
@@ -76,6 +77,8 @@ function makeHarness({
   }
   const request = async (method, path, body = {}) => {
     calls.push({ method, path, body });
+    if (path === "/api/me/bag" && failBag())
+      throw new TypeError("inventory offline");
     if (path !== "/api/works/tasks/perform" && failReads())
       throw new TypeError("offline");
     if (path === "/api/works/open") return stateResponse();
@@ -533,4 +536,22 @@ test("work yields to combat and resumes after the priority action", async () => 
   combat = false;
   await h.fireNext();
   assert.equal(h.farm.getSnapshot().run.status, "completed");
+});
+
+test("temporary inventory failure waits instead of treating unknown boosters as exhausted resources", async () => {
+  let offline = true;
+  const h = makeHarness({
+    energy: 0,
+    boosters: { small: 1, full: 0 },
+    failBag: () => offline,
+  });
+  await refresh(h);
+  start(h.farm, { mode: "boosters", maxBoosters: 1 });
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.phase, "retrying");
+  assert.equal(h.farm.getSnapshot().run.actionsDone, 0);
+  offline = false;
+  for (let i = 0; i < 4 && h.farm.running(); i++) await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.usedBoosters, 1);
 });

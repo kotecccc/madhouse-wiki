@@ -159,6 +159,18 @@ export function createWorkFarm({
     publish();
     const result = await request("POST", path, body, {
       signal: runController.signal,
+    }).catch((error) => {
+      if (
+        error.notDispatched &&
+        run.pending?.operationId ===
+          (body.operationId ?? run.pending?.operationId)
+      ) {
+        if (kind === "buying") run.spentDollar -= details.price;
+        if (kind === "refilling") run.usedBoosters--;
+        run.pending = null;
+        publish();
+      }
+      throw error;
     });
     if (result?.success === false && result?.isDuplicate !== true) {
       // An explicit rejection is different from a lost reply. Re-read before
@@ -256,6 +268,9 @@ export function createWorkFarm({
         const view = await readView(run.workId, run.config.mode === "energy");
         if (!valid()) return;
         record.view = view;
+        run.reason = null;
+        record.notice = null;
+        run.failures = 0;
         if (run.queuedCycles != null) {
           run.targetCycles = view.completedCycles + run.queuedCycles;
           run.queuedCycles = null;
@@ -274,6 +289,12 @@ export function createWorkFarm({
         }
       }
       if (!valid()) return;
+      if (
+        run.config.mode === "boosters" &&
+        (record.view.boostersStatus !== "ready" ||
+          record.view.walletDollar == null)
+      )
+        throw new Error("Ждём подтверждённые цены и запас дефибрилляторов.");
       if (
         run.config.mode !== "energy" &&
         record.view.completedCycles >= run.targetCycles
@@ -687,7 +708,16 @@ export function createWorkFarm({
       )
         throw new Error("Проверьте цель и лимиты фарма.");
       const view = record.view?.workId === args.workId ? record.view : null;
-      if (args.targetCycles - (view?.completedCycles ?? 0) > 1000)
+      const queuedCycles = view
+        ? null
+        : args.targetCycles -
+          (nonnegative(args.expectedCompletedCycles)
+            ? args.expectedCompletedCycles
+            : 0);
+      if (
+        (queuedCycles != null && !positive(queuedCycles)) ||
+        args.targetCycles - (view?.completedCycles ?? 0) > 1000
+      )
         throw new Error(
           "За один запуск можно запланировать не более 1000 выполнений.",
         );
@@ -708,12 +738,7 @@ export function createWorkFarm({
         workId: args.workId,
         title: view?.title ?? `Работёнка №${args.workId}`,
         targetCycles: args.targetCycles,
-        queuedCycles: view
-          ? null
-          : args.targetCycles -
-            (nonnegative(args.expectedCompletedCycles)
-              ? args.expectedCompletedCycles
-              : 0),
+        queuedCycles,
         completedCycles: view?.completedCycles ?? 0,
         config,
         energyBudget: config.energyBudget ?? null,

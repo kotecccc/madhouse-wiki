@@ -92,3 +92,30 @@ test("aborted queued requests never reach the game", async () => {
   await rejection;
   assert.equal(calls, 1);
 });
+
+test("dispatch guard cancels a stopped queued action and is not forwarded upstream", async () => {
+  let release;
+  let allowed = true;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const calls = [];
+  const fetcher = createAccountQueue(async (url, init) => {
+    calls.push(url);
+    assert.equal("canDispatch" in init, false);
+    await gate;
+    return Response.json({});
+  });
+  const init = { headers: { Authorization: "Bearer account" } };
+  const read = fetcher("https://game/api/me", init);
+  const action = fetcher("https://game/api/bosses/battles/one/attack", {
+    ...init,
+    method: "POST",
+    canDispatch: () => allowed,
+  });
+  const rejected = assert.rejects(action, { name: "AbortError" });
+  allowed = false;
+  release();
+  await Promise.all([read, rejected]);
+  assert.equal(calls.length, 1);
+});

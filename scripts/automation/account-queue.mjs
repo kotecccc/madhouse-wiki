@@ -24,9 +24,14 @@ export function createAccountQueue(
             (a.priority + (now() - a.queuedAt) / 1000),
         );
         const job = lane.pending.shift();
+        let dispatched = false;
         try {
           job.init.signal?.throwIfAborted();
-          const response = await fetcher(job.url, job.init);
+          const { canDispatch, ...requestInit } = job.init;
+          if (canDispatch && !canDispatch())
+            throw new DOMException("Queued action cancelled", "AbortError");
+          dispatched = true;
+          const response = await fetcher(job.url, requestInit);
           // Hold the lane through the body, with the same upper bound used by
           // account actors; an oversized response cannot exhaust the worker.
           const chunks = [];
@@ -52,7 +57,16 @@ export function createAccountQueue(
             }),
           );
         } catch (error) {
-          job.reject(error);
+          job.reject(
+            dispatched
+              ? error
+              : Object.assign(
+                  error instanceof Error
+                    ? error
+                    : new Error("Queued action cancelled"),
+                  { notDispatched: true },
+                ),
+          );
         }
       }
     } finally {
@@ -67,7 +81,9 @@ export function createAccountQueue(
     const lane = accounts.get(key) ?? { pending: [], running: false };
     accounts.set(key, lane);
     if (lane.pending.length >= 128)
-      return Promise.reject(new Error("account_queue_full"));
+      return Promise.reject(
+        Object.assign(new Error("account_queue_full"), { notDispatched: true }),
+      );
     return new Promise((resolve, reject) => {
       lane.pending.push({
         queuedAt: now(),

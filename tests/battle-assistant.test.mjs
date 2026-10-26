@@ -681,3 +681,22 @@ test("joining a battle invites before the first ready strike even before persona
   assert.equal(assistant.projection().invitation.nextAt, 135000);
   assert.equal((await assistant.step()).kind, "attack");
 });
+
+test("only a matching operation proven unsent can release a reservation", () => {
+  const controller = fakeController();
+  const assistant = createBattleAssistant({
+    controller,
+    saved: {
+      pending: {
+        kind: "attack",
+        operationId: "queued-operation",
+        battleId: "battle-1",
+      },
+      battles: {},
+    },
+  });
+  assert.equal(assistant.releaseUnsent("different-operation"), false);
+  assert.equal(assistant.exportState().pending.operationId, "queued-operation");
+  assert.equal(assistant.releaseUnsent("queued-operation"), true);
+  assert.equal(assistant.exportState().pending, null);
+});

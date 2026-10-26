@@ -824,3 +824,178 @@ test("app launch restores auth battle hints over a previous boss without scannin
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("restart during a read outage preserves auto intent and recovers without a browser", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "automation-boot-outage-"));
+  const store = createAutomationStateStore({ directory });
+  const game = fakeGame();
+  let now = 1_000_000;
+  let offline = false;
+  let started = false;
+  let timers = [];
+  let service;
+  const make = () =>
+    createAutomationService({
+      store,
+      getBoss: (id) => ({ numericId: id, name: "Boss" }),
+      fetcher: async (url, init) => {
+        const path = new URL(url).pathname;
+        if (offline && path.includes("/bosses/"))
+          return Response.json({ error: "maintenance" }, { status: 503 });
+        if (path === "/api/bosses/7" && started)
+          return Response.json({
+            id: 7,
+            damageMax: 10,
+            activeBattle: battle(now),
+            state: { canStartFight: false },
+          });
+        const response = await game.fetcher(url, init);
+        if (path === "/api/bosses/7/battles" && init?.method === "POST")
+          started = true;
+        return response;
+      },
+      now: () => now,
+      random: () => 0,
+      schedule: (callback, delay) => {
+        const timer = { callback, at: now + delay, canceled: false };
+        timers.push(timer);
+        return timer;
+      },
+      cancel: (timer) => {
+        if (timer) timer.canceled = true;
+      },
+    });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    service = make();
+    const entry = await openBoss(service);
+    await service.command(
+      entry,
+      command("boot-outage-start", "start", service.snapshot(entry).version),
+    );
+    await service.command(
+      entry,
+      command(
+        "boot-outage-auto",
+        "auto.start",
+        service.snapshot(entry).version,
+      ),
+    );
+    assert.equal(store.read("101").auto.enabled, true);
+    service.close();
+    timers = [];
+    offline = true;
+    service = make();
+    await service.boot();
+    assert.equal(store.read("101").auto.enabled, true);
+    assert.equal(store.read("101").auto.phase, "waiting");
+    assert.equal(
+      game.calls.filter((call) => call.path.endsWith("/attack")).length,
+      0,
+    );
+    offline = false;
+    for (let i = 0; i < 3; i++) {
+      const timer = timers.find((item) => !item.canceled);
+      assert.ok(timer, "recovery remains scheduled");
+      timer.canceled = true;
+      now = Math.max(now, timer.at);
+      timer.callback();
+      await flush();
+      if (game.calls.some((call) => call.path.endsWith("/attack"))) break;
+    }
+    assert.equal(
+      game.calls.filter((call) => call.path.endsWith("/attack")).length,
+      1,
+    );
+  } finally {
+    service?.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("stop while a strike is queued prevents its later dispatch", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "automation-queued-stop-"));
+  const store = createAutomationStateStore({ directory });
+  const game = fakeGame();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const service = createAutomationService({
+    store,
+    getBoss: (id) => ({ numericId: id, name: "Boss" }),
+    now: () => 1_000_000,
+    fetcher: async (url, init) => {
+      if (new URL(url).pathname === "/api/bosses/invitations") {
+        await gate;
+        return Response.json({ items: [] });
+      }
+      return game.fetcher(url, init);
+    },
+  });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    const entry = await openBoss(service);
+    await service.command(
+      entry,
+      command("queue-stop-start", "start", service.snapshot(entry).version),
+    );
+    const reading = service.command(
+      entry,
+      command(
+        "queue-stop-read",
+        "invitations.refresh",
+        service.snapshot(entry).version,
+      ),
+    );
+    await flush();
+    const attack = entry.controller.attack();
+    await flush();
+    assert.equal(entry.controller.getSnapshot().pending, "attack");
+    await service.command(
+      entry,
+      command("queue-stop-stop", "auto.stop", service.snapshot(entry).version),
+    );
+    release();
+    await Promise.all([reading, attack]);
+    assert.equal(
+      game.calls.some((call) => call.path.endsWith("/attack")),
+      false,
+    );
+  } finally {
+    release();
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a heartbeat failure in one account cannot disable another account or erase its own intent", async () => {
+  await withContext(async ({ service }) => {
+    const first = await service.identify(tokenA);
+    const other = await service.identify(tokenB);
+    let otherTicks = 0;
+    first.collector.tick = () => {
+      throw new TypeError("malformed account response");
+    };
+    other.workFarm.tick = () => {
+      otherTicks++;
+    };
+    await service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.equal(first.storageFailed, false);
+    assert.equal(other.storageFailed, false);
+    assert.ok(otherTicks > 0);
+    await service.command(
+      other,
+      command(
+        "heartbeat-favorite",
+        "favorites.set",
+        service.snapshot(other).version,
+        { bossIds: [7] },
+      ),
+    );
+    assert.deepEqual(service.snapshot(other).preferences.favoriteBossIds, [7]);
+  });
+});
