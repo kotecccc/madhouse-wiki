@@ -26,3 +26,19 @@
   align-items: center;
   gap: var(--space-8);
 }
+
+.inventory-item-card {
+  position: relative;
+}
+.inventory-item-lock {
+  position: absolute;
+  top: var(--space-12);
+  right: var(--space-12);
+}
+.inventory-item-heading--locked {
+  padding-inline-end: var(--space-24);
+}
+.inventory-item-condition {
+  display: grid;
+  gap: var(--space-4);
+}

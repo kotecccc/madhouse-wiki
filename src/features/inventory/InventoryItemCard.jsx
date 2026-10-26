@@ -68,6 +68,13 @@ function InventoryStats({ values, perLevel = false }) {
 }
 
 export function InventoryItemCard({ item }) {
+  const locked = item.status === "locked";
+  const durabilityKnown =
+    Number.isFinite(item.durability) &&
+    item.durability >= 0 &&
+    Number.isFinite(item.durabilityMax) &&
+    item.durabilityMax > 0 &&
+    item.durability <= item.durabilityMax;
   const room = item.type === "room";
   const levelKnown =
     item.ownedLevel != null &&
@@ -82,13 +89,26 @@ export function InventoryItemCard({ item }) {
   return (
     <BaseCard
       as="article"
+      padding="12"
       className="inventory-item-card"
       state={item.status === "locked" ? "locked" : undefined}
     >
+      {locked && (
+        <span
+          className="inventory-item-lock"
+          role="img"
+          aria-label="Закрыто"
+          title="Закрыто"
+        >
+          <Icon type="lock" size="small" />
+        </span>
+      )}
       {room && (
         <ImageCard variant="landscape" src={item.image} alt={item.name} />
       )}
-      <div className="inventory-item-heading">
+      <div
+        className={`inventory-item-heading${locked ? " inventory-item-heading--locked" : ""}`}
+      >
         {!room && <ImageCard src={item.image} alt={item.name} />}
         <div className="inventory-item-copy">
           <CardTitle as="h3" title={item.name}>
@@ -103,31 +123,35 @@ export function InventoryItemCard({ item }) {
             {item.equipped ? (room ? " · Выбрана" : " · В руках") : ""}
           </CardDescription>
         </div>
-        <Pill
-          size="xs"
-          dot={false}
-          variant={
-            item.status === "locked"
-              ? "locked"
-              : maxed || item.equipped
-                ? "completed"
-                : "scheduled"
-          }
-        >
-          {item.status === "locked" && <Icon type="lock" size="small" />}
-          {maxed ? "Максимум" : item.equipped ? "Выбрано" : states[item.status]}
-        </Pill>
+        {!locked && (
+          <Pill
+            size="xs"
+            dot={false}
+            variant={maxed || item.equipped ? "completed" : "scheduled"}
+          >
+            {maxed
+              ? "Максимум"
+              : item.equipped
+                ? "Выбрано"
+                : states[item.status]}
+          </Pill>
+        )}
       </div>
-      {!room && levelKnown && (
-        <ProgressBar
-          value={item.ownedLevel}
-          max={item.maxLevel}
-          label="Уровень оружия"
-          valueText={`${item.ownedLevel} из ${item.maxLevel}`}
-        />
+      {!room && durabilityKnown && (
+        <div className="inventory-item-condition">
+          <CardDescription>
+            Прочность: {fmt(item.durability)} / {fmt(item.durabilityMax)}
+          </CardDescription>
+          <ProgressBar
+            value={item.durability}
+            max={item.durabilityMax}
+            label="Остаток прочности оружия"
+            valueText={`${item.durability} из ${item.durabilityMax}`}
+          />
+        </div>
       )}
       <InventoryStats values={currentStats ?? item.facts?.stats} />
-      {!room && item.durability != null && (
+      {!room && !durabilityKnown && item.durability != null && (
         <CardDescription>
           Прочность: {fmt(item.durability)}
           {item.durabilityMax != null ? ` / ${fmt(item.durabilityMax)}` : ""}
