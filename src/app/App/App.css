@@ -45,10 +45,14 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: auto;
-    padding-inline: var(--page-gutter);
+    padding-inline: var(--page-gutter) 0;
     padding-bottom: calc(
       var(--space-64) + var(--space-16) + env(safe-area-inset-bottom, 0px)
     );
+  }
+
+  .app-scroll-region > * {
+    width: calc(100vw - 2 * var(--page-gutter));
   }
 
   @supports selector(::-webkit-scrollbar) {

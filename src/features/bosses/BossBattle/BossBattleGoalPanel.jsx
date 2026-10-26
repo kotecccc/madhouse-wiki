@@ -35,8 +35,8 @@ export function BossBattleGoalPanel({
   const current = Number(goal?.boss?.id) === bossId ? goal : null;
   const foreignGoal = goal?.boss?.id != null && !current;
   const foreignRaid = raid.bossId != null && Number(raid.bossId) !== bossId;
+  if (foreignGoal || (foreignRaid && raid.enabled)) auto = { enabled: false };
   if (foreignRaid) raid = { enabled: false };
-  if (foreignGoal || foreignRaid) auto = { enabled: false };
   const id = useId();
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState(null);

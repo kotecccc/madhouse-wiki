@@ -5,6 +5,7 @@ The wiki server owns personal battle state, goal settings and confirmed per-batt
 ## API
 
 - `GET /api/automation/state` returns `{version, serverTime, battle, goal, auto, pvp, preferences}` for the authenticated game account. It does not forward a read of the entire battle to the game on every poll.
+- `POST /api/automation/launch` reconciles the current fight once per app connection. The auth response's `activeBossBattle` supplies a routing hint; the server verifies it against the authenticated boss summary and reads the specific battle before adoption. No boss scan or automatic activation of combat is performed. Without a hint it checks the account response and refreshes an already known fight. Regular state polling remains local.
 - `POST /api/automation/commands` accepts `{id, expectedVersion, command, args}`. The command ID is recorded before dispatch. Duplicate IDs, concurrent actions and stale versions are rejected with HTTP 409 and a current snapshot; the client does not retry mutations.
 - Supported commands: `open`, `refresh`, `hydrate`, `start`, `next`, `attack`, `medicines.open`, `medicines.close`, `medicine.use`, `purchase.prepare`, `purchase.cancel`, `purchase.buy`, `purchase.ack`, `auto.start`, `auto.stop`, `goal.configure`, `goal.stop`, `goal.reset`, `pvp.refresh`, `favorites.set`.
 - Favorite settings use `favorites.set` with `{bossIds: [positive game boss IDs]}`. New automation settings must use this authenticated server boundary, not localStorage.
@@ -174,10 +175,10 @@ is required by this local implementation; tests inject fake upstream responses.
 
 ## Boss healing and invitations
 
-`healing.configure` accepts `{settings}` for the selected boss. Settings contain
+`healing.configure` accepts `{settings}` for the account, shared by all bosses. Settings contain
 `enabled`, `autoBuy`, `items.heal_10/heal_full` (`enabled`, integer `limit`, explicit
 `currency`) and `budgets.gold/dollar/pills`. Zero means no permitted use/spend.
-These profiles live in the encrypted account record. React only holds an unsaved
+The permanent settings live in the encrypted account record. Legacy boss profiles migrate using the selected boss's settings, or the first saved profile if none is selected. React only holds an unsaved
 form draft. The battle projection exposes `healing.settings`, per-battle `used`,
 per-run `spent`, notices and an advisory quota forecast. Inventory/HP and quota
 remain private; none of these fields enter the public catalogue.

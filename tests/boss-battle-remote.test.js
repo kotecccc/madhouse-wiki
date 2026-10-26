@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRemoteBattleSession } from "../src/features/bosses/BossBattle/boss-battle-remote.js";
 
-function harness({ state, request: requestImpl } = {}) {
+function harness({ state, request: requestImpl, launchBattle } = {}) {
   let nowId = 0;
   let requestLog = [];
   let tasks = new Map();
@@ -23,6 +23,7 @@ function harness({ state, request: requestImpl } = {}) {
   };
   const session = createRemoteBattleSession({
     request,
+    launchBattle,
     schedule,
     cancel,
     makeId: () => `id-${++nowId}`,
@@ -71,6 +72,44 @@ test("connect reads server state once, publishes stable snapshots, and polls loc
   assert.equal([...h.tasks.values()][0].delay, 180000);
   await h.connect();
   assert.equal(h.calls.length, 1);
+});
+
+test("app launch passes the auth battle reference once per connection; polls stay local", async () => {
+  const ref = { battleId: "manual-fight", bossId: 7 };
+  const h = harness({ launchBattle: () => ref });
+  await h.connect();
+  assert.deepEqual(h.calls[0], [
+    "POST",
+    "/api/automation/launch",
+    { activeBossBattle: ref },
+  ]);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(h.calls[1], ["GET", "/api/automation/state"]);
+  h.disconnect();
+  await h.connect();
+  assert.equal(h.calls.at(-1)[1], "/api/automation/launch");
+  h.disconnect();
+});
+
+test("a failed launch retries its read-only reconciliation rather than losing the reference", async () => {
+  let attempts = 0;
+  const h = harness({
+    launchBattle: () => ({ battleId: "manual-fight", bossId: 7 }),
+    request: async () => {
+      if (++attempts === 1) throw new Error("offline");
+      return initialState();
+    },
+  });
+  await h.connect();
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    h.calls.map((call) => call[1]),
+    ["/api/automation/launch", "/api/automation/launch"],
+  );
+  assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
+  h.disconnect();
 });
 
 test("open merges local visibility and boss metadata; close and reset do not send server mutations", async () => {

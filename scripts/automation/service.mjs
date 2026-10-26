@@ -24,6 +24,7 @@ import { createBusinessCollector } from "./business-collector.mjs";
 import { createBattleSeries } from "./battle-series.mjs";
 import { createBossBattleRequest } from "../../src/features/bosses/BossBattle/boss-battle-request.js";
 import { normalizePvpBattle } from "../../src/features/combat/ActiveBattleDock/active-battle-state.js";
+import { normalizeActiveBossBattle } from "../../shared/active-boss-battle.js";
 import {
   BOSS_INVITATIONS_PATH,
   projectBossInvitations,
@@ -181,8 +182,14 @@ export function createAutomationService({
   }
   async function refreshAutoDamageLimit(entry) {
     const generation = entry.autoStartGeneration ?? 0;
-    await entry.controller.refreshDamageLimit();
-    return generation === (entry.autoStartGeneration ?? 0);
+    await entry.controller.refresh({ discover: true });
+    await entry.controller.hydrateDetails();
+    const state = entry.controller.getSnapshot();
+    return (
+      generation === (entry.autoStartGeneration ?? 0) &&
+      !state.needsRefresh &&
+      !state.error
+    );
   }
   function reconcileFinishedBattle(entry) {
     const state = entry.controller.getSnapshot(),
@@ -536,6 +543,77 @@ export function createAutomationService({
           await entry.controller.refresh();
         }
       }
+    }
+  }
+  async function launch(entry, hint) {
+    // Launch references are routing hints, never trusted battle state. Confirm
+    // against the authenticated boss summary before adopting any browser input.
+    ensureLease();
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    if (entry.busy || entry.controller.getSnapshot().pending)
+      throw failure(409, "automation_action_pending");
+    let ref = normalizeActiveBossBattle(hint);
+    if (hint != null && !ref) throw failure(400, "invalid_active_battle");
+    entry.busy = true;
+    try {
+      if (!ref) {
+        const me = await gameJson(entry.credential, "/api/me");
+        if (String(me?.playerId) !== entry.playerId)
+          throw failure(401, "invalid_game_identity");
+        ref = normalizeActiveBossBattle(me.activeBossBattle);
+      }
+      if (ref) {
+        const detail = await gameJson(
+          entry.credential,
+          `/api/bosses/${ref.bossId}`,
+        );
+        if (
+          Number(detail?.id) !== ref.bossId ||
+          !Object.hasOwn(detail, "activeBattle")
+        )
+          throw failure(409, "active_battle_unknown");
+        const current = detail.activeBattle;
+        if (current != null) {
+          if (
+            typeof current.battleId !== "string" ||
+            !/^[A-Za-z0-9_-]+$/.test(current.battleId)
+          )
+            throw failure(409, "active_battle_unknown");
+          // The hint may be stale: the game's current account battle wins.
+          const raw = await gameJson(
+            entry.credential,
+            `/api/bosses/battles/${current.battleId}`,
+          );
+          if (
+            raw?.battleId !== current.battleId ||
+            Number(raw?.bossId) !== ref.bossId
+          )
+            throw failure(409, "active_battle_unknown");
+          const state = entry.controller.getSnapshot();
+          if (
+            state.battle?.id !== current.battleId ||
+            state.boss?.id !== ref.bossId
+          ) {
+            const boss = await getBoss(ref.bossId);
+            if (boss) {
+              entry.raidWorker.stop();
+              entry.collector.stop();
+              entry.auto.stop();
+              entry.goal.stop();
+              entry.controller.syncExternalBattle(boss, raw, state);
+            }
+          }
+        }
+      }
+      if (entry.controller.getSnapshot().boss) {
+        await entry.controller.refresh({ discover: true });
+        await entry.controller.hydrateDetails();
+      }
+      save(entry);
+      return snapshot(entry);
+    } finally {
+      entry.busy = false;
     }
   }
   async function refreshInvitations(entry, force = false) {
@@ -911,7 +989,7 @@ export function createAutomationService({
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw failure(400, "invalid_command_arguments");
     updateGoal(entry);
-    const state = entry.controller.getSnapshot();
+    let state = entry.controller.getSnapshot();
     if (
       [
         "goal.configure",
@@ -964,6 +1042,9 @@ export function createAutomationService({
           )
             throw failure(409, "raid_start_unavailable");
           if (!(await refreshAutoDamageLimit(entry))) break;
+          state = entry.controller.getSnapshot();
+          if (state.battle?.status === "active")
+            throw failure(409, "raid_start_unavailable");
           configureAutoGoal(entry, args.settings, state);
           if (
             !entry.assistant.begin(
@@ -1085,6 +1166,7 @@ export function createAutomationService({
           break;
         case "auto.start":
           if (!(await refreshAutoDamageLimit(entry))) break;
+          state = entry.controller.getSnapshot();
           configureAutoGoal(entry, args.settings, state);
           if (
             !entry.goal.getSnapshot() ||
@@ -1250,6 +1332,7 @@ export function createAutomationService({
   }
   return {
     identify,
+    launch,
     snapshot,
     command,
     async boot() {

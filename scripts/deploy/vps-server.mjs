@@ -85,6 +85,7 @@ if (role === "wiki") {
   automationRuntime = await createAutomationRuntime({ root });
   apiHandlers = new Map([
     ["/api/automation/state", automationRuntime.nodeHandler],
+    ["/api/automation/launch", automationRuntime.nodeHandler],
     ["/api/automation/commands", automationRuntime.nodeHandler],
     ["/api", automationRuntime.proxy],
     ["/api/catalogue", catalogue.default],

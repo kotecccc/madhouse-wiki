@@ -737,3 +737,90 @@ test("terminal victory without reward is reconciled by GET and records the retur
     },
   );
 });
+
+test("app launch restores auth battle hints over a previous boss without scanning or mutations", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "automation-launch-"));
+  const store = createAutomationStateStore({ directory });
+  const paths = [];
+  let active = battle(1_000_000, "manual-battle");
+  const service = createAutomationService({
+    store,
+    now: () => 1_000_000,
+    getBoss: (id) => ({ numericId: id, name: `Boss ${id}` }),
+    fetcher: async (url, init = {}) => {
+      assert.equal(init.method ?? "GET", "GET");
+      const path = new URL(url).pathname;
+      paths.push(path);
+      if (path === "/api/me") return Response.json({ playerId: 101 });
+      if (path === "/api/combat") return Response.json({ activeBattle: null });
+      if (path === "/api/bosses/8")
+        return Response.json({
+          id: 8,
+          activeBattle: null,
+          state: { canStartFight: true },
+        });
+      if (path === "/api/bosses/7")
+        return Response.json({
+          id: 7,
+          damageMax: 10,
+          activeBattle: active,
+          state: { canStartFight: false },
+        });
+      if (path === "/api/bosses/battles/manual-battle")
+        return Response.json(active);
+      throw new Error(`Unexpected game route ${path}`);
+    },
+  });
+  try {
+    const entry = await service.identify(tokenA);
+    await service.command(
+      entry,
+      command("open-old-boss", "open", service.snapshot(entry).version, {
+        bossId: 8,
+      }),
+    );
+    const http = createAutomationHttp({ service });
+    const launch = (activeBossBattle) =>
+      http(
+        new Request("https://wiki.test/api/automation/launch", {
+          method: "POST",
+          headers: {
+            authorization: tokenA,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ activeBossBattle }),
+        }),
+      );
+    const start = paths.length;
+    // A forged/stale battle ID is not used for the detail read. The game's
+    // authenticated summary decides which fight belongs to this account.
+    const response = await launch({ bossId: 7, battleId: "untrusted-id" });
+    assert.equal(response.status, 200);
+    const value = await response.json();
+    assert.equal(value.battle.boss.id, 7);
+    assert.equal(value.battle.battle.id, "manual-battle");
+    assert.equal(value.battle.battle.detailsLoaded, true);
+    assert.equal(value.auto.enabled, false);
+    assert.equal(value.raid.enabled, false);
+    assert.ok(
+      paths
+        .slice(start)
+        .every((path) =>
+          ["/api/bosses/7", "/api/bosses/battles/manual-battle"].includes(path),
+        ),
+    );
+    assert.equal(paths.includes("/api/bosses/battles/untrusted-id"), false);
+    active = null;
+    const ended = await launch({ bossId: 7, battleId: "manual-battle" });
+    assert.equal(ended.status, 200);
+    assert.equal((await ended.json()).battle.battle, null);
+    assert.equal(
+      (await launch({ bossId: 7, battleId: "../invalid" })).status,
+      400,
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

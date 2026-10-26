@@ -64,6 +64,7 @@ export function createRemoteBattleSession({
   cancel = clearTimeout,
   makeId = () => crypto.randomUUID(),
   visibility = typeof document === "undefined" ? null : document,
+  launchBattle,
 } = {}) {
   if (typeof request !== "function") throw new TypeError("request is required");
 
@@ -76,6 +77,7 @@ export function createRemoteBattleSession({
   const workFarmListeners = new Set();
   const invitationListeners = new Set();
   let connected = false;
+  let launchPending = Boolean(launchBattle);
   let transportError = null;
   let workCommandError = null;
   let businessCommandError = null;
@@ -234,8 +236,13 @@ export function createRemoteBattleSession({
     if (stateRead?.run === run) return stateRead.promise;
     const entry = { run, promise: null };
     entry.promise = (async () => {
-      const result = await request("GET", "/api/automation/state");
+      const result = launchPending
+        ? await request("POST", "/api/automation/launch", {
+            activeBossBattle: launchBattle(),
+          })
+        : await request("GET", "/api/automation/state");
       if (!connected || run !== epoch) return false;
+      launchPending = false;
       setServerState(result);
       return true;
     })();
@@ -303,6 +310,7 @@ export function createRemoteBattleSession({
 
   function disconnect() {
     connected = false;
+    launchPending = Boolean(launchBattle);
     visibility?.removeEventListener("visibilitychange", onVisibilityChange);
     transportError = null;
     workCommandError = null;
