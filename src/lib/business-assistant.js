@@ -292,6 +292,7 @@ export function buildBusinessAssistantPlan({
       maxAttempts: positiveSafeInteger(config.maxAttempts)
         ? config.maxAttempts
         : null,
+      ...(config.autoUpgrade === true ? { autoUpgrade: true } : {}),
     },
     currentLevel,
     currentLevelSource,
