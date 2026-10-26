@@ -642,6 +642,9 @@ export function createWorkFarm({
     getSnapshot: () => record,
     exportState: () => record,
     async refresh(workId, { manual = false } = {}) {
+      // The active runner owns live reads. Reopening its progress must expose
+      // that checkpoint without racing it or turning observation into an error.
+      if (running() && record.run.workId === workId) return;
       if (
         manual &&
         record.refreshRetryAt != null &&

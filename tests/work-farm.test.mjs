@@ -225,6 +225,24 @@ function start(farm, args = {}) {
   });
 }
 
+test("reopening active work progress uses the runner checkpoint without extra reads", async () => {
+  const h = makeHarness({ required: [3], holdPerform: true });
+  await refresh(h);
+  start(h.farm);
+  await h.fireNext({ advance: false });
+  const before = structuredClone(h.farm.exportState());
+  const calls = h.calls.length;
+  assert.equal(before.run.pending.kind, "performing");
+  await h.farm.refresh(7);
+  await h.farm.refresh(7, { manual: true });
+  assert.equal(h.calls.length, calls);
+  assert.deepEqual(h.farm.exportState(), before);
+  await assert.rejects(h.farm.refresh(8), /Сначала остановите фарм/);
+  h.releasePerform();
+  await h.flush();
+  h.farm.stop();
+});
+
 test("fresh partial progress and existing cycles reach a total-cycle target without an extra task", async () => {
   const h = makeHarness({
     completedCycles: 4,
