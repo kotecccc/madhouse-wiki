@@ -28,31 +28,19 @@
 }
 
 .inventory-item-card {
-  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
 }
-.inventory-item-card > * {
-  grid-column: 1 / -1;
-}
-.inventory-item-card > .inventory-item-heading {
-  grid-column: 1;
-  grid-row: 1;
-}
-.inventory-item-card > .inventory-item-heading--room {
-  grid-column: 1 / -1;
-  grid-row: 2;
-}
-.inventory-item-card > .inventory-item-status {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: start;
-  justify-self: end;
+.inventory-item-status {
+  position: absolute;
+  top: var(--space-12);
+  right: var(--space-12);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
   z-index: 1;
 }
 .inventory-item-condition {
   display: grid;
   gap: var(--space-4);
-}
-
-.inventory-item-card > .inventory-item-media {
-  grid-row: 1;
 }

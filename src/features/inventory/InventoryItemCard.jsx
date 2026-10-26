@@ -122,7 +122,6 @@ export function InventoryItemCard({ item }) {
               : levelKnown
                 ? `${item.ownedLevel} из ${item.maxLevel} ур.`
                 : "Оружие"}
-            {item.equipped ? (room ? " · Выбрана" : " · В руках") : ""}
           </CardDescription>
           {!room && durabilityKnown && (
             <div className="inventory-item-condition">
@@ -139,15 +138,24 @@ export function InventoryItemCard({ item }) {
           )}
         </div>
       </div>
-      {!locked && (
-        <Pill
-          className="inventory-item-status"
-          size="xs"
-          dot={false}
-          variant={maxed || item.equipped ? "completed" : "scheduled"}
-        >
-          {maxed ? "Максимум" : item.equipped ? "Выбрано" : states[item.status]}
-        </Pill>
+      {!locked && (item.equipped || maxed || item.status !== "owned") && (
+        <div className="inventory-item-status">
+          {item.equipped && (
+            <Pill size="xs" dot={false} variant="completed">
+              {room ? "Выбрана" : "В руке"}
+            </Pill>
+          )}
+          {maxed && (
+            <Pill size="xs" dot={false} variant="completed">
+              Максимум
+            </Pill>
+          )}
+          {!maxed && !item.equipped && item.status !== "owned" && (
+            <Pill size="xs" dot={false}>
+              {states[item.status]}
+            </Pill>
+          )}
+        </div>
       )}
       <InventoryStats values={inventoryDisplayStats(item)} />
       {!room && !durabilityKnown && item.durability != null && (
