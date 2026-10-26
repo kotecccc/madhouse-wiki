@@ -1,3 +1,4 @@
+import { inventoryDisplayStats } from "./inventory.js";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
@@ -82,10 +83,6 @@ export function InventoryItemCard({ item }) {
     item.ownedLevel <= item.maxLevel;
   const maxed = levelKnown && item.ownedLevel === item.maxLevel;
   const price = item.facts?.purchasePrice;
-  const currentStats =
-    item.currentStats && Object.keys(item.currentStats).length
-      ? item.currentStats
-      : null;
   return (
     <BaseCard
       as="article"
@@ -116,10 +113,10 @@ export function InventoryItemCard({ item }) {
       >
         {!room && <ImageCard src={item.image} alt={item.name} />}
         <div className="inventory-item-copy">
-          <CardTitle as="h3" title={item.name}>
+          <CardTitle as="h3" size="sm" title={item.name}>
             {item.name}
           </CardTitle>
-          <CardDescription>
+          <CardDescription size="xs">
             {room
               ? "Комната"
               : levelKnown
@@ -152,7 +149,7 @@ export function InventoryItemCard({ item }) {
           />
         </div>
       )}
-      <InventoryStats values={currentStats ?? item.facts?.stats} />
+      <InventoryStats values={inventoryDisplayStats(item)} />
       {!room && !durabilityKnown && item.durability != null && (
         <CardDescription>
           Прочность: {fmt(item.durability)}

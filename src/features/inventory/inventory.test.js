@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   inventoryPaths,
   inventoryPotential,
+  inventoryDisplayStats,
   inventoryCategoryOptions,
   inventoryItems,
   filterInventory,
@@ -308,4 +309,43 @@ test("unknown upgrade definitions sort last within their group; non-upgradeable 
     inventoryPotential({ type: "room", facts: { stats: {} } }),
     null,
   );
+});
+
+test("display stats include current upgrades and authoritative current values are not upgraded twice", () => {
+  const item = {
+    type: "weapon",
+    status: "owned",
+    ownedLevel: 50,
+    maxLevel: 50,
+    facts: {
+      stats: { aggression: 800, rage: 23, attackCooldownSeconds: 4 },
+      perLevelStats: {
+        aggression: 23,
+        rage: 1,
+        attackCooldownReductionSeconds: 0.04,
+      },
+    },
+  };
+  assert.deepEqual(inventoryDisplayStats(item), {
+    aggression: 1950,
+    rage: 73,
+    attackCooldownSeconds: 2,
+  });
+  assert.deepEqual(
+    inventoryDisplayStats({ ...item, ownedLevel: 0 }),
+    item.facts.stats,
+  );
+  assert.deepEqual(
+    inventoryDisplayStats({ ...item, ownedLevel: null }),
+    item.facts.stats,
+  );
+  assert.deepEqual(
+    inventoryDisplayStats({ ...item, status: "locked" }),
+    item.facts.stats,
+  );
+  assert.deepEqual(
+    inventoryDisplayStats({ ...item, currentStats: { aggression: 2000 } }),
+    { aggression: 2000, rage: 73, attackCooldownSeconds: 2 },
+  );
+  assert.equal(item.facts.stats.aggression, 800);
 });

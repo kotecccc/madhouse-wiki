@@ -235,3 +235,39 @@ export function inventoryPotential(item) {
     : Infinity;
   return Number.isFinite(total) ? { total, cooldown } : null;
 }
+
+export function inventoryDisplayStats(item) {
+  const base = item.facts?.stats || {};
+  const result = Object.fromEntries(
+    Object.entries(base).filter(([, value]) => Number.isFinite(value)),
+  );
+  const level = item.ownedLevel;
+  if (
+    item.status === "owned" &&
+    ["weapon", "pet"].includes(item.type) &&
+    Number.isSafeInteger(level) &&
+    level >= 0 &&
+    (item.maxLevel == null || level <= item.maxLevel)
+  ) {
+    const increments = item.facts?.perLevelStats || {};
+    for (const key of potentialStats) {
+      if (Number.isFinite(increments[key]))
+        result[key] = (result[key] ?? 0) + increments[key] * level;
+    }
+    if (
+      Number.isFinite(result.attackCooldownSeconds) &&
+      Number.isFinite(increments.attackCooldownReductionSeconds)
+    ) {
+      result.attackCooldownSeconds = Math.max(
+        0,
+        result.attackCooldownSeconds -
+          increments.attackCooldownReductionSeconds * level,
+      );
+    }
+  }
+  // Server-provided current values already include upgrades: never add them twice.
+  for (const [key, value] of Object.entries(item.currentStats || {})) {
+    if (Number.isFinite(value)) result[key] = value;
+  }
+  return result;
+}
