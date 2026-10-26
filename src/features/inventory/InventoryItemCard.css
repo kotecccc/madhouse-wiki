@@ -11,7 +11,7 @@
 .inventory-item-heading {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-12);
   min-width: 0;
 }

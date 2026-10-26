@@ -125,9 +125,6 @@ export function InventoryItemCard({ item }) {
           </CardDescription>
           {!room && durabilityKnown && (
             <div className="inventory-item-condition">
-              <CardDescription>
-                Прочность: {fmt(item.durability)} / {fmt(item.durabilityMax)}
-              </CardDescription>
               <ProgressBar
                 value={item.durability}
                 max={item.durabilityMax}
@@ -142,7 +139,7 @@ export function InventoryItemCard({ item }) {
         <div className="inventory-item-status">
           {item.equipped && (
             <Pill size="xs" dot={false} variant="scheduled">
-              <Icon type={room ? "check" : "fist"} size="text" />
+              <Icon type={room ? "check" : "hand-stop"} size="text" />
               {room ? "Выбрана" : "В руке"}
             </Pill>
           )}
@@ -159,12 +156,6 @@ export function InventoryItemCard({ item }) {
         </div>
       )}
       <InventoryStats values={inventoryDisplayStats(item)} />
-      {!room && !durabilityKnown && item.durability != null && (
-        <CardDescription>
-          Прочность: {fmt(item.durability)}
-          {item.durabilityMax != null ? ` / ${fmt(item.durabilityMax)}` : ""}
-        </CardDescription>
-      )}
       {price && item.status !== "owned" && item.status !== "locked" && (
         <div className="inventory-item-price">
           <Icon
