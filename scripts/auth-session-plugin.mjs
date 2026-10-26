@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { VERSION } from "../connector/protocol.js";
 const source = (name = "auth-session.js") =>
   readFileSync(new URL("../shared/" + name, import.meta.url), "utf8");
+const sharedModules = [
+  "auth-session.js",
+  "telegram-context.js",
+  "active-boss-battle.js",
+];
 export function authSessionPlugin() {
   let connector = null;
   return {
@@ -12,8 +17,7 @@ export function authSessionPlugin() {
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         const name = request.url?.split("?")[0]?.slice(1);
-        if (!["auth-session.js", "telegram-context.js"].includes(name))
-          return next();
+        if (!sharedModules.includes(name)) return next();
         response.setHeader("Content-Type", "application/javascript");
         response.setHeader("Cache-Control", "no-store");
         response.end(source(name));
@@ -25,7 +29,7 @@ export function authSessionPlugin() {
         fileName: "connection-config.json",
         source: JSON.stringify({ origin: connector, protocolVersion: VERSION }),
       });
-      for (const name of ["auth-session.js", "telegram-context.js"])
+      for (const name of sharedModules)
         this.emitFile({
           type: "asset",
           fileName: name,
