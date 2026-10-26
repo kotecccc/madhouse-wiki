@@ -14,6 +14,7 @@ import {
 } from "./inventory.js";
 import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
+import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { Input } from "../../components/ui/Input/Input.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
@@ -154,7 +155,6 @@ export function InventorySection({ active }) {
         </div>
         <Button
           variant="secondary"
-          icon="refresh"
           aria-label="Обновить категорию"
           title="Обновить категорию"
           disabled={loading}
@@ -163,7 +163,7 @@ export function InventorySection({ active }) {
             setRevision((value) => value + 1);
           }}
         >
-          Обновить
+          <Icon type="refresh" />
         </Button>
       </div>
       {SHOW_FILTERS && (
