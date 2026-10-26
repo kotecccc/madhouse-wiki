@@ -335,15 +335,10 @@ function ProfileSummary({ state }) {
       <dl className="overview-stats">
         {profile.stats.map(([name, value, derived, unit]) => {
           const display = getProfileStatDisplay(profile, name, value, now);
-          const description = [
-            `Итого: ${fmt(value)}.`,
-            display.temporary > 0
-              ? `Без временных эффектов: ${fmt(display.value)}. Наборы: +${fmt(display.temporary)}.`
-              : "",
-            Number.isFinite(derived) ? `${fmt(derived)} ${unit}.` : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
+          const description =
+            name !== "Агрессия" && Number.isFinite(derived)
+              ? `${fmt(derived)}${unit.startsWith("%") ? "" : " "}${unit}`
+              : null;
           return (
             <div key={name}>
               <dt>
@@ -358,7 +353,9 @@ function ProfileSummary({ state }) {
                   size="small"
                 />
                 {name}
-                <InfoButton label={name} description={description} />
+                {description && (
+                  <InfoButton label={name} description={description} />
+                )}
               </dt>
               <dd>
                 {numberFormat.format(display.value)}

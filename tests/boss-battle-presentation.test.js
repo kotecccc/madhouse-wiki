@@ -206,6 +206,30 @@ test("battle header contains countdown, hides automation manual controls and kee
     assert.ok(!otherBossMarkup.includes("На паузе"));
     assert.ok(!otherBossMarkup.includes("Бои: 2"));
     assert.ok(otherBossMarkup.includes("Начать автобой"));
+    for (const pending of [null, "refresh"]) {
+      const staleRaidState = {
+        ...settingsState,
+        pending,
+        needsRefresh: true,
+        raid: { enabled: false, status: "stopped", bossId: 99 },
+      };
+      const auto = { enabled: true };
+      assert.equal(bossExecutionStatus(staleRaidState, auto).label, "Ждём боя");
+      const waitingSeries = renderToStaticMarkup(
+        createElement(BossBattleGoalPanel, {
+          state: staleRaidState,
+          goal,
+          auto,
+        }),
+      );
+      assert.match(
+        waitingSeries,
+        /aria-label="Остановить автобой"(?![^>]*disabled)/,
+      );
+      assert.ok(!waitingSeries.includes("Начать автобой"));
+      assert.ok(!waitingSeries.includes("Остановить рейд"));
+      assert.match(waitingSeries, /aria-label="Запустить рейд"[^>]*disabled/);
+    }
     const raidMarkup = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
         state: {
@@ -213,7 +237,7 @@ test("battle header contains countdown, hides automation manual controls and kee
           raid: {
             enabled: true,
             status: "waiting",
-            notice: "Ждём приглашения",
+            notice: "Ждём приглашений",
           },
         },
         goal,
@@ -224,7 +248,7 @@ test("battle header contains countdown, hides automation manual controls and kee
     assert.ok(raidMarkup.includes("tabler-icon-player-pause"));
     assert.ok(raidMarkup.includes("2 из 3"));
     assert.ok(raidMarkup.includes("ui-pill--active"));
-    assert.ok(!raidMarkup.includes("Ждём приглашения"));
+    assert.ok(!raidMarkup.includes("Ждём приглашений"));
     assert.match(raidMarkup, /aria-label="Начать автобой"[^>]*disabled/);
 
     assert.ok(goalMarkup.includes('aria-label="Без ограничений"'));
@@ -380,7 +404,7 @@ test("battle header contains countdown, hides automation manual controls and kee
         now: 1000,
       }),
     );
-    assert.ok(runningSummary.includes("Ждём приглашения"));
+    assert.ok(runningSummary.includes("Ждём приглашений"));
     assert.ok(runningSummary.includes("Трофей"));
     assert.ok(!runningSummary.includes("Здоровье 11"));
     assert.ok(!runningSummary.includes("Урон 40"));
@@ -623,17 +647,17 @@ test("execution status distinguishes raid waiting, joining, fighting and result"
     boss: { id: 7 },
     raid: { enabled: true, bossId: 7, status: "waiting" },
   };
-  assert.equal(bossExecutionStatus(state).label, "Ждём приглашения");
+  assert.equal(bossExecutionStatus(state).label, "Ждём приглашений");
   assert.equal(
     bossExecutionStatus({
       ...state,
       raid: { ...state.raid, status: "joining" },
     }).label,
-    "Вступаем в бой",
+    "Ждём приглашений",
   );
   assert.equal(
     bossExecutionStatus({ ...state, battle: { status: "active" } }).label,
-    "Бой идёт",
+    "Идёт бой",
   );
   assert.equal(
     bossExecutionStatus({
@@ -643,6 +667,28 @@ test("execution status distinguishes raid waiting, joining, fighting and result"
     "Победа",
   );
   assert.equal(bossExecutionStatus({ ...state, boss: { id: 8 } }), null);
+  for (const status of ["won", "lost"]) {
+    const battle = { status, rewardKnown: true };
+    assert.equal(
+      bossExecutionStatus({ ...state, battle }).label,
+      "Ждём приглашений",
+    );
+    assert.equal(
+      bossExecutionStatus(
+        { boss: state.boss, battle },
+        { enabled: true, phase: "between_battles" },
+      ).label,
+      "Ждём боя",
+    );
+    assert.equal(
+      bossExecutionStatus({
+        ...state,
+        battle,
+        raid: { ...state.raid, status: "fighting" },
+      }).label,
+      status === "won" ? "Победа" : "Поражение",
+    );
+  }
 });
 
 test("goal summary has kind icon, progress and deadline clock without a fake infinite timer", () => {
@@ -689,7 +735,7 @@ test("reward confirmation after victory is never labelled invitation confirmatio
     battle: { status: "won", rewardKnown: false },
     raid: { enabled: true, bossId: 7, status: "waiting_confirmation" },
   };
-  assert.equal(bossExecutionStatus(state).label, "Получаем награду");
+  assert.equal(bossExecutionStatus(state).label, "Победа");
   assert.equal(
     bossExecutionStatus({
       ...state,

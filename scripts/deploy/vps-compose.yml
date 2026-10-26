@@ -22,7 +22,7 @@ services:
     environment:
       MADHOUSE_SERVICE: wiki
       MADHOUSE_AUTOMATION_STATE_DIR: /data/automation
-      MADHOUSE_VPS_INLINE_CARDS: "1"
+      MADHOUSE_VPS_INLINE_CARDS: "0"
       MADHOUSE_INLINE_CARDS_CACHE_DIR: /data/telegram-cards
       MADHOUSE_RELEASE_SHA: ${MADHOUSE_RELEASE_SHA}
       PORT: 9092

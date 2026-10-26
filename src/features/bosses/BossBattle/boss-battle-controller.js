@@ -625,10 +625,11 @@ export function createBossBattleController({
       ...extra,
     });
   }
-  async function refresh() {
+  async function refresh({ discover = false } = {}) {
     if (!state.boss) return;
     const boss = state.boss;
-    const battleId = state.battle?.id;
+    const previousBattle = state.battle;
+    const battleId = discover ? null : state.battle?.id;
     return run("refresh", async (call, version) => {
       if (state.pendingInvitation) {
         const current = await readInvitationBattle(
@@ -644,12 +645,24 @@ export function createBossBattleController({
         });
         return;
       }
-      const current = await readCurrent(
-        call,
-        boss,
-        battleId,
-        state.medicineOpen,
-      );
+      let current = await readCurrent(call, boss, battleId, state.medicineOpen);
+      if (discover && !current.battle && isTerminalBossBattle(previousBattle))
+        current = { ...current, battle: previousBattle };
+      if (
+        discover &&
+        current.battle?.id &&
+        current.battle.detailsLoaded === false
+      )
+        current = {
+          ...(await readCurrent(
+            call,
+            boss,
+            current.battle.id,
+            state.medicineOpen,
+          )),
+          damageLimit: current.damageLimit,
+          canStart: current.canStart,
+        };
       applyCurrent(current, version, { purchase: null });
     });
   }

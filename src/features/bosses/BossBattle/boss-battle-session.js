@@ -1,5 +1,8 @@
 import { reportGameHealth } from "../../../../shared/session-api.js";
-import { authorizeRequest } from "../../../../shared/auth-session.js";
+import {
+  authorizeRequest,
+  readSession,
+} from "../../../../shared/auth-session.js";
 import { createRemoteBattleSession } from "./boss-battle-remote.js";
 export { createBossBattleRequest } from "./boss-battle-request.js";
 
@@ -37,7 +40,10 @@ async function automationRequest(method, path, body) {
 
 const remote =
   import.meta.hot?.data.remote ??
-  createRemoteBattleSession({ request: automationRequest });
+  createRemoteBattleSession({
+    request: automationRequest,
+    launchBattle: () => readSession().activeBossBattle,
+  });
 export const {
   bossBattle,
   bossInvitations,

@@ -152,17 +152,22 @@ export function createBattleAssistant({
   record.profiles ??= {};
   record.battles ??= {};
   record.spent ??= money();
+  // Older records stored healing preferences per boss. Keep the active boss's
+  // preferences when possible; otherwise migrate the first saved profile.
+  if (!record.healingSettings) {
+    const bossId = controller.getSnapshot().boss?.id;
+    const legacy = record.profiles[bossId] ?? Object.values(record.profiles)[0];
+    if (legacy) record.healingSettings = validateHealingSettings(legacy);
+  }
+  delete record.profiles;
   let notice = record.pending
     ? "Предыдущее действие не подтверждено. Автоматического повтора не будет."
     : null;
   let invitationNotice = null;
   let stopped = false;
   let generation = 0;
-  const settings = () =>
-    record.profiles[controller.getSnapshot().boss?.id] ??
-    defaultHealingSettings();
-  const hasProfile = () =>
-    Object.hasOwn(record.profiles, controller.getSnapshot().boss?.id);
+  const settings = () => record.healingSettings ?? defaultHealingSettings();
+  const hasProfile = () => Boolean(record.healingSettings);
   function damageBound() {
     const state = controller.getSnapshot();
     return state.damageLimit?.bossId === state.boss?.id
@@ -246,9 +251,7 @@ export function createBattleAssistant({
     return recovered;
   }
   function configure(input) {
-    const bossId = controller.getSnapshot().boss?.id;
-    if (!bossId) throw new Error("healing_boss_required");
-    record.profiles[bossId] = validateHealingSettings(input);
+    record.healingSettings = validateHealingSettings(input);
     publish();
   }
   function begin(key) {
