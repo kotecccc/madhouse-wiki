@@ -1,6 +1,6 @@
 .inventory-section {
   display: grid;
-  gap: var(--space-16);
+  gap: var(--space-8);
 }
 .inventory-toolbar {
   display: grid;
@@ -17,6 +17,10 @@
 }
 .inventory-summary {
   min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-8);
 }
 .inventory-filters {
   display: grid;

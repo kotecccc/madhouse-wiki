@@ -492,3 +492,32 @@ test("combined boss cards use one cache key and scope refresh to the winning bos
     updated.bosses[0].collection.collected,
   );
 });
+
+test("section update dates use server timestamps, survive cache hits and remain account scoped", async () => {
+  let account = "fake-a";
+  let calls = 0;
+  const events = [];
+  const api = createSessionApi({
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: account },
+    }),
+    interval: 0,
+    fetcher: async () => {
+      calls++;
+      return new Response(JSON.stringify({ items: [] }), {
+        headers: { "X-Madhouse-Section-Updated": "1700000000000" },
+      });
+    },
+  });
+  api.subscribe((event) => events.push(event));
+  await api.get("/api/rooms", { revalidate: false });
+  assert.equal(api.updatedAt("/api/rooms"), 1700000000000);
+  assert.equal(events.find((event) => event.path)?.updatedAt, 1700000000000);
+  await api.get("/api/rooms", { revalidate: false });
+  assert.equal(calls, 1);
+  account = "fake-b";
+  assert.equal(api.updatedAt("/api/rooms"), null);
+  api.clear();
+  assert.equal(api.updatedAt("/api/rooms"), null);
+});

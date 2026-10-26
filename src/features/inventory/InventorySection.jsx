@@ -3,6 +3,7 @@ import { knowledgeBase } from "virtual:madhouse-catalogue";
 import {
   getSessionJson,
   peekSessionJson,
+  peekSessionUpdatedAt,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
 import {
@@ -11,7 +12,6 @@ import {
   inventoryPaths,
   filterInventory,
 } from "./inventory.js";
-import { ContentSection } from "../../components/ui/ContentSection/ContentSection.jsx";
 import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
@@ -48,6 +48,7 @@ export function InventorySection({ active }) {
   const [category, setCategory] = useState("clothing_item");
   const [filters, setFilters] = useState(initialFilters);
   const [responses, setResponses] = useState({});
+  const [updatedAt, setUpdatedAt] = useState({});
   const [requestState, setRequestState] = useState({});
   const refreshRequested = useRef(false);
   const [revision, setRevision] = useState(0);
@@ -59,9 +60,15 @@ export function InventorySection({ active }) {
       subscribeSessionData((event) => {
         if (event.cleared) {
           setResponses({});
+          setUpdatedAt({});
           setRequestState({});
-        } else if (inventoryRequestPaths.has(event.path) && event.data)
+        } else if (inventoryRequestPaths.has(event.path) && event.data) {
           setResponses((current) => ({ ...current, [event.path]: event.data }));
+          setUpdatedAt((current) => ({
+            ...current,
+            [event.path]: event.updatedAt ?? null,
+          }));
+        }
       }),
     [],
   );
@@ -76,6 +83,10 @@ export function InventorySection({ active }) {
       for (const path of pathKey.split("|").filter(Boolean)) {
         if (cancelled) return;
         const cached = peekSessionJson(path, { allowStale: true });
+        setUpdatedAt((current) => ({
+          ...current,
+          [path]: peekSessionUpdatedAt(path),
+        }));
         if (cached) setResponses((current) => ({ ...current, [path]: cached }));
         setRequestState((current) => ({ ...current, [path]: "loading" }));
         try {
@@ -100,6 +111,13 @@ export function InventorySection({ active }) {
   const loading = paths.some((path) => requestState[path] === "loading");
   const failed = paths.filter((path) => requestState[path] === "error").length;
   const loaded = paths.filter((path) => responses[path]).length;
+  const categoryUpdatedAt =
+    paths.length &&
+    paths.every(
+      (path) => Number.isFinite(updatedAt[path]) && updatedAt[path] > 0,
+    )
+      ? Math.min(...paths.map((path) => updatedAt[path]))
+      : null;
   const slotValues = [
     ...new Set(
       items
@@ -114,7 +132,7 @@ export function InventorySection({ active }) {
     setLimit(PAGE_SIZE);
   }
   return (
-    <ContentSection className="inventory-section" aria-label="Инвентарь">
+    <section className="inventory-section" aria-label="Инвентарь">
       <div className="inventory-toolbar">
         <div className="inventory-category-scroll">
           <SegmentedControl
@@ -135,7 +153,7 @@ export function InventorySection({ active }) {
           />
         </div>
         <Button
-          variant="icon-copy"
+          variant="secondary"
           icon="refresh"
           aria-label="Обновить категорию"
           title="Обновить категорию"
@@ -145,7 +163,7 @@ export function InventorySection({ active }) {
             setRevision((value) => value + 1);
           }}
         >
-          Обновить категорию
+          Обновить
         </Button>
       </div>
       {SHOW_FILTERS && (
@@ -229,6 +247,20 @@ export function InventorySection({ active }) {
             ? `Загрузка ${loaded}/${paths.length}`
             : `Всего ${items.length} · Мои ${items.filter((item) => item.status === "owned").length} · Купить ${items.filter((item) => item.status === "buyable").length}`}
         </CardDescription>
+        <CardDescription title="Дата обновления самых старых данных категории">
+          {categoryUpdatedAt ? (
+            <time dateTime={new Date(categoryUpdatedAt).toISOString()}>
+              {new Intl.DateTimeFormat("ru", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(categoryUpdatedAt)}
+            </time>
+          ) : (
+            "Дата неизвестна"
+          )}
+        </CardDescription>
       </div>
       {failed > 0 && (
         <StatusMessage
@@ -273,6 +305,6 @@ export function InventorySection({ active }) {
           Показать ещё ({filtered.length - limit})
         </Button>
       )}
-    </ContentSection>
+    </section>
   );
 }

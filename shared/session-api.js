@@ -272,13 +272,17 @@ export function createSessionApi({
             ? sectionUpdated + effectiveTtl
             : now() + effectiveTtl;
         entry.value = data;
+        entry.updatedAt =
+          Number.isFinite(sectionUpdated) && sectionUpdated > 0
+            ? sectionUpdated
+            : null;
         entry.lastFailureAt =
           response.headers?.get?.("X-Madhouse-Game-Status") === "unavailable"
             ? now()
             : null;
         if (snapshotOnly && now() >= entry.until)
           entry.revalidateAfterRequest = true;
-        publish({ path, data });
+        publish({ path, data, updatedAt: entry.updatedAt });
         return data;
       } finally {
         clearTimeout(timeout);
@@ -392,6 +396,11 @@ export function createSessionApi({
         ? entry.value
         : null;
     },
+    updatedAt(path) {
+      return this.peek(path, { allowStale: true }) !== null
+        ? (entries.get(path)?.updatedAt ?? null)
+        : null;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -491,6 +500,10 @@ export function subscribeSessionData(listener) {
 export function readSessionRefreshState() {
   return sessionApi?.isRefreshing() ?? false;
 }
+export function peekSessionUpdatedAt(path) {
+  return ensureSessionApi().updatedAt(path);
+}
+
 export function peekSessionJson(path, options) {
   return ensureSessionApi().peek(path, options);
 }
