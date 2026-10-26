@@ -161,7 +161,7 @@ function setup(directory, options = {}) {
     if (url.pathname === BOSS_INVITATIONS_PATH.split("?")[0])
       return Response.json({
         items: options.invitations
-          ? options.invitations()
+          ? await options.invitations()
           : accepted
             ? []
             : [
@@ -335,6 +335,41 @@ test("server discovers and persists invitations after restart without an open br
     ]);
     assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
   } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("page launch waits for background invitation discovery rather than failing with a conflict", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-discovery-launch-"));
+  let release;
+  let started;
+  const discoveryStarted = new Promise((resolve) => {
+    started = resolve;
+  });
+  const ctx = setup(directory, {
+    invitations: () =>
+      new Promise((resolve) => {
+        release = () => resolve([]);
+        started();
+      }),
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await ctx.service.boot();
+    await discoveryStarted;
+    let settled = false;
+    const launch = ctx.service.launch(entry, null).finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    release();
+    const snapshot = await launch;
+    assert.equal(snapshot.subscription.enabled, false);
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+  } finally {
+    release?.();
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
   }
