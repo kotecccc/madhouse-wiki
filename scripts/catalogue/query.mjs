@@ -485,6 +485,37 @@ export function readKnowledgeBase(
         title: text(b.title ?? b.name),
         departmentId: inDepartment(b),
       })),
+      inventoryItems: all
+        .filter((entity) =>
+          [
+            "room",
+            "clothing_item",
+            "weapon",
+            "pet",
+            "ornament_element",
+          ].includes(entity.kind),
+        )
+        .map((entity) => {
+          const type =
+            entity.kind === "ornament_element" ? "ornament" : entity.kind;
+          return {
+            id: String(entity.apiId),
+            type,
+            name: text(entity.name),
+            categoryId: entity.categoryId ?? null,
+            zoneId: entity.zoneId ?? null,
+            setId: entity.setId ?? null,
+            slotLabel:
+              clothingSlotLabels.get(Number(entity.categoryId)) ?? null,
+            image: mediaFor({
+              type,
+              entityId: entity.apiId,
+              setId: entity.setId,
+              zoneId: entity.zoneId,
+            }),
+            facts: itemFacts(entity, entity.kind),
+          };
+        }),
       wardrobeItems,
       stashSets,
       businessUpgrades: of("business_upgrade"),

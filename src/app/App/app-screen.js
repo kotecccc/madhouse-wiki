@@ -1,3 +1,3 @@
 export function screenFromHash(hash) {
-  return hash === "#raids" ? "raids" : "overview";
+  return ["#raids", "#inventory"].includes(hash) ? hash.slice(1) : "overview";
 }

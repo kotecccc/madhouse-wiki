@@ -6,26 +6,37 @@ import "./MobileNavigation.css";
 const screens = [
   { id: "overview", label: "Главная", icon: "character" },
   { id: "raids", label: "Рейды", icon: "boss" },
+  { id: "inventory", label: "Инвентарь", icon: "loot" },
 ];
 
-export function MobileNavigation({ activeScreen, onScreenChange }) {
+export function MobileNavigation({
+  activeScreen,
+  onScreenChange,
+  authenticated = false,
+  desktop = false,
+}) {
   return (
-    <BaseCard variant="glass-nav" className="mobile-navigation">
+    <BaseCard
+      variant="glass-nav"
+      className={desktop ? "desktop-navigation" : "mobile-navigation"}
+    >
       <nav className="mobile-navigation-items" aria-label="Разделы Wiki">
-        {screens.map(({ id, label, icon }) => (
-          <Button
-            key={id}
-            variant="nav-tab"
-            aria-label={label}
-            title={label}
-            aria-pressed={activeScreen === id}
-            aria-controls={`screen-${id}`}
-            onClick={() => onScreenChange(id)}
-          >
-            <Icon type={icon} size="large" />
-            <span className="mobile-navigation-label">{label}</span>
-          </Button>
-        ))}
+        {screens
+          .filter((screen) => screen.id !== "inventory" || authenticated)
+          .map(({ id, label, icon }) => (
+            <Button
+              key={id}
+              variant="nav-tab"
+              aria-label={label}
+              title={label}
+              aria-pressed={activeScreen === id}
+              aria-controls={`screen-${id}`}
+              onClick={() => onScreenChange(id)}
+            >
+              <Icon type={icon} size="large" />
+              <span className="mobile-navigation-label">{label}</span>
+            </Button>
+          ))}
       </nav>
     </BaseCard>
   );

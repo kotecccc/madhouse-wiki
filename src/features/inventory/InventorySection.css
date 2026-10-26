@@ -1,0 +1,32 @@
+.inventory-section,
+.inventory-summary {
+  display: grid;
+  gap: var(--space-16);
+}
+.inventory-heading,
+.inventory-categories {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}
+.inventory-heading {
+  justify-content: space-between;
+}
+.inventory-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--space-16);
+}
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+}
+@media (max-width: 650px) {
+  .inventory-filters,
+  .inventory-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

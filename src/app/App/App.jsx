@@ -1,3 +1,4 @@
+import { InventorySection } from "../../features/inventory/InventorySection.jsx";
 import { BossBattleDialog } from "../../features/bosses/BossBattle/BossBattleDialog.jsx";
 import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/ActiveBattleDock.jsx";
 import { BottomDock } from "../../components/layout/BottomDock/BottomDock.jsx";
@@ -54,6 +55,8 @@ export function App() {
       ? "overview"
       : screenFromHash(window.location.hash),
   );
+  const visibleScreen =
+    activeScreen === "inventory" && !authenticated ? "overview" : activeScreen;
   const [departmentState, setDepartmentState] = useState(null);
   const [floorContentLoading, setFloorContentLoading] = useState(false);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
@@ -116,7 +119,13 @@ export function App() {
         }
       />
       <div className="app-scroll-region" ref={scrollRegionRef} data-page-scroll>
-        <main id="top" className={`app-content app-content--${activeScreen}`}>
+        <MobileNavigation
+          desktop
+          authenticated={authenticated}
+          activeScreen={visibleScreen}
+          onScreenChange={changeScreen}
+        />
+        <main id="top" className={`app-content app-content--${visibleScreen}`}>
           <div id="screen-overview" className="app-screen app-screen--overview">
             {authenticated && (
               <OverviewSection
@@ -156,6 +165,14 @@ export function App() {
               onRetry={raidSchedule.retry}
             />
           </div>
+          {authenticated && (
+            <div
+              id="screen-inventory"
+              className="app-screen app-screen--inventory"
+            >
+              <InventorySection active={visibleScreen === "inventory"} />
+            </div>
+          )}
         </main>
         <SiteFooter>
           <FeedbackWidget screen={activeScreen} />
@@ -164,7 +181,8 @@ export function App() {
       <BottomDock>
         <GameHealthWarning />
         <MobileNavigation
-          activeScreen={activeScreen}
+          activeScreen={visibleScreen}
+          authenticated={authenticated}
           onScreenChange={changeScreen}
         />
         <ActiveBattleControl />

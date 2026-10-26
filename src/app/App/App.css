@@ -71,9 +71,12 @@
   .app-screen--overview > .app-floor-catalogue:not(:first-child) {
     margin-top: var(--layout-gap-group);
   }
+}
 
-  .app-content--raids > .app-screen--overview,
-  .app-content--overview > .app-screen--raids {
-    display: none;
-  }
+.app-content--raids > .app-screen--overview,
+.app-content--overview > .app-screen--raids,
+.app-content--inventory > .app-screen--overview,
+.app-content--inventory > .app-screen--raids,
+.app-content:not(.app-content--inventory) > .app-screen--inventory {
+  display: none;
 }

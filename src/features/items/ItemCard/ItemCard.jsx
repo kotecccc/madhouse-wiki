@@ -82,7 +82,7 @@ function Price({ label, value }) {
 }
 
 // Standalone catalogue card, also reused for a boss's possible loot.
-export function ItemCard({ item, as = "li", showAllStats = false }) {
+export function ItemCard({ item, as = "li", showAllStats = false, children }) {
   const facts = item.facts;
   const isWeaponOrPet = item.type === "weapon" || item.type === "pet";
   const sourceStats = facts?.stats || {};
@@ -129,6 +129,7 @@ export function ItemCard({ item, as = "li", showAllStats = false }) {
         {item.amount != null && (
           <CardDescription>Количество: {fmt(item.amount)}</CardDescription>
         )}
+        {children}
       </div>
       {hasStats && (
         <div className="item-card-effects">

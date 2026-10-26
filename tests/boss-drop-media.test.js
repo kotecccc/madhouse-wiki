@@ -78,7 +78,24 @@ test("boss drops join canonical names and known public preview media", () => {
       ],
     });
 
-    const drops = readKnowledgeBase(root).bosses[0].possibleDrops;
+    const model = readKnowledgeBase(root);
+    assert.ok(
+      model.inventoryItems.some(
+        (item) => item.type === "room" && item.id === "2",
+      ),
+    );
+    assert.ok(
+      model.inventoryItems.some(
+        (item) => item.type === "ornament" && item.zoneId === 1,
+      ),
+    );
+    assert.ok(
+      model.inventoryItems.every(
+        (item) =>
+          !Object.hasOwn(item, "owned") && !Object.hasOwn(item, "unlocked"),
+      ),
+    );
+    const drops = model.bosses[0].possibleDrops;
     assert.equal(drops[0].name, "Зомби");
     assert.equal(drops[0].slotLabel, "Перчатки");
     assert.equal(
