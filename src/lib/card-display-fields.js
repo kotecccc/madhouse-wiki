@@ -125,11 +125,11 @@ export function raidDisplayFields(
   return [
     ...bossDisplayFields(boss, department),
     field("zone", "Зона", zone ? `Зона ${zone}` : ""),
-    field("time", "Время", `Время: ${raid.time || "не указано"}`),
+    field("time", "Время", raid.time ? `Время: ${raid.time}` : ""),
     field(
       "duration",
       "Длительность",
-      `Длительность: ${raid.duration || "не указана"}`,
+      raid.duration ? `Длительность: ${raid.duration}` : "",
     ),
     field("leader", "Ведущий", `Ведущий: ${raid.leader || "—"}`),
     field("clan", "Клан", `Клан: ${raid.clan ? `[${raid.clan}]` : "—"}`),

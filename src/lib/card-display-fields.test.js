@@ -81,10 +81,8 @@ test("raid fields extend boss fields and use the passed display zone", () => {
   assert.equal(values(fields).duration, "Длительность: 2 ч");
   assert.equal(values(fields).leader, "Ведущий: Аня");
   assert.equal(values(fields).clan, "Клан: [Лисы]");
-  assert.equal(
-    values(raidDisplayFields({}, {}, {}, "")).time,
-    "Время: не указано",
-  );
+  assert.equal(values(raidDisplayFields({}, {}, {}, "")).time, "");
+  assert.equal(values(raidDisplayFields({}, {}, {}, "")).duration, "");
 });
 
 test("composition follows requested order, deduplicates, and skips unknown or empty fields", () => {

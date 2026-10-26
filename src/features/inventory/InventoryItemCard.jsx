@@ -98,7 +98,9 @@ export function InventoryItemCard({
       aria-label="Предмет недоступен"
       title="Предмет недоступен"
     >
-      <Icon type="lock" size="text" />
+      <Pill variant="locked" size="2xs" dot={false}>
+        <Icon type="lock" size="text" tone="inherit" />
+      </Pill>
     </span>
   ) : (
     !locked &&
