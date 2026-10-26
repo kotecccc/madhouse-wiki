@@ -109,6 +109,10 @@ export function BossBattleGoalPanel({
           Запустить рейд
         </Button>
       )}
+      <InfoButton
+        label="Как работает рейд"
+        description="Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты лечения и покупок сохраняются."
+      />
     </div>
   );
   return (
@@ -252,10 +256,6 @@ export function BossBattleGoalPanel({
           {error && <CardDescription role="alert">{error}</CardDescription>}
         </div>
       </Disclosure>
-      <InfoButton
-        label="Как работает рейд"
-        description="Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты лечения и покупок сохраняются."
-      />
       {actionsTarget === undefined
         ? actions
         : actionsTarget && createPortal(actions, actionsTarget)}
