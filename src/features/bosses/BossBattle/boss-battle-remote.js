@@ -229,7 +229,7 @@ export function createRemoteBattleSession({
     );
   }
   const pollInterval = () =>
-    transportError || workCommandError || businessCommandError
+    transportError || workCommandError || businessCommandError || launchPending
       ? ERROR_RETRY_INTERVAL
       : activelyWatching()
         ? POLL_INTERVAL
@@ -260,11 +260,23 @@ export function createRemoteBattleSession({
         if (!connected || run !== epoch) return false;
         setServerState(saved);
       }
-      const result = launchPending
-        ? await request("POST", "/api/automation/launch", {
-            activeBossBattle: launchBattle(),
-          })
-        : await request("GET", "/api/automation/state");
+      let result;
+      try {
+        result = launchPending
+          ? await request("POST", "/api/automation/launch", {
+              activeBossBattle: launchBattle(),
+            })
+          : await request("GET", "/api/automation/state");
+      } catch (error) {
+        // A 409 is returned before launch reconciliation starts. Keep the
+        // durable server view visible and retry this read-only reconciliation.
+        if (launchPending && error?.status === 409 && error.snapshot) {
+          if (!connected || run !== epoch) return false;
+          setServerState(error.snapshot);
+          return false;
+        }
+        throw error;
+      }
       if (!connected || run !== epoch) return false;
       launchPending = false;
       setServerState(result);
