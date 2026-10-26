@@ -19,6 +19,8 @@ window.ui = window.SwaggerUIBundle({
   deepLinking: true,
   displayRequestDuration: true,
   persistAuthorization: false,
+  // Keep the interceptor's bearer token out of Swagger's rendered cURL.
+  showMutatedRequest: false,
   tryItOutEnabled: false,
   supportedSubmitMethods: ["get", "post", "put", "patch", "delete"],
   defaultModelsExpandDepth: -1,
