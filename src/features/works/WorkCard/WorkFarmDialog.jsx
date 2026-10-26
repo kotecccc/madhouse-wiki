@@ -7,6 +7,7 @@ import {
 import {
   getSessionJson,
   peekSessionJson,
+  peekSessionUpdatedAt,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
 import {
@@ -32,6 +33,7 @@ import { CardDescription } from "../../../components/ui/CardDescription/CardDesc
 import { workFarm } from "../../bosses/BossBattle/boss-battle-session.js";
 import {
   planWorkFarm,
+  latestWorkEnergy,
   workEnergyRemaining,
 } from "../WorkFarm/work-farm-plan.js";
 import { fmt } from "../../../lib/format.js";
@@ -69,20 +71,27 @@ export function WorkFarmDialog({
   const [profile, setProfile] = useState(
     () => profileSnapshot ?? peekSessionJson("/api/me", { allowStale: true }),
   );
+  const [profileUpdatedAt, setProfileUpdatedAt] = useState(
+    () => peekSessionUpdatedAt("/api/me") ?? 0,
+  );
   const [profileFailed, setProfileFailed] = useState(false);
   useEffect(() => {
     let active = true;
     const unsubscribe = subscribeSessionData((event) => {
-      if (event.cleared) setProfile(null);
-      else if (event.path === "/api/me") {
+      if (event.cleared) {
+        setProfile(null);
+        setProfileUpdatedAt(0);
+      } else if (event.path === "/api/me") {
         setProfile(event.data);
+        setProfileUpdatedAt(event.updatedAt ?? 0);
         setProfileFailed(!validEnergy(event.data?.energy));
       }
     });
-    void getSessionJson("/api/me")
+    void getSessionJson("/api/me", { fresh: true, serverRefresh: "live" })
       .then((data) => {
         if (active) {
           setProfile(data);
+          setProfileUpdatedAt(peekSessionUpdatedAt("/api/me") ?? 0);
           setProfileFailed(!validEnergy(data?.energy));
         }
       })
@@ -94,9 +103,7 @@ export function WorkFarmDialog({
       unsubscribe();
     };
   }, []);
-  const cachedEnergy = profile?.energy;
-  const knownEnergy =
-    view?.energy ?? (validEnergy(cachedEnergy) ? cachedEnergy : null);
+  const knownEnergy = latestWorkEnergy(view, profile, profileUpdatedAt);
   const run = state.run;
   const running = run?.status === "running";
   const active = running && run.workId === workId;
@@ -349,6 +356,7 @@ export function WorkFarmDialog({
       allowPurchase: mode === "boosters",
       maxDollar: mode === "boosters" ? purchase.spentDollar : 0,
       expectedCompletedCycles: completed,
+      ...(energyOnly && energyBudget != null ? { energyBudget } : {}),
     });
     if (!ok) setLaunchError("Не удалось начать фарм. Обновите данные.");
   }

@@ -20,6 +20,7 @@ function makeHarness({
   failReads = () => false,
   failBag = () => false,
   available = () => true,
+  onProfileRead = () => {},
 } = {}) {
   const workId = 7;
   const calls = [];
@@ -82,7 +83,8 @@ function makeHarness({
     if (path !== "/api/works/tasks/perform" && failReads())
       throw new TypeError("offline");
     if (path === "/api/works/open") return stateResponse();
-    if (path === "/api/me")
+    if (path === "/api/me") {
+      onProfileRead();
       return {
         energy: {
           current: game.energy.current,
@@ -92,6 +94,7 @@ function makeHarness({
         },
         wallet: { dollar: game.walletDollar },
       };
+    }
     if (path === "/api/me/bag") return { boosters: boosterItems() };
     if (path === "/api/works/tasks/perform") {
       if (holdPerform)
@@ -207,6 +210,9 @@ test("manual refresh retry persists a 60 second cooldown before game I/O", async
 
 function start(farm, args = {}) {
   farm.start({
+    ...(args.mode === "energy" && farm.getSnapshot().view
+      ? { energyBudget: farm.getSnapshot().view.energy.current }
+      : {}),
     workId: 7,
     targetCycles: 1,
     maxActions: 100,
@@ -554,4 +560,50 @@ test("temporary inventory failure waits instead of treating unknown boosters as 
   for (let i = 0; i < 4 && h.farm.running(); i++) await h.fireNext();
   assert.equal(h.farm.getSnapshot().run.status, "completed");
   assert.equal(h.farm.getSnapshot().run.usedBoosters, 1);
+});
+
+test("fresh caller budget and fresh game energy override a stale work view before MAX farming", async () => {
+  const h = makeHarness({ required: [20], energy: 1, maxEnergy: 20 });
+  await refresh(h);
+  h.game.energy.current = 16;
+  start(h.farm, { mode: "energy", energyBudget: 16 });
+  for (let i = 0; i < 20 && h.farm.running(); i++) await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.energySpent, 16);
+  assert.equal(h.farm.getSnapshot().run.usedBoosters, 0);
+});
+
+test("a queued MAX intent without an explicit budget captures live energy rather than a stale saved view", async () => {
+  const h = makeHarness({ required: [20], energy: 1, maxEnergy: 20 });
+  await refresh(h);
+  h.game.energy.current = 4;
+  start(h.farm, { mode: "energy", energyBudget: null });
+  for (let i = 0; i < 8 && h.farm.running(); i++) await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.energyBudget, 4);
+  assert.equal(h.farm.getSnapshot().run.energySpent, 4);
+});
+
+test("a priority action beginning during work reads defers its mutation until the action completes", async () => {
+  let combat = false,
+    armed = false;
+  const h = makeHarness({
+    available: () => !combat,
+    onProfileRead: () => {
+      if (armed) combat = true;
+    },
+  });
+  await refresh(h);
+  start(h.farm);
+  armed = true;
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.phase, "queued");
+  assert.equal(h.farm.getSnapshot().run.actionsDone, 0);
+  assert.equal(
+    h.calls.some((c) => c.path === "/api/works/tasks/perform"),
+    false,
+  );
+  combat = false;
+  armed = false;
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
 });

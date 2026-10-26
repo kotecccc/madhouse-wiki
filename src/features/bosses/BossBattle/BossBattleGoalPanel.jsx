@@ -259,6 +259,10 @@ export function BossBattleGoalPanel({
           {error && <CardDescription role="alert">{error}</CardDescription>}
         </div>
       </Disclosure>
+      <CardDescription size="xs">
+        Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты
+        лечения и покупок сохраняются.
+      </CardDescription>
       {actionsTarget === undefined
         ? actions
         : actionsTarget && createPortal(actions, actionsTarget)}

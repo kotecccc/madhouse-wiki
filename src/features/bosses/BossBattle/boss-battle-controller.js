@@ -1245,6 +1245,21 @@ export function createBossBattleController({
       });
       return true;
     },
+    allowSoloContinuation() {
+      if (
+        state.pending ||
+        state.pendingInvitation ||
+        state.needsRefresh ||
+        state.error ||
+        state.purchase ||
+        state.purchaseUncertain ||
+        state.medicineOpen ||
+        state.battle?.status === "active"
+      )
+        return false;
+      publish({ invitationOnly: false });
+      return true;
+    },
     clearExpiredInvitation() {
       const invitation = state.pendingInvitation;
       if (

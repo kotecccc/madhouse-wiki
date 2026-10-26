@@ -26,6 +26,8 @@ export function createBattleSeries({
     bossId = null,
     nextRecoveryAt = null;
   let checkpoint = null;
+  let singleBattle = false;
+  let singleBattleId = null;
   const listeners = new Set();
   let cached = { enabled: false, nextAttackAt: null, pause: false, phase };
   const strike = createBossBattleAutoAttack({
@@ -163,6 +165,7 @@ export function createBattleSeries({
       waitForRecovery();
       return;
     }
+    if (singleBattle) singleBattleId = state.battle.id;
     phase = "attacking";
     publish();
     if (!strike.start()) waitForRecovery();
@@ -195,6 +198,7 @@ export function createBattleSeries({
       return;
     }
     if (state.battle?.status === "active") {
+      if (singleBattle) singleBattleId ??= state.battle.id;
       if (strike.getSnapshot().enabled) return;
       // Auto was halted inside an active fight (for example unknown cooldown).
       // Only start() or our successful advance may enable a fresh strike engine.
@@ -212,6 +216,14 @@ export function createBattleSeries({
       )
         waitForRecovery();
       checkpoint = null;
+      return;
+    }
+    if (
+      singleBattle &&
+      (phase === "attacking" ||
+        (singleBattleId && state.battle?.id === singleBattleId))
+    ) {
+      stop();
       return;
     }
     if (
@@ -265,9 +277,15 @@ export function createBattleSeries({
         nextBattleAt,
         bossId,
         strike: strike.exportState(),
+        singleBattle,
+        singleBattleId,
       };
     },
-    start({ checkpoint: restored = null, resumeAt = null } = {}) {
+    start({
+      checkpoint: restored = null,
+      resumeAt = null,
+      singleBattle: single = false,
+    } = {}) {
       if (enabled || disposed) return false;
       const state = controller.getSnapshot(),
         currentGoal = goal.getSnapshot();
@@ -290,10 +308,20 @@ export function createBattleSeries({
         return false;
       if (state.battle?.status !== "active" && !goal.canStart()) return false;
       if (controller.beginAutomation?.() === false) return false;
+      singleBattle = restored?.singleBattle ?? single;
+      singleBattleId = singleBattle
+        ? (restored?.singleBattleId ??
+          (state.battle?.status === "active" ? state.battle.id : null))
+        : null;
       enabled = true;
       generation++;
       bossId = state.boss.id;
-      phase = "ready";
+      phase =
+        singleBattle &&
+        restored?.phase === "attacking" &&
+        TERMINAL.has(state.battle?.status)
+          ? "attacking"
+          : "ready";
       checkpoint = restored
         ? { ...restored, nextAttackAt: resumeAt ?? restored.nextAttackAt }
         : null;

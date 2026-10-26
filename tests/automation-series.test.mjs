@@ -39,6 +39,7 @@ function setup({
   initial = null,
   startFails = false,
   terminalStatus = "won",
+  invitationOutage = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "automation-series-"));
   const store = createAutomationStateStore({ directory });
@@ -58,6 +59,10 @@ function setup({
       return Response.json({ playerId: 101, nickname: "Player" });
     if (url.pathname === "/api/me/bag")
       return Response.json({ activityItems: [], consumables: [] });
+    if (url.pathname === "/api/bosses/invitations")
+      return invitationOutage
+        ? Response.json({ error: "unavailable" }, { status: 503 })
+        : Response.json({ items: [] });
     if (url.pathname === "/api/combat")
       return Response.json({ activeBattle: null });
     if (url.pathname === bossPath && method === "GET") {
@@ -578,3 +583,94 @@ test("invitation series attacks its active joined battle but never starts a solo
   assert.equal(soloStarts, 0);
   series.dispose();
 });
+
+for (const { joined, outage } of [
+  { joined: false, outage: false },
+  { joined: true, outage: false },
+  { joined: false, outage: true },
+])
+  test(`adaptive raid reaches its goal without invitations, previous joined ${joined}, outage ${outage}`, async () => {
+    await withSetup(
+      {
+        invitationOutage: outage,
+        ...(joined
+          ? { initial: makeBattle("joined-finished", "won", 1_000_000) }
+          : {}),
+      },
+      async (ctx) => {
+        const entry = await ctx.openAndConfigure();
+        if (joined)
+          entry.controller.restoreState({
+            ...entry.controller.getSnapshot(),
+            invitationOnly: true,
+          });
+        await ctx.service.command(entry, {
+          id: "adaptive-raid-start",
+          command: "raid.start",
+          expectedVersion: ctx.service.snapshot(entry).version,
+          args: {
+            settings: {
+              bossId: 7,
+              kind: "battles",
+              countWins: true,
+              targetCount: 2,
+              durationHours: 1,
+            },
+          },
+        });
+        await entry.raidWorker.tick();
+        assert.equal(ctx.starts, 1);
+        await ctx.advance(2000, entry);
+        assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+        assert.equal(ctx.service.snapshot(entry).raid.enabled, true);
+        await entry.raidWorker.tick();
+        assert.equal(ctx.starts, 2);
+        await ctx.advance(2000, entry);
+        await entry.raidWorker.tick();
+        assert.equal(ctx.service.snapshot(entry).goal.status, "completed");
+        assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
+        assert.equal(ctx.starts, 2);
+        assert.ok(
+          ctx.calls.filter((c) => c.path === "/api/bosses/invitations")
+            .length >= 2,
+        );
+      },
+    );
+  });
+
+for (const phase of ["attacking", "waiting"])
+  test(`restoring an ended single-fight ${phase} checkpoint yields to invitation selection`, () => {
+    let scheduled = 0;
+    const state = {
+      boss: { id: 7 },
+      battle: { id: "ended", status: "won" },
+      canStart: true,
+      pending: null,
+    };
+    const series = createBattleSeries({
+      controller: {
+        getSnapshot: () => state,
+        subscribe: () => () => {},
+        start: () => {
+          throw new Error("must not start");
+        },
+        attack: async () => {},
+      },
+      goal: {
+        getSnapshot: () => ({ status: "active" }),
+        canStart: () => true,
+        subscribe: () => () => {},
+      },
+      schedule: () => {
+        scheduled++;
+        return 1;
+      },
+      cancel: () => {},
+    });
+    series.start({
+      checkpoint: { singleBattle: true, singleBattleId: "ended", phase },
+    });
+    assert.equal(series.getSnapshot().enabled, false);
+    assert.equal(scheduled, 0);
+    series.dispose();
+  });

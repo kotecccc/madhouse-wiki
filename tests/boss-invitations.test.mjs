@@ -107,6 +107,7 @@ function setup(directory, options = {}) {
   const store = createAutomationStateStore({ directory });
   const calls = [];
   const pendingBeforePost = [];
+  let currentNow = options.now ?? now;
   let ownActiveBattle = options.activeBattle ?? null;
   let accepted = false;
   const fetcher = async (input, init = {}) => {
@@ -141,14 +142,26 @@ function setup(directory, options = {}) {
             ],
       });
     if (url.pathname === "/api/bosses/7")
-      return Response.json({
-        id: 7,
-        damageMax: 10,
-        ...(options.omitBossActiveBattle
-          ? {}
-          : { activeBattle: options.detailActiveBattle ?? null }),
-        state: { canStartFight: true },
-      });
+      return accepted && options.bossSummaryUnavailable
+        ? new Response(null, { status: 503 })
+        : Response.json({
+            id: accepted ? (options.bossSummaryId ?? 7) : 7,
+            damageMax: 10,
+            ...((
+              accepted
+                ? (options.omitBossActiveBattleAfterAccept ??
+                  options.omitBossActiveBattle)
+                : options.omitBossActiveBattle
+            )
+              ? {}
+              : {
+                  activeBattle:
+                    accepted && options.detailActiveBattle !== undefined
+                      ? options.detailActiveBattle
+                      : null,
+                }),
+            state: { canStartFight: true },
+          });
     if (
       url.pathname === "/api/bosses/invitations/invite-9/accept" &&
       method === "POST"
@@ -177,7 +190,7 @@ function setup(directory, options = {}) {
     store,
     getBoss: (id) => ({ numericId: id, name: `Boss ${id}` }),
     fetcher,
-    now: () => now,
+    now: () => currentNow,
     random: () => 0,
     schedule: () => ({ unref() {} }),
     cancel: () => {},
@@ -187,6 +200,9 @@ function setup(directory, options = {}) {
     store,
     calls,
     pendingBeforePost,
+    setNow(value) {
+      currentNow = value;
+    },
     close() {
       service.close();
       store.close();
@@ -260,6 +276,84 @@ test("timed out accept remains checkpointed across restart and refresh never rep
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("expired uncertain accept uses validated own boss summary when me omits active battle", async (t) => {
+  const cases = [
+    {
+      name: "explicit own no-battle summary clears",
+      options: {},
+      clears: true,
+    },
+    {
+      name: "wrong boss summary keeps checkpoint",
+      options: { bossSummaryId: 8 },
+    },
+    {
+      name: "unknown own boss summary keeps checkpoint",
+      options: { omitBossActiveBattleAfterAccept: true },
+    },
+    {
+      name: "active own boss battle keeps checkpoint",
+      options: { detailActiveBattle: { battleId: "battle-9", bossId: 7 } },
+    },
+    {
+      name: "boss summary outage keeps checkpoint",
+      options: { bossSummaryUnavailable: true },
+    },
+  ];
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      const directory = mkdtempSync(
+        join(tmpdir(), "boss-invitations-expired-"),
+      );
+      const ctx = setup(directory, {
+        timeoutPost: true,
+        omitActiveBossBattle: true,
+        mismatchedBattle: true,
+        ...scenario.options,
+      });
+      try {
+        const entry = await ctx.service.identify(token);
+        await assert.rejects(
+          issue(
+            ctx.service,
+            entry,
+            `timeout-${scenario.name.replaceAll(" ", "-")}`,
+            "invitations.accept",
+            {
+              invitationId: "invite-9",
+            },
+          ),
+        );
+        assert.ok(ctx.service.snapshot(entry).battle.pendingInvitation);
+        ctx.setNow(now + 60_001);
+        await issue(
+          ctx.service,
+          entry,
+          `refresh-${scenario.name.replaceAll(" ", "-")}`,
+          "invitations.refresh",
+        );
+        assert.equal(
+          ctx.service.snapshot(entry).battle.pendingInvitation === null,
+          scenario.clears === true,
+        );
+        assert.equal(
+          ctx.calls.filter((call) => call.method === "POST").length,
+          1,
+        );
+        assert.ok(
+          ctx.calls.some(
+            (call) => call.method === "GET" && call.path === "/api/bosses/7",
+          ),
+          "fallback reads the expected boss summary",
+        );
+      } finally {
+        ctx.close();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
   }
 });
 
