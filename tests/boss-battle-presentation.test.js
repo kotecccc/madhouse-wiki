@@ -541,7 +541,8 @@ test("battle header contains countdown, hides automation manual controls and kee
     );
     assert.ok(healingMarkup.includes("Использовать аптечки?"));
     assert.ok(healingMarkup.includes("ui-disclosure ui-disclosure--sm"));
-    assert.ok(healingMarkup.includes("ui-pill--completed"));
+    assert.match(healingMarkup, /ui-pill--unknown[^>]*>2 шт\.<\/span>/);
+    assert.doesNotMatch(healingMarkup, /ui-pill-dot|ui-pill--completed/);
     assert.ok(!healingMarkup.includes("<input"));
     assert.ok(!healingMarkup.includes('role="radiogroup"'));
     assert.ok(!healingMarkup.includes("Применить"));
