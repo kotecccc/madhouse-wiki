@@ -1,4 +1,12 @@
 import {
+  nextHealthWarningEvidence,
+  hasConfirmedHealthWarning,
+} from "./game-health-warning.js";
+let healthWarningEvidence = {};
+export function readGameHealthWarning() {
+  return hasConfirmedHealthWarning(gameHealth, healthWarningEvidence);
+}
+import {
   GAME_HEALTH_FEATURES,
   safeFailedFeatures,
   safeSuccessfulFeatures,
@@ -46,6 +54,10 @@ export function reportGameHealth(value) {
     ),
     featureCheckedAt: safeFeatureCheckedAt(value.featureCheckedAt),
   };
+  healthWarningEvidence = nextHealthWarningEvidence(
+    healthWarningEvidence,
+    next,
+  );
   if (JSON.stringify(next) === JSON.stringify(gameHealth)) return;
   gameHealth = next;
   if (typeof window !== "undefined")

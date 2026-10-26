@@ -344,33 +344,35 @@ export function WorkFarmDialog({
       boostersLoading={!view && !state.error && !state.notice}
       conditionDialog={condition}
       title={`Работа · ${work.title || work.name || "Работёнка"}`}
-      footerStart={<Button onClick={onClose}>Закрыть</Button>}
       footer={
-        running ? (
-          <Button icon="stop" onClick={() => void farmStore.stop()}>
-            Остановить
-          </Button>
-        ) : (
-          <Button
-            variant="primary"
-            disabled={
-              !ready ||
-              (!energyOnly &&
-                effectiveOption === "purchase" &&
-                !purchase?.feasible)
-            }
-            onClick={() =>
-              void start(effectiveOption === "purchase" ? "boosters" : "wait")
-            }
-          >
-            {!energyOnly &&
-            effectiveOption === "purchase" &&
-            purchase?.feasible &&
-            purchase.spentDollar > 0
-              ? `Фарм за ${fmt(purchase.spentDollar)} купюр`
-              : "Начать фарм"}
-          </Button>
-        )
+        <>
+          <Button onClick={onClose}>Закрыть</Button>
+          {running ? (
+            <Button icon="stop" onClick={() => void farmStore.stop()}>
+              Остановить
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={
+                !ready ||
+                (!energyOnly &&
+                  effectiveOption === "purchase" &&
+                  !purchase?.feasible)
+              }
+              onClick={() =>
+                void start(effectiveOption === "purchase" ? "boosters" : "wait")
+              }
+            >
+              {!energyOnly &&
+              effectiveOption === "purchase" &&
+              purchase?.feasible &&
+              purchase.spentDollar > 0
+                ? `Фарм за ${fmt(purchase.spentDollar)} купюр`
+                : "Начать фарм"}
+            </Button>
+          )}
+        </>
       }
       showCalculation={false}
       afterOptions={

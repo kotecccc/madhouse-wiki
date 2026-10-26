@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   getSessionJson,
   readGameHealth,
+  readGameHealthWarning,
   readSessionRefreshState,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
@@ -141,18 +142,22 @@ export function healthRefreshLabel(seconds, checking) {
 }
 
 function useGameHealthSnapshot() {
-  const [health, setHealth] = useState(() => readGameHealth());
+  const snapshot = () => ({
+    ...readGameHealth(),
+    warningConfirmed: readGameHealthWarning(),
+  });
+  const [health, setHealth] = useState(snapshot);
   useEffect(() => {
-    const update = (event) => setHealth(event.detail || readGameHealth());
+    const update = () => setHealth(snapshot());
     window.addEventListener("madhouse:game-health", update);
-    setHealth(readGameHealth());
+    setHealth(snapshot());
     return () => window.removeEventListener("madhouse:game-health", update);
   }, []);
   return health;
 }
 
 function hasHealthWarning(health) {
-  return health && !["available", "unknown"].includes(health.status);
+  return Boolean(health?.warningConfirmed);
 }
 
 export function GameHealthWarningIndicator() {
