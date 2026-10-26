@@ -32,6 +32,7 @@ export function FloorsSection({
   onDepartmentState,
   onLoadingChange,
   selectedFloorCode,
+  onVisibleFloorChange,
   isAuthenticated = false,
   playerLevel,
 }) {
@@ -51,6 +52,9 @@ export function FloorsSection({
       : orderedFloors[0];
   const selectedFloor =
     orderedFloors.find((floor) => floor.id === selectedFloorId) || defaultFloor;
+  useEffect(() => {
+    onVisibleFloorChange?.(selectedFloor?.code ?? null);
+  }, [onVisibleFloorChange, selectedFloor?.code]);
 
   useEffect(() => {
     if (!selectedFloorCode) return;

@@ -43,11 +43,6 @@
   }
 }
 
-.inventory-footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .inventory-groups {
   display: grid;
   gap: var(--space-16);

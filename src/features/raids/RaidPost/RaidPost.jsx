@@ -61,9 +61,21 @@ export function RaidPost({
                 dropItems: [],
               })
             : undefined;
+          const actionLabel = selected
+            ? subscription?.enabled
+              ? "Отписаться"
+              : "Завершаем рейд"
+            : candidate
+              ? "Подписаться"
+              : "Ведущий не подтверждён";
           const action =
             !archive && authenticated ? (
               <Button
+                size="sm"
+                icon={selected ? "close" : "target"}
+                iconOnly
+                title={actionLabel}
+                aria-label={actionLabel}
                 disabled={
                   subscriptionState?.pending ||
                   (selected && !subscription?.enabled) ||
@@ -81,15 +93,7 @@ export function RaidPost({
                         candidate.leaderUsername,
                       )
                 }
-              >
-                {selected
-                  ? subscription?.enabled
-                    ? "Отписаться"
-                    : "Завершаем рейд"
-                  : candidate
-                    ? "Подписаться"
-                    : "Ведущий не подтверждён"}
-              </Button>
+              />
             ) : null;
           return (
             <li key={key}>

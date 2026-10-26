@@ -14,7 +14,9 @@ import {
 import {
   readSessionRefreshState,
   subscribeSessionData,
+  getSessionJson,
 } from "../../../shared/session-api.js";
+import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
 import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
 import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection.jsx";
@@ -31,8 +33,10 @@ import { AUTH_RESTORE_SETTLED_EVENT } from "../../../shared/auth-session.js";
 import { usePlayerProfile } from "../../features/auth/usePlayerProfile.js";
 import { OverviewSection } from "../../features/overview/OverviewSection/OverviewSection.jsx";
 import { useRaidSchedule } from "../../features/raids/useRaidSchedule.js";
+import { raidSubscriptions } from "../../features/bosses/BossBattle/boss-battle-session.js";
 
 import { screenFromHash } from "./app-screen.js";
+import { isPullReady } from "./pull-refresh.js";
 
 export function App() {
   const refreshing = useSyncExternalStore(
@@ -60,6 +64,67 @@ export function App() {
   const [departmentState, setDepartmentState] = useState(null);
   const [floorContentLoading, setFloorContentLoading] = useState(false);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
+  const [visibleFloorCode, setVisibleFloorCode] = useState(null);
+  const [inventoryRefresh, setInventoryRefresh] = useState(0);
+  const [pullReady, setPullReady] = useState(false);
+  const pullStart = useRef(null);
+
+  function startPull(event) {
+    pullStart.current = null;
+    setPullReady(false);
+    if (
+      event.touches.length !== 1 ||
+      scrollRegionRef.current?.scrollTop > 0 ||
+      event.target.closest("button, input, textarea, select, dialog, a")
+    )
+      return;
+    pullStart.current = {
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY,
+      ready: false,
+    };
+  }
+  function movePull(event) {
+    const start = pullStart.current;
+    if (!start || event.touches.length !== 1) return;
+    start.ready = isPullReady({
+      startX: start.x,
+      startY: start.y,
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY,
+      scrollTop: scrollRegionRef.current?.scrollTop,
+    });
+    setPullReady(start.ready);
+  }
+  function endPull(event) {
+    if (event.touches.length > 0) {
+      pullStart.current = null;
+      setPullReady(false);
+      return;
+    }
+    const ready = pullStart.current?.ready;
+    pullStart.current = null;
+    setPullReady(false);
+    if (!ready) return;
+    if (visibleScreen === "inventory") {
+      setInventoryRefresh((value) => value + 1);
+    } else if (visibleScreen === "raids") {
+      raidSchedule.retry();
+      if (authenticated) raidSubscriptions.watch(true);
+    } else {
+      floorAvailability.retry();
+      if (authenticated) {
+        const paths = new Set(["/api/me", "/api/floors"]);
+        for (const code of [visibleFloorCode, departmentState?.code])
+          if (code) paths.add(`/api/floors/${encodeURIComponent(code)}/info`);
+        for (const path of paths)
+          void getSessionJson(path, {
+            fresh: true,
+            serverRefresh: "live",
+          }).catch(() => {});
+      }
+    }
+  }
 
   useEffect(() => {
     const syncSession = () => setSessionStatus(readSession().status);
@@ -118,7 +183,23 @@ export function App() {
           raidSchedule.status === "loading"
         }
       />
-      <div className="app-scroll-region" ref={scrollRegionRef} data-page-scroll>
+      <div
+        className="app-scroll-region"
+        ref={scrollRegionRef}
+        data-page-scroll
+        onTouchStart={startPull}
+        onTouchMove={movePull}
+        onTouchEnd={endPull}
+        onTouchCancel={() => {
+          pullStart.current = null;
+          setPullReady(false);
+        }}
+      >
+        {pullReady && (
+          <CardDescription role="status">
+            Отпустите, чтобы обновить
+          </CardDescription>
+        )}
         <MobileNavigation
           desktop
           authenticated={authenticated}
@@ -155,6 +236,7 @@ export function App() {
                 onDepartmentState={onDepartmentState}
                 onLoadingChange={setFloorContentLoading}
                 selectedFloorCode={floorFocusCode}
+                onVisibleFloorChange={setVisibleFloorCode}
               />
             </div>
           </div>
@@ -172,7 +254,10 @@ export function App() {
               id="screen-inventory"
               className="app-screen app-screen--inventory"
             >
-              <InventorySection active={visibleScreen === "inventory"} />
+              <InventorySection
+                active={visibleScreen === "inventory"}
+                refreshGeneration={inventoryRefresh}
+              />
             </div>
           )}
         </main>

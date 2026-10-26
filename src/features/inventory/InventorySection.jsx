@@ -49,7 +49,7 @@ const PAGE_SIZE = 36;
 const SHOW_FILTERS = false;
 const SHOW_SUMMARY = false;
 
-export function InventorySection({ active }) {
+export function InventorySection({ active, refreshGeneration = 0 }) {
   const equipmentPending = useRef(false);
   const [equipmentState, setEquipmentState] = useState({
     busy: false,
@@ -109,6 +109,13 @@ export function InventorySection({ active }) {
   const refreshRequested = useRef(false);
   const [revision, setRevision] = useState(0);
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const lastRefreshGeneration = useRef(refreshGeneration);
+  useEffect(() => {
+    if (!active || lastRefreshGeneration.current === refreshGeneration) return;
+    lastRefreshGeneration.current = refreshGeneration;
+    refreshRequested.current = true;
+    setRevision((value) => value + 1);
+  }, [active, refreshGeneration]);
   const paths = inventoryPaths(category, references);
   const pathKey = paths.join("|");
   useEffect(
@@ -163,7 +170,7 @@ export function InventorySection({ active }) {
               signal,
               revalidate: false,
               fresh: attempt > 1 || fresh,
-              serverRefresh: attempt > 1 ? "live" : false,
+              serverRefresh: attempt > 1 || fresh ? "live" : false,
             }),
           isFailedResponse: () =>
             readGameHealth().failedFeatures.includes(featureForGamePath(path)),
@@ -238,6 +245,20 @@ export function InventorySection({ active }) {
           />
         </div>
       </div>
+      {equipmentState.needsCheck && (
+        <StatusMessage
+          compact
+          title="Проверьте экипировку"
+          description={equipmentState.notice}
+        >
+          <Button
+            disabled={equipmentState.busy}
+            onClick={() => void equip(null, null, true)}
+          >
+            Проверить экипировку
+          </Button>
+        </StatusMessage>
+      )}
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">
           <Input
@@ -416,32 +437,6 @@ export function InventorySection({ active }) {
           Показать ещё ({filtered.length - limit})
         </Button>
       )}
-      <div className="inventory-footer">
-        <Button
-          variant="secondary"
-          icon="refresh"
-          iconOnly
-          aria-label={
-            equipmentState.needsCheck
-              ? "Проверить экипировку"
-              : "Обновить категорию"
-          }
-          title={
-            equipmentState.needsCheck
-              ? "Проверить экипировку"
-              : "Обновить категорию"
-          }
-          disabled={loading || equipmentState.busy}
-          onClick={() => {
-            if (equipmentState.needsCheck) {
-              equip(null, null, true);
-              return;
-            }
-            refreshRequested.current = true;
-            setRevision((value) => value + 1);
-          }}
-        />
-      </div>
     </section>
   );
 }
