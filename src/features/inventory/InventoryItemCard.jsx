@@ -141,7 +141,8 @@ export function InventoryItemCard({ item }) {
       {!locked && (item.equipped || maxed || item.status !== "owned") && (
         <div className="inventory-item-status">
           {item.equipped && (
-            <Pill size="xs" dot={false} variant="completed">
+            <Pill size="xs" dot={false} variant="scheduled">
+              <Icon type={room ? "check" : "fist"} size="text" />
               {room ? "Выбрана" : "В руке"}
             </Pill>
           )}
