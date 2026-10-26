@@ -1,3 +1,4 @@
+import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
 import { useEffect, useRef, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
@@ -45,6 +46,7 @@ const initialFilters = {
 };
 const PAGE_SIZE = 36;
 const SHOW_FILTERS = false;
+const SHOW_SUMMARY = false;
 
 export function InventorySection({ active }) {
   const [category, setCategory] = useState("clothing_item");
@@ -234,27 +236,29 @@ export function InventorySection({ active }) {
           </Button>
         </BaseCard>
       )}
-      <div role="status" aria-live="polite" className="inventory-summary">
-        <CardDescription>
-          {loading
-            ? `Загрузка ${loaded}/${paths.length}`
-            : `Всего ${items.length} · Мои ${items.filter((item) => item.status === "owned").length} · Купить ${items.filter((item) => item.status === "buyable").length}`}
-        </CardDescription>
-        <CardDescription title="Дата обновления самых старых данных категории">
-          {categoryUpdatedAt ? (
-            <time dateTime={new Date(categoryUpdatedAt).toISOString()}>
-              {new Intl.DateTimeFormat("ru", {
-                day: "2-digit",
-                month: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(categoryUpdatedAt)}
-            </time>
-          ) : (
-            "Дата неизвестна"
-          )}
-        </CardDescription>
-      </div>
+      {SHOW_SUMMARY && (
+        <div role="status" aria-live="polite" className="inventory-summary">
+          <CardDescription>
+            {loading
+              ? `Загрузка ${loaded}/${paths.length}`
+              : `Всего ${items.length} · Мои ${items.filter((item) => item.status === "owned").length} · Купить ${items.filter((item) => item.status === "buyable").length}`}
+          </CardDescription>
+          <CardDescription title="Дата обновления самых старых данных категории">
+            {categoryUpdatedAt ? (
+              <time dateTime={new Date(categoryUpdatedAt).toISOString()}>
+                {new Intl.DateTimeFormat("ru", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(categoryUpdatedAt)}
+              </time>
+            ) : (
+              "Дата неизвестна"
+            )}
+          </CardDescription>
+        </div>
+      )}
       {failed > 0 && (
         <StatusMessage
           compact
@@ -287,9 +291,11 @@ export function InventorySection({ active }) {
               key={`${item.type}:${item.id}`}
               item={item}
               as="article"
-              showAllStats
+              state={item.status === "locked" ? "locked" : undefined}
+              hidePrice={item.status === "locked"}
             >
               <CardDescription>
+                {item.status === "locked" && <Icon type="lock" size="small" />}
                 {statuses[item.status]}
                 {item.equipped ? " · Экипировано" : ""}
               </CardDescription>

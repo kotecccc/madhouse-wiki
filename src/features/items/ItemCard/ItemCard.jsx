@@ -82,7 +82,14 @@ function Price({ label, value }) {
 }
 
 // Standalone catalogue card, also reused for a boss's possible loot.
-export function ItemCard({ item, as = "li", showAllStats = false, children }) {
+export function ItemCard({
+  item,
+  as = "li",
+  showAllStats = false,
+  children,
+  state,
+  hidePrice = false,
+}) {
   const facts = item.facts;
   const isWeaponOrPet = item.type === "weapon" || item.type === "pet";
   const sourceStats = facts?.stats || {};
@@ -106,6 +113,7 @@ export function ItemCard({ item, as = "li", showAllStats = false, children }) {
   return (
     <BaseCard
       as={as}
+      state={state}
       variant="floor-data"
       className={`item-card${hasStats ? " item-card--with-stats" : ""}`}
     >
@@ -120,7 +128,7 @@ export function ItemCard({ item, as = "li", showAllStats = false, children }) {
         <CardDescription>
           {item.slotLabel || types[item.type] || "Предмет"}
         </CardDescription>
-        {hasPrice && (
+        {hasPrice && !hidePrice && (
           <dl className="item-card-prices" aria-label="Стоимость">
             <Price label="Установка" value={facts.installPrice} />
             <Price label="Покупка" value={facts.purchasePrice} />

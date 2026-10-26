@@ -80,7 +80,11 @@ export function InventoryItemCard({ item }) {
       ? item.currentStats
       : null;
   return (
-    <BaseCard as="article" className="inventory-item-card">
+    <BaseCard
+      as="article"
+      className="inventory-item-card"
+      state={item.status === "locked" ? "locked" : undefined}
+    >
       {room && (
         <ImageCard variant="landscape" src={item.image} alt={item.name} />
       )}
@@ -102,8 +106,15 @@ export function InventoryItemCard({ item }) {
         <Pill
           size="xs"
           dot={false}
-          variant={maxed || item.equipped ? "completed" : "scheduled"}
+          variant={
+            item.status === "locked"
+              ? "locked"
+              : maxed || item.equipped
+                ? "completed"
+                : "scheduled"
+          }
         >
+          {item.status === "locked" && <Icon type="lock" size="small" />}
           {maxed ? "Максимум" : item.equipped ? "Выбрано" : states[item.status]}
         </Pill>
       </div>
@@ -115,24 +126,14 @@ export function InventoryItemCard({ item }) {
           valueText={`${item.ownedLevel} из ${item.maxLevel}`}
         />
       )}
-      {!room && (
-        <CardDescription>
-          {item.currentStats
-            ? "Текущие характеристики"
-            : "Базовые характеристики"}
-        </CardDescription>
-      )}
       <InventoryStats values={currentStats ?? item.facts?.stats} />
-      {!room && !currentStats && (
-        <InventoryStats values={item.facts?.perLevelStats} perLevel />
-      )}
       {!room && item.durability != null && (
         <CardDescription>
           Прочность: {fmt(item.durability)}
           {item.durabilityMax != null ? ` / ${fmt(item.durabilityMax)}` : ""}
         </CardDescription>
       )}
-      {price && item.status !== "owned" && (
+      {price && item.status !== "owned" && item.status !== "locked" && (
         <div className="inventory-item-price">
           <Icon
             type={
