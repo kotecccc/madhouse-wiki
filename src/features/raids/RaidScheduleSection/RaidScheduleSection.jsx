@@ -1,41 +1,47 @@
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
-import { Title } from "../../../components/ui/Title/Title.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
-import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import { RaidArchive } from "../RaidArchive/RaidArchive.jsx";
+import { useEffect, useSyncExternalStore } from "react";
+import { raidSubscriptions } from "../../bosses/BossBattle/boss-battle-session.js";
 import "./RaidScheduleSection.css";
 
-export function RaidScheduleSection({ availability, state, onRetry }) {
+export function RaidScheduleSection({
+  availability,
+  state,
+  onRetry,
+  authenticated = false,
+  active = false,
+}) {
   const latest = state.posts[0];
-  const headingDate = latest?.raidDateLabel?.replace(
-    /^(\d{2}\.\d{2}\.)\d{2}(\d{2})$/,
-    "$1$2",
+  const subscriptionState = useSyncExternalStore(
+    raidSubscriptions.subscribe,
+    raidSubscriptions.getSnapshot,
+    raidSubscriptions.getSnapshot,
   );
+  useEffect(() => {
+    raidSubscriptions.watch(authenticated && active);
+    return () => raidSubscriptions.watch(false);
+  }, [authenticated, active]);
+  const personal =
+    authenticated &&
+    (subscriptionState.detectedRaids.length > 0 ||
+      subscriptionState.subscription?.enabled ||
+      subscriptionState.subscription?.hasSuspendedGoal);
+  const displayed =
+    latest ??
+    (personal
+      ? { raids: [], raidDateLabel: "", sourceMessageId: "personal" }
+      : null);
   return (
     <ContentSection
       className="raid-schedule-section"
       id="raids"
       aria-labelledby="raids-title"
     >
-      <div className="raid-section-heading">
-        <div className="raid-section-title">
-          <Title as="h2" id="raids-title">
-            {headingDate ? `Рейды ${headingDate}` : "Рейды"}
-          </Title>
-        </div>
-        <a
-          className="raid-channel-link button button-secondary"
-          href="https://t.me/raidsMadness"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Открыть канал Рейд-центр в Telegram"
-          title="Канал Рейд-центр в Telegram"
-        >
-          <Icon type="external-link" size="small" />
-          <span className="raid-channel-label">Источник</span>
-        </a>
-      </div>
+      <h2 id="raids-title" className="sr-only">
+        Рейды
+      </h2>
       {state.status === "error" && (
         <div className="raid-feed-state" role="status">
           <p>Расписание временно недоступно.</p>
@@ -44,15 +50,26 @@ export function RaidScheduleSection({ availability, state, onRetry }) {
           </Button>
         </div>
       )}
-      {state.status === "ready" && !latest && (
+      {state.status === "ready" && !displayed && (
         <p className="raid-feed-state" role="status">
           Пока нет сохранённых расписаний. Новые рейды появятся здесь после
           синхронизации канала.
         </p>
       )}
-      {latest && (
+      {subscriptionState.error && <p role="alert">{subscriptionState.error}</p>}
+      {displayed && (
         <div className="raid-post-list">
-          <RaidPost post={latest} floorAvailability={availability} />
+          <RaidPost
+            post={displayed}
+            floorAvailability={availability}
+            authenticated={authenticated}
+            detectedRaids={subscriptionState.detectedRaids}
+            subscriptionState={subscriptionState}
+            onSubscribe={(leader, boss, username) =>
+              void raidSubscriptions.start(leader, boss, username)
+            }
+            onUnsubscribe={() => void raidSubscriptions.stop()}
+          />
           {state.nextCursor && (
             <RaidArchive
               key={state.nextCursor}

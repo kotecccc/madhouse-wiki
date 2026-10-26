@@ -22,6 +22,7 @@ function makeHarness({
   available = () => true,
   onProfileRead = () => {},
   loseBoosterReply = false,
+  losePurchaseReply = false,
   onChange,
 } = {}) {
   const workId = 7;
@@ -129,6 +130,7 @@ function makeHarness({
       assert.ok(game.walletDollar >= prices[body.type]);
       game.walletDollar -= prices[body.type] * body.quantity;
       game.boosters[body.type] += body.quantity;
+      if (losePurchaseReply) throw new TypeError("purchase reply lost");
       return { success: true, wallet: { dollar: game.walletDollar } };
     }
     throw new Error(`Unexpected fake route: ${method} ${path}`);
@@ -228,6 +230,39 @@ function start(farm, args = {}) {
     ...args,
   });
 }
+
+test("suspending work before an action preserves its run and resumes once", async () => {
+  const h = makeHarness({ required: [2] });
+  await refresh(h);
+  start(h.farm);
+  const before = structuredClone(h.farm.exportState());
+  assert.equal(h.farm.suspend(), true);
+  assert.deepEqual(h.farm.exportState(), before);
+  assert.equal(h.timers.filter((timer) => !timer.canceled).length, 0);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    0,
+  );
+  h.farm.resume();
+  await h.fireNext({ advance: false });
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
+  h.farm.stop();
+});
+
+test("work cannot be suspended while an action response is unresolved", async () => {
+  const h = makeHarness({ required: [2], holdPerform: true });
+  await refresh(h);
+  start(h.farm);
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.suspend(), false);
+  assert.equal(h.farm.getSnapshot().run.pending.kind, "performing");
+  h.releasePerform();
+  await h.flush();
+  h.farm.stop();
+});
 
 test("reopening active work progress uses the runner checkpoint without extra reads", async () => {
   const h = makeHarness({ required: [3], holdPerform: true });
@@ -701,4 +736,95 @@ test("manual refill checks priority again after reading and never dispatches whe
     0,
   );
   assert.equal(h.farm.getSnapshot().manualPending, null);
+});
+
+test("an outage after a lost refill response preserves the checkpoint and consumes only one booster", async () => {
+  let offline = false;
+  const h = makeHarness({
+    required: [1],
+    energy: 0,
+    maxEnergy: 2,
+    boosters: { small: 1, full: 0 },
+    restoreEnergy: { small: 2, full: 2 },
+    loseBoosterReply: true,
+    failReads: () => offline,
+  });
+  await refresh(h);
+  start(h.farm, {
+    mode: "boosters",
+    targetCycles: 1,
+    maxBoosters: 1,
+    allowPurchase: false,
+    maxDollar: 0,
+  });
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.pending?.kind, "refilling");
+  assert.equal(h.game.boosters.small, 0);
+  offline = true;
+  await h.fireNext();
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "running");
+  assert.equal(h.farm.getSnapshot().run.pending?.kind, "refilling");
+  assert.equal(
+    h.calls.filter((c) => c.path.endsWith("boosters/use")).length,
+    1,
+  );
+  offline = false;
+  for (let i = 0; i < 5 && h.farm.running(); i++) await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.usedBoosters, 1);
+  assert.equal(
+    h.calls.filter((c) => c.path.endsWith("boosters/use")).length,
+    1,
+  );
+  assert.equal(
+    h.calls.filter((c) => c.path.endsWith("boosters/buy")).length,
+    0,
+  );
+});
+
+test("a lost purchase reply followed by an outage never buys a second booster", async () => {
+  let offline = false;
+  const h = makeHarness({
+    energy: 0,
+    maxEnergy: 2,
+    boosters: { small: 0, full: 0 },
+    restoreEnergy: { small: 2, full: 2 },
+    prices: { small: 5, full: 20 },
+    walletDollar: 5,
+    losePurchaseReply: true,
+    failReads: () => offline,
+  });
+  await refresh(h);
+  start(h.farm, {
+    mode: "boosters",
+    targetCycles: 1,
+    maxBoosters: 1,
+    allowPurchase: true,
+    maxDollar: 5,
+  });
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.pending?.kind, "buying");
+  assert.equal(h.game.walletDollar, 0);
+  offline = true;
+  await h.fireNext();
+  await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "running");
+  assert.equal(
+    h.calls.filter((c) => c.path.endsWith("boosters/buy")).length,
+    1,
+  );
+  offline = false;
+  for (let i = 0; i < 6 && h.farm.running(); i++) await h.fireNext();
+  assert.equal(h.farm.getSnapshot().run.status, "completed");
+  assert.equal(h.farm.getSnapshot().run.spentDollar, 5);
+  assert.equal(h.game.walletDollar, 0);
+  assert.equal(
+    h.calls.filter((c) => c.path.endsWith("boosters/buy")).length,
+    1,
+  );
+  assert.equal(
+    h.calls.filter((c) => c.path.endsWith("boosters/use")).length,
+    1,
+  );
 });

@@ -8,42 +8,6 @@
   padding-bottom: var(--space-24);
 }
 
-.raid-section-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-24);
-  margin-bottom: var(--space-32);
-}
-
-.raid-section-title {
-  grid-column: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-8) var(--space-24);
-  min-width: 0;
-}
-
-.raid-channel-link {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-  flex: 0 0 auto;
-  width: auto;
-  min-height: 36px;
-  gap: var(--space-8);
-  padding-inline: var(--space-12);
-  color: var(--card-description-color);
-  font-size: var(--font-size-xs);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.raid-channel-link:hover {
-  color: var(--paper-bright);
-}
-
 .raid-feed-state {
   display: flex;
   min-height: 10rem;
@@ -67,27 +31,5 @@
   .raid-schedule-section {
     border-top: 0;
     padding: 0;
-  }
-  .raid-section-heading {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-8);
-    margin-bottom: var(--space-24);
-  }
-  .raid-section-title {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .raid-channel-link {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .raid-channel-link {
-    width: 36px;
-    padding: 0;
-  }
-  .raid-channel-label {
-    display: none;
   }
 }

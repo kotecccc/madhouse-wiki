@@ -28,11 +28,22 @@ export async function projectBossInvitations(raw, getBoss, now = Date.now()) {
         ? Math.min(invitationExpiry, battleExpiry)
         : null;
     const boss = await getBoss(item.bossId);
+    // A nickname belongs to the peer, who can differ from the battle leader.
+    // Do not associate that name with a leader unless the observed IDs agree.
+    const leaderVerified =
+      Number.isSafeInteger(item.leaderPlayerId) &&
+      item.leaderPlayerId > 0 &&
+      item.inviterPlayerId === item.leaderPlayerId &&
+      item.peerPlayerId === item.leaderPlayerId;
     unique.set(item.invitationId, {
       invitationId: item.invitationId,
       battleId: item.battleId,
       bossId: item.bossId,
       bossName: text(boss?.name) || `Босс №${item.bossId}`,
+      ...(leaderVerified ? { leaderPlayerId: item.leaderPlayerId } : {}),
+      ...(leaderVerified && text(item.peerUsername)
+        ? { leaderUsername: text(item.peerUsername) }
+        : {}),
       sender:
         text(item.peerNickname) ||
         text(item.peerUsername) ||

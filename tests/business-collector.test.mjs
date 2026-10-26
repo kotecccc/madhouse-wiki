@@ -462,3 +462,36 @@ test("unsafe restart checkpoint preserves intent for read reconciliation without
   assert.equal(h.auto.starts.length, 0);
   assert.equal(h.controller.opens.length, 0);
 });
+
+test("suspending between battles keeps the business run and goal intact until resumed", async () => {
+  const h = harness();
+  h.start();
+  await h.drain();
+  const before = structuredClone(h.helper.run);
+  const goalBefore = structuredClone(h.goal.getSnapshot());
+  assert.equal(h.collector.suspend(), true);
+  assert.deepEqual(h.helper.run, before);
+  assert.deepEqual(h.goal.getSnapshot(), goalBefore);
+  assert.equal(h.auto.getSnapshot().enabled, false);
+  h.controller.emit();
+  await h.drain();
+  assert.equal(h.controller.opens.length, 1);
+  h.collector.resume({ nextAttackAt: 2000 });
+  assert.equal(h.auto.getSnapshot().enabled, true);
+  assert.deepEqual(h.auto.starts.at(-1), {
+    checkpoint: { nextAttackAt: 2000 },
+  });
+});
+
+test("suspension waits for the current battle or unresolved action", async () => {
+  const h = harness();
+  h.start();
+  await h.drain();
+  h.state.battle = { id: "battle-active", status: "active" };
+  assert.equal(h.collector.suspend(), false);
+  assert.equal(h.auto.getSnapshot().enabled, true);
+  h.state.battle = { id: "battle-ended", status: "won" };
+  h.state.pending = "attack";
+  assert.equal(h.collector.suspend(), false);
+  assert.equal(h.helper.run.status, "running");
+});

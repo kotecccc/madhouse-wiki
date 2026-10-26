@@ -47,6 +47,7 @@ const remote =
 export const {
   bossBattle,
   bossInvitations,
+  raidSubscriptions,
   bossBattleAuto,
   bossBattleGoal,
   pvpBattle,

@@ -35,8 +35,11 @@ export function createWorkFarm({
   let timer = null,
     generation = 0,
     working = false,
+    suspended = false,
     disposed = false;
   const running = () => record.run?.status === "running";
+  const canSuspend = () =>
+    !running() || (!working && !record.manualPending && !record.run.pending);
   const publish = () => onChange?.();
   function clear() {
     if (timer != null) cancel(timer);
@@ -45,6 +48,7 @@ export function createWorkFarm({
   function finish(status, reason) {
     if (!running()) return;
     generation++;
+    suspended = false;
     runController.abort();
     clear();
     record.run.status = status;
@@ -142,7 +146,7 @@ export function createWorkFarm({
     return result;
   }
   function queue(delay) {
-    if (!running() || disposed || timer != null) return;
+    if (!running() || suspended || disposed || timer != null) return;
     const id = generation;
     record.run.nextActionAt = now() + delay;
     publish();
@@ -257,7 +261,8 @@ export function createWorkFarm({
     return true;
   }
   async function step(id) {
-    if (working || disposed || id !== generation || !checkTime()) return;
+    if (working || suspended || disposed || id !== generation || !checkTime())
+      return;
     working = true;
     let delay = 1500 + Math.floor(random() * 1501);
     const valid = () => id === generation && !disposed && checkTime();
@@ -845,11 +850,21 @@ export function createWorkFarm({
     stop() {
       finish("stopped", "Фарм остановлен пользователем.");
     },
+    canSuspend,
+    suspend() {
+      if (!running()) return true;
+      if (!canSuspend()) return false;
+      suspended = true;
+      generation++;
+      clear();
+      return true;
+    },
     tick() {
       checkTime();
     },
     resume() {
       if (!running()) return;
+      suspended = false;
       runController = new AbortController();
       if (!checkTime()) return;
       record.run.phase = "preparing";

@@ -31,13 +31,18 @@ import {
   BOSS_INVITATIONS_PATH,
   projectBossInvitations,
 } from "./boss-invitations.mjs";
+import { detectedRaids, observeRaids } from "./raid-observations.mjs";
+import { createRaidPriority } from "./raid-priority.mjs";
+import { createRaidSubscription } from "./raid-subscription.mjs";
 
 const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
+const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
   "inventory.refresh",
   "raid.stop",
   "invitations.refresh",
+  "subscription.stop",
   "business.run.stop",
   "work.stop",
   "work.refresh",
@@ -56,6 +61,8 @@ const commands = new Set([
   "raid.stop",
   "invitations.refresh",
   "invitations.accept",
+  "subscription.start",
+  "subscription.stop",
   "work.refresh",
   "work.plan",
   "work.start",
@@ -163,7 +170,9 @@ export function createAutomationService({
       equipment: entry.equipment,
       preferences: entry.preferences,
       invitations: entry.invitations,
+      raidObservations: observeRaids(entry.raidObservations, [], now()),
       raid: entry.raidWorker.getSnapshot(),
+      raidSubscription: entry.raidSubscription?.getSnapshot() ?? null,
       receipts: entry.receipts,
       updatedAt: now(),
     };
@@ -191,7 +200,12 @@ export function createAutomationService({
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
     const goal = updateGoal(entry);
-    if (entry.collector && !entry.collector.withinTime()) return false;
+    if (
+      entry.collector &&
+      !entry.raidSubscription?.getSnapshot().checkpoint &&
+      !entry.collector.withinTime()
+    )
+      return false;
     return !(
       goal?.deadlineAt != null &&
       now() >= goal.deadlineAt &&
@@ -260,6 +274,16 @@ export function createAutomationService({
     const state = entry.controller.getSnapshot();
     return {
       raid: entry.raidWorker.getSnapshot(),
+      subscription: (() => {
+        const subscription = entry.raidSubscription.getSnapshot();
+        const { checkpoint, ...publicState } = subscription;
+        return { ...publicState, hasSuspendedGoal: Boolean(checkpoint) };
+      })(),
+      detectedRaids: detectedRaids(
+        entry.raidObservations,
+        entry.invitations.items,
+        now(),
+      ),
       gameHealth: accountHealth(entry.credential),
       version: entry.version,
       serverTime: now(),
@@ -312,6 +336,7 @@ export function createAutomationService({
         refreshedAt: null,
         notice: null,
       },
+      raidObservations: observeRaids(saved?.raidObservations, [], now()),
       receipts: saved?.receipts ?? [],
       version: saved?.version ?? 0,
       pvp: saved?.pvp
@@ -331,6 +356,7 @@ export function createAutomationService({
       storageFailed: false,
       finishedBattleChecks: new Set(),
       busy: false,
+      invitationDiscoveryAt: 0,
     };
     const request = createBossBattleRequest({
       authorize: ({ url }) => ({
@@ -596,6 +622,155 @@ export function createAutomationService({
       },
       onChange: () => save(entry),
     });
+    const priority = createRaidPriority({
+      controller: entry.controller,
+      goal: entry.goal,
+      auto: entry.auto,
+      raid: entry.raidWorker,
+      work: entry.workFarm,
+      business: entry.collector,
+    });
+    entry.raidSubscription = createRaidSubscription({
+      saved: saved?.raidSubscription,
+      now,
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      lock: () => {
+        if (
+          entry.busy ||
+          entry.inventoryBusy ||
+          entry.storageFailed ||
+          !entry.credential
+        )
+          return false;
+        entry.busy = true;
+        return true;
+      },
+      unlock: () => {
+        entry.busy = false;
+      },
+      capture: () =>
+        entry.equipment?.pending || entry.workFarm.getSnapshot().manualPending
+          ? null
+          : priority.capture(),
+      suspend: async (checkpoint) => {
+        const state = entry.controller.getSnapshot();
+        if (
+          state.boss &&
+          !state.pending &&
+          !state.pendingInvitation &&
+          (state.needsRefresh || state.error)
+        )
+          await entry.controller.refresh({ discover: true });
+        return priority.suspend(checkpoint);
+      },
+      join: (invitation, allowed) =>
+        acceptInvitation(entry, invitation.invitationId, allowed, {
+          leaderPlayerId: invitation.leaderPlayerId,
+          bossId: invitation.bossId,
+          battleId: invitation.battleId,
+        }),
+      reconcile: async (subscription) => {
+        if (entry.controller.getSnapshot().pendingInvitation)
+          await refreshInvitations(entry, true);
+        let state = entry.controller.getSnapshot();
+        if (
+          !state.pendingInvitation &&
+          state.boss &&
+          (state.needsRefresh || state.error)
+        ) {
+          await entry.controller.refresh({ discover: true });
+          state = entry.controller.getSnapshot();
+        }
+        if (
+          state.pendingInvitation ||
+          state.pending ||
+          state.needsRefresh ||
+          state.error ||
+          state.purchaseUncertain
+        )
+          return "unknown";
+        if (state.invitationOnly && state.battle?.id === subscription.battleId)
+          return "joined";
+        const me = await gameJson(entry.credential, "/api/me");
+        if (Object.hasOwn(me, "activeBossBattle"))
+          return me.activeBossBattle === null ? "absent" : "unknown";
+        const detail = await gameJson(
+          entry.credential,
+          `/api/bosses/${subscription.bossId}`,
+        );
+        return Number(detail?.id) === subscription.bossId &&
+          detail.activeBattle === null
+          ? "absent"
+          : "unknown";
+      },
+      battle: async (subscription) => {
+        let state = entry.controller.getSnapshot();
+        if (state.pendingInvitation) await refreshInvitations(entry, true);
+        state = entry.controller.getSnapshot();
+        if (
+          !state.pendingInvitation &&
+          state.boss &&
+          (state.needsRefresh || state.error)
+        ) {
+          await entry.controller.refresh({ discover: true });
+          state = entry.controller.getSnapshot();
+        }
+        if (
+          state.pending ||
+          state.pendingInvitation ||
+          state.needsRefresh ||
+          state.error ||
+          state.purchaseUncertain
+        )
+          return "uncertain";
+        if (state.battle?.status === "active")
+          return state.battle.id === subscription.battleId
+            ? "active"
+            : "uncertain";
+        return "finished";
+      },
+      fight: async () => {
+        if (!entry.auto.getSnapshot().enabled)
+          entry.auto.start({ singleBattle: true });
+      },
+      restore: async (checkpoint) => {
+        if (
+          entry.controller.getSnapshot().invitationOnly &&
+          !entry.controller.allowSoloContinuation()
+        )
+          return false;
+        if (checkpoint.bossId) {
+          const boss = await getBoss(checkpoint.bossId);
+          if (!boss) return false;
+          await entry.controller.open(boss);
+          const state = entry.controller.getSnapshot();
+          if (
+            state.boss?.id !== checkpoint.bossId ||
+            state.needsRefresh ||
+            state.error ||
+            state.pending ||
+            state.battle?.status === "active"
+          )
+            return false;
+        }
+        if (checkpoint.goal) entry.goal.restoreState(checkpoint.goal);
+        else entry.goal.reset();
+        if (checkpoint.raidEnabled) entry.raidWorker.resume();
+        if (checkpoint.businessRunning) entry.collector.resume(checkpoint.auto);
+        else if (
+          checkpoint.auto?.enabled &&
+          !checkpoint.raidEnabled &&
+          !entry.auto.getSnapshot().enabled &&
+          entry.goal.getSnapshot()?.status === "active"
+        )
+          entry.auto.start({ checkpoint: checkpoint.auto });
+        if (checkpoint.workRunning) entry.workFarm.resume();
+        return !entry.storageFailed;
+      },
+    });
     let savedGoal = JSON.stringify(entry.goal.exportState());
     entry.unsubscribers = [entry.controller, entry.auto].map((source) =>
       source.subscribe(() => save(entry)),
@@ -776,15 +951,51 @@ export function createAutomationService({
           ? "Вступление не подтверждено. Проверьте состояние перед новым приглашением."
           : null,
       };
+      entry.raidObservations = observeRaids(
+        entry.raidObservations,
+        entry.invitations.items,
+        now(),
+      );
+      entry.raidSubscription?.observe(entry.invitations.items, true);
       save(entry);
     } catch (error) {
+      entry.raidSubscription?.observe([], false);
       entry.invitations.notice =
         "Не удалось обновить приглашения. Попробуйте позже.";
       save(entry);
       throw failure(error.status || 502, "invitations_unavailable");
     }
   }
-  async function acceptInvitation(entry, invitationId, allowed = () => true) {
+  function discoverInvitations(entry) {
+    const state = entry.controller.getSnapshot();
+    if (
+      closed ||
+      entry.storageFailed ||
+      !entry.credential ||
+      entry.busy ||
+      entry.inventoryBusy ||
+      state.pending ||
+      state.pendingInvitation ||
+      now() < entry.invitationDiscoveryAt ||
+      accountHealth(entry.credential)?.status === "credentials_invalid"
+    )
+      return;
+    entry.invitationDiscoveryAt = now() + INVITATION_DISCOVERY_INTERVAL_MS;
+    entry.busy = true;
+    void refreshInvitations(entry, true)
+      .catch(() => {
+        // Preserve observed history and wait for the next read. Never retry a mutation.
+      })
+      .finally(() => {
+        entry.busy = false;
+      });
+  }
+  async function acceptInvitation(
+    entry,
+    invitationId,
+    allowed = () => true,
+    expected = null,
+  ) {
     if (
       typeof invitationId !== "string" ||
       !/^[A-Za-z0-9_-]{1,120}$/.test(invitationId)
@@ -814,6 +1025,13 @@ export function createAutomationService({
     );
     if (!invitation?.available || invitation.expiresAt <= now())
       throw failure(409, "invitation_unavailable");
+    if (
+      expected &&
+      (invitation.leaderPlayerId !== expected.leaderPlayerId ||
+        invitation.bossId !== expected.bossId ||
+        invitation.battleId !== expected.battleId)
+    )
+      throw failure(409, "invitation_identity_changed");
     const boss = await getBoss(invitation.bossId);
     if (!boss) throw failure(404, "unknown_boss");
     // /api/me omits activeBossBattle in the current game response. The boss
@@ -918,9 +1136,11 @@ export function createAutomationService({
         identities.delete(identities.keys().next().value);
       if (entry.needsInitialReconcile) {
         entry.needsInitialReconcile = false;
-        await entry.controller.refresh();
+        if (!entry.raidSubscription.getSnapshot().checkpoint)
+          await entry.controller.refresh();
       }
-      await discover(entry, me);
+      if (!entry.raidSubscription.getSnapshot().checkpoint)
+        await discover(entry, me);
       if (entry.needsPvpDiscovery) {
         entry.needsPvpDiscovery = false;
         await refreshPvp(entry);
@@ -991,6 +1211,7 @@ export function createAutomationService({
       (entry.busy || entry.inventoryBusy) &&
       ![
         "raid.stop",
+        "subscription.stop",
         "auto.stop",
         "goal.stop",
         "business.run.stop",
@@ -1011,6 +1232,16 @@ export function createAutomationService({
       input.expectedVersion !== entry.version
     )
       throw failure(409, "automation_state_changed");
+    if (
+      entry.raidSubscription.getSnapshot().checkpoint &&
+      ![
+        "subscription.stop",
+        "invitations.refresh",
+        "refresh",
+        "pvp.refresh",
+      ].includes(input.command)
+    )
+      throw failure(409, "subscription_controls_automation");
     if (
       (entry.auto.getSnapshot().enabled || entry.collector.running()) &&
       ["start", "next", "attack", "invitations.accept"].includes(input.command)
@@ -1124,6 +1355,51 @@ export function createAutomationService({
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
+        case "subscription.start": {
+          if (!positive(args.bossId))
+            throw failure(400, "invalid_subscription");
+          let matching = null;
+          let boss = null;
+          if (positive(args.leaderPlayerId)) {
+            await refreshInvitations(entry, true);
+            matching = entry.invitations.items.find(
+              (item) =>
+                item.leaderPlayerId === args.leaderPlayerId &&
+                item.bossId === args.bossId &&
+                item.available &&
+                item.expiresAt > now(),
+            );
+            if (!matching) throw failure(409, "subscription_leader_unverified");
+          } else {
+            if (
+              typeof args.leaderUsername !== "string" ||
+              !/^@?[A-Za-z0-9_]{1,64}$/.test(args.leaderUsername.trim())
+            )
+              throw failure(400, "invalid_subscription");
+            boss = await getBoss(args.bossId);
+            if (
+              !boss ||
+              Number(boss.numericId ?? boss.apiId ?? boss.id) !== args.bossId
+            )
+              throw failure(404, "unknown_boss");
+          }
+          if (
+            !entry.raidSubscription.start({
+              leaderPlayerId: matching?.leaderPlayerId,
+              bossId: args.bossId,
+              leaderName: matching?.sender ?? args.leaderUsername,
+              bossName: matching?.bossName ?? boss?.name,
+              leaderUsername: matching?.leaderUsername ?? args.leaderUsername,
+            })
+          )
+            throw failure(409, "subscription_active");
+          if (matching)
+            entry.raidSubscription.observe(entry.invitations.items, true);
+          break;
+        }
+        case "subscription.stop":
+          entry.raidSubscription.stop();
+          break;
         case "inventory.action":
         case "inventory.refresh":
           await inventoryAction({
@@ -1486,6 +1762,8 @@ export function createAutomationService({
           return;
         }
         for (const entry of actors.values()) {
+          discoverInvitations(entry);
+          void entry.raidSubscription.tick().catch(() => {});
           if (now() < (entry.workerRetryAt ?? 0)) continue;
           try {
             updateGoal(entry);
@@ -1506,6 +1784,9 @@ export function createAutomationService({
       heartbeat.unref?.();
       // Restore enabled workers without waiting for a browser to reconnect.
       for (const { playerId, value } of store.list()) {
+        // Discovery is server-owned and continues even when no browser is open.
+        if (value?.credential) await actor(playerId);
+        if (value?.raidSubscription?.checkpoint) continue;
         if (
           !value?.raid?.enabled &&
           !value?.auto?.enabled &&

@@ -135,6 +135,7 @@ export function RaidEventCard({
   status: statusOverride,
   floorAvailability = {},
   bossOverride,
+  goalAction,
 }) {
   const name = String(raid?.boss || "Босс не указан").trim();
   const boss = bossOverride ||
@@ -185,6 +186,7 @@ export function RaidEventCard({
         raid={raid}
         status={status}
         availabilityLocked={Boolean(floorLocked)}
+        goalAction={goalAction}
       />
     </CardEditScope>
   );

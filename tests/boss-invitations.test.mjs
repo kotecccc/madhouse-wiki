@@ -80,6 +80,39 @@ test("invitation projection filters invalid records, deduplicates and limits pub
   );
 });
 
+test("leader identity is exposed only when inviter and peer identify the leader", async () => {
+  const common = {
+    bossId: 7,
+    status: "pending",
+    battleStatus: "active",
+    expiresAtUtc: future,
+    battleExpiresAtUtc: future,
+    leaderPlayerId: 42,
+    inviterPlayerId: 42,
+    peerPlayerId: 42,
+    peerNickname: "Лидер",
+  };
+  const projected = await projectBossInvitations(
+    {
+      items: [
+        { ...common, invitationId: "one", battleId: "b1" },
+        { ...common, invitationId: "two", battleId: "b2", peerPlayerId: 43 },
+        {
+          ...common,
+          invitationId: "three",
+          battleId: "b3",
+          inviterPlayerId: null,
+        },
+      ],
+    },
+    () => ({ name: "Босс" }),
+    now,
+  );
+  assert.equal(projected[0].leaderPlayerId, 42);
+  assert.equal(projected[1].leaderPlayerId, undefined);
+  assert.equal(projected[2].leaderPlayerId, undefined);
+});
+
 function invitationBattle(
   id = "battle-9",
   participants = [{ playerId: 101, nickname: "Alice" }],
@@ -118,6 +151,7 @@ function setup(directory, options = {}) {
       return Response.json({
         playerId: 101,
         nickname: "Alice",
+        ...(options.me ?? {}),
         ...(options.omitActiveBossBattle
           ? {}
           : { activeBossBattle: ownActiveBattle }),
@@ -126,20 +160,22 @@ function setup(directory, options = {}) {
       return Response.json({ activeBattle: null });
     if (url.pathname === BOSS_INVITATIONS_PATH.split("?")[0])
       return Response.json({
-        items: accepted
-          ? []
-          : [
-              {
-                invitationId: "invite-9",
-                battleId: "battle-9",
-                bossId: 7,
-                status: "pending",
-                battleStatus: "active",
-                expiresAtUtc: future,
-                battleExpiresAtUtc: future,
-                peerNickname: "Bob",
-              },
-            ],
+        items: options.invitations
+          ? options.invitations()
+          : accepted
+            ? []
+            : [
+                {
+                  invitationId: "invite-9",
+                  battleId: "battle-9",
+                  bossId: 7,
+                  status: "pending",
+                  battleStatus: "active",
+                  expiresAtUtc: future,
+                  battleExpiresAtUtc: future,
+                  peerNickname: "Bob",
+                },
+              ],
       });
     if (url.pathname === "/api/bosses/7")
       return accepted && options.bossSummaryUnavailable
@@ -178,22 +214,33 @@ function setup(directory, options = {}) {
     )
       return Response.json(invitationBattle());
     if (url.pathname === "/api/bosses/battles/battle-9")
-      return Response.json(
-        invitationBattle(
+      return Response.json({
+        ...invitationBattle(
           options.mismatchedBattle ? "other-battle" : "battle-9",
           options.foreignParticipant ? [{ playerId: 202 }] : undefined,
         ),
-      );
+        ...(options.battleStatus
+          ? { status: options.battleStatus(), reward: { drops: [] } }
+          : {}),
+      });
+    if (options.extraRoute) {
+      const response = await options.extraRoute(url.pathname, method, init);
+      if (response) return response;
+    }
     return Response.json({ error: "unexpected_fake_route" }, { status: 404 });
   };
   const service = createAutomationService({
     store,
-    getBoss: (id) => ({ numericId: id, name: `Boss ${id}` }),
+    getBoss:
+      options.getBoss ?? ((id) => ({ numericId: id, name: `Boss ${id}` })),
+    ...(options.catalogue
+      ? { getBusinessCatalogue: () => options.catalogue }
+      : {}),
     fetcher,
     now: () => currentNow,
     random: () => 0,
-    schedule: () => ({ unref() {} }),
-    cancel: () => {},
+    schedule: options.schedule ?? (() => ({ unref() {} })),
+    cancel: options.cancel ?? (() => {}),
   });
   return {
     service,
@@ -248,6 +295,94 @@ test("accept persists invitation checkpoint before POST and confirms exact battl
       ctx.calls.some((call) => call.path === "/api/bosses/battles/battle-9"),
       true,
     );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("server discovers and persists invitations after restart without an open browser", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-discovery-restart-"));
+  let ctx = setup(directory);
+  try {
+    await ctx.service.identify(token);
+    ctx.close();
+    ctx = setup(directory, {
+      invitations: () => [
+        {
+          invitationId: "invite-discovery",
+          battleId: "battle-discovery",
+          bossId: 7,
+          leaderPlayerId: 42,
+          inviterPlayerId: 42,
+          peerPlayerId: 42,
+          status: "pending",
+          battleStatus: "active",
+          expiresAtUtc: future,
+          battleExpiresAtUtc: future,
+        },
+      ],
+    });
+    await ctx.service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    assert.deepEqual(ctx.store.read("101").raidObservations, [
+      {
+        leaderPlayerId: 42,
+        bossId: 7,
+        battleId: "battle-discovery",
+        seenAt: now,
+      },
+    ]);
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("observations survive failed reads and restart without counting a repeated battle", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-discovery-failure-"));
+  let battle = "one";
+  let unavailable = false;
+  const invitations = () => {
+    if (unavailable) throw new Error("temporary outage");
+    return [
+      {
+        invitationId: `invite-${battle}`,
+        battleId: battle,
+        bossId: 7,
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+        status: "pending",
+        battleStatus: "active",
+        expiresAtUtc: future,
+        battleExpiresAtUtc: future,
+      },
+    ];
+  };
+  let ctx = setup(directory, { invitations });
+  try {
+    let entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "read-raid-01", "invitations.refresh");
+    await issue(ctx.service, entry, "read-raid-02", "invitations.refresh");
+    battle = "two";
+    ctx.setNow(now + 11_000);
+    await issue(ctx.service, entry, "read-raid-03", "invitations.refresh");
+    unavailable = true;
+    ctx.setNow(now + 22_000);
+    await assert.rejects(
+      issue(ctx.service, entry, "read-raid-04", "invitations.refresh"),
+    );
+    assert.equal(ctx.store.read("101").raidObservations.length, 2);
+    ctx.close();
+    unavailable = false;
+    battle = "three";
+    ctx = setup(directory, { invitations, now: now + 33_000 });
+    entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "read-raid-05", "invitations.refresh");
+    assert.equal(ctx.service.snapshot(entry).detectedRaids[0].count, 3);
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
@@ -536,6 +671,516 @@ test("waiting raid survives service restart without a browser and resumes invita
     await entry.raidWorker.tick();
     assert.equal(ctx.service.snapshot(entry).raid.status, "fighting");
     await issue(ctx.service, entry, "stop-raid-03", "raid.stop");
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("subscription persists and suspends an existing raid before an uncertain join", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "subscription-service-restart-"),
+  );
+  const invitations = () => [
+    {
+      invitationId: "invite-9",
+      battleId: "battle-9",
+      bossId: 7,
+      leaderPlayerId: 42,
+      inviterPlayerId: 42,
+      peerPlayerId: 42,
+      status: "pending",
+      battleStatus: "active",
+      expiresAtUtc: future,
+      battleExpiresAtUtc: future,
+      peerNickname: "Bob",
+    },
+  ];
+  let ctx = setup(directory, { timeoutPost: true, invitations });
+  try {
+    let entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "subscribe-setup-raid", "raid.start", {
+      settings: raidSettings,
+    });
+    await issue(
+      ctx.service,
+      entry,
+      "subscribe-refresh-1",
+      "invitations.refresh",
+    );
+    await issue(
+      ctx.service,
+      entry,
+      "subscribe-start-01",
+      "subscription.start",
+      { leaderPlayerId: 42, bossId: 7 },
+    );
+    await entry.raidSubscription.tick();
+    const saved = ctx.store.read("101");
+    assert.equal(saved.raidSubscription.phase, "confirming");
+    assert.equal(saved.raidSubscription.checkpoint.raidEnabled, true);
+    assert.equal(saved.raidSubscription.checkpoint.goal.settings.bossId, 7);
+    assert.ok(saved.battle.pendingInvitation);
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
+    ctx.close();
+    ctx = setup(directory, { invitations });
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+    await assert.rejects(
+      issue(ctx.service, entry, "subscribe-block-01", "raid.stop"),
+      /subscription_controls_automation/,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("subscription refuses an unverified leader without a game mutation", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-identity-"));
+  const ctx = setup(directory, {
+    invitations: () => [
+      {
+        invitationId: "invite-9",
+        battleId: "battle-9",
+        bossId: 7,
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+        status: "pending",
+        battleStatus: "active",
+        expiresAtUtc: future,
+        battleExpiresAtUtc: future,
+      },
+    ],
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await assert.rejects(
+      issue(ctx.service, entry, "subscribe-invalid-1", "subscription.start", {
+        leaderPlayerId: 43,
+        bossId: 7,
+      }),
+      /subscription_leader_unverified/,
+    );
+    assert.equal(ctx.service.snapshot(entry).subscription.enabled, false);
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a scheduled raid can wait for a verified invitation without sending a game mutation", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-scheduled-"));
+  const ctx = setup(directory, { invitations: () => [] });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(
+      ctx.service,
+      entry,
+      "scheduled-subscribe",
+      "subscription.start",
+      { leaderUsername: "@alice", bossId: 7 },
+    );
+    await entry.raidSubscription.tick();
+    const saved = ctx.store.read("101").raidSubscription;
+    assert.equal(saved.leaderPlayerId, null);
+    assert.equal(saved.phase, "monitoring");
+    assert.equal(saved.leaderUsername, "@alice");
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("restart during suspension reconciles the old battle before pausing the prior raid", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "subscription-suspend-restart-"),
+  );
+  const invitations = () => [
+    {
+      invitationId: "invite-9",
+      battleId: "battle-9",
+      bossId: 7,
+      leaderPlayerId: 42,
+      inviterPlayerId: 42,
+      peerPlayerId: 42,
+      status: "pending",
+      battleStatus: "active",
+      expiresAtUtc: future,
+      battleExpiresAtUtc: future,
+    },
+  ];
+  let ctx = setup(directory, { invitations });
+  try {
+    let entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "restart-raid-01", "raid.start", {
+      settings: raidSettings,
+    });
+    await issue(
+      ctx.service,
+      entry,
+      "restart-subscription-01",
+      "subscription.start",
+      { leaderPlayerId: 42, bossId: 7 },
+    );
+    const saved = ctx.store.read("101");
+    saved.raidSubscription.phase = "suspending";
+    saved.raidSubscription.checkpoint = {
+      bossId: 7,
+      goal: saved.goalRecord,
+      auto: saved.auto,
+      raidEnabled: true,
+      businessRunning: false,
+      workRunning: false,
+    };
+    ctx.store.write("101", saved);
+    ctx.close();
+    ctx = setup(directory, { invitations });
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "waiting");
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.raidEnabled,
+      true,
+    );
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("after a subscribed battle and a quiet interval the saved raid goal resumes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-resume-raid-"));
+  let status = "active";
+  let invited = true;
+  const invitations = () =>
+    invited
+      ? [
+          {
+            invitationId: "invite-9",
+            battleId: "battle-9",
+            bossId: 7,
+            leaderPlayerId: 42,
+            inviterPlayerId: 42,
+            peerPlayerId: 42,
+            status: "pending",
+            battleStatus: "active",
+            expiresAtUtc: future,
+            battleExpiresAtUtc: future,
+          },
+        ]
+      : [];
+  const ctx = setup(directory, { invitations, battleStatus: () => status });
+  try {
+    const entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "resume-raid-setup", "raid.start", {
+      settings: raidSettings,
+    });
+    const originalGoal = structuredClone(entry.goal.exportState());
+    await issue(ctx.service, entry, "resume-sub-start", "subscription.start", {
+      leaderPlayerId: 42,
+      bossId: 7,
+    });
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
+    status = "won";
+    invited = false;
+    await entry.controller.refresh();
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "waiting");
+    ctx.setNow(now + 601_000);
+    await issue(ctx.service, entry, "resume-read-fresh", "invitations.refresh");
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "monitoring");
+    assert.equal(ctx.service.snapshot(entry).raid.enabled, true);
+    assert.deepEqual(entry.goal.exportState(), originalGoal);
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a subscribed raid pauses and resumes a work goal without repeating work", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-resume-work-"));
+  let status = "active",
+    invited = true,
+    progress = 0;
+  const timers = [];
+  const energy = {
+    current: 10,
+    max: 10,
+    regenIntervalSeconds: 60,
+    secondsToNext: 0,
+  };
+  const workState = () => ({
+    workId: 7,
+    title: "Work",
+    completedCycles: 0,
+    tasks: [
+      {
+        id: 1,
+        title: "Task",
+        required: 3,
+        progress,
+        energyCost: 1,
+        canPerform: true,
+      },
+    ],
+    energy,
+  });
+  const ctx = setup(directory, {
+    me: { energy, wallet: { dollar: 100 } },
+    catalogue: {
+      businesses: [],
+      businessUpgrades: [],
+      bosses: [],
+      works: [{ workId: 7, title: "Work" }],
+    },
+    battleStatus: () => status,
+    invitations: () =>
+      invited
+        ? [
+            {
+              invitationId: "invite-9",
+              battleId: "battle-9",
+              bossId: 7,
+              leaderPlayerId: 42,
+              inviterPlayerId: 42,
+              peerPlayerId: 42,
+              status: "pending",
+              battleStatus: "active",
+              expiresAtUtc: future,
+              battleExpiresAtUtc: future,
+            },
+          ]
+        : [],
+    schedule: (callback, delay) => {
+      const timer = { callback, delay, canceled: false };
+      timers.push(timer);
+      return timer;
+    },
+    cancel: (timer) => {
+      timer.canceled = true;
+    },
+    extraRoute: async (path) => {
+      if (path === "/api/works/open") return Response.json(workState());
+      if (path === "/api/me/bag") return Response.json({ boosters: {} });
+      if (path === "/api/works/tasks/perform") {
+        progress++;
+        return Response.json(workState());
+      }
+      return null;
+    },
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "work-priority-start", "work.start", {
+      workId: 7,
+      targetCycles: 1,
+      maxActions: 10,
+      durationHours: null,
+      mode: "wait",
+      maxBoosters: 0,
+      allowPurchase: false,
+      maxDollar: 0,
+    });
+    const before = structuredClone(ctx.service.snapshot(entry).workFarm.run);
+    await issue(
+      ctx.service,
+      entry,
+      "work-subscribe-start",
+      "subscription.start",
+      { leaderPlayerId: 42, bossId: 7 },
+    );
+    await entry.raidSubscription.tick();
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.workRunning,
+      true,
+    );
+    assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
+    status = "won";
+    invited = false;
+    await entry.controller.refresh();
+    await entry.raidSubscription.tick();
+    ctx.setNow(now + 601_000);
+    await issue(
+      ctx.service,
+      entry,
+      "work-subscribe-read",
+      "invitations.refresh",
+    );
+    await entry.raidSubscription.tick();
+    const resumed = ctx.service.snapshot(entry).workFarm.run;
+    assert.equal(resumed.status, "running");
+    assert.deepEqual(resumed.config, before.config);
+    assert.equal(resumed.actionsDone, 0);
+    const timer = timers.find((item) => !item.canceled);
+    assert.ok(timer);
+    timer.canceled = true;
+    timer.callback();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(progress, 1);
+    assert.equal(
+      ctx.calls.filter((call) => call.path === "/api/works/tasks/perform")
+        .length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a subscribed raid preserves the business collection plan and resumes it", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "subscription-resume-business-"),
+  );
+  let status = "active",
+    invited = true;
+  const timers = [];
+  const catalogue = {
+    businesses: [
+      { id: "business:7", apiId: "7", title: "Workshop", maxLevel: 2 },
+    ],
+    businessUpgrades: [
+      {
+        businessId: "business:7",
+        items: [{ entityId: 55, name: "Item", levels: [1, 1] }],
+      },
+    ],
+    bosses: [
+      {
+        numericId: 7,
+        name: "Boss 7",
+        possibleDrops: [{ type: "activity_item", entityId: 55, name: "Item" }],
+      },
+    ],
+  };
+  const ctx = setup(directory, {
+    catalogue,
+    getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
+    battleStatus: () => status,
+    invitations: () =>
+      invited
+        ? [
+            {
+              invitationId: "invite-9",
+              battleId: "battle-9",
+              bossId: 7,
+              leaderPlayerId: 42,
+              inviterPlayerId: 42,
+              peerPlayerId: 42,
+              status: "pending",
+              battleStatus: "active",
+              expiresAtUtc: future,
+              battleExpiresAtUtc: future,
+            },
+          ]
+        : [],
+    schedule: (callback, delay) => {
+      const timer = { callback, delay, canceled: false };
+      timers.push(timer);
+      return timer;
+    },
+    cancel: (timer) => {
+      timer.canceled = true;
+    },
+    extraRoute: async (path) => {
+      if (path === "/api/me/bag") return Response.json({ activityItems: [] });
+      if (path === "/api/businesses/7")
+        return Response.json({
+          id: 7,
+          level: 1,
+          maxLevel: 2,
+          nextUpgradePrice: 100,
+          nextUpgradeCurrency: "gold",
+        });
+      return null;
+    },
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "business-select-01", "business.select", {
+      businessId: "business:7",
+    });
+    await issue(ctx.service, entry, "business-save-001", "business.save", {
+      businessId: "business:7",
+      targetLevel: 2,
+      maxAttempts: 5,
+      durationHours: null,
+    });
+    await issue(ctx.service, entry, "business-read-001", "business.refresh", {
+      businessId: "business:7",
+    });
+    const plan = ctx.service.snapshot(entry).businessAssistant.plans[0];
+    await issue(ctx.service, entry, "business-start-01", "business.run.start", {
+      businessId: "business:7",
+      expectedPlan: plan.config,
+      expectedMissing: plan.materials.map((item) => ({
+        itemId: item.entityId,
+        amount: item.missingAmount,
+      })),
+    });
+    const before = structuredClone(
+      ctx.service.snapshot(entry).businessAssistant.run,
+    );
+    await issue(
+      ctx.service,
+      entry,
+      "business-sub-start",
+      "subscription.start",
+      { leaderPlayerId: 42, bossId: 7 },
+    );
+    await entry.raidSubscription.tick();
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.businessRunning,
+      true,
+    );
+    assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
+    status = "won";
+    invited = false;
+    await entry.controller.refresh();
+    await entry.raidSubscription.tick();
+    ctx.setNow(now + 601_000);
+    await issue(ctx.service, entry, "business-sub-read", "invitations.refresh");
+    await entry.raidSubscription.tick();
+    const resumed = ctx.service.snapshot(entry).businessAssistant.run;
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.battlesStarted, before.battlesStarted);
+    assert.equal(resumed.maxBattles, before.maxBattles);
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "monitoring");
+    const timer = timers.find((item) => !item.canceled);
+    assert.ok(timer);
+    timer.canceled = true;
+    timer.callback();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      ctx.service.snapshot(entry).businessAssistant.run.phase,
+      "farming",
+    );
+    assert.equal(entry.auto.getSnapshot().enabled, true);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
