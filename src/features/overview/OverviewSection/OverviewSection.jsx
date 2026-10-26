@@ -239,7 +239,7 @@ function ProfileSummary({ state }) {
               <CardTitle as="h2">{profile.name}</CardTitle>
               {Number.isSafeInteger(profile.playerLevel) && (
                 <Pill size="xs" dot={false}>
-                  Уровень {fmt(profile.playerLevel)}
+                  {fmt(profile.playerLevel)} ур.
                 </Pill>
               )}
             </div>
@@ -250,7 +250,12 @@ function ProfileSummary({ state }) {
                 aria-label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
               >
                 <div className="overview-level-heading">
-                  <Icon type="sparkles-2" size="small" />
+                  <span className="overview-energy-label">
+                    <Icon type="sparkles-2" size="small" />
+                    <CardDescription as="span" size="xs">
+                      Опыт
+                    </CardDescription>
+                  </span>
                   {experienceKnown && (
                     <CardTitle as="span" size="sm" aria-hidden="true">
                       {numberFormat.format(profile.experience.current)} /{" "}
@@ -274,9 +279,6 @@ function ProfileSummary({ state }) {
                 )}
               </div>
             )}
-            <CardDescription>
-              {profile.username ? `@${profile.username}` : "Персонаж игрока"}
-            </CardDescription>
             {profile.stashBuffs?.map((buff, index) => (
               <div
                 className="overview-active-effect"
