@@ -95,6 +95,7 @@ export function createRemoteBattleSession({
   let openingBossId = null;
   let openingRequirements = [];
   let server = null;
+  let serverReady = false;
   let snapshot = EMPTY_BATTLE;
   let autoSnapshot = EMPTY_AUTO;
   let goalSnapshot = null;
@@ -105,6 +106,7 @@ export function createRemoteBattleSession({
   let subscriptionSnapshot = Object.freeze({
     detectedRaids: [],
     subscription: null,
+    loaded: false,
     pending: false,
   });
   let preferencesSnapshot = Object.freeze({ favoriteBossIds: [] });
@@ -182,6 +184,7 @@ export function createRemoteBattleSession({
     subscriptionSnapshot = Object.freeze({
       detectedRaids: server?.detectedRaids ?? [],
       subscription: server?.subscription ?? null,
+      loaded: connected && serverReady,
       pending: pendingCommands > 0,
       error: transportError || invitationCommandError,
     });
@@ -203,8 +206,10 @@ export function createRemoteBattleSession({
         Number.isFinite(currentVersion) &&
         incomingVersion < currentVersion
       )
-    )
+    ) {
       server = value;
+      serverReady = true;
+    }
     publish();
   }
 
@@ -362,6 +367,7 @@ export function createRemoteBattleSession({
     openingBossId = null;
     openingRequirements = [];
     server = null;
+    serverReady = false;
     publish();
   }
 
