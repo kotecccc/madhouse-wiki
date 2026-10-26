@@ -150,12 +150,30 @@ test("category counters include only confirmed purchases from fully loaded categ
         option.label,
       ]),
     );
-  assert.equal(labels().room, "Комнаты (1)");
+  assert.equal(labels().room, "Комнаты");
+  assert.equal(
+    inventoryCategoryOptions(responses, references).find(
+      (option) => option.value === "room",
+    ).count,
+    1,
+  );
   assert.equal(labels().weapon, "Оружие");
+  assert.equal(
+    inventoryCategoryOptions(responses, references).find(
+      (option) => option.value === "weapon",
+    ).count,
+    undefined,
+  );
   assert.equal(labels().pet, "Питомцы");
   assert.equal(labels().ornament, "Тату");
   responses["/api/ornaments/zones/9"] = { items: [] };
-  assert.equal(labels().ornament, "Тату (1)");
+  assert.equal(labels().ornament, "Тату");
+  assert.equal(
+    inventoryCategoryOptions(responses, references).find(
+      (option) => option.value === "ornament",
+    ).count,
+    1,
+  );
   responses["/api/rooms"].catalog.rooms[0].owned = true;
   assert.equal(labels().room, "Комнаты");
 });

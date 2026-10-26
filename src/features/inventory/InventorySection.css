@@ -4,7 +4,7 @@
 }
 .inventory-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: var(--space-8);
 }
@@ -38,4 +38,9 @@
   .inventory-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.inventory-footer {
+  display: flex;
+  justify-content: flex-end;
 }

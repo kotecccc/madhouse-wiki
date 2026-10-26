@@ -142,7 +142,8 @@ export function inventoryCategoryOptions(responses, references) {
       : 0;
     return {
       value: id,
-      label: count > 0 ? `${label} (${count})` : label,
+      label,
+      count: count > 0 ? count : undefined,
       ariaLabel: count > 0 ? `${label}: доступно для покупки ${count}` : label,
     };
   });

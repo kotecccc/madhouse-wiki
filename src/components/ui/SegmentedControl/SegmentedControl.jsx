@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Pill } from "../Pill/Pill.jsx";
 import { Button } from "../Button/Button.jsx";
 import "./SegmentedControl.css";
 
@@ -73,6 +74,11 @@ export function SegmentedControl({
           onKeyDown={handleKeyDown}
         >
           {option.label}
+          {Number.isSafeInteger(option.count) && option.count > 0 && (
+            <Pill size="xs" dot={false} aria-hidden="true">
+              {option.count}
+            </Pill>
+          )}
         </Button>
       ))}
     </div>

@@ -157,18 +157,6 @@ export function InventorySection({ active }) {
             }}
           />
         </div>
-        <Button
-          variant="secondary"
-          icon="refresh"
-          iconOnly
-          aria-label="Обновить категорию"
-          title="Обновить категорию"
-          disabled={loading}
-          onClick={() => {
-            refreshRequested.current = true;
-            setRevision((value) => value + 1);
-          }}
-        />
       </div>
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">
@@ -309,6 +297,20 @@ export function InventorySection({ active }) {
           Показать ещё ({filtered.length - limit})
         </Button>
       )}
+      <div className="inventory-footer">
+        <Button
+          variant="secondary"
+          icon="refresh"
+          iconOnly
+          aria-label="Обновить категорию"
+          title="Обновить категорию"
+          disabled={loading}
+          onClick={() => {
+            refreshRequested.current = true;
+            setRevision((value) => value + 1);
+          }}
+        />
+      </div>
     </section>
   );
 }
