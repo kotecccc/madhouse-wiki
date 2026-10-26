@@ -1,3 +1,4 @@
+import { refreshRetainedProfileProgress } from "../../../../shared/profile-progress.js";
 import {
   telegramContext,
   accountStorageKey,
@@ -10,6 +11,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   readSession,
+  authorizeRequest,
   saveToken,
   clearToken,
   subscribeSession,
@@ -75,6 +77,7 @@ export function LoginControl() {
   });
   const controlRef = useRef(null);
   const refreshProfileRef = useRef(() => {});
+  const progressAttempts = useRef(new Set());
   const authenticated = session.status === "ready";
   useEffect(() => {
     const changed = (event) => {
@@ -122,6 +125,8 @@ export function LoginControl() {
       }
       setRestoring(true);
       try {
+        const credential = authorizeRequest({ url: "/api/me" }).headers
+          .Authorization;
         const data = await getSessionJson("/api/me", {
           signal,
           fresh: true,
@@ -130,6 +135,26 @@ export function LoginControl() {
         if (!signal.aborted) {
           setProfile(normalizePlayerProfile(data));
           setRestoring(false);
+          if (
+            !shouldRestoreTelegramSession() &&
+            TELEGRAM_CONNECTOR_ORIGIN &&
+            !progressAttempts.current.has(credential)
+          ) {
+            progressAttempts.current.add(credential);
+            void refreshRetainedProfileProgress({
+              telegramId: data.telegramId,
+              request: (id) => telegramRef.current.refreshProgress(id),
+              isCurrent: () =>
+                !signal.aborted &&
+                authorizeRequest({ url: "/api/me" }).headers.Authorization ===
+                  credential,
+              apply: (progress) =>
+                saveToken(credential, {
+                  ...progress,
+                  activeBossBattle: readSession().activeBossBattle,
+                }),
+            });
+          }
         }
       } catch {
         // A failed or cancelled profile request must not expose credentials.
