@@ -23,6 +23,7 @@ import { createBossBattleGoal } from "../../src/features/bosses/BossBattle/boss-
 import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
 import { createWorkFarm } from "./work-farm.mjs";
 import { createBusinessCollector } from "./business-collector.mjs";
+import { advanceBusinessUpgrade } from "./business-upgrade.mjs";
 import { createBattleSeries } from "./battle-series.mjs";
 import { createBossBattleRequest } from "../../src/features/bosses/BossBattle/boss-battle-request.js";
 import { normalizePvpBattle } from "../../src/features/combat/ActiveBattleDock/active-battle-state.js";
@@ -514,6 +515,51 @@ export function createAutomationService({
       getCatalogue: getBusinessCatalogue,
       getBoss,
       get: (path) => gameJson(entry.credential, path),
+      upgrade: (run, valid) => {
+        const business = getBusinessCatalogue().businesses.find(
+          (item) => item.id === run.businessId,
+        );
+        const credential = entry.credential;
+        const allowed = () =>
+          valid() &&
+          !run.stopRequested &&
+          !closed &&
+          !entry.storageFailed &&
+          Boolean(credential) &&
+          entry.credential === credential &&
+          !entry.equipment?.pending &&
+          !entry.workFarm?.getSnapshot().manualPending &&
+          !entry.raidSubscription?.getSnapshot().checkpoint &&
+          !entry.controller.getSnapshot().pending &&
+          entry.controller.getSnapshot().battle?.status !== "active" &&
+          canAct(entry);
+        return advanceBusinessUpgrade({
+          run,
+          businessId: Number(business?.apiId),
+          get: (path) => gameJson(credential, path),
+          allowed,
+          persist: () => {
+            save(entry);
+            return !entry.storageFailed;
+          },
+          post: (path, body) =>
+            fetcher(`https://cargohustle.online${path}`, {
+              method: "POST",
+              headers: {
+                Authorization: credential,
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(body),
+              redirect: "error",
+              signal: AbortSignal.timeout(20000),
+              canDispatch: () => {
+                ensureLease();
+                return allowed();
+              },
+            }),
+        });
+      },
       now,
       schedule,
       cancel,
@@ -527,6 +573,7 @@ export function createAutomationService({
         Boolean(entry.credential) &&
         !entry.inventoryBusy &&
         !entry.equipment?.pending &&
+        !entry.businessHelper.run?.pendingUpgrade &&
         !entry.controller.getSnapshot().pending &&
         (mode === "energy" ||
           (!entry.auto.getSnapshot().enabled &&
@@ -1212,6 +1259,25 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
+    if (
+      entry.businessHelper.run?.pendingUpgrade &&
+      ![
+        "business.run.stop",
+        "business.select",
+        "business.refresh",
+        "invitations.refresh",
+        "subscription.stop",
+        "work.stop",
+        "work.refresh",
+        "auto.stop",
+        "raid.stop",
+        "goal.stop",
+        "pvp.refresh",
+        "inventory.refresh",
+        "refresh",
+      ].includes(input.command)
+    )
+      throw failure(409, "business_upgrade_uncertain");
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");

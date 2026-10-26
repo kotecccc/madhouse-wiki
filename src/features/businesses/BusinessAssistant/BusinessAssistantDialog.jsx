@@ -86,6 +86,8 @@ export function BusinessAssistantDialog({
         ? "unlimited"
         : String(plan.config.durationHours));
   const bossChoices = draft?.bossChoices ?? plan?.config.bossChoices ?? {};
+  const autoUpgrade =
+    draft?.autoUpgrade ?? (plan?.config.autoUpgrade ? "upgrade" : "collect");
   const update = (field, value) =>
     setDraft({
       targetLevel,
@@ -93,6 +95,7 @@ export function BusinessAssistantDialog({
       maxAttempts,
       durationHours,
       bossChoices,
+      autoUpgrade,
       [field]: value,
     });
   const target = Number(targetLevel),
@@ -125,7 +128,9 @@ export function BusinessAssistantDialog({
   const runReady = Boolean(
     plan &&
     !draft &&
-    runMaterials.length > 0 &&
+    plan.canCreateGoals &&
+    (runMaterials.length > 0 || (plan.config.autoUpgrade && !plan.achieved)) &&
+    (!plan.config.autoUpgrade || plan.currentLevelSource === "game") &&
     runMaterials.every(
       (item) => item.missingAmount > 0 && selectedBoss(item),
     ) &&
@@ -143,6 +148,7 @@ export function BusinessAssistantDialog({
       currentLevel,
       maxAttempts,
       durationHours,
+      autoUpgrade,
       bossChoices: { ...bossChoices, [itemId]: Number(bossId) },
     });
   const save = async (event) => {
@@ -156,6 +162,7 @@ export function BusinessAssistantDialog({
         maxAttempts: cap || null,
         durationHours: duration,
         bossChoices: configuredBossChoices,
+        autoUpgrade: autoUpgrade === "upgrade",
       })
     )
       setDraft(null);
@@ -290,6 +297,17 @@ export function BusinessAssistantDialog({
                 },
               ]}
             />
+            <SelectField
+              id={`business-plan-action-${business.id}`}
+              label="После сбора материалов"
+              value={autoUpgrade}
+              disabled={busy || running}
+              onChange={(event) => update("autoUpgrade", event.target.value)}
+              options={[
+                { id: "collect", value: "collect", label: "Только собрать" },
+                { id: "upgrade", value: "upgrade", label: "Улучшить бизнес" },
+              ]}
+            />
             {draft != null && (
               <CardDescription>
                 Нажмите «Рассчитать и сохранить», чтобы обновить расчёт.
@@ -308,9 +326,8 @@ export function BusinessAssistantDialog({
               Рассчитать и сохранить
             </Button>
             <CardDescription>
-              План сохраняется на сервере. Улучшения, покупки и бои
-              автоматически не запускаются. Для запуска полного сбора
-              подтвердите отдельный план ниже.
+              План сохраняется на сервере. Для запуска подтвердите его ниже.
+              Улучшение расходует игровую валюту и материалы.
             </CardDescription>
           </BaseCard>
           <BaseCard className="business-assistant-column">
@@ -497,7 +514,11 @@ export function BusinessAssistantDialog({
       )}
       {plan && (
         <BaseCard className="business-assistant-column">
-          <CardTitle as="h3">Полный сбор материалов</CardTitle>
+          <CardTitle as="h3">
+            {plan.config.autoUpgrade
+              ? "Улучшение бизнеса"
+              : "Полный сбор материалов"}
+          </CardTitle>
           <CardDescription>
             Запуск использует сохранённый план. Настройки должны быть сохранены
             перед подтверждением.
@@ -507,14 +528,20 @@ export function BusinessAssistantDialog({
             disabled={busy || running || !state.loaded || !runReady}
             onClick={() => setRunConfirmation(true)}
           >
-            Собрать все материалы
+            {plan.config.autoUpgrade
+              ? "Улучшить бизнес"
+              : "Собрать все материалы"}
           </Button>
         </BaseCard>
       )}
       {run && run.status !== "running" && (
         <BaseCard role="status" className="business-assistant-column">
           <CardTitle as="h3">
-            {run.status === "completed" ? "Сбор завершён" : "Сбор остановлен"}
+            {run.status === "completed"
+              ? run.config?.autoUpgrade
+                ? "Улучшение завершено"
+                : "Сбор завершён"
+              : "Выполнение остановлено"}
           </CardTitle>
           <CardDescription>{run.reason || run.status}</CardDescription>
         </BaseCard>
@@ -522,12 +549,15 @@ export function BusinessAssistantDialog({
       {running && (
         <BaseCard className="business-assistant-column" aria-live="polite">
           <CardTitle as="h3">
-            Сбор материалов ·{" "}
+            {run.config?.autoUpgrade ? "Улучшение бизнеса" : "Сбор материалов"}{" "}
+            ·{" "}
             {{
               preparing: "подготовка",
               opening: "выбор босса",
               farming: "бой",
               verifying: "проверка запасов",
+              upgrading: "улучшение бизнеса",
+              retrying: "ожидание проверки",
             }[run.phase] || "подготовка"}
           </CardTitle>
           <CardDescription>
@@ -541,6 +571,7 @@ export function BusinessAssistantDialog({
             {run.currentItemName || "Подготовка"} · боёв начато{" "}
             {run.battlesStarted} · завершено {run.battlesCompleted}
           </CardDescription>
+          {run.reason && <CardDescription>{run.reason}</CardDescription>}
           {run.materials?.map((item) => (
             <CardDescription key={item.itemId}>
               {item.name}: {amountText(item.collectedAmount)} /{" "}
@@ -551,7 +582,7 @@ export function BusinessAssistantDialog({
             variant="secondary"
             onClick={() => void assistantStore.stopRun()}
           >
-            Остановить сбор
+            Остановить
           </Button>
         </BaseCard>
       )}
@@ -560,7 +591,18 @@ export function BusinessAssistantDialog({
           className="business-assistant-column"
           aria-label="Подтверждение полного сбора"
         >
-          <CardTitle as="h3">Подтвердите полный сбор</CardTitle>
+          <CardTitle as="h3">
+            {plan.config.autoUpgrade
+              ? "Подтвердите улучшение"
+              : "Подтвердите полный сбор"}
+          </CardTitle>
+          {plan.config.autoUpgrade && (
+            <CardDescription>
+              Бизнес будет улучшаться до уровня {plan.targetLevel}. Каждое
+              улучшение расходует игровую валюту и материалы; полная стоимость
+              может быть неизвестна.
+            </CardDescription>
+          )}
           {runMaterials.map((item) => {
             const boss = selectedBoss(item);
             return (
@@ -588,7 +630,7 @@ export function BusinessAssistantDialog({
               disabled={busy || !runReady}
               onClick={() => void confirmRun()}
             >
-              Начать сбор
+              {plan.config.autoUpgrade ? "Начать улучшение" : "Начать сбор"}
             </Button>
           </div>
         </BaseCard>

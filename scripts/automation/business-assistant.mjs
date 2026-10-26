@@ -85,6 +85,7 @@ export function saveBusiness(saved, catalogue, args) {
         override < 0 ||
         override > args.targetLevel)) ||
     (cap != null && !positive(cap)) ||
+    (args.autoUpgrade != null && typeof args.autoUpgrade !== "boolean") ||
     (args.durationHours != null && ![1, 2, 4].includes(args.durationHours)) ||
     (args.bossChoices != null &&
       (typeof args.bossChoices !== "object" ||
@@ -100,6 +101,7 @@ export function saveBusiness(saved, catalogue, args) {
     maxAttempts: cap,
     durationHours: args.durationHours === undefined ? 2 : args.durationHours,
     bossChoices: { ...args.bossChoices },
+    ...(args.autoUpgrade === true ? { autoUpgrade: true } : {}),
   };
   saved.selectedBusinessId = business.id;
   saved.notice = "План сохранён на сервере.";

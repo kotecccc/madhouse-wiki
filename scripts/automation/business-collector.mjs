@@ -3,12 +3,13 @@ import { businessPlan, refreshBusiness } from "./business-assistant.mjs";
 import { resolveBossGoal } from "../../src/features/bosses/BossBattle/boss-goal-options.js";
 
 const terminal = new Set(["won", "lost", "expired", "surrendered"]);
-const retryable = new Set(["unknown", "battle"]);
+const retryable = new Set(["unknown", "battle", "game_session_unavailable"]);
 const retryDelay = (failures) =>
   Math.min(300000, 15000 * 2 ** Math.min(failures, 4));
 const reasons = {
   stopped: "Сбор остановлен пользователем.",
   completed: "Все материалы для выбранного уровня собраны.",
+  upgraded: "Бизнес улучшен до выбранного уровня.",
   limit: "Достигнут общий лимит боёв.",
   deadline: "Истекло время сбора.",
   unknown:
@@ -16,6 +17,14 @@ const reasons = {
   battle:
     "Бой требует проверки. Сбор остановлен без повторения игрового действия.",
   changed: "Расчёт изменился. Проверьте материалы и запустите сбор заново.",
+  funds: "Недостаточно средств для следующего улучшения бизнеса.",
+  business_upgrade_availability_unknown:
+    "Игра не подтвердила доступность следующего улучшения.",
+  business_upgrade_quote_unknown:
+    "Игра не сообщила проверяемую стоимость следующего улучшения.",
+  business_upgrade_requirements_unknown:
+    "Игра не сообщила проверяемые требования следующего улучшения.",
+  business_upgrade_balance_unknown: "Не удалось подтвердить доступный баланс.",
 };
 
 // Server-only orchestration above the existing single-boss series. The private
@@ -28,6 +37,7 @@ export function createBusinessCollector({
   getCatalogue,
   getBoss,
   get,
+  upgrade,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -44,6 +54,7 @@ export function createBusinessCollector({
     const state = controller.getSnapshot();
     return !(
       working ||
+      helper.run.pendingUpgrade ||
       state.pending ||
       state.pendingInvitation ||
       state.needsRefresh ||
@@ -103,6 +114,7 @@ export function createBusinessCollector({
   function withinTime() {
     return (
       !running() ||
+      helper.run.pendingUpgrade ||
       helper.run.deadlineAt == null ||
       now() < helper.run.deadlineAt
     );
@@ -173,8 +185,9 @@ export function createBusinessCollector({
     const run = helper.run;
     run.failures = (run.failures ?? 0) + 1;
     run.phase = "retrying";
-    run.reason =
-      "Игровые данные временно недоступны. Цель сохранена; повторим проверку.";
+    run.reason = run.pendingUpgrade
+      ? "Результат улучшения ещё не подтверждён. Повторяем только проверку, без нового списания."
+      : "Игровые данные временно недоступны. Цель сохранена; повторим проверку.";
     run.nextRetryAt = now() + retryDelay(run.failures);
     changed();
     queue(run.nextRetryAt - now());
@@ -211,6 +224,22 @@ export function createBusinessCollector({
       auto.stop();
       helper.run.phase = "verifying";
       changed();
+      if (helper.run.pendingUpgrade) {
+        const result = await upgrade(helper.run, valid);
+        if (!valid()) return;
+        if (result.status !== "confirmed") {
+          scheduleRetry();
+          return;
+        }
+        if (helper.run.stopRequested) {
+          finish("stopped", "stopped");
+          return;
+        }
+        if (!withinTime()) {
+          finish("limited", "deadline");
+          return;
+        }
+      }
       const complete = await refreshBusiness(
         helper,
         getCatalogue(),
@@ -252,7 +281,30 @@ export function createBusinessCollector({
       changed();
       const material = plan.materials.find((item) => item.missingAmount > 0);
       if (!material) {
-        finish("completed", "completed");
+        if (!run.config.autoUpgrade) {
+          finish("completed", "completed");
+          return;
+        }
+        if (plan.achieved) {
+          finish("completed", "upgraded");
+          return;
+        }
+        run.phase = "upgrading";
+        changed();
+        const result = await upgrade(run, valid);
+        if (!valid()) return;
+        if (run.stopRequested && !run.pendingUpgrade) {
+          finish("stopped", "stopped");
+          return;
+        }
+        if (result.status === "complete") finish("completed", "upgraded");
+        else if (result.status === "confirmed") {
+          run.phase = "preparing";
+          changed();
+        } else if (result.status === "uncertain") scheduleRetry();
+        else if (result.status === "funds_missing") finish("error", "funds");
+        else if (result.status === "materials_missing") scheduleRetry();
+        else if (result.status === "stopped") finish("stopped", "stopped");
         return;
       }
       if (
@@ -315,7 +367,8 @@ export function createBusinessCollector({
       changed();
       if (!auto.start()) throw new Error("battle");
     } catch (error) {
-      if (generation === id && running()) scheduleRetry(error);
+      if (generation === id && running())
+        scheduleRetry(helper.run.pendingUpgrade ? undefined : error);
     } finally {
       working = false;
       if (generation === id) evaluate();
@@ -342,6 +395,7 @@ export function createBusinessCollector({
           "maxAttempts",
           "durationHours",
         ].some((key) => config[key] !== expected[key]) ||
+        Boolean(config.autoUpgrade) !== Boolean(expected.autoUpgrade) ||
         JSON.stringify(Object.entries(config.bossChoices).sort()) !==
           JSON.stringify(Object.entries(expected.bossChoices || {}).sort())
       )
@@ -350,7 +404,9 @@ export function createBusinessCollector({
         throw new Error("business_run_limit_required");
       if (
         !plan.canCreateGoals ||
-        !plan.materials.some((item) => item.missingAmount > 0) ||
+        (!plan.materials.some((item) => item.missingAmount > 0) &&
+          (!config.autoUpgrade || plan.achieved)) ||
+        (config.autoUpgrade && plan.currentLevelSource !== "game") ||
         plan.materials.some(
           (item) =>
             item.missingAmount > 0 &&
@@ -365,7 +421,7 @@ export function createBusinessCollector({
         throw new Error("business_missing_unknown");
       const first = plan.materials.find((item) => item.missingAmount > 0);
       const firstBoss =
-        config.bossChoices?.[first.entityId] ?? first.bosses[0].id;
+        first && (config.bossChoices?.[first.entityId] ?? first.bosses[0].id);
       const state = controller.getSnapshot();
       if (state.pending || state.needsRefresh || state.purchaseUncertain)
         throw new Error("business_action_pending");
@@ -408,6 +464,15 @@ export function createBusinessCollector({
       queue();
     },
     stop() {
+      if (running() && helper.run.pendingUpgrade) {
+        helper.run.stopRequested = true;
+        helper.run.reason =
+          "Ожидаем подтверждения улучшения, затем остановимся.";
+        changed();
+        auto.stop();
+        queue();
+        return;
+      }
       finish("stopped", "stopped");
     },
     canSuspend,

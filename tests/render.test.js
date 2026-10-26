@@ -1408,7 +1408,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(collectingHtml.includes("общий лимит боёв: 5"));
     assert.match(
       collectingHtml,
-      /<button(?![^>]*disabled)[^>]*>Остановить сбор<\/button>/,
+      /<button(?![^>]*disabled)[^>]*>Остановить<\/button>/,
     );
 
     for (const upgrade of kb.businessUpgrades.filter(
