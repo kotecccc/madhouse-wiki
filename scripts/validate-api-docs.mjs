@@ -266,6 +266,7 @@ runInNewContext(authScript.replace(/^import[\s\S]*?;\n/, ""), {
   },
 });
 assert.equal(swaggerConfig.url, "./openapi.swagger.json");
+assert.equal(swaggerConfig.showMutatedRequest, false);
 assert.equal(
   Array.from(swaggerConfig.supportedSubmitMethods).join(","),
   "get,post,put,patch,delete",
