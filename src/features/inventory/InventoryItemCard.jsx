@@ -1,3 +1,4 @@
+import { StatTag } from "../../components/ui/StatTag/StatTag.jsx";
 import { MutagenLabel } from "../../components/ui/MutagenLabel/MutagenLabel.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { inventoryDisplayStats } from "./inventory.js";
@@ -33,39 +34,24 @@ const currencies = {
   pills: "пилюль",
   stars: "звёзд",
 };
-function InventoryStats({ values, perLevel = false }) {
+function InventoryStats({ values }) {
   const entries = Object.entries(values || {}).filter(
     ([key, value]) => stats[key] && Number.isFinite(value) && value !== 0,
   );
   if (!entries.length) return null;
   return (
-    <div
-      className="inventory-item-stats"
-      aria-label={perLevel ? "Бонус за уровень" : "Характеристики"}
-    >
-      {entries.map(([key, value]) => (
-        <span
-          className="inventory-item-stat"
-          key={key}
-          title={`${stats[key][1]}${perLevel ? " за уровень" : ""}`}
-        >
-          <Icon type={stats[key][0]} />
-          <CardTitle
-            as="span"
-            size="sm"
-            aria-label={`${stats[key][1]}: ${value}${perLevel ? " за уровень" : ""}`}
-          >
-            {key === "attackCooldownReductionSeconds"
-              ? "−"
-              : !key.startsWith("attackCooldown") && value > 0
-                ? "+"
-                : ""}
-            {fmt(value)}
-            {key.startsWith("attackCooldown") ? " с" : ""}
-            {perLevel ? " / ур." : ""}
-          </CardTitle>
-        </span>
-      ))}
+    <div className="inventory-item-stats" aria-label="Характеристики">
+      {entries.map(([key, value]) => {
+        const label = `${key === "attackCooldownReductionSeconds" ? "−" : !key.startsWith("attackCooldown") && value > 0 ? "+" : ""}${fmt(value)}${key.startsWith("attackCooldown") ? " с" : ""}`;
+        return (
+          <StatTag
+            key={key}
+            icon={stats[key][0]}
+            label={label}
+            description={`${stats[key][1]}: ${label}`}
+          />
+        );
+      })}
     </div>
   );
 }

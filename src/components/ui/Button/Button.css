@@ -291,3 +291,13 @@
   height: var(--control-height-lg);
   padding: 0;
 }
+
+.button-text-tag {
+  min-height: var(--space-24);
+  padding: 0;
+  border: 0;
+  color: var(--card-title-color);
+  background: transparent;
+  font-size: var(--font-size-sm);
+  line-height: var(--card-line-height);
+}

@@ -142,10 +142,13 @@ const iconComponents = {
   close: IconX,
 };
 
-export function Icon({ type, size, motion, className = "" }) {
+export function Icon({ type, size, motion, mutagenType, className = "" }) {
   const IconComponent = iconComponents[type] || IconMessage;
   const iconClasses = [
     "ui-icon",
+    type === "flask" &&
+      ["I", "A", "F", "X", "S", "Z", "W"].includes(mutagenType) &&
+      `ui-icon--mutagen-${mutagenType}`,
     [
       "energy",
       "madness",

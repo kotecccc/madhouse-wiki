@@ -22,7 +22,6 @@
   flex-wrap: wrap;
   gap: var(--space-8) var(--space-16);
 }
-.inventory-item-stat,
 .inventory-item-price {
   display: inline-flex;
   align-items: center;

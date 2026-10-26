@@ -403,11 +403,13 @@ test("installed mutagens preserve explicit type and name without leaking install
     mutagenId: 88,
     installedAtUtc: "private",
     weaponId: 7,
+    bonuses: { aggression: 95, rage: 0, secret: 100 },
   };
   assert.deepEqual(normalizeInstalledMutagen(raw), {
     type: "A",
     level: 17,
     name: "Мутаген A-17",
+    bonuses: { aggression: 95, rage: 0 },
   });
   assert.equal(normalizeInstalledMutagen(null), null);
   assert.equal(normalizeInstalledMutagen({}), null);
@@ -415,6 +417,7 @@ test("installed mutagens preserve explicit type and name without leaking install
     type: "I",
     level: null,
     name: "Мутаген I-S",
+    bonuses: null,
   });
   const items = inventoryItems(
     "weapon",

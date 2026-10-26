@@ -303,5 +303,20 @@ export function normalizeInstalledMutagen(raw) {
       : type
         ? `Мутаген ${type}${level ? `-${level}` : raw.rank === "Special" ? "-S" : ""}`
         : null;
-  return name ? { type, level, name } : null;
+  const bonuses =
+    raw.bonuses &&
+    typeof raw.bonuses === "object" &&
+    !Array.isArray(raw.bonuses)
+      ? Object.fromEntries(
+          Object.entries(raw.bonuses).filter(
+            ([key, value]) =>
+              [
+                ...potentialStats,
+                "attackCooldownSeconds",
+                "attackCooldownReductionSeconds",
+              ].includes(key) && Number.isFinite(value),
+          ),
+        )
+      : null;
+  return name ? { type, level, name, bonuses } : null;
 }

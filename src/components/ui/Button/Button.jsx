@@ -3,6 +3,7 @@ import "./Button.css";
 import { Icon } from "../Icon/Icon.jsx";
 
 const variants = new Set([
+  "text-tag",
   "primary",
   "secondary",
   "locked",

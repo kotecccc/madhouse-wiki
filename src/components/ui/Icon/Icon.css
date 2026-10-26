@@ -111,3 +111,25 @@
     animation: none;
   }
 }
+
+.ui-icon--mutagen-I {
+  color: var(--icon-madness);
+}
+.ui-icon--mutagen-A {
+  color: var(--icon-aggression);
+}
+.ui-icon--mutagen-F {
+  color: var(--icon-rage);
+}
+.ui-icon--mutagen-X {
+  color: var(--status-active);
+}
+.ui-icon--mutagen-S {
+  color: var(--status-completed);
+}
+.ui-icon--mutagen-Z {
+  color: var(--status-business);
+}
+.ui-icon--mutagen-W {
+  color: var(--text-primary);
+}
