@@ -264,3 +264,19 @@ attacks. Other ambiguous errors pause automation and preserve its checkpoint.
 All action times are server-owned and survive restart. This implements the
 conservative first policy from `boss-battle-assistant-plan.md`; forecasting is
 advisory and does not enable speculative invitations before the quota.
+
+### Inventory weapon equipment
+
+`equipment.weapon` takes `{ weaponId, equip }` through the versioned command API.
+The server reads the weapon list before submitting `PUT /api/weapons/select`
+with `{ weaponId }`, or `DELETE /api/weapons/select` without a body. Only explicitly
+owned weapons can be selected; removal requires that this exact weapon is still
+equipped. Active workers and pending battle actions block equipment changes.
+
+The command receipt and `equipment.pending` checkpoint are saved before submission.
+The server confirms the result through a fresh weapon-list read. Lost responses
+or failed confirmation reads retain pending state across restart, without replay.
+`equipment.refresh` is an explicit read-only reconciliation that clears this
+checkpoint after reading current equipment; it never repeats the mutation.
+The browser then reads the server snapshot to update cards. No inventory polling
+is added. Tests use fake game responses; live equipment changes are not exercised.

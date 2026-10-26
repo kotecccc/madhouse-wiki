@@ -1,3 +1,4 @@
+import { Button } from "../../components/ui/Button/Button.jsx";
 import { inventoryDisplayStats } from "./inventory.js";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
@@ -68,7 +69,7 @@ function InventoryStats({ values, perLevel = false }) {
   );
 }
 
-export function InventoryItemCard({ item }) {
+export function InventoryItemCard({ item, onEquip, equipmentBusy = false }) {
   const locked = item.status === "locked";
   const durabilityKnown =
     Number.isFinite(item.durability) &&
@@ -173,6 +174,15 @@ export function InventoryItemCard({ item }) {
             Покупка · {fmt(price.amount)} {currencies[price.currency]}
           </CardTitle>
         </div>
+      )}
+      {item.type === "weapon" && item.status === "owned" && onEquip && (
+        <Button
+          disabled={equipmentBusy}
+          icon={item.equipped ? "close" : "hand-stop"}
+          onClick={() => onEquip(item)}
+        >
+          {item.equipped ? "Снять" : "Надеть"}
+        </Button>
       )}
     </BaseCard>
   );

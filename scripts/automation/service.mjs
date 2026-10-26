@@ -1,3 +1,4 @@
+import { weaponEquipment } from "./weapon-equipment.mjs";
 import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { workGameUnavailable } from "../../shared/game-health-features.js";
@@ -43,6 +44,8 @@ const safeCommands = new Set([
   "business.refresh",
 ]);
 const commands = new Set([
+  "equipment.weapon",
+  "equipment.refresh",
   "raid.start",
   "raid.stop",
   "invitations.refresh",
@@ -135,6 +138,7 @@ export function createAutomationService({
       auto: entry.auto.exportState(),
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
+      equipment: entry.equipment,
       preferences: entry.preferences,
       invitations: entry.invitations,
       raid: entry.raidWorker.getSnapshot(),
@@ -258,6 +262,7 @@ export function createAutomationService({
         enabled: entry.auto.getSnapshot().enabled || entry.collector.running(),
       },
       pvp: entry.pvp,
+      equipment: entry.equipment,
       preferences: entry.preferences,
       workFarm: entry.workFarm.getSnapshot(),
       businessAssistant: businessProjection(
@@ -274,6 +279,7 @@ export function createAutomationService({
       businessHelper: saved?.businessHelper ?? emptyBusinessHelper(),
       credential: saved?.credential ?? null,
       player: saved?.player ?? null,
+      equipment: saved?.equipment ?? { pending: null, checked: false },
       preferences: saved?.preferences ?? { favoriteBossIds: [] },
       invitations: saved?.invitations ?? {
         items: [],
@@ -786,6 +792,7 @@ export function createAutomationService({
         "raid.start",
         "work.start",
         "business.run.start",
+        "equipment.weapon",
       ].includes(input.command)
     )
       throw failure(503, "game_unavailable_actions_paused");
@@ -885,6 +892,21 @@ export function createAutomationService({
         entry.workFarm.running())
     )
       throw failure(409, "automation_controls_resources");
+    if (
+      input.command === "equipment.weapon" &&
+      (entry.auto.getSnapshot().enabled ||
+        entry.collector.running() ||
+        entry.workFarm.running() ||
+        entry.raidWorker.getSnapshot().enabled ||
+        entry.controller.getSnapshot().pending)
+    )
+      throw failure(409, "automation_controls_equipment");
+    if (
+      entry.equipment?.pending &&
+      input.command !== "equipment.refresh" &&
+      !safeCommands.has(input.command)
+    )
+      throw failure(409, "weapon_equipment_uncertain");
     const args = input.args ?? {};
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw failure(400, "invalid_command_arguments");
@@ -916,6 +938,17 @@ export function createAutomationService({
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
+        case "equipment.weapon":
+        case "equipment.refresh":
+          await weaponEquipment({
+            entry,
+            args,
+            commandId: input.id,
+            refreshOnly: input.command === "equipment.refresh",
+            fetcher,
+            save,
+          });
+          break;
         case "raid.start":
           if (
             !args.settings ||

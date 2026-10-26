@@ -1,9 +1,11 @@
+import { sendEquipmentCommand } from "./equipment.js";
 import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
 import { useEffect, useRef, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import {
   getSessionJson,
+  postSessionJson,
   peekSessionJson,
   peekSessionUpdatedAt,
   subscribeSessionData,
@@ -51,6 +53,39 @@ const SHOW_FILTERS = false;
 const SHOW_SUMMARY = false;
 
 export function InventorySection({ active }) {
+  const equipmentPending = useRef(false);
+  const [equipmentState, setEquipmentState] = useState({
+    busy: false,
+    needsCheck: false,
+    notice: null,
+  });
+  async function equip(item, refreshOnly = false) {
+    if (equipmentPending.current) return;
+    equipmentPending.current = true;
+    setEquipmentState({ busy: true, needsCheck: false, notice: null });
+    try {
+      await sendEquipmentCommand({
+        get: getSessionJson,
+        post: postSessionJson,
+        item,
+        refreshOnly,
+      });
+      setEquipmentState({
+        busy: false,
+        needsCheck: false,
+        notice: refreshOnly ? "Экипировка проверена." : "Экипировка обновлена.",
+      });
+    } catch {
+      setEquipmentState({
+        busy: false,
+        needsCheck: true,
+        notice:
+          "Смена экипировки не подтверждена. Проверьте состояние перед новым действием. При работающей автоматизации сначала остановите её.",
+      });
+    } finally {
+      equipmentPending.current = false;
+    }
+  }
   const [category, setCategory] = useState("clothing_item");
   const [filters, setFilters] = useState(initialFilters);
   const [responses, setResponses] = useState(() =>
@@ -285,6 +320,18 @@ export function InventorySection({ active }) {
           }
         />
       )}
+      {equipmentState.notice && (
+        <StatusMessage compact icon="info" description={equipmentState.notice}>
+          {equipmentState.needsCheck && (
+            <Button
+              disabled={equipmentState.busy}
+              onClick={() => equip(null, true)}
+            >
+              Проверить экипировку
+            </Button>
+          )}
+        </StatusMessage>
+      )}
       <div className="inventory-groups" aria-busy={loading}>
         {inventoryGroups.map((group) => {
           const groupItems = filtered
@@ -304,6 +351,10 @@ export function InventorySection({ active }) {
                     <InventoryItemCard
                       key={`${item.type}:${item.id}`}
                       item={item}
+                      onEquip={equip}
+                      equipmentBusy={
+                        equipmentState.busy || equipmentState.needsCheck
+                      }
                     />
                   ) : (
                     <ItemCard

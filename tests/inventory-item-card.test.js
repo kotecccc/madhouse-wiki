@@ -28,7 +28,7 @@ test("weapon progress uses durability, never level, and disappears when durabili
     };
     const render = (value) =>
       renderToStaticMarkup(
-        React.createElement(InventoryItemCard, { item: value }),
+        React.createElement(InventoryItemCard, { item: value, onEquip() {} }),
       );
     const html = render(item);
     assert.match(html, /aria-valuemax="90" aria-valuenow="27"/);
@@ -44,6 +44,9 @@ test("weapon progress uses durability, never level, and disappears when durabili
     assert.doesNotMatch(render({ ...item, ownedLevel: 0 }), /В гардеробе/);
     const equipped = render({ ...item, equipped: true });
     assert.match(equipped, /В руке/);
+    assert.match(equipped, /Снять/);
+    assert.match(html, /Надеть/);
+    assert.doesNotMatch(render({ ...item, status: "locked" }), /Надеть|Снять/);
     assert.match(equipped, /Максимум/);
     assert.ok(equipped.indexOf("В руке") < equipped.indexOf("Максимум"));
     assert.doesNotMatch(equipped, /· В руках/);
