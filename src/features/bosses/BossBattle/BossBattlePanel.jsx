@@ -53,12 +53,14 @@ function Health({ label, value, max, animationKey, quota = null }) {
       {quota && (
         <div className="boss-battle-panel-stack">
           <div className="boss-battle-panel-row">
-            <CardTitle title={`Фактически нанесено: ${fmt(quota.actual)}`}>
+            <CardDescription
+              title={`Фактически нанесено: ${fmt(quota.actual)}`}
+            >
               Урон: {fmt(quota.actual)}
-            </CardTitle>
-            <CardTitle title={`Норма урона: ${fmt(quota.max)}`}>
+            </CardDescription>
+            <CardDescription title={`Норма урона: ${fmt(quota.max)}`}>
               Норма: {fmt(quota.max)}
-            </CardTitle>
+            </CardDescription>
           </div>
           <ProgressBar
             animateFill
