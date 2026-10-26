@@ -132,6 +132,13 @@ test("missing catalogue recipe uses verified next-level requirements only", () =
 });
 
 test("unknown price formats or explicit unknown currencies produce no quote", () => {
+  assert.deepEqual(
+    normalizeBusinessDetails(
+      { id: 17, nextUpgradePrice: 0, nextUpgradeCurrency: null },
+      business,
+    ).quote,
+    { currency: null, amount: 0 },
+  );
   assert.equal(
     normalizeBusinessDetails(
       { id: 17, nextUpgradePrice: "100", currency: "gold" },
@@ -151,9 +158,16 @@ test("unknown price formats or explicit unknown currencies produce no quote", ()
     ).quote,
     null,
   );
-  assert.deepEqual(
+  assert.equal(
     normalizeBusinessDetails(
       { id: 17, nextUpgradePrice: 100, currency: "pills" },
+      business,
+    ).quote,
+    null,
+  );
+  assert.deepEqual(
+    normalizeBusinessDetails(
+      { id: 17, nextUpgradePrice: 100, nextUpgradeCurrency: "pills" },
       business,
     ).quote,
     { currency: "pills", amount: 100 },

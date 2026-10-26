@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { getBusinessUpgradeQuote } from "../../src/lib/business-assistant.js";
 
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
 const nonnegative = (value) => Number.isSafeInteger(value) && value >= 0;
-const currencies = new Set(["gold", "pills", "dollar"]);
 
 // One verified level per operation. A lost response remains durable and can
 // only be resolved by reading the business again; the POST is never replayed.
@@ -55,9 +55,9 @@ export async function advanceBusinessUpgrade({
     return { status: "complete", level: detail.level };
   if (detail.canUpgrade !== true)
     throw new Error("business_upgrade_availability_unknown");
-  const currency = detail.nextUpgradeCurrency ?? detail.currency;
-  if (!currencies.has(currency) || !nonnegative(detail.nextUpgradePrice))
-    throw new Error("business_upgrade_quote_unknown");
+  const quote = getBusinessUpgradeQuote(detail);
+  if (!quote) throw new Error("business_upgrade_quote_unknown");
+  const { currency, amount: price } = quote;
   if (!Array.isArray(detail.requiredItems))
     throw new Error("business_upgrade_requirements_unknown");
   const seen = new Set();
@@ -73,12 +73,13 @@ export async function advanceBusinessUpgrade({
     if (item.playerAmount < item.requiredAmount)
       return { status: "materials_missing" };
   }
-  const me = await get("/api/me");
-  const balance = me?.wallet?.[currency];
-  if (!nonnegative(balance))
-    throw new Error("business_upgrade_balance_unknown");
-  if (balance < detail.nextUpgradePrice)
-    return { status: "funds_missing", currency };
+  if (price > 0) {
+    const me = await get("/api/me");
+    const balance = me?.wallet?.[currency];
+    if (!nonnegative(balance))
+      throw new Error("business_upgrade_balance_unknown");
+    if (balance < price) return { status: "funds_missing", currency };
+  }
   if (!allowed()) return { status: "stopped" };
   const id = operationId();
   if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,120}$/.test(id))
@@ -87,7 +88,7 @@ export async function advanceBusinessUpgrade({
     businessId,
     fromLevel: detail.level,
     operationId: id,
-    price: detail.nextUpgradePrice,
+    price,
     currency,
   };
   if (persist() === false)

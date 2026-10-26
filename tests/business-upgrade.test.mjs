@@ -167,6 +167,42 @@ test("requires confirmed upgrade availability before spending", async () => {
   assert.equal(h.posts.length, 0);
 });
 
+test("an explicit unknown currency never falls back to another currency", async () => {
+  const h = setup();
+  const original = h.args.get;
+  h.args.get = async (path) => {
+    const value = await original(path);
+    if (path !== "/api/me") {
+      value.nextUpgradeCurrency = null;
+      value.currency = "gold";
+    }
+    return value;
+  };
+  await assert.rejects(advanceBusinessUpgrade(h.args), /quote_unknown/);
+  assert.equal(h.posts.length, 0);
+});
+
+test("a confirmed zero-price upgrade does not require a currency or wallet", async () => {
+  const h = setup();
+  const original = h.args.get;
+  h.args.get = async (path) => {
+    assert.notEqual(path, "/api/me");
+    const value = await original(path);
+    value.nextUpgradePrice = 0;
+    value.nextUpgradeCurrency = null;
+    return value;
+  };
+  assert.equal((await advanceBusinessUpgrade(h.args)).status, "confirmed");
+  assert.equal(h.posts.length, 1);
+  assert.deepEqual(
+    {
+      price: h.saves[0].pendingUpgrade.price,
+      currency: h.saves[0].pendingUpgrade.currency,
+    },
+    { price: 0, currency: null },
+  );
+});
+
 test("a cancelled queued request clears its checkpoint only after durable save", async () => {
   const h = setup();
   h.args.post = async () => {

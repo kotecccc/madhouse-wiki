@@ -523,6 +523,12 @@ export function BusinessAssistantDialog({
             Запуск использует сохранённый план. Настройки должны быть сохранены
             перед подтверждением.
           </CardDescription>
+          {plan.config.autoUpgrade && plan.cost.nextAmount == null && (
+            <CardDescription>
+              Стоимость следующего улучшения не подтверждена. Сбор возможен, но
+              повышение остановится, если игра не сообщит стоимость.
+            </CardDescription>
+          )}
           <Button
             variant="primary"
             disabled={busy || running || !state.loaded || !runReady}
@@ -601,6 +607,12 @@ export function BusinessAssistantDialog({
               Бизнес будет улучшаться до уровня {plan.targetLevel}. Каждое
               улучшение расходует игровую валюту и материалы; полная стоимость
               может быть неизвестна.
+            </CardDescription>
+          )}
+          {plan.config.autoUpgrade && plan.cost.nextAmount == null && (
+            <CardDescription>
+              Цена следующего улучшения пока неизвестна; без подтверждённой цены
+              списания не будет.
             </CardDescription>
           )}
           {runMaterials.map((item) => {
