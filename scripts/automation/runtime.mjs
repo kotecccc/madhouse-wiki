@@ -1,4 +1,5 @@
 import { createBossCardsHttp } from "../account/boss-cards.mjs";
+import { createPlayerProgressReader } from "../account/player-progress.mjs";
 import { createAccountSnapshots } from "../account/snapshots.mjs";
 import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { resolve } from "node:path";
@@ -17,7 +18,10 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
-  const snapshots = createAccountSnapshots({ store });
+  const snapshots = createAccountSnapshots({
+    store,
+    refreshProfileProgress: createPlayerProgressReader(),
+  });
   const proxy = createProxy(snapshots.fetch);
   let catalogue;
   const getCatalogue = () => (catalogue ??= readKnowledgeBase(root));

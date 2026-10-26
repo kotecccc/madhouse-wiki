@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { createPlayerProgressReader } from "./player-progress.mjs";
 import { createAccountSnapshots, isSnapshotPath } from "./snapshots.mjs";
 import { createAutomationStateStore } from "../automation/state-store.mjs";
 
@@ -1144,4 +1145,31 @@ test("opening the site revalidates sensitive profile even inside manual refresh 
     queue.calls[1].init.headers.get("X-Madhouse-Snapshot-Refresh"),
     null,
   );
+});
+
+test("live profile enriches current own level and cannot carry old-level experience across a level change", async () => {
+  const queue = queueFetcher([
+    reply({
+      playerId: 41,
+      exp: { level: 135, currentExp: 100, expToNextLevel: 500 },
+    }),
+    reply({ playerId: 41, energy: { current: 10, max: 100 } }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    refreshProfileProgress: createPlayerProgressReader({
+      fetcher: async () => reply({ playerId: 41, level: 136 }),
+    }),
+  });
+  await snapshots.read(`${origin}/api/me`, auth("level-change"));
+  const response = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      ...auth("level-change").headers,
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  const profile = await response.json();
+  assert.deepEqual(profile.exp, { level: 136 });
+  assert.equal(profile.energy.current, 10);
 });

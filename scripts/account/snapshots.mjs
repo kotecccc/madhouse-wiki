@@ -66,6 +66,12 @@ function merge(previous, next) {
       value !== undefined
     )
       result[key] = value;
+    else if (
+      key === "exp" &&
+      Number.isSafeInteger(value?.level) &&
+      value.level !== previous.exp?.level
+    )
+      result[key] = value;
     else if (key === "activeBossBattle" && value === null) result[key] = null;
     else if (value !== null && value !== undefined)
       result[key] = merge(previous[key], value);
@@ -87,6 +93,7 @@ export function createAccountSnapshots({
   now = Date.now,
   ttl = 180000,
   cooldown = 30000,
+  refreshProfileProgress,
 }) {
   const accounts = new Map();
   const credentials = new Map();
@@ -429,6 +436,8 @@ export function createAccountSnapshots({
         }
       }
       if (data !== undefined) {
+        if (path === "/api/me" && liveProfile && refreshProfileProgress)
+          data = await refreshProfileProgress(data, authorization);
         if (!playerId) playerId = String(data.playerId);
         record = accounts.get(playerId) || {
           schemaVersion: 1,

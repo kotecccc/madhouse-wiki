@@ -236,6 +236,13 @@ export function createRemoteBattleSession({
     if (stateRead?.run === run) return stateRead.promise;
     const entry = { run, promise: null };
     entry.promise = (async () => {
+      // Restore the local server view before optional live game discovery.
+      // A slow/failed launch must not hide durable jobs or their stop controls.
+      if (launchPending && !server) {
+        const saved = await request("GET", "/api/automation/state");
+        if (!connected || run !== epoch) return false;
+        setServerState(saved);
+      }
       const result = launchPending
         ? await request("POST", "/api/automation/launch", {
             activeBossBattle: launchBattle(),

@@ -182,11 +182,16 @@ export function retainProfileProgress(profile, previous) {
   return {
     ...profile,
     playerLevel: profile.playerLevel ?? previous.playerLevel,
-    experience: {
-      current: profile.experience.current ?? previous.experience.current,
-      toNextLevel:
-        profile.experience.toNextLevel ?? previous.experience.toNextLevel,
-    },
+    experience:
+      profile.playerLevel != null &&
+      previous.playerLevel != null &&
+      profile.playerLevel !== previous.playerLevel
+        ? profile.experience
+        : {
+            current: profile.experience.current ?? previous.experience.current,
+            toNextLevel:
+              profile.experience.toNextLevel ?? previous.experience.toNextLevel,
+          },
   };
 }
 

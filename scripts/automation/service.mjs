@@ -971,11 +971,19 @@ export function createAutomationService({
         "goal.stop",
         "business.run.stop",
         "work.stop",
+        "work.start",
       ].includes(input.command)
     )
       throw failure(409, "automation_command_pending");
+    const durableIntent =
+      input.command === "work.start" ||
+      (["auto.start", "raid.start"].includes(input.command) &&
+        positive(input.args?.settings?.bossId)) ||
+      (input.command === "business.run.start" &&
+        positive(input.args?.businessId));
     if (
       !safeCommands.has(input.command) &&
+      !durableIntent &&
       input.expectedVersion !== entry.version
     )
       throw failure(409, "automation_state_changed");
