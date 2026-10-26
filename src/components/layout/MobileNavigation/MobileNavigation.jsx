@@ -4,8 +4,8 @@ import { Icon } from "../../ui/Icon/Icon.jsx";
 import "./MobileNavigation.css";
 
 const screens = [
-  { id: "overview", label: "Главная", icon: "character" },
   { id: "raids", label: "Рейды", icon: "boss" },
+  { id: "overview", label: "Главная", icon: "character" },
   { id: "inventory", label: "Инвентарь", icon: "loot" },
 ];
 
