@@ -320,18 +320,6 @@ export function InventorySection({ active }) {
           }
         />
       )}
-      {equipmentState.notice && (
-        <StatusMessage compact icon="info" description={equipmentState.notice}>
-          {equipmentState.needsCheck && (
-            <Button
-              disabled={equipmentState.busy}
-              onClick={() => equip(null, true)}
-            >
-              Проверить экипировку
-            </Button>
-          )}
-        </StatusMessage>
-      )}
       <div className="inventory-groups" aria-busy={loading}>
         {inventoryGroups.map((group) => {
           const groupItems = filtered
@@ -389,10 +377,22 @@ export function InventorySection({ active }) {
           variant="secondary"
           icon="refresh"
           iconOnly
-          aria-label="Обновить категорию"
-          title="Обновить категорию"
-          disabled={loading}
+          aria-label={
+            equipmentState.needsCheck
+              ? "Проверить экипировку"
+              : "Обновить категорию"
+          }
+          title={
+            equipmentState.needsCheck
+              ? "Проверить экипировку"
+              : "Обновить категорию"
+          }
+          disabled={loading || equipmentState.busy}
           onClick={() => {
+            if (equipmentState.needsCheck) {
+              equip(null, true);
+              return;
+            }
             refreshRequested.current = true;
             setRevision((value) => value + 1);
           }}

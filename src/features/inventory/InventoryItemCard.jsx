@@ -120,8 +120,8 @@ export function InventoryItemCard({ item, onEquip, equipmentBusy = false }) {
           <CardDescription size="xs">
             {room
               ? "Комната"
-              : levelKnown
-                ? `${item.ownedLevel} из ${item.maxLevel} ур.`
+              : durabilityKnown
+                ? `Прочность: ${fmt(item.durability)} / ${fmt(item.durabilityMax)}`
                 : "Оружие"}
           </CardDescription>
           {!room && durabilityKnown && (
@@ -136,7 +136,7 @@ export function InventoryItemCard({ item, onEquip, equipmentBusy = false }) {
           )}
         </div>
       </div>
-      {!locked && (item.equipped || maxed || item.status !== "owned") && (
+      {!locked && (item.equipped || levelKnown || item.status !== "owned") && (
         <div className="inventory-item-status">
           {item.equipped && (
             <Pill size="xs" dot={false} variant="scheduled">
@@ -149,7 +149,12 @@ export function InventoryItemCard({ item, onEquip, equipmentBusy = false }) {
               Максимум
             </Pill>
           )}
-          {!maxed && !item.equipped && item.status !== "owned" && (
+          {levelKnown && !maxed && (
+            <Pill size="xs" dot={false}>
+              Ур. {item.ownedLevel}
+            </Pill>
+          )}
+          {!levelKnown && !item.equipped && item.status !== "owned" && (
             <Pill size="xs" dot={false}>
               {states[item.status]}
             </Pill>
