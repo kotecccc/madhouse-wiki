@@ -124,6 +124,19 @@ export function InventoryItemCard({ item }) {
                 : "Оружие"}
             {item.equipped ? (room ? " · Выбрана" : " · В руках") : ""}
           </CardDescription>
+          {!room && durabilityKnown && (
+            <div className="inventory-item-condition">
+              <CardDescription>
+                Прочность: {fmt(item.durability)} / {fmt(item.durabilityMax)}
+              </CardDescription>
+              <ProgressBar
+                value={item.durability}
+                max={item.durabilityMax}
+                label="Остаток прочности оружия"
+                valueText={`${item.durability} из ${item.durabilityMax}`}
+              />
+            </div>
+          )}
         </div>
       </div>
       {!locked && (
@@ -135,19 +148,6 @@ export function InventoryItemCard({ item }) {
         >
           {maxed ? "Максимум" : item.equipped ? "Выбрано" : states[item.status]}
         </Pill>
-      )}
-      {!room && durabilityKnown && (
-        <div className="inventory-item-condition">
-          <CardDescription>
-            Прочность: {fmt(item.durability)} / {fmt(item.durabilityMax)}
-          </CardDescription>
-          <ProgressBar
-            value={item.durability}
-            max={item.durabilityMax}
-            label="Остаток прочности оружия"
-            valueText={`${item.durability} из ${item.durabilityMax}`}
-          />
-        </div>
       )}
       <InventoryStats values={inventoryDisplayStats(item)} />
       {!room && !durabilityKnown && item.durability != null && (

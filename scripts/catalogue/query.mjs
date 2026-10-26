@@ -503,6 +503,7 @@ export function readKnowledgeBase(
             type,
             name: text(entity.name),
             maxLevel: entity.maxLevel ?? null,
+            durabilityMax: entity.durabilityMax ?? null,
             categoryId: entity.categoryId ?? null,
             zoneId: entity.zoneId ?? null,
             setId: entity.setId ?? null,

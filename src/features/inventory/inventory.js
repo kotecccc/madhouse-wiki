@@ -90,7 +90,9 @@ export function inventoryItems(type, responses, references) {
         ownedLevel: item.owned === true ? nonnegative(item.level) : null,
         maxLevel: nonnegative(item.maxLevel ?? reference?.maxLevel),
         durability: item.owned === true ? nonnegative(item.durability) : null,
-        durabilityMax: nonnegative(item.durabilityMax),
+        durabilityMax: nonnegative(
+          item.durabilityMax ?? reference?.durabilityMax,
+        ),
         currentStats:
           item.owned === true &&
           item.currentStats &&

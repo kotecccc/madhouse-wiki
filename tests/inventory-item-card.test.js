@@ -33,6 +33,12 @@ test("weapon progress uses durability, never level, and disappears when durabili
     const html = render(item);
     assert.match(html, /aria-valuemax="90" aria-valuenow="27"/);
     assert.match(html, /Остаток прочности оружия/);
+    const copy = html.slice(
+      html.indexOf('class="inventory-item-copy"'),
+      html.indexOf('class="inventory-item-status"'),
+    );
+    assert.match(copy, /50 из 50 ур\./);
+    assert.match(copy, /role="progressbar"/);
     assert.match(html, /Прочность: 27 \/ 90/);
     assert.doesNotMatch(
       render({ ...item, durability: null }),
