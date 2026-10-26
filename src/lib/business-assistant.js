@@ -219,7 +219,9 @@ export function buildBusinessAssistantPlan({
       known: true,
       totals: details.nextRequirements.map((item) => {
         const drops = (bosses ?? []).flatMap((boss) => [
-          ...(boss.possibleDrops ?? []),
+          ...(boss.possibleDrops ?? []).filter(
+            (drop) => drop.type === "activity_item",
+          ),
           ...(boss.dropItems ?? []),
         ]);
         const name = drops.find(

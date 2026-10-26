@@ -97,6 +97,20 @@ test("missing catalogue recipe uses verified next-level requirements only", () =
     fixture({
       business: { ...business, maxLevel: 8 },
       upgrade: null,
+      bosses: [
+        {
+          numericId: 1,
+          possibleDrops: [
+            { type: "pet", entityId: 52, name: "Другой предмет" },
+          ],
+        },
+        {
+          numericId: 902,
+          possibleDrops: [
+            { type: "activity_item", entityId: 52, name: "Ключ" },
+          ],
+        },
+      ],
       config: { targetLevel: 5 },
       resources: {
         details: { [business.id]: details },
@@ -107,6 +121,7 @@ test("missing catalogue recipe uses verified next-level requirements only", () =
   assert.equal(plan.canCreateGoals, true);
   assert.equal(plan.materials[0].requiredAmount, 4);
   assert.equal(plan.materials[0].missingAmount, 3);
+  assert.equal(plan.materials[0].name, "Ключ");
   assert.equal(plan.materials[0].bosses[0].id, 902);
   assert.ok(plan.notes.some((note) => note.includes("следующего уровня")));
   const invalid = normalizeBusinessDetails(
