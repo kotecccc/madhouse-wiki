@@ -2,7 +2,6 @@
   display: block;
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   color: var(--card-description-color);
   font-family: var(--sans);
   font-size: var(--card-description-size);
@@ -10,8 +9,8 @@
   font-weight: var(--font-weight-medium);
   letter-spacing: 0.012em;
   line-height: var(--card-line-height);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   word-spacing: 0.04em;
 }
 

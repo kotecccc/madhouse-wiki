@@ -43,7 +43,7 @@ export function ProgressButton({
             />
           )}
         </svg>
-        <Icon type={icon} size="large" />
+        <Icon type={icon} size="large" tone="inherit" />
         <span aria-hidden="true">
           {displayText ?? (percent == null ? "—" : `${percent}%`)}
         </span>

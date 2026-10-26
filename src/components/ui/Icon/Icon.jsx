@@ -149,7 +149,14 @@ const iconComponents = {
   close: IconX,
 };
 
-export function Icon({ type, size, motion, mutagenType, className = "" }) {
+export function Icon({
+  type,
+  size,
+  motion,
+  mutagenType,
+  tone,
+  className = "",
+}) {
   const IconComponent = iconComponents[type] || IconMessage;
   const iconClasses = [
     "ui-icon",
@@ -173,6 +180,7 @@ export function Icon({ type, size, motion, mutagenType, className = "" }) {
     ].includes(type) && `ui-icon--${type}`,
     size && `ui-icon--${iconSizeVariant(size)}`,
     ["pulse", "spin"].includes(motion) && `ui-icon--${motion}`,
+    tone === "inherit" && "ui-icon--inherit",
     className,
   ]
     .filter(Boolean)

@@ -12,6 +12,7 @@ test("account-owned work runner persists before POST, resumes without browser an
   const timers = [],
     calls = [];
   let failBag = false;
+  let smallBoosters = 1;
   let cycles = 4,
     progress = 1,
     energy = 10;
@@ -55,7 +56,7 @@ test("account-owned work runner persists before POST, resumes without browser an
           ["small", "full"].map((type) => [
             type,
             {
-              count: 0,
+              count: type === "small" ? smallBoosters : 0,
               restoreEnergy: 10,
               costDollar: 10,
               maxPurchaseQuantity: 10,
@@ -64,6 +65,13 @@ test("account-owned work runner persists before POST, resumes without browser an
         ),
       });
     if (path === "/api/works/open") return Response.json(state());
+    if (path === "/api/me/bag/boosters/use") {
+      assert.equal(store.read("101").workFarm.manualPending.type, "small");
+      assert.equal(store.read("101").workFarm.manualPending.count, 1);
+      smallBoosters--;
+      energy = 10;
+      return Response.json({ success: true });
+    }
     if (path === "/api/works/tasks/perform") {
       const saved = store.read("101");
       assert.equal(saved.workFarm.run.pending.kind, "performing");
@@ -189,6 +197,21 @@ test("account-owned work runner persists before POST, resumes without browser an
     assert.equal(
       calls.filter((path) => path === "/api/works/tasks/perform").length,
       2,
+    );
+    energy = 0;
+    await command("work.booster.use", { workId: 7, type: "small" });
+    assert.equal(smallBoosters, 0);
+    assert.equal(service.snapshot(entry).workFarm.manualPending, null);
+    assert.equal(
+      calls.filter((path) => path === "/api/me/bag/boosters/use").length,
+      1,
+    );
+    await assert.rejects(
+      command("work.booster.use", { workId: 7, type: "small" }),
+    );
+    assert.equal(
+      calls.filter((path) => path === "/api/me/bag/boosters/use").length,
+      1,
     );
     const other = await service.identify("Bearer other.payload.sig");
     assert.equal(service.snapshot(other).workFarm.run, null);

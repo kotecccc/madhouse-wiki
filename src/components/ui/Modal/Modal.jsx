@@ -90,7 +90,12 @@ export function Modal({
           {footer || <Button onClick={onClose}>Закрыть</Button>}
         </footer>
       ) : footer ? (
-        <footer className="shared-modal-footer">{footer}</footer>
+        <footer
+          className={`shared-modal-footer${footerStart ? " shared-modal-footer--spread" : ""}`}
+        >
+          {footerStart}
+          {footer}
+        </footer>
       ) : (
         <footer className="shared-modal-footer shared-modal-mobile-footer">
           <Button onClick={onClose}>Закрыть</Button>

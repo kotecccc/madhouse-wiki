@@ -141,3 +141,7 @@
 .ui-icon--mutagen-W {
   color: var(--text-primary);
 }
+
+.ui-icon--inherit {
+  color: inherit;
+}

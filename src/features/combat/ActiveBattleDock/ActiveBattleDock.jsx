@@ -145,7 +145,7 @@ export function BossActiveBattleBar({
   );
 }
 
-export function ActiveBattleControl() {
+export function ActiveBattleControl({ children }) {
   const boss = useSyncExternalStore(
     bossBattle.subscribe,
     bossBattle.getSnapshot,
@@ -249,6 +249,7 @@ export function ActiveBattleControl() {
           onClose={() => setFarmOpen(false)}
         />
       )}
+      {children}
       {collection && !bossEntry && (
         <BaseCard
           variant="glass-nav"
