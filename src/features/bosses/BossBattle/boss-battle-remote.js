@@ -404,6 +404,15 @@ export function createRemoteBattleSession({
       return true;
     } catch (error) {
       if (!connected || run !== epoch) return false;
+      if (
+        error?.status === 409 &&
+        error.snapshot &&
+        command.startsWith("subscription.")
+      ) {
+        invitationCommandError =
+          "Состояние изменилось. Проверьте рейд и попробуйте снова.";
+        publish();
+      }
       if (!(error?.status === 409 && error.snapshot)) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (

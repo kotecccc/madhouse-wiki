@@ -390,6 +390,24 @@ test("409 snapshot is adopted, and polling errors retain the last known server s
   assert.equal([...h.tasks.values()][0].delay, 5000);
 });
 
+test("subscription conflict shows feedback without replaying the command", async () => {
+  const conflictState = { ...initialState(), version: 10 };
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      throw Object.assign(new Error("conflict"), {
+        status: 409,
+        snapshot: conflictState,
+      });
+    },
+  });
+  await h.connect();
+  assert.equal(await h.raidSubscriptions.start(42, 8, "leader"), false);
+  assert.match(h.raidSubscriptions.getSnapshot().error, /Состояние изменилось/);
+  assert.equal(h.calls.filter(([method]) => method === "POST").length, 1);
+  h.disconnect();
+});
+
 test("work.refresh rebases once on a 409 snapshot, while mutations are never retried", async () => {
   const rebased = {
     ...initialState(),
