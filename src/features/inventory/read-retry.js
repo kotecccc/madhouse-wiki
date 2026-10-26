@@ -34,12 +34,16 @@ export async function runInventoryReadAttempts({
       return { status: "cancelled", data, attempts: attempt - 1 };
     try {
       const result = await read(attempt, signal);
+      if (signal?.aborted)
+        return { status: "cancelled", data, attempts: attempt };
       data = result;
       onData(result);
       if (!isFailedResponse(result))
         return { status: "ready", data, attempts: attempt };
-    } catch {
-      // Retry only reads; callers never pass mutation commands here.
+    } catch (error) {
+      // Permanent request/auth failures need user action, not another request.
+      if (Number.isFinite(error?.status) && error.status < 500)
+        return { status: "error", data, attempts: attempt };
     }
     if (attempt < maxAttempts && !(await wait(intervalMs, signal)))
       return { status: "cancelled", data, attempts: attempt };

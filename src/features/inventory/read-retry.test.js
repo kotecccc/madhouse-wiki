@@ -59,3 +59,31 @@ test("inventory retry stops on cancellation and caps unresolved failures at thre
   assert.equal(failures.status, "error");
   assert.equal(failures.attempts, 3);
 });
+
+test("permanent request failures and late cancelled replies never trigger another request", async () => {
+  for (const status of [400, 401, 403, 404, 429]) {
+    const result = await runInventoryReadAttempts({
+      read: async () => {
+        throw Object.assign(new Error("not retryable"), { status });
+      },
+      wait: async () => {
+        throw new Error("must not wait");
+      },
+    });
+    assert.equal(result.attempts, 1);
+  }
+  const controller = new AbortController();
+  let published = false;
+  const result = await runInventoryReadAttempts({
+    signal: controller.signal,
+    read: async () => {
+      controller.abort();
+      return { account: "old" };
+    },
+    onData: () => {
+      published = true;
+    },
+  });
+  assert.equal(result.status, "cancelled");
+  assert.equal(published, false);
+});
