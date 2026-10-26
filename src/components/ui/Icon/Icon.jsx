@@ -81,7 +81,7 @@ function MedicineCrossFilled(props) {
 const iconComponents = {
   brain: IconBrain,
   madness: IconHeart,
-  aggression: IconSwords,
+  aggression: IconHandGrab,
   rage: IconFlame,
   star: IconStar,
   boss: IconSkull,
