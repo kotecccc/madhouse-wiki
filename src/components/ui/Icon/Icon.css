@@ -111,11 +111,3 @@
     animation: none;
   }
 }
-
-.ui-icon--emoji {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--icon-size, var(--font-size-md));
-  line-height: 1;
-}

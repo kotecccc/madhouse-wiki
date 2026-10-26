@@ -32,6 +32,7 @@ import {
   IconLockOpen,
   IconMessage,
   IconMenu2,
+  IconMoodAngry,
   IconPackage,
   IconRobot,
   IconRefresh,
@@ -81,6 +82,7 @@ function MedicineCrossFilled(props) {
 const iconComponents = {
   brain: IconBrain,
   madness: IconHeart,
+  aggression: IconMoodAngry,
   rage: IconFlame,
   star: IconStar,
   boss: IconSkull,
@@ -160,14 +162,6 @@ export function Icon({ type, size, motion, className = "" }) {
   ]
     .filter(Boolean)
     .join(" ");
-
-  if (type === "aggression") {
-    return (
-      <span className={`${iconClasses} ui-icon--emoji`} aria-hidden="true">
-        😡
-      </span>
-    );
-  }
 
   if (type === "pill") {
     return (
