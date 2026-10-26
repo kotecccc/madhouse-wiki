@@ -357,6 +357,7 @@ export function createAutomationService({
       finishedBattleChecks: new Set(),
       busy: false,
       invitationDiscoveryAt: 0,
+      invitationDiscoveryPromise: null,
     };
     const request = createBossBattleRequest({
       authorize: ({ url }) => ({
@@ -842,6 +843,10 @@ export function createAutomationService({
   async function launch(entry, hint) {
     // Launch references are routing hints, never trusted battle state. Confirm
     // against the authenticated boss summary before adopting any browser input.
+    // Background discovery is a read. Let it finish instead of reporting an
+    // automation conflict during page/session restoration.
+    if (entry.invitationDiscoveryPromise)
+      await entry.invitationDiscoveryPromise;
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
@@ -982,13 +987,16 @@ export function createAutomationService({
       return;
     entry.invitationDiscoveryAt = now() + INVITATION_DISCOVERY_INTERVAL_MS;
     entry.busy = true;
-    void refreshInvitations(entry, true)
+    const discovery = refreshInvitations(entry, true)
       .catch(() => {
         // Preserve observed history and wait for the next read. Never retry a mutation.
       })
       .finally(() => {
         entry.busy = false;
+        if (entry.invitationDiscoveryPromise === discovery)
+          entry.invitationDiscoveryPromise = null;
       });
+    entry.invitationDiscoveryPromise = discovery;
   }
   async function acceptInvitation(
     entry,
