@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   inventoryPaths,
+  inventoryCategoryOptions,
   inventoryItems,
   filterInventory,
 } from "./inventory.js";
@@ -123,4 +124,38 @@ test("price sorting groups currencies and leaves unknown prices last without mut
     ["3", "2", "4", "1"],
   );
   assert.equal(items[0].id, "1");
+});
+
+test("category counters include only confirmed purchases from fully loaded categories", () => {
+  const price = { currency: "gold", amount: 10 };
+  const responses = {
+    "/api/rooms": {
+      catalog: {
+        rooms: [
+          { id: 1, owned: false, unlocked: true, price },
+          { id: 2, owned: true, unlocked: true, price },
+          { id: 3, price },
+        ],
+      },
+    },
+    "/api/clothing/by-category/1": { items: [] },
+    "/api/ornaments/zones/4": {
+      items: [{ elementId: 2, owned: false, unlocked: true, price }],
+    },
+  };
+  const labels = () =>
+    Object.fromEntries(
+      inventoryCategoryOptions(responses, references).map((option) => [
+        option.value,
+        option.label,
+      ]),
+    );
+  assert.equal(labels().room, "Комнаты (1)");
+  assert.equal(labels().weapon, "Оружие");
+  assert.equal(labels().pet, "Питомцы");
+  assert.equal(labels().ornament, "Тату");
+  responses["/api/ornaments/zones/9"] = { items: [] };
+  assert.equal(labels().ornament, "Тату (1)");
+  responses["/api/rooms"].catalog.rooms[0].owned = true;
+  assert.equal(labels().room, "Комнаты");
 });

@@ -8,6 +8,7 @@ import {
 } from "../../../shared/session-api.js";
 import {
   inventoryCategories,
+  inventoryCategoryOptions,
   inventoryItems,
   inventoryPaths,
   filterInventory,
@@ -47,7 +48,14 @@ const SHOW_FILTERS = false;
 export function InventorySection({ active }) {
   const [category, setCategory] = useState("clothing_item");
   const [filters, setFilters] = useState(initialFilters);
-  const [responses, setResponses] = useState({});
+  const [responses, setResponses] = useState(() =>
+    Object.fromEntries(
+      [...inventoryRequestPaths].flatMap((path) => {
+        const cached = peekSessionJson(path, { allowStale: true });
+        return cached ? [[path, cached]] : [];
+      }),
+    ),
+  );
   const [updatedAt, setUpdatedAt] = useState({});
   const [requestState, setRequestState] = useState({});
   const refreshRequested = useRef(false);
@@ -139,10 +147,7 @@ export function InventorySection({ active }) {
             label="Категория предметов"
             size="sm"
             className="inventory-category-control"
-            options={inventoryCategories.map(({ id, label }) => ({
-              value: id,
-              label,
-            }))}
+            options={inventoryCategoryOptions(responses, references)}
             value={category}
             onChange={(id) => {
               setCategory(id);

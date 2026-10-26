@@ -130,3 +130,20 @@ export function filterInventory(
       );
     });
 }
+
+export function inventoryCategoryOptions(responses, references) {
+  return inventoryCategories.map(({ id, label }) => {
+    const paths = inventoryPaths(id, references);
+    const complete = paths.length > 0 && paths.every((path) => responses[path]);
+    const count = complete
+      ? inventoryItems(id, responses, references).filter(
+          (item) => item.status === "buyable",
+        ).length
+      : 0;
+    return {
+      value: id,
+      label: count > 0 ? `${label} (${count})` : label,
+      ariaLabel: count > 0 ? `${label}: доступно для покупки ${count}` : label,
+    };
+  });
+}
