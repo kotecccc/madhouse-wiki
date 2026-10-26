@@ -1,6 +1,6 @@
 .inventory-section {
   display: grid;
-  gap: var(--space-8);
+  gap: var(--layout-gap-section);
 }
 .inventory-toolbar {
   display: grid;
@@ -31,9 +31,12 @@
 .inventory-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-12);
+  gap: var(--space-8);
 }
 @media (max-width: 650px) {
+  .inventory-section {
+    gap: var(--page-gutter);
+  }
   .inventory-filters,
   .inventory-grid {
     grid-template-columns: minmax(0, 1fr);

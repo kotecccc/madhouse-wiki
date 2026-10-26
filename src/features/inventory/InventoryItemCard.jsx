@@ -95,19 +95,24 @@ export function InventoryItemCard({ item }) {
     >
       {locked && (
         <span
-          className="inventory-item-lock"
+          className="inventory-item-status"
           role="img"
-          aria-label="Закрыто"
-          title="Закрыто"
+          aria-label="Предмет недоступен"
+          title="Предмет недоступен"
         >
-          <Icon type="lock" size="small" />
+          <Icon type="lock" size="text" />
         </span>
       )}
       {room && (
-        <ImageCard variant="landscape" src={item.image} alt={item.name} />
+        <ImageCard
+          className="inventory-item-media"
+          variant="landscape"
+          src={item.image}
+          alt={item.name}
+        />
       )}
       <div
-        className={`inventory-item-heading${locked ? " inventory-item-heading--locked" : ""}`}
+        className={`inventory-item-heading${room ? " inventory-item-heading--room" : ""}`}
       >
         {!room && <ImageCard src={item.image} alt={item.name} />}
         <div className="inventory-item-copy">
@@ -123,20 +128,17 @@ export function InventoryItemCard({ item }) {
             {item.equipped ? (room ? " · Выбрана" : " · В руках") : ""}
           </CardDescription>
         </div>
-        {!locked && (
-          <Pill
-            size="xs"
-            dot={false}
-            variant={maxed || item.equipped ? "completed" : "scheduled"}
-          >
-            {maxed
-              ? "Максимум"
-              : item.equipped
-                ? "Выбрано"
-                : states[item.status]}
-          </Pill>
-        )}
       </div>
+      {!locked && (
+        <Pill
+          className="inventory-item-status"
+          size="xs"
+          dot={false}
+          variant={maxed || item.equipped ? "completed" : "scheduled"}
+        >
+          {maxed ? "Максимум" : item.equipped ? "Выбрано" : states[item.status]}
+        </Pill>
+      )}
       {!room && durabilityKnown && (
         <div className="inventory-item-condition">
           <CardDescription>
