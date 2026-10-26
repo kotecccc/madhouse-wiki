@@ -35,19 +35,29 @@ export function normalizeBusinessDetails(raw, business) {
     return null;
 
   const requiredStock = {};
+  let nextRequirements = Array.isArray(raw.requiredItems) ? [] : null;
   if (Array.isArray(raw.requiredItems)) {
     const ambiguous = new Set();
     for (const item of raw.requiredItems) {
       const id = item?.itemId;
       const quantity = item?.playerAmount;
-      if (!positiveSafeInteger(id) || !nonnegativeSafeInteger(quantity))
+      if (!nonnegativeSafeInteger(item?.requiredAmount))
+        nextRequirements = null;
+      if (!positiveSafeInteger(id) || !nonnegativeSafeInteger(quantity)) {
+        nextRequirements = null;
         continue;
+      }
       const key = String(id);
       if (Object.hasOwn(requiredStock, key)) {
         delete requiredStock[key];
         ambiguous.add(key);
+        nextRequirements = null;
       } else if (!ambiguous.has(key)) {
         requiredStock[key] = quantity;
+        nextRequirements?.push({
+          entityId: id,
+          requiredAmount: item.requiredAmount,
+        });
       }
     }
   }
@@ -56,6 +66,7 @@ export function normalizeBusinessDetails(raw, business) {
     ...(positiveSafeInteger(raw.maxLevel) ? { maxLevel: raw.maxLevel } : {}),
     quote: getQuote(raw),
     requiredStock,
+    nextRequirements,
   };
 }
 
@@ -182,7 +193,7 @@ export function buildBusinessAssistantPlan({
   if (targetLevel !== null && maxLevel > 0)
     targetLevel = Math.min(targetLevel, maxLevel);
 
-  const req =
+  let req =
     currentLevel === null && upgrade && Array.isArray(upgrade.items)
       ? {
           known: false,
@@ -192,6 +203,32 @@ export function buildBusinessAssistantPlan({
           })),
         }
       : knownRequirements(upgrade, targetLevel, currentLevel);
+  let nextLevelOnly = false;
+  if (
+    !req.known &&
+    currentLevelSource === "game" &&
+    targetLevel != null &&
+    targetLevel > currentLevel &&
+    Array.isArray(details?.nextRequirements)
+  ) {
+    nextLevelOnly = true;
+    req = {
+      known: true,
+      totals: details.nextRequirements.map((item) => {
+        const drops = (bosses ?? []).flatMap((boss) => [
+          ...(boss.possibleDrops ?? []),
+          ...(boss.dropItems ?? []),
+        ]);
+        const name = drops.find(
+          (drop) => Number(drop.entityId) === item.entityId && drop.name,
+        )?.name;
+        return {
+          ...item,
+          name: name || `Предмет ${item.entityId}`,
+        };
+      }),
+    };
+  }
   const groupedMaterials = new Map();
   for (const item of req.totals) {
     const entityId = item.entityId ?? null;
@@ -269,6 +306,10 @@ export function buildBusinessAssistantPlan({
   if (currentLevel === null) notes.push("Текущий уровень бизнеса неизвестен.");
   if (!req.known)
     notes.push("Требования для выбранного диапазона известны не полностью.");
+  if (nextLevelOnly)
+    notes.push(
+      "Показаны требования следующего уровня из игры. После улучшения расчёт обновится.",
+    );
   if (materials.some((item) => item.ambiguous))
     notes.push("Повторяющиеся требования имеют неоднозначные данные.");
   if (upgrade?.sourceTotals?.some((total) => !total.matches))

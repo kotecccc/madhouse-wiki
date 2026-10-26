@@ -71,12 +71,49 @@ test("business details strictly bind API ID and normalize known quote and requir
     maxLevel: 8,
     quote: { currency: "gold", amount: 0 },
     requiredStock: { 51: 4, 52: 0 },
+    nextRequirements: [
+      { entityId: 51, requiredAmount: 99 },
+      { entityId: 52, requiredAmount: 88 },
+    ],
   });
   assert.equal(
     normalizeBusinessDetails({ id: "17", level: 3 }, business),
     null,
   );
   assert.equal(normalizeBusinessDetails({ id: 18, level: 3 }, business), null);
+});
+
+test("missing catalogue recipe uses verified next-level requirements only", () => {
+  const details = normalizeBusinessDetails(
+    {
+      id: 17,
+      level: 1,
+      maxLevel: 8,
+      requiredItems: [{ itemId: 52, requiredAmount: 4, playerAmount: 1 }],
+    },
+    business,
+  );
+  const plan = buildBusinessAssistantPlan(
+    fixture({
+      business: { ...business, maxLevel: 8 },
+      upgrade: null,
+      config: { targetLevel: 5 },
+      resources: {
+        details: { [business.id]: details },
+        inventory: { stock: { 52: 1 }, complete: true },
+      },
+    }),
+  );
+  assert.equal(plan.canCreateGoals, true);
+  assert.equal(plan.materials[0].requiredAmount, 4);
+  assert.equal(plan.materials[0].missingAmount, 3);
+  assert.equal(plan.materials[0].bosses[0].id, 902);
+  assert.ok(plan.notes.some((note) => note.includes("следующего уровня")));
+  const invalid = normalizeBusinessDetails(
+    { id: 17, level: 1, requiredItems: [{ itemId: 52, playerAmount: 1 }] },
+    business,
+  );
+  assert.equal(invalid.nextRequirements, null);
 });
 
 test("unknown price formats or explicit unknown currencies produce no quote", () => {
