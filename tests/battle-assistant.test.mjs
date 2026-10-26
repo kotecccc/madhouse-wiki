@@ -296,6 +296,47 @@ test("battle use counts reset by battle identity; run budgets persist until a ne
   assert.equal(assistant.projection().spent.gold, 0);
 });
 
+test("healing settings are account-wide and legacy boss profiles migrate", async () => {
+  const controller = fakeController();
+  const config = enabledSettings();
+  const legacy = createBattleAssistant({
+    controller,
+    saved: {
+      profiles: { 7: config, 8: { ...config, enabled: false } },
+      battles: {
+        "battle-1": { used: { heal_10: 1, heal_full: 0 } },
+        "battle-2": { used: { heal_10: 0, heal_full: 0 } },
+      },
+      spent: { gold: 4, dollar: 0, pills: 0 },
+    },
+  });
+  assert.equal(legacy.projection().settings.enabled, true);
+  assert.equal(legacy.exportState().profiles, undefined);
+  assert.equal(legacy.exportState().healingSettings.enabled, true);
+
+  controller.setSnapshot(baseState({ boss: { id: 8 } }));
+  assert.equal(legacy.projection().settings.enabled, true);
+  assert.equal(legacy.projection().used.heal_10, 1);
+  controller.setSnapshot(
+    baseState({
+      boss: { id: 8 },
+      battle: { ...baseState().battle, id: "battle-2" },
+    }),
+  );
+  assert.equal(legacy.projection().settings.enabled, true);
+  assert.equal(legacy.projection().used.heal_10, 0);
+  assert.equal(legacy.projection().spent.gold, 4);
+
+  const updated = { ...config, enabled: false };
+  legacy.configure(updated);
+  const restored = createBattleAssistant({
+    controller,
+    saved: legacy.exportState(),
+  });
+  assert.equal(restored.projection().settings.enabled, false);
+  assert.equal(restored.projection().settings.items.heal_10.limit, 3);
+});
+
 test("first invitation is immediate; repeats require fresh quota and persist their cooldown", async () => {
   let time = 100_000;
   const controller = fakeController(

@@ -399,9 +399,9 @@ export function LoginControl() {
         loginMethod === "choose" && (
           <Modal
             title="Вход в Madhouse Wiki"
-            description="Войдите, чтобы открыть личный обзор и увидеть свой игровой профиль."
             titleId="login-title"
             width={420}
+            contentVariant="inset"
             onClose={close}
           >
             <div className="login-modal-actions">

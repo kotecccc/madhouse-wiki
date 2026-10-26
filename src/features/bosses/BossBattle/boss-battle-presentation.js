@@ -45,23 +45,21 @@ export function bossExecutionStatus(state, auto = {}) {
     (state.raid.bossId == null ||
       Number(state.raid.bossId) === Number(state.boss?.id));
   if (state.battle?.status === "active")
-    return { label: "Бой идёт", variant: "active" };
-  if (raid && state.raid.status === "joining")
-    return { label: "Вступаем в бой", variant: "scheduled" };
+    return { label: "Идёт бой", variant: "active" };
+  if (raid && ["waiting", "joining"].includes(state.raid.status))
+    return { label: "Ждём приглашений", variant: "scheduled" };
+  if (
+    !raid &&
+    auto.enabled &&
+    ["between_battles", "starting", "waiting"].includes(auto.phase)
+  )
+    return { label: "Ждём боя", variant: "scheduled" };
   if (state.battle?.status === "won")
-    return state.battle.rewardKnown === true
-      ? { label: "Победа", variant: "completed" }
-      : { label: "Получаем награду", variant: "scheduled" };
-  if (raid && state.raid.status === "waiting_confirmation")
-    return {
-      label: state.pendingInvitation ? "Проверяем вступление" : "Обновляем бой",
-      variant: "scheduled",
-    };
-  if (raid) return { label: "Ждём приглашения", variant: "scheduled" };
-  if (auto.enabled)
-    return { label: "Ждём следующего боя", variant: "scheduled" };
+    return { label: "Победа", variant: "completed" };
   if (state.battle?.status === "lost")
     return { label: "Поражение", variant: "locked" };
+  if (raid) return { label: "Ждём приглашений", variant: "scheduled" };
+  if (auto.enabled) return { label: "Ждём боя", variant: "scheduled" };
   if (state.battle) return { label: "Бой завершён", variant: "unknown" };
   return null;
 }

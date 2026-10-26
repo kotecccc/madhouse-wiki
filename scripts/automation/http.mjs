@@ -14,9 +14,11 @@ export function createAutomationHttp({
   return async (request) => {
     const url = new URL(request.url);
     if (
-      !["/api/automation/state", "/api/automation/commands"].includes(
-        url.pathname,
-      ) ||
+      ![
+        "/api/automation/state",
+        "/api/automation/commands",
+        "/api/automation/launch",
+      ].includes(url.pathname) ||
       url.search
     )
       return json({ error: "unknown_automation_route" }, 404);
@@ -63,7 +65,9 @@ export function createAutomationHttp({
       return json(
         request.method === "GET"
           ? service.snapshot(entry)
-          : await service.command(entry, input),
+          : url.pathname.endsWith("/launch")
+            ? await service.launch(entry, input?.activeBossBattle)
+            : await service.command(entry, input),
       );
     } catch (error) {
       const status =
