@@ -17,6 +17,7 @@ import { MonoLabel } from "../../components/ui/MonoLabel/MonoLabel.jsx";
 import { NumberField } from "../../components/ui/NumberField/NumberField.jsx";
 import { NumberStepper } from "../../components/ui/NumberStepper/NumberStepper.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
+import { ProgressButton } from "../../components/ui/ProgressButton/ProgressButton.jsx";
 import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
 import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
@@ -592,6 +593,12 @@ export function UIKitPage() {
                     segments={5}
                     label="ProgressBar preview"
                     valueText="3 of 5"
+                  />
+                  <ProgressButton
+                    value={60}
+                    max={100}
+                    icon="energy"
+                    label="Пример прогресса задачи: 60%"
                   />
                   <div className="ui-kit-panel-heading">
                     <CardTitle>Pill</CardTitle>

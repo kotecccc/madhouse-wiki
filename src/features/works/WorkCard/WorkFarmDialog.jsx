@@ -1,10 +1,5 @@
 import { WorkStashCard } from "./WorkStashCard.jsx";
 import {
-  readRetryStartedAt,
-  writeRetryStartedAt,
-  retrySeconds as remainingRetrySeconds,
-} from "../../../../shared/retry-countdown.js";
-import {
   getSessionJson,
   peekSessionJson,
   peekSessionUpdatedAt,
@@ -14,13 +9,7 @@ import {
   calculateCycleEnergy,
   calculateRequirementEnergy,
 } from "../../../lib/energy.js";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { RequirementCalculatorDialog } from "../../calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
@@ -36,10 +25,13 @@ import {
   latestWorkEnergy,
   workEnergyRemaining,
 } from "../WorkFarm/work-farm-plan.js";
-import { fmt } from "../../../lib/format.js";
+import { fmt, restoreTime } from "../../../lib/format.js";
+import { SegmentedControl } from "../../../components/ui/SegmentedControl/SegmentedControl.jsx";
+import {
+  previewWorkTasks,
+  workFarmProgress,
+} from "../WorkFarm/work-farm-presentation.js";
 import "./WorkCalculatorDialog.css";
-
-const WORK_RETRY_KEY = "madhouse:work-refresh-started-at:v1";
 
 const validEnergy = (value) =>
   Number.isSafeInteger(value?.current) &&
@@ -128,48 +120,25 @@ export function WorkFarmDialog({
     active && energyOnly
       ? Math.max(0, (run.energyBudget ?? 0) - (run.energySpent ?? 0))
       : (knownEnergy?.current ?? null);
-  const refreshIssue = state.error || (!view ? state.notice : null);
-  const serviceUnavailable = Boolean(refreshIssue);
-  const [retryNow, setRetryNow] = useState(Date.now);
-  const [retryStartedAt, setRetryStartedAt] = useState(() =>
-    readRetryStartedAt(WORK_RETRY_KEY),
-  );
-  const retryLocalUntil = retryStartedAt ? retryStartedAt + 60000 : 0;
-  const retryUntil = Math.max(retryLocalUntil, state.refreshRetryAt || 0);
-  const retrySeconds = remainingRetrySeconds(
-    retryUntil,
-    Math.max(retryNow, Date.now()),
-  );
-  const retryPending = useRef(false);
+  // These are observation retries only. The server remains the sole executor.
   useEffect(() => {
-    const now = Date.now();
-    if (retryLocalUntil <= now && state.refreshRetryAt > now) {
-      const startedAt = Math.min(now, state.refreshRetryAt - 60000);
-      writeRetryStartedAt(WORK_RETRY_KEY, startedAt);
-      setRetryStartedAt(startedAt);
-      setRetryNow(now);
-    }
-  }, [state.refreshRetryAt, retryLocalUntil]);
-
-  useEffect(() => {
-    if (!serviceUnavailable || retryUntil <= Date.now()) return;
-    const timer = window.setInterval(() => setRetryNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [serviceUnavailable, retryUntil]);
-  const retryService = async () => {
-    if (retryPending.current || state.pending || Date.now() < retryUntil)
-      return;
-    retryPending.current = true;
-    const startedAt = Date.now();
-    setRetryNow(startedAt);
-    setRetryStartedAt(startedAt);
-    writeRetryStartedAt(WORK_RETRY_KEY, startedAt);
-    try {
-      await farmStore.refresh(workId, { manual: true });
-    } finally {
-      retryPending.current = false;
-    }
-  };
+    if (!state.loaded) return;
+    let disposed = false;
+    let timer;
+    const refresh = async () => {
+      const current = farmStore.getSnapshot();
+      if (!current.pending && current.run?.status !== "running") {
+        await farmStore.refresh(workId);
+      }
+      if (!disposed)
+        timer = window.setTimeout(refresh, current.pending ? 1000 : 30000);
+    };
+    void refresh();
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [farmStore, workId, state.loaded]);
 
   const requested = Math.max(
     0,
@@ -177,59 +146,13 @@ export function WorkFarmDialog({
   );
   const [count, setCount] = useState(null);
   const completed = view?.completedCycles ?? 0;
-  const target =
-    count != null
+  const target = active
+    ? run.targetCycles
+    : count != null
       ? completed + count
-      : running && run.workId === workId
-        ? run.targetCycles
-        : Math.max(completed + 1, requested || completed + 1);
-  const refreshed = useRef(null);
-  useEffect(() => {
-    if (!state.loaded || state.error) {
-      refreshed.current = null;
-      return;
-    }
-    if (
-      view ||
-      running ||
-      state.pending ||
-      refreshed.current === workId ||
-      Date.now() < retryUntil
-    )
-      return;
-    refreshed.current = workId;
-    void farmStore.refresh(workId);
-  }, [
-    farmStore,
-    workId,
-    view,
-    state.loaded,
-    state.error,
-    state.pending,
-    running,
-    retryUntil,
-  ]);
+      : Math.max(completed + 1, requested || completed + 1);
   const [launchError, setLaunchError] = useState(null);
   const remaining = Math.max(0, target - completed);
-  const fullCycleEnergy =
-    energy ??
-    work.energyCycle?.full ??
-    (view
-      ? view.tasks.reduce(
-          (sum, task) => sum + task.required * task.energyCost,
-          0,
-        )
-      : null);
-  const firstCycleEnergy = view
-    ? workEnergyRemaining(view, completed + 1)
-    : fullCycleEnergy;
-  const budgetCycles =
-    energyBudget != null &&
-    firstCycleEnergy > 0 &&
-    fullCycleEnergy > 0 &&
-    energyBudget >= firstCycleEnergy
-      ? 1 + Math.floor((energyBudget - firstCycleEnergy) / fullCycleEnergy)
-      : 0;
   const totalEnergy = useMemo(
     () =>
       energyOnly
@@ -261,15 +184,21 @@ export function WorkFarmDialog({
       return planWorkFarm(view, {
         targetCycles: target,
         mode: "boosters",
-        maxActions: 30000,
-        maxBoosters: 1000,
-        maxDollar: view.walletDollar,
-        allowPurchase: true,
+        maxActions: active
+          ? Math.max(0, run.config.maxActions - run.actionsDone)
+          : 30000,
+        maxBoosters: active
+          ? Math.max(0, run.config.maxBoosters - run.usedBoosters)
+          : 1000,
+        maxDollar: active
+          ? Math.max(0, run.config.maxDollar - run.spentDollar)
+          : view.walletDollar,
+        allowPurchase: active ? run.config.allowPurchase : true,
       });
     } catch {
       return null;
     }
-  }, [view, target, completed, energyOnly]);
+  }, [view, target, completed, energyOnly, active, run]);
   const energyPlan = useMemo(() => {
     if (totalEnergy == null) return null;
     if (energyOnly)
@@ -289,26 +218,17 @@ export function WorkFarmDialog({
         banknotes: null,
       };
     }
-    const missing = Math.max(0, totalEnergy - view.energy.current);
+    const availableEnergy = knownEnergy ?? view.energy;
+    const missing = Math.max(0, totalEnergy - availableEnergy.current);
     const seconds = !missing
       ? 0
-      : view.energy.secondsToNext != null && view.energy.regenIntervalSeconds
-        ? view.energy.secondsToNext +
-          (missing - 1) * view.energy.regenIntervalSeconds
+      : availableEnergy.secondsToNext != null &&
+          availableEnergy.regenIntervalSeconds
+        ? availableEnergy.secondsToNext +
+          (missing - 1) * availableEnergy.regenIntervalSeconds
         : null;
-    const refills =
-      purchase?.actions?.filter((action) => action.kind === "refill") ?? [];
-    return {
-      minutes: seconds == null ? null : Math.ceil(seconds / 60),
-      smallRefills: purchase?.feasible
-        ? refills.filter((action) => action.type === "small").length
-        : null,
-      largeRefills: purchase?.feasible
-        ? refills.filter((action) => action.type === "full").length
-        : null,
-      banknotes: purchase?.feasible ? purchase.spentDollar : null,
-    };
-  }, [view, totalEnergy, purchase, knownEnergy, energyOnly]);
+    return { minutes: seconds == null ? null : Math.ceil(seconds / 60) };
+  }, [view, totalEnergy, knownEnergy, energyOnly]);
   const condition = useMemo(
     () => ({
       energy: totalEnergy,
@@ -358,8 +278,32 @@ export function WorkFarmDialog({
       expectedCompletedCycles: completed,
       ...(energyOnly && energyBudget != null ? { energyBudget } : {}),
     });
-    if (!ok) setLaunchError("Не удалось начать фарм. Обновите данные.");
+    if (!ok) {
+      const latest = farmStore.getSnapshot();
+      if (latest.run?.status !== "running") {
+        setLaunchError(
+          latest.notice ||
+            "Запуск пока не подтверждён. Проверяем состояние задачи.",
+        );
+      }
+    }
   }
+  const taskPreview = useMemo(
+    () =>
+      previewWorkTasks(
+        view && knownEnergy ? { ...view, energy: knownEnergy } : view,
+        {
+          mode: energyOnly ? "energy" : "wait",
+          targetCycles: target,
+          energyBudget,
+          maxActions: active
+            ? Math.max(0, run.config.maxActions - run.actionsDone)
+            : 30000,
+        },
+      ),
+    [view, knownEnergy, energyOnly, target, energyBudget, active, run],
+  );
+  const progress = workFarmProgress(run, view);
   const activeProgress = active && (
     <div
       className="work-calculator-goal"
@@ -373,24 +317,22 @@ export function WorkFarmDialog({
         ) : (
           <>
             {run.phase === "waiting" ? "Ожидание энергии" : "Фарм идёт"} ·{" "}
-            {fmt(run.completedCycles ?? completed)} из {fmt(run.targetCycles)}
+            {progress.percent == null ? "—" : `${progress.percent}%`}
           </>
         )}
       </LoadingStatus>
-      <ProgressBar
-        value={
-          energyOnly
-            ? (run.energySpent ?? 0)
-            : (run.completedCycles ?? completed)
-        }
-        max={energyOnly ? (run.energyBudget ?? 0) : run.targetCycles}
-        label={energyOnly ? "Расход энергии" : "Прогресс фарма"}
-        valueText={
-          energyOnly
-            ? `${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
-            : `${fmt(run.completedCycles ?? completed)} из ${fmt(run.targetCycles)}`
-        }
-      />
+      {progress.max != null && (
+        <ProgressBar
+          value={progress.value}
+          max={progress.max}
+          label={energyOnly ? "Расход энергии" : "Прогресс фарма"}
+          valueText={
+            energyOnly
+              ? `${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
+              : `${fmt(progress.value)} из ${fmt(progress.max)} энергии до цели`
+          }
+        />
+      )}
     </div>
   );
   return (
@@ -402,22 +344,12 @@ export function WorkFarmDialog({
       boostersLoading={!view && !state.error && !state.notice}
       conditionDialog={condition}
       title={`Работа · ${work.title || work.name || "Работёнка"}`}
-      footerStart={
-        <>
-          <Button onClick={onClose}>Закрыть</Button>
-          {serviceUnavailable && (
-            <Button
-              disabled={state.pending || retrySeconds > 0}
-              onClick={() => void retryService()}
-            >
-              Обновить данные
-            </Button>
-          )}
-        </>
-      }
+      footerStart={<Button onClick={onClose}>Закрыть</Button>}
       footer={
         running ? (
-          <Button onClick={() => void farmStore.stop()}>Остановить</Button>
+          <Button icon="stop" onClick={() => void farmStore.stop()}>
+            Остановить
+          </Button>
         ) : (
           <Button
             variant="primary"
@@ -440,29 +372,84 @@ export function WorkFarmDialog({
           </Button>
         )
       }
-      optionSelection={{
-        value: energyOnly ? "wait" : effectiveOption,
-        onChange: setSelectedOption,
-        disabled: running,
-      }}
-      showPurchaseOption={!energyOnly}
-      waitOptionTitle={energyOnly ? "Потратить доступную энергию" : undefined}
-      footerNote={
-        serviceUnavailable ? (
-          <Pill variant="warning" size="xs" title={refreshIssue}>
-            Не удалось обновить работу
-          </Pill>
-        ) : view?.boostersStatus === "error" ? (
-          <Pill variant="warning" size="xs">
-            Дефибрилляторы недоступны
-          </Pill>
-        ) : (
-          ""
-        )
+      showCalculation={false}
+      afterOptions={
+        <>
+          {!energyOnly && (
+            <SegmentedControl
+              label="Восстановление энергии"
+              value={effectiveOption}
+              onChange={setSelectedOption}
+              options={[
+                {
+                  value: "wait",
+                  disabled: running,
+                  label: `Ждать · ${energyPlan?.minutes == null ? "—" : restoreTime(energyPlan.minutes)}`,
+                },
+                {
+                  value: "purchase",
+                  disabled: running,
+                  label: `Дефибрилляторы · ${purchase?.feasible ? fmt(purchase.spentDollar) : "—"} купюр`,
+                },
+              ]}
+            />
+          )}
+          {!energyOnly && effectiveOption === "purchase" && (
+            <CardDescription>
+              {purchase?.feasible
+                ? `Дефибрилляторов: ${fmt(purchase.usedBoosters)}. Расход — не более ${fmt(purchase.spentDollar)} купюр.`
+                : "Проверяем запас и стоимость дефибрилляторов. Покупки начнутся только после подтверждения бюджета."}
+            </CardDescription>
+          )}
+          <div className="work-calculator-goal" aria-label="План заданий">
+            <CardTitle as="h3">Будут выполнены</CardTitle>
+            {!taskPreview ? (
+              <LoadingStatus>
+                Получаем задания. Повторим проверку автоматически.
+              </LoadingStatus>
+            ) : taskPreview.items.length === 0 ? (
+              <CardDescription>
+                {energyOnly
+                  ? "Сейчас нет доступных заданий в пределах выбранного запаса энергии."
+                  : "Все задания выбранной цели выполнены."}
+              </CardDescription>
+            ) : (
+              <>
+                <CardDescription>
+                  {energyOnly
+                    ? "В пределах оставшейся энергии, без покупок."
+                    : "Оставшиеся действия до выбранной цели."}{" "}
+                  План уточняется после каждого подтверждённого действия.
+                </CardDescription>
+                {taskPreview.items.map((task) => (
+                  <BaseCard variant="floor-data" key={task.id}>
+                    <CardTitle as="h4" size="sm">
+                      {task.title}
+                    </CardTitle>
+                    <CardDescription>
+                      ×{fmt(task.count)} · {fmt(task.energy)}{" "}
+                      <Icon type="energy" size="text" />
+                    </CardDescription>
+                  </BaseCard>
+                ))}
+              </>
+            )}
+          </div>
+          {active ? (
+            <BaseCard>{activeProgress}</BaseCard>
+          ) : running ? (
+            <BaseCard className="work-calculator-goal">
+              <CardDescription title={run.reason}>
+                Другая работёнка уже выполняется. Остановите её, чтобы сменить
+                цель.
+              </CardDescription>
+            </BaseCard>
+          ) : null}
+        </>
       }
       onClose={onClose}
       countControl={{
-        value: String(energyOnly ? budgetCycles : Math.max(1, remaining)),
+        value: String(Math.max(1, remaining)),
         onChange: (value) => setCount(Math.max(1, Number(value))),
         min: 1,
         maxToggle: {
@@ -484,15 +471,9 @@ export function WorkFarmDialog({
       }}
       accountState={account}
       energyOverride={totalEnergy}
-      recoveryPlan={knownEnergy ? energyPlan : undefined}
       intro={
         <>
           <WorkStashCard work={work} stash={view?.stash} />
-          {refreshIssue && (
-            <BaseCard role="alert">
-              <CardDescription>{refreshIssue}</CardDescription>
-            </BaseCard>
-          )}
           {goalTargets.map((item) => {
             const goalTotal = Number.isSafeInteger(item.required)
               ? item.required
@@ -524,7 +505,15 @@ export function WorkFarmDialog({
               </BaseCard>
             );
           })}
-          {launchError && (
+          {!running &&
+            run?.workId === workId &&
+            ["limited", "error"].includes(run.status) &&
+            run.reason && (
+              <BaseCard role="status">
+                <CardDescription>{run.reason}</CardDescription>
+              </BaseCard>
+            )}
+          {launchError && !running && (
             <BaseCard role="alert">
               <CardDescription title={launchError}>
                 {launchError}
@@ -532,18 +521,6 @@ export function WorkFarmDialog({
             </BaseCard>
           )}
         </>
-      }
-      afterOptions={
-        active ? (
-          <BaseCard>{activeProgress}</BaseCard>
-        ) : running ? (
-          <BaseCard className="work-calculator-goal">
-            <CardDescription title={run.reason}>
-              Фарм идёт · {run.completedCycles ?? completed} /{" "}
-              {run.targetCycles}
-            </CardDescription>
-          </BaseCard>
-        ) : null
       }
     />
   );

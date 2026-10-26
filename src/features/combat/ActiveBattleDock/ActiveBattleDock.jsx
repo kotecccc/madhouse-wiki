@@ -24,6 +24,8 @@ import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx"
 import { BossPortrait } from "../../bosses/BossPortrait/BossPortrait.jsx";
 import { fmt } from "../../../lib/format.js";
 import { activeBattleEntries } from "./active-battle-state.js";
+import { ProgressButton } from "../../../components/ui/ProgressButton/ProgressButton.jsx";
+import { workFarmProgress } from "../../works/WorkFarm/work-farm-presentation.js";
 import { WorkFarmDialog } from "../../works/WorkCard/WorkFarmDialog.jsx";
 import "./ActiveBattleDock.css";
 
@@ -206,27 +208,12 @@ export function ActiveBattleControl() {
   return (
     <>
       {farmRun && (
-        <BaseCard variant="glass-nav" className="active-battle-control">
-          <div className="active-battle-desktop">
-            <Button icon="energy" onClick={() => setFarmOpen(true)}>
-              Фарм · {farmRun.title} ·{" "}
-              {farm.view?.completedCycles ?? farmRun.completedCycles} /{" "}
-              {farmRun.targetCycles}
-            </Button>
-          </div>
-          <div className="active-battle-mobile">
-            <Button
-              variant="nav-tab"
-              aria-label={`Фарм: ${farmRun.title}`}
-              onClick={() => setFarmOpen(true)}
-            >
-              <Icon type="energy" size="large" />
-            </Button>
-          </div>
-          <Button size="sm" onClick={() => void workFarm.stop()}>
-            Стоп
-          </Button>
-        </BaseCard>
+        <ProgressButton
+          {...workFarmProgress(farmRun, farm.view)}
+          icon="energy"
+          label={`Фарм: ${farmRun.title}. Открыть прогресс и остановку`}
+          onClick={() => setFarmOpen(true)}
+        />
       )}
       {farmOpen && farm.run && (
         <WorkFarmDialog

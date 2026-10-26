@@ -364,6 +364,57 @@ test("409 snapshot is adopted, and polling errors retain the last known server s
   assert.equal([...h.tasks.values()][0].delay, 5000);
 });
 
+test("work.refresh rebases once on a 409 snapshot, while mutations are never retried", async () => {
+  const rebased = {
+    ...initialState(),
+    version: 8,
+    workFarm: { view: { workId: 7 } },
+  };
+  const calls = [];
+  const h = harness({
+    request: async (method, _path, body) => {
+      if (method === "GET") return initialState();
+      calls.push(body);
+      if (calls.length === 1)
+        throw Object.assign(
+          new Error("state changed; refresh and retry manually"),
+          {
+            status: 409,
+            snapshot: rebased,
+          },
+        );
+      return {
+        ...rebased,
+        version: 9,
+        workFarm: { view: { workId: 7, energy: 3 } },
+      };
+    },
+  });
+  await h.connect();
+  assert.equal(await h.workFarm.refresh(7), true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].expectedVersion, 8);
+  assert.equal(h.workFarm.getSnapshot().error, null);
+  assert.equal(h.workFarm.getSnapshot().view.energy, 3);
+  h.disconnect();
+
+  const mutationCalls = [];
+  const mutation = harness({
+    request: async (method, _path, body) => {
+      if (method === "GET") return initialState();
+      mutationCalls.push(body);
+      throw Object.assign(new Error("conflict"), {
+        status: 409,
+        snapshot: rebased,
+      });
+    },
+  });
+  await mutation.connect();
+  assert.equal(await mutation.workFarm.start({ workId: 7 }), false);
+  assert.equal(mutationCalls.length, 1);
+  mutation.disconnect();
+});
+
 test("disconnect invalidates stale replies, cancels polling, and does not stop persisted server state", async () => {
   let finish;
   let serverRecord = initialState();

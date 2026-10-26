@@ -346,22 +346,34 @@ export function createRemoteBattleSession({
     pendingCommands++;
     publish();
     const run = epoch;
-    const id = commandId(makeId);
     try {
-      const value = await request("POST", "/api/automation/commands", {
-        id,
-        expectedVersion: server?.version ?? null,
-        command,
-        args,
-      });
+      let value;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          value = await request("POST", "/api/automation/commands", {
+            id: commandId(makeId),
+            expectedVersion: server?.version ?? null,
+            command,
+            args,
+          });
+          break;
+        } catch (error) {
+          if (!connected || run !== epoch) return false;
+          if (error?.status === 409 && error.snapshot) {
+            setServerState(error.snapshot);
+            // Refresh is read-only, so it can safely rebase once on the
+            // conflict snapshot. Never replay a command that can mutate state.
+            if (command === "work.refresh" && attempt === 0) continue;
+          }
+          throw error;
+        }
+      }
       if (!connected || run !== epoch) return false;
       setServerState(value);
       return true;
     } catch (error) {
       if (!connected || run !== epoch) return false;
-      if (error?.status === 409 && error.snapshot)
-        setServerState(error.snapshot);
-      else {
+      if (!(error?.status === 409 && error.snapshot)) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (command.startsWith("invitations."))
           invitationCommandError = commandError;
