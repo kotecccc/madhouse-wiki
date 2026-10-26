@@ -349,3 +349,47 @@ test("display stats include current upgrades and authoritative current values ar
   );
   assert.equal(item.facts.stats.aggression, 800);
 });
+
+test("weapon list object durability and currentBonus reach card model without losing zero", () => {
+  const items = inventoryItems(
+    "weapon",
+    {
+      "/api/clothing/by-category/1": {
+        items: [
+          {
+            weaponId: 1,
+            owned: true,
+            durability: {
+              current: 27,
+              max: 90,
+              isBroken: false,
+              repairCost: 10,
+            },
+            currentBonus: {
+              aggression: 1950,
+              rage: 73,
+              attackCooldownSeconds: 2,
+            },
+          },
+          {
+            weaponId: 2,
+            owned: true,
+            durability: { current: 0, max: 45, isBroken: true },
+          },
+          { weaponId: 3, owned: false, durability: { current: 45, max: 45 } },
+        ],
+      },
+    },
+    [],
+  );
+  assert.equal(items[0].durability, 27);
+  assert.equal(items[0].durabilityMax, 90);
+  assert.deepEqual(inventoryDisplayStats(items[0]), {
+    aggression: 1950,
+    rage: 73,
+    attackCooldownSeconds: 2,
+  });
+  assert.equal(items[1].durability, 0);
+  assert.equal(items[1].durabilityMax, 45);
+  assert.equal(items[2].durability, null);
+});

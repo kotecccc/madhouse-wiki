@@ -74,6 +74,7 @@ export function inventoryItems(type, responses, references) {
             : item.owned === false && item.unlocked === false
               ? "locked"
               : "unknown";
+      const currentBonus = item.currentBonus ?? item.currentStats;
       result.set(`${type}:${id}`, {
         ...reference,
         id: String(id),
@@ -89,16 +90,25 @@ export function inventoryItems(type, responses, references) {
         equipped: item.equipped === true,
         ownedLevel: item.owned === true ? nonnegative(item.level) : null,
         maxLevel: nonnegative(item.maxLevel ?? reference?.maxLevel),
-        durability: item.owned === true ? nonnegative(item.durability) : null,
+        durability:
+          item.owned === true
+            ? nonnegative(
+                typeof item.durability === "object" && item.durability !== null
+                  ? item.durability.current
+                  : item.durability,
+              )
+            : null,
         durabilityMax: nonnegative(
-          item.durabilityMax ?? reference?.durabilityMax,
+          item.durability?.max ??
+            item.durabilityMax ??
+            reference?.durabilityMax,
         ),
         currentStats:
           item.owned === true &&
-          item.currentStats &&
-          typeof item.currentStats === "object"
+          currentBonus &&
+          typeof currentBonus === "object"
             ? Object.fromEntries(
-                Object.entries(item.currentStats).filter(
+                Object.entries(currentBonus).filter(
                   ([key, value]) =>
                     [
                       "madness",
