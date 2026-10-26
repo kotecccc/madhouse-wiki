@@ -39,6 +39,21 @@ export function createBusinessCollector({
     disposed = false,
     armed = false;
   const running = () => helper.run?.status === "running";
+  const canSuspend = () => {
+    if (!running()) return true;
+    const state = controller.getSnapshot();
+    return !(
+      working ||
+      state.pending ||
+      state.pendingInvitation ||
+      state.needsRefresh ||
+      state.error ||
+      state.purchase ||
+      state.purchaseUncertain ||
+      state.battle?.status === "active" ||
+      goal.getSnapshot()?.rewardUncertain
+    );
+  };
   const changed = () => onChange?.();
   function clear() {
     if (timer != null) cancel(timer);
@@ -394,6 +409,18 @@ export function createBusinessCollector({
     },
     stop() {
       finish("stopped", "stopped");
+    },
+    canSuspend,
+    suspend() {
+      if (!running()) return true;
+      if (!canSuspend()) return false;
+      // Disarm before stopping the series: its synchronous notifications must
+      // not schedule another business step or alter the saved run and goal.
+      armed = false;
+      generation++;
+      clear();
+      auto.stop();
+      return true;
     },
     resume(checkpoint, unsafe = false) {
       if (!running()) return;

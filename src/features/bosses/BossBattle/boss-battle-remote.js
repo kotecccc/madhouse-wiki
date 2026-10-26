@@ -76,6 +76,7 @@ export function createRemoteBattleSession({
   const businessListeners = new Set();
   const workFarmListeners = new Set();
   const invitationListeners = new Set();
+  const subscriptionListeners = new Set();
   let connected = false;
   let launchPending = Boolean(launchBattle);
   let transportError = null;
@@ -88,6 +89,7 @@ export function createRemoteBattleSession({
   let stateRead = null;
   let visible = false;
   let pvpVisible = false;
+  let raidsVisible = false;
   let localBoss = null;
   // Public requirement context belongs to the dialog; execution goals remain server-owned.
   let openingBossId = null;
@@ -100,6 +102,11 @@ export function createRemoteBattleSession({
   let businessSnapshot = EMPTY_BUSINESS;
   let workFarmSnapshot = EMPTY_WORK_FARM;
   let invitationSnapshot = EMPTY_INVITATIONS;
+  let subscriptionSnapshot = Object.freeze({
+    detectedRaids: [],
+    subscription: null,
+    pending: false,
+  });
   let preferencesSnapshot = Object.freeze({ favoriteBossIds: [] });
 
   const notify = (set, value) => {
@@ -172,6 +179,13 @@ export function createRemoteBattleSession({
       error: transportError || invitationCommandError,
     });
     notify(invitationListeners, invitationSnapshot);
+    subscriptionSnapshot = Object.freeze({
+      detectedRaids: server?.detectedRaids ?? [],
+      subscription: server?.subscription ?? null,
+      pending: pendingCommands > 0,
+      error: transportError || invitationCommandError,
+    });
+    notify(subscriptionListeners, subscriptionSnapshot);
   }
 
   function setServerState(value) {
@@ -203,8 +217,11 @@ export function createRemoteBattleSession({
     return (
       visible ||
       pvpVisible ||
+      raidsVisible ||
       server?.auto?.enabled ||
       server?.raid?.enabled ||
+      server?.subscription?.enabled ||
+      server?.subscription?.hasSuspendedGoal ||
       server?.goal?.status === "running" ||
       server?.goal?.status === "active" ||
       server?.businessAssistant?.run?.status === "running" ||
@@ -328,6 +345,7 @@ export function createRemoteBattleSession({
     pendingCommands = 0;
     visible = false;
     pvpVisible = false;
+    raidsVisible = false;
     localBoss = null;
     openingBossId = null;
     openingRequirements = [];
@@ -339,6 +357,7 @@ export function createRemoteBattleSession({
     const urgent =
       command === "auto.stop" ||
       command === "raid.stop" ||
+      command === "subscription.stop" ||
       command === "goal.stop" ||
       command === "business.run.stop" ||
       command === "work.stop";
@@ -375,7 +394,10 @@ export function createRemoteBattleSession({
       if (!connected || run !== epoch) return false;
       if (!(error?.status === 409 && error.snapshot)) {
         const commandError = error?.message || "Не удалось выполнить команду.";
-        if (command.startsWith("invitations."))
+        if (
+          command.startsWith("invitations.") ||
+          command.startsWith("subscription.")
+        )
           invitationCommandError = commandError;
         else if (command.startsWith("work.")) workCommandError = commandError;
         else if (command.startsWith("business."))
@@ -604,8 +626,23 @@ export function createRemoteBattleSession({
       return false;
     },
   };
+  const raidSubscriptions = {
+    subscribe(listener) {
+      subscriptionListeners.add(listener);
+      return () => subscriptionListeners.delete(listener);
+    },
+    getSnapshot: () => subscriptionSnapshot,
+    watch(value) {
+      raidsVisible = Boolean(value);
+      if (connected) schedulePoll(0);
+    },
+    start: (leaderPlayerId, bossId, leaderUsername) =>
+      send("subscription.start", { leaderPlayerId, bossId, leaderUsername }),
+    stop: () => send("subscription.stop"),
+  };
   return Object.freeze({
     bossInvitations,
+    raidSubscriptions,
     businessAssistant,
     workFarm,
     bossBattle: battle,

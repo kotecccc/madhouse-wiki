@@ -160,6 +160,8 @@ export function App() {
           </div>
           <div id="screen-raids" className="app-screen app-screen--raids">
             <RaidScheduleSection
+              authenticated={authenticated}
+              active={visibleScreen === "raids"}
               availability={floorAvailability.availability}
               state={raidSchedule}
               onRetry={raidSchedule.retry}

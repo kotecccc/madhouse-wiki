@@ -77,6 +77,30 @@ const invitation = {
   expiresAt: 999999,
 };
 
+test("a waiting raid can be suspended and resumed without losing its intent", async () => {
+  const ctx = setup();
+  ctx.worker.start(7);
+  const saved = structuredClone(ctx.worker.getSnapshot());
+  assert.equal(ctx.worker.suspend(), true);
+  await ctx.worker.tick();
+  assert.deepEqual(ctx.calls, []);
+  assert.deepEqual(ctx.worker.getSnapshot(), saved);
+  ctx.worker.resume();
+  await ctx.worker.tick();
+  assert.deepEqual(ctx.calls, ["refresh"]);
+});
+
+test("raid suspension waits for an active battle or uncertain operation", () => {
+  const ctx = setup();
+  ctx.worker.start(7);
+  ctx.state.battle = { id: "fight-7", status: "active" };
+  assert.equal(ctx.worker.suspend(), false);
+  ctx.state.battle = null;
+  ctx.state.pendingInvitation = { invitationId: "invite-7" };
+  assert.equal(ctx.worker.suspend(), false);
+  assert.equal(ctx.worker.getSnapshot().enabled, true);
+});
+
 test("raid waits on server, filters boss, joins once, attacks and waits again without solo start", async () => {
   const ctx = setup();
   assert.equal(ctx.worker.start(7), true);

@@ -231,6 +231,39 @@ function start(farm, args = {}) {
   });
 }
 
+test("suspending work before an action preserves its run and resumes once", async () => {
+  const h = makeHarness({ required: [2] });
+  await refresh(h);
+  start(h.farm);
+  const before = structuredClone(h.farm.exportState());
+  assert.equal(h.farm.suspend(), true);
+  assert.deepEqual(h.farm.exportState(), before);
+  assert.equal(h.timers.filter((timer) => !timer.canceled).length, 0);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    0,
+  );
+  h.farm.resume();
+  await h.fireNext({ advance: false });
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
+  h.farm.stop();
+});
+
+test("work cannot be suspended while an action response is unresolved", async () => {
+  const h = makeHarness({ required: [2], holdPerform: true });
+  await refresh(h);
+  start(h.farm);
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.suspend(), false);
+  assert.equal(h.farm.getSnapshot().run.pending.kind, "performing");
+  h.releasePerform();
+  await h.flush();
+  h.farm.stop();
+});
+
 test("reopening active work progress uses the runner checkpoint without extra reads", async () => {
   const h = makeHarness({ required: [3], holdPerform: true });
   await refresh(h);

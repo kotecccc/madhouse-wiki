@@ -1,8 +1,26 @@
 import { RaidEventCard } from "../RaidEventCard/RaidEventCard.jsx";
-import { sortRaidsByTime } from "../../../lib/raid-schedule.js";
+import { knowledgeBase } from "virtual:madhouse-catalogue";
+import { Button } from "../../../components/ui/Button/Button.jsx";
+import { combineRaids } from "../raid-list.js";
 import "./RaidPost.css";
 
-export function RaidPost({ post, archive = false, floorAvailability = {} }) {
+export function RaidPost({
+  post,
+  archive = false,
+  floorAvailability = {},
+  detectedRaids = [],
+  subscriptionState,
+  onSubscribe,
+  onUnsubscribe,
+  authenticated = false,
+}) {
+  const subscription = subscriptionState?.subscription;
+  const rows = combineRaids(
+    post.raids,
+    detectedRaids,
+    subscription,
+    knowledgeBase.bosses,
+  );
   return (
     <section
       className="raid-post"
@@ -18,11 +36,73 @@ export function RaidPost({ post, archive = false, floorAvailability = {} }) {
         className="raid-event-list"
         aria-label={`Рейды на ${post.raidDateLabel}`}
       >
-        {sortRaidsByTime(post.raids).map((raid, index) => (
-          <li key={`${post.sourceMessageId}-${raid.time}-${index}`}>
-            <RaidEventCard raid={raid} floorAvailability={floorAvailability} />
-          </li>
-        ))}
+        {rows.map(({ key, raid, candidate, detected }) => {
+          const selected =
+            candidate &&
+            subscription?.leaderPlayerId === candidate.leaderPlayerId &&
+            (candidate.leaderPlayerId != null ||
+              String(subscription?.leaderUsername || "")
+                .replace(/^@/, "")
+                .toLowerCase() ===
+                String(candidate.leaderUsername || "")
+                  .replace(/^@/, "")
+                  .toLowerCase()) &&
+            subscription?.bossId === candidate.bossId &&
+            (subscription?.enabled || subscription?.hasSuspendedGoal);
+          const boss = detected
+            ? (knowledgeBase.bosses.find(
+                (item) =>
+                  Number(item.numericId ?? item.apiId) === candidate.bossId,
+              ) ?? {
+                id: `raid-${candidate.bossId}`,
+                numericId: candidate.bossId,
+                name: candidate.bossName || "Босс",
+                possibleDrops: [],
+                dropItems: [],
+              })
+            : undefined;
+          const action =
+            !archive && authenticated ? (
+              <Button
+                disabled={
+                  subscriptionState?.pending ||
+                  (selected && !subscription?.enabled) ||
+                  (!selected &&
+                    (!candidate ||
+                      subscription?.enabled ||
+                      subscription?.hasSuspendedGoal))
+                }
+                onClick={() =>
+                  selected
+                    ? onUnsubscribe?.()
+                    : onSubscribe?.(
+                        candidate.leaderPlayerId,
+                        candidate.bossId,
+                        candidate.leaderUsername,
+                      )
+                }
+              >
+                {selected
+                  ? subscription?.enabled
+                    ? "Отписаться"
+                    : "Завершаем рейд"
+                  : candidate
+                    ? "Подписаться"
+                    : "Ведущий не подтверждён"}
+              </Button>
+            ) : null;
+          return (
+            <li key={key}>
+              <RaidEventCard
+                raid={raid}
+                bossOverride={boss}
+                status={detected && candidate.count ? "active" : undefined}
+                floorAvailability={floorAvailability}
+                goalAction={action}
+              />
+            </li>
+          );
+        })}
       </ol>
     </section>
   );

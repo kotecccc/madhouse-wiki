@@ -44,6 +44,8 @@ export function createRaidWaiter({
       current.medicineOpen,
     );
   };
+  const canSuspend = () =>
+    !running && !uncertain() && state().battle?.status !== "active";
   return {
     getSnapshot: () => value,
     start(bossId) {
@@ -70,6 +72,12 @@ export function createRaidWaiter({
       return true;
     },
     stop,
+    canSuspend,
+    suspend() {
+      if (!canSuspend()) return false;
+      ready = false;
+      return true;
+    },
     resume() {
       if (!value.enabled) return;
       if (uncertain() || value.status === "joining") {
