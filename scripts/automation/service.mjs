@@ -498,6 +498,7 @@ export function createAutomationService({
         Boolean(entry.credential) &&
         !entry.inventoryBusy &&
         !entry.equipment?.pending &&
+        !entry.controller.getSnapshot().pending &&
         (mode === "energy" ||
           (!entry.auto.getSnapshot().enabled &&
             !entry.collector.running() &&
@@ -582,6 +583,15 @@ export function createAutomationService({
       },
       invitations: () => entry.invitations.items,
       accept: (id, allowed) => acceptInvitation(entry, id, allowed),
+      startSolo: async (allowed) => {
+        if (!allowed() || !entry.goal.canStart()) return;
+        if (!entry.controller.allowSoloContinuation()) return;
+        startAssistant();
+        await entry.assistant.startBattle({
+          next: Boolean(entry.controller.getSnapshot().battle),
+          allowed,
+        });
+      },
       onChange: () => save(entry),
     });
     let savedGoal = JSON.stringify(entry.goal.exportState());
@@ -729,11 +739,23 @@ export function createAutomationService({
       const unresolved = entry.controller.getSnapshot().pendingInvitation;
       if (unresolved && unresolved.expiresAt <= now()) {
         const me = await gameJson(entry.credential, "/api/me");
-        if (
-          Object.hasOwn(me, "activeBossBattle") &&
-          me.activeBossBattle === null
-        )
-          entry.controller.clearExpiredInvitation();
+        let confirmedNoBattle =
+          Object.hasOwn(me, "activeBossBattle") && me.activeBossBattle === null;
+        if (!Object.hasOwn(me, "activeBossBattle")) {
+          try {
+            const detail = await gameJson(
+              entry.credential,
+              `/api/bosses/${unresolved.bossId}`,
+            );
+            confirmedNoBattle =
+              detail?.id === unresolved.bossId &&
+              Object.hasOwn(detail, "activeBattle") &&
+              detail.activeBattle === null;
+          } catch {
+            // Keep the durable uncertain-accept checkpoint on read failure.
+          }
+        }
+        if (confirmedNoBattle) entry.controller.clearExpiredInvitation();
       }
     }
     if (

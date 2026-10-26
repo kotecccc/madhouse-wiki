@@ -6,6 +6,7 @@ import {
   normalizeBoosters,
   workEnergyRemaining,
   planWorkFarm,
+  latestWorkEnergy,
 } from "../src/features/works/WorkFarm/work-farm-plan.js";
 const task = (id, cost, required = 1, progress = 0) => ({
   id,
@@ -132,4 +133,16 @@ test("bounded search labels a feasible fallback as an estimate", () => {
 test("planner rejects impossible task capacity and unknown cycle reset", () => {
   assert.throws(() => planWorkFarm(view([task(1, 11)], 0), config));
   assert.throws(() => planWorkFarm(view([task(1, 1, 1, 1)]), config));
+});
+
+test("work energy uses the newest validated snapshot, not a stale work value", () => {
+  const work = { updatedAt: 100, energy: { current: 1, max: 360 } };
+  const profile = { energy: { current: 16, max: 360 } };
+  assert.equal(latestWorkEnergy(work, profile, 200), profile.energy);
+  assert.equal(latestWorkEnergy(work, profile, 50), work.energy);
+  assert.equal(
+    latestWorkEnergy(work, { energy: { current: 400, max: 360 } }, 200),
+    work.energy,
+  );
+  assert.equal(latestWorkEnergy(null, profile, 200), profile.energy);
 });

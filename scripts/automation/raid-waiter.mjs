@@ -15,9 +15,13 @@ export function createRaidWaiter({
   refresh,
   invitations,
   accept,
+  startSolo,
   onChange,
 }) {
-  let value = saved ?? { enabled: false, status: "stopped", bossId: null };
+  let value = {
+    ...(saved ?? { enabled: false, status: "stopped", bossId: null }),
+    allowSolo: saved?.allowSolo ?? Boolean(startSolo),
+  };
   let running = false;
   let ready = !saved?.enabled;
   const publish = (patch) => {
@@ -150,7 +154,7 @@ export function createRaidWaiter({
             state().invitationOnly &&
             state().battle?.status === "active"
           ) {
-            if (auto.start())
+            if (auto.start({ singleBattle: value.allowSolo }))
               publish({ status: "fighting", notice: "Рейд идёт." });
             return;
           }
@@ -165,7 +169,10 @@ export function createRaidWaiter({
         const current = state();
         if (current.boss?.id !== value.bossId) throw new Error("boss_changed");
         if (current.battle?.status === "active") {
-          if (current.invitationOnly && auto.start()) {
+          if (
+            (current.invitationOnly || value.allowSolo) &&
+            auto.start({ singleBattle: value.allowSolo })
+          ) {
             publish({ status: "fighting", notice: "Рейд идёт." });
             return;
           }
@@ -178,15 +185,41 @@ export function createRaidWaiter({
           notice: "Ждём приглашения на выбранного босса.",
         });
         const recentBattle = (value.postBattleUntil ?? 0) >= now();
-        await refresh({ force: battleJustEnded || recentBattle });
+        let invitationReadFailed = false;
+        try {
+          await refresh({ force: battleJustEnded || recentBattle });
+        } catch (error) {
+          if (!value.allowSolo || uncertain()) throw error;
+          invitationReadFailed = true;
+        }
         if (!value.enabled) return;
-        const invitation = invitations().find(
+        // Failed invitation discovery cannot veto a fresh solo preflight, but
+        // stale invitation rows must never trigger an accept after that failure.
+        const invitation = (invitationReadFailed ? [] : invitations()).find(
           (item) =>
             item.bossId === value.bossId &&
             item.available &&
             item.expiresAt > now(),
         );
         if (!invitation) {
+          if (value.allowSolo && startSolo) {
+            publish({
+              status: "starting",
+              notice:
+                "Приглашений нет. Открываем свой бой в рамках заданных лимитов.",
+            });
+            await startSolo(
+              () => value.enabled && goal.getSnapshot()?.status === "active",
+            );
+            if (!value.enabled) return;
+            if (!auto.start({ singleBattle: true }))
+              throw new Error("solo_start_unconfirmed");
+            publish({
+              status: "fighting",
+              notice: "Бой идёт. После него снова проверим приглашения.",
+            });
+            return;
+          }
           const keepPolling = (value.postBattleUntil ?? 0) >= now();
           publish({
             nextCheckAt:
@@ -214,7 +247,8 @@ export function createRaidWaiter({
           postBattleUntil: null,
           notice: "Рейд идёт. После боя ждём следующее приглашение.",
         });
-        if (!auto.start()) throw new Error("attack_unavailable");
+        if (!auto.start({ singleBattle: value.allowSolo }))
+          throw new Error("attack_unavailable");
       } catch {
         if (value.enabled)
           publish({

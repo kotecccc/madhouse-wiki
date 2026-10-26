@@ -41,6 +41,19 @@ export function normalizeWorkState(raw, workId) {
     tasks,
   };
 }
+export function latestWorkEnergy(view, profile, profileUpdatedAt = 0) {
+  const valid = (energy) =>
+    integer(energy?.current) &&
+    positive(energy?.max) &&
+    energy.current <= energy.max;
+  if (
+    valid(profile?.energy) &&
+    (!valid(view?.energy) || profileUpdatedAt > (view.updatedAt ?? 0))
+  )
+    return profile.energy;
+  return valid(view?.energy) ? view.energy : null;
+}
+
 export function normalizeEnergy(raw) {
   if (!integer(raw?.current) || !positive(raw.max) || raw.current > raw.max)
     throw new Error("Не удалось подтвердить запас энергии.");

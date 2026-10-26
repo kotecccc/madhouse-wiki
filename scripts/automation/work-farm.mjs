@@ -139,6 +139,12 @@ export function createWorkFarm({
   async function mutation(kind, path, body, id, details = {}) {
     if (id !== generation || !checkTime() || disposed) return null;
     const run = record.run;
+    if (!available(run.config.mode)) {
+      run.phase = "queued";
+      run.reason = "Цель в очереди: ждём завершения приоритетного действия.";
+      publish();
+      return null;
+    }
     if (run.actionsDone >= run.config.maxActions) {
       finish("limited", "Достигнут лимит игровых действий.");
       return null;
@@ -704,7 +710,10 @@ export function createWorkFarm({
         !nonnegative(args.maxBoosters) ||
         args.maxBoosters > 1000 ||
         !nonnegative(args.maxDollar) ||
-        typeof args.allowPurchase !== "boolean"
+        typeof args.allowPurchase !== "boolean" ||
+        (args.mode === "energy" &&
+          args.energyBudget != null &&
+          !nonnegative(args.energyBudget))
       )
         throw new Error("Проверьте цель и лимиты фарма.");
       const view = record.view?.workId === args.workId ? record.view : null;
@@ -725,7 +734,7 @@ export function createWorkFarm({
         args.mode === "energy"
           ? {
               ...args,
-              energyBudget: view?.energy?.current ?? null,
+              energyBudget: args.energyBudget ?? null,
               maxBoosters: 0,
               maxDollar: 0,
               allowPurchase: false,
