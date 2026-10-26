@@ -3,6 +3,9 @@ import { businessPlan, refreshBusiness } from "./business-assistant.mjs";
 import { resolveBossGoal } from "../../src/features/bosses/BossBattle/boss-goal-options.js";
 
 const terminal = new Set(["won", "lost", "expired", "surrendered"]);
+const retryable = new Set(["unknown", "battle"]);
+const retryDelay = (failures) =>
+  Math.min(300000, 15000 * 2 ** Math.min(failures, 4));
 const reasons = {
   stopped: "Сбор остановлен пользователем.",
   completed: "Все материалы для выбранного уровня собраны.",
@@ -98,13 +101,16 @@ export function createBusinessCollector({
           helper.run.battlesStarted < helper.run.maxBattles))
     );
   }
-  function queue() {
+  function queue(delay = 0) {
     if (timer != null || working || !armed || !running() || disposed) return;
     const id = generation;
-    timer = schedule(() => {
-      timer = null;
-      void step(id);
-    }, 0);
+    timer = schedule(
+      () => {
+        timer = null;
+        void step(id);
+      },
+      Math.max(delay, (helper.run.nextRetryAt ?? 0) - now(), 0),
+    );
   }
   function evaluate() {
     if (!armed || !running() || disposed) return;
@@ -114,6 +120,10 @@ export function createBusinessCollector({
       return;
     }
     if (working) return;
+    if ((helper.run.nextRetryAt ?? 0) > now()) {
+      queue(helper.run.nextRetryAt - now());
+      return;
+    }
     const state = controller.getSnapshot(),
       current = goal.getSnapshot();
     if (state.pending) return;
@@ -122,7 +132,7 @@ export function createBusinessCollector({
       return;
     }
     if (state.error || state.needsRefresh || current?.rewardUncertain) {
-      finish("error", "battle");
+      scheduleRetry();
       return;
     }
     if (current?.status === "completed") {
@@ -133,7 +143,26 @@ export function createBusinessCollector({
       finish("limited", "limit");
       return;
     }
-    if (!auto.getSnapshot().enabled) finish("error", "battle");
+    if (!auto.getSnapshot().enabled) scheduleRetry();
+  }
+  function scheduleRetry(error) {
+    if (!running()) return;
+    if (
+      error &&
+      !retryable.has(error.message) &&
+      !(error instanceof TypeError)
+    ) {
+      finish("error", error.message);
+      return;
+    }
+    const run = helper.run;
+    run.failures = (run.failures ?? 0) + 1;
+    run.phase = "retrying";
+    run.reason =
+      "Игровые данные временно недоступны. Цель сохранена; повторим проверку.";
+    run.nextRetryAt = now() + retryDelay(run.failures);
+    changed();
+    queue(run.nextRetryAt - now());
   }
   function checkedPlan() {
     const run = helper.run;
@@ -175,6 +204,11 @@ export function createBusinessCollector({
       );
       if (!valid()) return;
       if (!complete) throw new Error("unknown");
+      const controllerState = controller.getSnapshot();
+      if (controllerState.error || controllerState.needsRefresh) {
+        await controller.refresh({ discover: true });
+        if (!valid()) return;
+      }
       const plan = checkedPlan(),
         run = helper.run;
       if (
@@ -190,6 +224,9 @@ export function createBusinessCollector({
       )
         throw new Error("changed");
       run.checkExpected = false;
+      run.failures = 0;
+      run.nextRetryAt = null;
+      run.reason = null;
       run.materials = plan.materials.map((item) => ({
         itemId: item.entityId,
         name: item.name,
@@ -263,7 +300,7 @@ export function createBusinessCollector({
       changed();
       if (!auto.start()) throw new Error("battle");
     } catch (error) {
-      if (generation === id && running()) finish("error", error.message);
+      if (generation === id && running()) scheduleRetry(error);
     } finally {
       working = false;
       if (generation === id) evaluate();
@@ -362,7 +399,7 @@ export function createBusinessCollector({
       if (!running()) return;
       armed = true;
       if (unsafe) {
-        finish("error", "battle");
+        scheduleRetry();
         return;
       }
       if (!withinTime()) {
@@ -373,7 +410,7 @@ export function createBusinessCollector({
         helper.run.phase === "farming" &&
         goal.getSnapshot()?.status === "active"
       ) {
-        if (!auto.start({ checkpoint })) finish("error", "battle");
+        if (!auto.start({ checkpoint })) scheduleRetry();
         else evaluate();
       } else queue();
     },

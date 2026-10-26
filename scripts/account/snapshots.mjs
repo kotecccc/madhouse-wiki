@@ -1,7 +1,6 @@
 import {
   GAME_HEALTH_FEATURES,
   featureForGamePath,
-  workGameUnavailable,
   safeFailedFeatures,
   safeSuccessfulFeatures,
 } from "../../shared/game-health-features.js";
@@ -224,18 +223,20 @@ export function createAccountSnapshots({
     const digest = hash(authorization);
     let playerId = credentials.get(digest);
     let record = playerId ? accounts.get(playerId) : null;
-    if (record?.revokedHashes?.includes(digest))
+    const requestHeaders = new Headers(init.headers);
+    const manualRefreshRequested =
+      path === "/api/me" &&
+      (init.method || "GET").toUpperCase() === "GET" &&
+      ["1", "live"].includes(requestHeaders.get("X-Madhouse-Snapshot-Refresh"));
+    if (record?.revokedHashes?.includes(digest) && !manualRefreshRequested)
       return withMetadata(
         json({ error: "game_credentials_invalid" }, 401),
         record,
       );
-    const requestHeaders = new Headers(init.headers);
     const snapshotOnly = requestHeaders.get("X-Madhouse-Snapshot-Only") === "1";
+    const liveProfile =
+      requestHeaders.get("X-Madhouse-Snapshot-Refresh") === "live";
     requestHeaders.delete("X-Madhouse-Snapshot-Only");
-    const manualRefreshRequested =
-      path === "/api/me" &&
-      (init.method || "GET").toUpperCase() === "GET" &&
-      requestHeaders.get("X-Madhouse-Snapshot-Refresh") === "1";
     requestHeaders.delete("X-Madhouse-Snapshot-Refresh");
     const upstreamInit = { ...init, headers: requestHeaders };
     if (!playerId && path !== "/api/me") {
@@ -250,6 +251,8 @@ export function createAccountSnapshots({
     const manualRefresh = Boolean(manualRefreshRequested && playerId && record);
     if (
       manualRefresh &&
+      !liveProfile &&
+      !record.revokedHashes?.includes(digest) &&
       Number.isFinite(record.manualHealthRefreshAt) &&
       now() - (record.manualHealthRefreshAt || 0) < 60_000 &&
       savedSection
@@ -316,7 +319,7 @@ export function createAccountSnapshots({
       record = playerId ? accounts.get(playerId) : null;
       section = record?.sections?.[path];
       if (response.status === 401) {
-        if (record)
+        if (record && path === "/api/me")
           persist({
             ...record,
             revokedHashes: [
@@ -324,6 +327,57 @@ export function createAccountSnapshots({
             ].slice(-8),
             health: { status: "credentials_invalid", checkedAt: now() },
           });
+        else if (record) {
+          // A section endpoint can reject a request for reasons unrelated to
+          // the account credential. Confirm identity before deciding whether
+          // last-good section data is safe to return.
+          const identity = await upstream("https://cargohustle.online/api/me", {
+            headers: { Authorization: authorization },
+          });
+          let identityData;
+          if (identity.ok) {
+            try {
+              identityData = sanitize(await identity.json());
+            } catch {
+              identityData = undefined;
+            }
+          }
+          if (
+            identity.status === 401 ||
+            (identity.ok && identityData?.playerId !== Number(playerId))
+          ) {
+            persist({
+              ...record,
+              revokedHashes: [
+                ...new Set([...(record.revokedHashes || []), digest]),
+              ].slice(-8),
+              health: { status: "credentials_invalid", checkedAt: now() },
+            });
+            return withMetadata(
+              json({ error: "game_credentials_invalid" }, 401),
+              accounts.get(playerId),
+            );
+          }
+          if (identity.ok && Number.isSafeInteger(identityData?.playerId)) {
+            mark(record, "unavailable", path);
+            record = accounts.get(playerId);
+            return withMetadata(
+              fallback && section
+                ? json(section.data)
+                : json({ error: "game_unavailable" }, 503),
+              record,
+              section,
+              true,
+            );
+          }
+          mark(record, "unavailable", path);
+          return withMetadata(
+            json({ error: "game_unavailable" }, 503),
+            accounts.get(playerId),
+            section,
+            true,
+          );
+        }
         return withMetadata(
           json({ error: "game_credentials_invalid" }, 401),
           accounts.get(playerId),
@@ -406,6 +460,9 @@ export function createAccountSnapshots({
           credentialHashes: [
             ...new Set([...(record.credentialHashes || []), digest]),
           ].slice(-8),
+          revokedHashes: (record.revokedHashes || []).filter(
+            (revoked) => revoked !== digest,
+          ),
           lastSuccessAt: now(),
           health: {
             status: failedSections.length ? "unavailable" : "available",
@@ -484,7 +541,7 @@ export function createAccountSnapshots({
     const requested =
       requestUrl.pathname === "/api/me" &&
       (init.method || "GET").toUpperCase() === "GET" &&
-      headers.get("X-Madhouse-Snapshot-Refresh") === "1";
+      ["1", "live"].includes(headers.get("X-Madhouse-Snapshot-Refresh"));
     const authorization = headers.get("authorization");
     if (
       !authorization ||
@@ -494,12 +551,14 @@ export function createAccountSnapshots({
       return execute(url, init);
     const playerId = authorization && credentials.get(hash(authorization));
     let record = accounts.get(playerId);
+    if (requested && headers.get("X-Madhouse-Snapshot-Refresh") === "live")
+      return execute(url, init, {
+        fallback: !record?.revokedHashes?.includes(hash(authorization)),
+        cache: false,
+        forceFailedRefresh: true,
+      });
     if (!requested || !record) return execute(url, init);
-    if (record.revokedHashes?.includes(hash(authorization)))
-      return withMetadata(
-        json({ error: "game_credentials_invalid" }, 401),
-        record,
-      );
+    const revoked = record.revokedHashes?.includes(hash(authorization));
 
     const failed = record.health?.failedSections || [];
     const paths = [
@@ -510,41 +569,24 @@ export function createAccountSnapshots({
       ),
     ];
     const savedProfile = record.sections?.["/api/me"];
-    const safeFailures = paths.filter((path) => path !== "/api/me");
     const needsProfile = paths.includes("/api/me") || !savedProfile;
     if (
+      !revoked &&
       !needsProfile &&
       Number.isFinite(record.manualHealthRefreshAt) &&
       now() - record.manualHealthRefreshAt < 60_000
     )
       return withMetadata(json(savedProfile.data), record, savedProfile, true);
 
-    if (!needsProfile && !safeFailures.length && failed.length)
-      return withMetadata(json(savedProfile.data), record, savedProfile);
-
-    // If identity is already healthy, retry only failed safe GET sections and
-    // leave /api/me untouched. Reserve the account limiter before awaiting.
-    if (!needsProfile && safeFailures.length) {
-      record = { ...record, manualHealthRefreshAt: now() };
-      persist(record);
-      for (const path of safeFailures) {
-        const result = await execute(
-          new URL(path, url),
-          { method: "GET", headers: { Authorization: authorization } },
-          { fallback: false, cache: false, forceFailedRefresh: true },
-        );
-        if (result.status === 401) return result;
-      }
-      record = accounts.get(playerId);
-      return withMetadata(
-        json(record.sections["/api/me"].data),
-        record,
-        record.sections["/api/me"],
-        Boolean(savedProfile.dirty || now() - savedProfile.updatedAt >= ttl),
-      );
-    }
-
-    const response = await execute(url, init);
+    // Explicit profile refresh always validates /api/me first. Sibling section
+    // failures are retried only after that identity response is confirmed.
+    const response = await execute(
+      url,
+      init,
+      revoked
+        ? { fallback: false, cache: false, forceFailedRefresh: true }
+        : {},
+    );
     if (
       !response.ok ||
       response.headers.get("X-Madhouse-Snapshot") !== "current"
@@ -575,30 +617,9 @@ export function createAccountSnapshots({
     const path = new URL(url).pathname;
     // The game's open endpoint is a state reader using POST transport.
     const workRead = method === "POST" && path === "/api/works/open";
-    const workAction =
-      method === "POST" &&
-      [
-        "/api/works/tasks/perform",
-        "/api/me/bag/boosters/use",
-        "/api/me/bag/boosters/buy",
-      ].includes(path);
     const authorization = new Headers(init.headers).get("authorization");
     const playerId = authorization && credentials.get(hash(authorization));
     const record = accounts.get(playerId);
-    if (
-      method !== "GET" &&
-      (workRead
-        ? record?.health?.status === "credentials_invalid"
-        : workAction
-          ? workGameUnavailable(state(record))
-          : ["unavailable", "credentials_invalid"].includes(
-              record?.health?.status,
-            ))
-    )
-      return withMetadata(
-        json({ error: "game_unavailable_actions_paused" }, 503),
-        record,
-      );
     if (
       method === "GET" &&
       isSnapshotPath(new URL(url).pathname) &&

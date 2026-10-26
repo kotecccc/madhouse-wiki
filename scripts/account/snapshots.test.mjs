@@ -249,7 +249,7 @@ test("manual profile refresh bypasses TTL once per minute and persists its limit
   assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
 });
 
-test("manual health refresh retries only failed snapshot APIs and returns final health", async () => {
+test("manual profile refresh is performed before unrelated failed sections", async () => {
   let now = 200_000;
   const store = memoryStore();
   const initial = createAccountSnapshots({
@@ -274,6 +274,11 @@ test("manual health refresh retries only failed snapshot APIs and returns final 
   now += 1;
   const retry = queueFetcher([
     (url, init) => {
+      assert.equal(new URL(url).pathname, "/api/me");
+      assert.equal(init.method, "GET");
+      return reply({ playerId: 82, name: "current" });
+    },
+    (url, init) => {
       assert.equal(new URL(url).pathname, "/api/weapons/7");
       assert.equal(init.method, "GET");
       return reply({ weapon: 7 });
@@ -297,18 +302,21 @@ test("manual health refresh retries only failed snapshot APIs and returns final 
   });
   assert.deepEqual(
     retry.calls.map(({ url }) => new URL(url).pathname),
-    ["/api/weapons/7", "/api/ornaments/zones/2"],
+    ["/api/me"],
   );
   assert.equal(response.headers.get("X-Madhouse-Game-Status"), "unavailable");
-  assert.equal(response.headers.get("X-Madhouse-Failed-Features"), "ornaments");
+  assert.equal(
+    response.headers.get("X-Madhouse-Failed-Features"),
+    "profile,weapons,ornaments",
+  );
   assert.equal(store.readSnapshots()[0].manualHealthRefreshAt, now);
   assert.equal(
     snapshots.health("Bearer health-refresh-user").featureCheckedAt.weapons,
-    now,
+    now - 30_002,
   );
   assert.equal(
     snapshots.health("Bearer health-refresh-user").featureCheckedAt.ornaments,
-    now,
+    now - 1,
   );
 
   now += 1;
@@ -319,9 +327,13 @@ test("manual health refresh retries only failed snapshot APIs and returns final 
     },
   });
   assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
-  assert.equal(retry.calls.length, 2);
+  assert.equal(retry.calls.length, 1);
   now += 60_000;
-  const recovered = queueFetcher([reply({ tattoo: 2 })]);
+  const recovered = queueFetcher([
+    reply({ playerId: 82, name: "current" }),
+    reply({ weapon: 7 }),
+    reply({ tattoo: 2 }),
+  ]);
   const restarted = createAccountSnapshots({
     store,
     now: () => now,
@@ -335,7 +347,7 @@ test("manual health refresh retries only failed snapshot APIs and returns final 
   });
   assert.deepEqual(
     recovered.calls.map(({ url }) => new URL(url).pathname),
-    ["/api/ornaments/zones/2"],
+    ["/api/me", "/api/weapons/7", "/api/ornaments/zones/2"],
   );
   assert.equal(healthy.headers.get("X-Madhouse-Game-Status"), "available");
   assert.equal(healthy.headers.get("X-Madhouse-Failed-Features"), "");
@@ -360,10 +372,12 @@ test("manual health refresh stops when a failed endpoint invalidates credentials
   await initial.read(`${origin}/api/ornaments/zones/3`, headers);
 
   const retry = queueFetcher([
+    reply({ playerId: 83, name: "player" }),
     (url) => {
       assert.equal(new URL(url).pathname, "/api/weapons/8");
       return reply({ error: "invalid" }, 401);
     },
+    reply({}, 401),
   ]);
   const snapshots = createAccountSnapshots({
     store,
@@ -379,7 +393,7 @@ test("manual health refresh stops when a failed endpoint invalidates credentials
   assert.equal(response.status, 401);
   assert.deepEqual(
     retry.calls.map(({ url }) => new URL(url).pathname),
-    ["/api/weapons/8"],
+    ["/api/me", "/api/weapons/8", "/api/me"],
   );
 });
 
@@ -562,7 +576,11 @@ test("failed mutations do not invalidate saved sections", async () => {
 });
 
 test("unknown sections never produce invented snapshots and invalid credentials are distinct", async () => {
-  const queue = queueFetcher([reply({ playerId: 12 }), reply({}, 401)]);
+  const queue = queueFetcher([
+    reply({ playerId: 12 }),
+    reply({}, 401),
+    reply({}, 401),
+  ]);
   const snapshots = createAccountSnapshots({
     store: memoryStore(),
     fetcher: queue.fetcher,
@@ -585,15 +603,62 @@ test("unknown sections never produce invented snapshots and invalid credentials 
   assert.deepEqual(await payload(missing), { error: "snapshot_unknown" });
 });
 
-test("recovery refreshes data, outage blocks mutations, liveFetch never returns stale reads", async () => {
+test("section 401 is scoped after profile authorization succeeds, and a revoked hash can recover by profile refresh", async () => {
+  const queue = queueFetcher([
+    reply({ playerId: 23, energy: { current: 5 } }),
+    reply({ coins: 40 }),
+    reply({}, 401),
+    reply({ playerId: 23 }),
+    reply({}, 401),
+    reply({ playerId: 23, energy: { current: 7 } }),
+  ]);
+  const store = memoryStore();
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: queue.fetcher,
+    ttl: 0,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("section-401-user"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("section-401-user"));
+
+  const sectionFailure = await snapshots.read(
+    `${origin}/api/me/bag`,
+    auth("section-401-user"),
+  );
+  assert.equal(sectionFailure.status, 200);
+  assert.deepEqual(await payload(sectionFailure), { coins: 40 });
+  assert.deepEqual(store.readSnapshots()[0].revokedHashes || [], []);
+
+  const profileFailure = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer section-401-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.equal(profileFailure.status, 401);
+  assert.deepEqual(await payload(profileFailure), {
+    error: "game_credentials_invalid",
+  });
+  const recovered = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer section-401-user",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.equal(recovered.status, 200);
+  assert.deepEqual((await payload(recovered)).energy, { current: 7 });
+  assert.deepEqual(store.readSnapshots()[0].revokedHashes, []);
+});
+
+test("recovery preserves reads while live mutations are attempted despite health outages", async () => {
   let now = 1_000;
   const queue = queueFetcher([
     reply({ playerId: 15 }),
     reply({ balance: 10 }),
     reply({}, 503),
+    reply({}, 503),
     reply({ balance: 11 }),
     reply({}, 503),
-    reply({ balance: 10 }),
   ]);
   const snapshots = createAccountSnapshots({
     store: memoryStore(),
@@ -606,14 +671,12 @@ test("recovery refreshes data, outage blocks mutations, liveFetch never returns 
   await snapshots.read(`${origin}/api/me/bag`, auth("a"));
   const stale = await snapshots.read(`${origin}/api/me/bag`, auth("a"));
   assert.deepEqual(await payload(stale), { balance: 10 });
-  const blocked = await snapshots.liveFetch(`${origin}/api/room/enter`, {
+  const attempted = await snapshots.liveFetch(`${origin}/api/room/enter`, {
     ...auth("a"),
     method: "POST",
   });
-  assert.equal(blocked.status, 503);
-  assert.deepEqual(await payload(blocked), {
-    error: "game_unavailable_actions_paused",
-  });
+  assert.equal(attempted.status, 503);
+  assert.equal(queue.calls.length, 4);
   await new Promise((resolve) => setImmediate(resolve));
   now += 101;
   const recovered = await snapshots.read(`${origin}/api/me/bag`, auth("a"));
@@ -1006,11 +1069,12 @@ test("work state POST is a reader: optional wardrobe outage cannot block it or d
   assert.equal(store.readSnapshots()[0].sections["/api/me"].dirty, true);
 });
 
-test("work actions remain blocked on inventory/global outage while state reads can recover", async () => {
+test("work actions are attempted during inventory/global outage and state reads can recover", async () => {
   for (const failedPath of ["/api/me/bag", "/api/me"]) {
     const queue = queueFetcher([
       reply({ playerId: 15 }),
       reply({}, 503),
+      reply({ success: true }),
       reply({ workId: 7 }),
     ]);
     const snapshots = createAccountSnapshots({
@@ -1024,12 +1088,60 @@ test("work actions remain blocked on inventory/global outage while state reads c
       `${origin}/api/works/tasks/perform`,
       { ...auth("a"), method: "POST" },
     );
-    assert.equal(perform.status, 503);
+    assert.equal(perform.status, 200);
     const open = await snapshots.liveFetch(`${origin}/api/works/open`, {
       ...auth("a"),
       method: "POST",
     });
     assert.equal(open.status, 200);
-    assert.equal(queue.calls.length, 3);
+    assert.equal(queue.calls.length, 4);
   }
+});
+
+test("opening the site revalidates sensitive profile even inside manual refresh cooldown", async () => {
+  const queue = queueFetcher([
+    reply({
+      playerId: 12,
+      level: 3,
+      currentExp: 10,
+      energy: { current: 5, max: 10 },
+    }),
+    reply({
+      playerId: 12,
+      level: 4,
+      currentExp: 1,
+      energy: { current: 9, max: 10 },
+    }),
+    reply({
+      playerId: 12,
+      level: 5,
+      currentExp: 2,
+      energy: { current: 8, max: 10 },
+    }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    now: () => 1000,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("revalidate"));
+  const options = {
+    headers: {
+      ...auth("revalidate").headers,
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  };
+  assert.equal(
+    (await payload(await snapshots.read(`${origin}/api/me`, options))).level,
+    4,
+  );
+  assert.equal(
+    (await payload(await snapshots.read(`${origin}/api/me`, options))).level,
+    5,
+  );
+  assert.equal(queue.calls.length, 3);
+  assert.equal(
+    queue.calls[1].init.headers.get("X-Madhouse-Snapshot-Refresh"),
+    null,
+  );
 });

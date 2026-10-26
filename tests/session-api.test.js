@@ -457,6 +457,38 @@ test("manual health refresh sends the internal force header for profile only", a
   assert.equal(calls[1].headers["X-Madhouse-Snapshot-Refresh"], undefined);
 });
 
+test("a forced profile refresh asks the server for current account data and keeps the last good profile on failure", async () => {
+  let calls = 0;
+  let refreshHeader;
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake" },
+    }),
+    fetcher: async (_url, options) => {
+      calls++;
+      refreshHeader = options.headers["X-Madhouse-Snapshot-Refresh"];
+      return calls === 1
+        ? Response.json({ energy: { current: 8 }, exp: { current: 40 } })
+        : new Response("unavailable", { status: 503 });
+    },
+  });
+
+  assert.deepEqual(await api.get("/api/me"), {
+    energy: { current: 8 },
+    exp: { current: 40 },
+  });
+  await assert.rejects(
+    api.get("/api/me", { fresh: true, serverRefresh: "live" }),
+  );
+  assert.equal(refreshHeader, "live");
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), {
+    energy: { current: 8 },
+    exp: { current: 40 },
+  });
+});
+
 test("combined boss cards use one cache key and scope refresh to the winning boss", async () => {
   const headers = [];
   let clock = 1000;

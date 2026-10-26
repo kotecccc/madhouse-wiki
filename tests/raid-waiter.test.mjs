@@ -176,17 +176,47 @@ test("confirmed waiting intent resumes after restart and deadline stops polling"
   assert.deepEqual(ctx.calls, ["refresh"]);
 });
 
-test("read failure keeps raid enabled and backs off without retrying mutations", async () => {
+test("read failure keeps raid enabled and a later read recovers without mutation retry", async () => {
+  let fail = true;
   const ctx = setup({
     refresh: () => {
-      throw new Error("offline");
+      if (fail) throw new Error("offline");
     },
   });
   ctx.worker.start(7);
   await ctx.worker.tick();
-  ctx.advance();
-  await ctx.worker.tick();
-  assert.equal(ctx.worker.getSnapshot().status, "waiting");
   assert.equal(ctx.worker.getSnapshot().enabled, true);
-  assert.deepEqual(ctx.calls, ["refresh"]);
+  ctx.advance(30000);
+  fail = false;
+  ctx.setItems([invitation]);
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().status, "fighting");
+  assert.equal(ctx.worker.getSnapshot().enabled, true);
+  assert.deepEqual(ctx.calls, ["refresh", "refresh", "invite-7", "auto.start"]);
+});
+
+test("a successful state refresh clears a temporary error and resumes invitation polling immediately", async () => {
+  let fail = true;
+  const ctx = setup({
+    refresh: () => {
+      if (fail) throw new Error("offline");
+      delete ctx.state.error;
+    },
+  });
+  ctx.worker.start(7);
+  ctx.state.error = "temporary_state_error";
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().enabled, true);
+  ctx.advance(30000);
+  fail = false;
+  ctx.setItems([invitation]);
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().status, "fighting");
+  assert.deepEqual(ctx.calls, [
+    "refresh",
+    "refresh",
+    "refresh",
+    "invite-7",
+    "auto.start",
+  ]);
 });

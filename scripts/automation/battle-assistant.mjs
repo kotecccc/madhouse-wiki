@@ -226,10 +226,11 @@ export function createBattleAssistant({
     await refreshAvailability();
     if (stopped || !readAvailable() || recoveryGeneration !== generation)
       return false;
-    const state = controller.getSnapshot();
     if (record.pending) {
       const pending = record.pending;
-      await controller.refresh();
+      await controller.refresh(
+        pending.kind === "start" ? { discover: true } : undefined,
+      );
       if (stopped || recoveryGeneration !== generation || !readAvailable())
         return false;
       const current = controller.getSnapshot();
@@ -238,18 +239,26 @@ export function createBattleAssistant({
         pending.beforeDamage ??
         record.battles[pending.battleId]?.samples?.at(-1)?.totalDamage;
       const confirmed =
-        pending.kind === "attack" &&
-        !current.needsRefresh &&
-        !current.error &&
-        battle?.id &&
-        (battle.id !== pending.battleId ||
-          (Number.isFinite(beforeDamage) &&
-            Number.isFinite(battle.totalDamage) &&
-            battle.totalDamage > beforeDamage));
+        pending.kind === "start"
+          ? !current.needsRefresh &&
+            !current.error &&
+            current.boss?.id === pending.bossId &&
+            battle?.status === "active" &&
+            Boolean(battle.id) &&
+            battle.id !== pending.beforeBattleId
+          : pending.kind === "attack" &&
+            !current.needsRefresh &&
+            !current.error &&
+            battle?.id &&
+            (battle.id !== pending.battleId ||
+              (Number.isFinite(beforeDamage) &&
+                Number.isFinite(battle.totalDamage) &&
+                battle.totalDamage > beforeDamage));
       if (!confirmed) return false;
       complete();
     }
-    if (state.battle?.status === "active") await controller.loadMedicines();
+    if (controller.getSnapshot().battle?.status === "active")
+      await controller.loadMedicines();
     else await controller.refresh();
     if (
       controller.getSnapshot().needsRefresh ||
@@ -407,6 +416,8 @@ export function createBattleAssistant({
   } = {}) {
     if (!allowed() || record.pending) return;
     const actionGeneration = generation;
+    const beforeBattleId = controller.getSnapshot().battle?.id ?? null;
+    const bossId = controller.getSnapshot().boss?.id ?? null;
     const beforeSend = (operation) => {
       if (
         !allowed() ||
@@ -415,7 +426,7 @@ export function createBattleAssistant({
         !Number.isSafeInteger(damageBound())
       )
         return false;
-      reserve({ kind: "start", ...operation });
+      reserve({ kind: "start", bossId, beforeBattleId, ...operation });
       return true;
     };
     if (next)
@@ -636,6 +647,15 @@ export function createBattleAssistant({
         "Неизвестный расход учтён по резерву. Автобой можно включить вручную.";
       record.waiting = null;
       complete();
+    },
+    releaseUnsent(operationId) {
+      if (
+        typeof operationId !== "string" ||
+        record.pending?.operationId !== operationId
+      )
+        return false;
+      complete();
+      return true;
     },
     exportState: () => structuredClone(record),
     nextActionAt(attackAt) {

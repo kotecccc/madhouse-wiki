@@ -524,3 +524,24 @@ test("boss reward preview retains currency definitions without account state and
     assert.equal(boss.claimed, undefined);
   });
 });
+
+test("release seed includes the J floor work definitions required by the server executor", () => {
+  const data = readKnowledgeBase(
+    process.cwd(),
+    join(process.cwd(), "catalogue/reference.sqlite"),
+  );
+  for (const [id, title] of [
+    [28, "Блиндаж"],
+    [29, "Капище друида"],
+  ]) {
+    const work = data.works.find(
+      (work) => Number(work.workId ?? work.apiId) === id,
+    );
+    assert.ok(work, `release seed must contain work ${id}`);
+    assert.equal(work.title, title);
+    assert.ok(work.tasks.length > 0);
+    assert.ok(
+      data.departments.some((department) => department.work?.id === work.id),
+    );
+  }
+});

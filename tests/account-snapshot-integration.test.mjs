@@ -17,7 +17,7 @@ const json = (body, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
-test("restarted gateway serves saved identity offline, pauses game start, and accepts a safe preference command", async (t) => {
+test("restarted gateway serves saved identity offline, accepts queued work intent, and accepts a safe preference command", async (t) => {
   const directory = mkdtempSync(
     join(tmpdir(), "madhouse-account-snapshot-integration-"),
   );
@@ -131,17 +131,23 @@ test("restarted gateway serves saved identity offline, pauses game start, and ac
       },
       body: JSON.stringify({
         id: "blocked-start-0001",
-        command: "start",
-        args: {},
+        command: "work.start",
+        args: {
+          workId: 7,
+          targetCycles: 1,
+          mode: "energy",
+          maxActions: 10,
+          maxBoosters: 0,
+          maxDollar: 0,
+          allowPurchase: false,
+        },
         expectedVersion: state.version,
       }),
     }),
   );
-  assert.equal(response.status, 503);
-  assert.equal(
-    (await response.json()).error,
-    "game_unavailable_actions_paused",
-  );
+  assert.equal(response.status, 200);
+  const queuedState = await response.json();
+  assert.equal(queuedState.workFarm.run.status, "running");
   assert.equal(
     upstreamCalls.some(({ method }) => method === "POST"),
     false,
@@ -158,7 +164,7 @@ test("restarted gateway serves saved identity offline, pauses game start, and ac
         id: "favorites-set-0001",
         command: "favorites.set",
         args: { bossIds: [44] },
-        expectedVersion: state.version,
+        expectedVersion: queuedState.version,
       }),
     }),
   );

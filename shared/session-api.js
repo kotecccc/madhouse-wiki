@@ -209,7 +209,10 @@ export function createSessionApi({
             ...request.headers,
             ...(snapshotOnly ? { "X-Madhouse-Snapshot-Only": "1" } : {}),
             ...(serverRefresh && path === "/api/me"
-              ? { "X-Madhouse-Snapshot-Refresh": "1" }
+              ? {
+                  "X-Madhouse-Snapshot-Refresh":
+                    serverRefresh === "live" ? "live" : "1",
+                }
               : {}),
             ...(path === "/api/automation/bosses" &&
             Number.isSafeInteger(refreshBoss) &&

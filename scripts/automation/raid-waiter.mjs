@@ -43,7 +43,15 @@ export function createRaidWaiter({
   return {
     getSnapshot: () => value,
     start(bossId) {
-      if (running || value.enabled || uncertain()) return false;
+      if (
+        running ||
+        value.enabled ||
+        state().pending ||
+        state().pendingInvitation ||
+        state().purchase ||
+        state().purchaseUncertain
+      )
+        return false;
       const current = state();
       if (current.battle?.status === "active") return false;
       ready = true;
@@ -144,8 +152,15 @@ export function createRaidWaiter({
           ) {
             if (auto.start())
               publish({ status: "fighting", notice: "Рейд идёт." });
+            return;
           }
-          return;
+          // A successful read can clear a stale state error or resolve an
+          // expired invitation with no active battle. Continue into the normal
+          // invitation read in this tick; otherwise recovery waits another
+          // full polling interval despite already having fresh state.
+          if (uncertain()) return;
+          if (state().battle?.status === "active") return;
+          publish({ nextCheckAt: now() });
         }
         const current = state();
         if (current.boss?.id !== value.bossId) throw new Error("boss_changed");

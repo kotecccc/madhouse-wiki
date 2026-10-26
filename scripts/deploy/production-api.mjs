@@ -152,9 +152,11 @@ export function createProductionApi(operations, fetcher = fetch) {
     if (
       method === "GET" &&
       path === "/api/me" &&
-      request.headers.get("x-madhouse-snapshot-refresh") === "1"
+      ["1", "live"].includes(request.headers.get("x-madhouse-snapshot-refresh"))
     )
-      upstreamHeaders["X-Madhouse-Snapshot-Refresh"] = "1";
+      upstreamHeaders["X-Madhouse-Snapshot-Refresh"] = request.headers.get(
+        "x-madhouse-snapshot-refresh",
+      );
     if (body?.byteLength) upstreamHeaders["Content-Type"] = "application/json";
     if (matchingRoute.allowsDevKey) {
       const devKey = request.headers.get("x-cargohustle-dev-key");

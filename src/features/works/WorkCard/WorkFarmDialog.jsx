@@ -327,20 +327,12 @@ export function WorkFarmDialog({
     [knownEnergy, state.error, profileFailed],
   );
   const ready = Boolean(
-    view &&
     Number.isSafeInteger(target) &&
-    (energyOnly
-      ? energyBudget > 0 &&
-        view.tasks.some(
-          (task) =>
-            task.canPerform &&
-            task.progress < task.required &&
-            task.energyCost <= energyBudget,
-        )
-      : target > completed && target - completed <= 1000) &&
+    target > completed &&
+    target - completed <= 1000 &&
     !state.pending &&
-    !state.error &&
-    !running,
+    !running &&
+    state.loaded,
   );
   async function start(mode) {
     if (!ready || (!energyOnly && mode === "boosters" && !purchase?.feasible))
@@ -366,7 +358,9 @@ export function WorkFarmDialog({
       aria-label="Прогресс выбранного варианта"
     >
       <LoadingStatus>
-        {energyOnly ? (
+        {run.reason ? (
+          run.reason
+        ) : energyOnly ? (
           `Работа идёт · ${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
         ) : (
           <>
@@ -400,21 +394,22 @@ export function WorkFarmDialog({
       boostersLoading={!view && !state.error && !state.notice}
       conditionDialog={condition}
       title={`Работа · ${work.title || work.name || "Работёнка"}`}
-      footerStart={<Button onClick={onClose}>Закрыть</Button>}
+      footerStart={
+        <>
+          <Button onClick={onClose}>Закрыть</Button>
+          {serviceUnavailable && (
+            <Button
+              disabled={state.pending || retrySeconds > 0}
+              onClick={() => void retryService()}
+            >
+              Обновить данные
+            </Button>
+          )}
+        </>
+      }
       footer={
         running ? (
           <Button onClick={() => void farmStore.stop()}>Остановить</Button>
-        ) : serviceUnavailable ? (
-          <Button
-            disabled={state.pending || retrySeconds > 0}
-            onClick={() => void retryService()}
-          >
-            {state.pending
-              ? "Обновляем…"
-              : retrySeconds > 0
-                ? `Обновить ${Math.floor(retrySeconds / 60)}:${String(retrySeconds % 60).padStart(2, "0")}`
-                : "Обновить"}
-          </Button>
         ) : (
           <Button
             variant="primary"
@@ -465,7 +460,7 @@ export function WorkFarmDialog({
         maxToggle: {
           active: energyOnly,
           onToggle: () => setMaxMode((value) => !value),
-          disabled: running || energyBudget == null,
+          disabled: running,
           label: (
             <>
               MAX {energyBudget == null ? "—" : fmt(energyBudget)}{" "}

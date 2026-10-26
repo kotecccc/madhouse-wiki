@@ -224,3 +224,23 @@ test("personal snapshot metadata survives the fixed-origin transport without pub
   assert.equal(res.headers["x-madhouse-snapshot-ttl"], "180000");
   assert.match(res.headers["cache-control"], /private, no-store/);
 });
+
+test("production proxy preserves live profile revalidation through the snapshot boundary", async () => {
+  let call;
+  const proxy = createProxy(async (url, options) => {
+    call = { url, options };
+    return Response.json({ playerId: 1 });
+  });
+  await proxy(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: {
+        authorization: "Bearer test.session.token",
+        "x-madhouse-snapshot-refresh": "live",
+      },
+    },
+    response(),
+  );
+  assert.equal(call.options.headers["X-Madhouse-Snapshot-Refresh"], "live");
+});

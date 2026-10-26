@@ -4,6 +4,7 @@ import {
 } from "../../../../shared/telegram-context.js";
 import {
   getSessionJson,
+  peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
 import { useEffect, useRef, useState } from "react";
@@ -68,7 +69,10 @@ export function LoginControl() {
   });
   const [pendingLogin, setPendingLogin] = useState(false);
   const telegramRef = useRef(null);
-  const [profile, setProfile] = useState(null);
+  const [profile, setProfile] = useState(() => {
+    const cached = peekSessionJson("/api/me", { allowStale: true });
+    return cached ? normalizePlayerProfile(cached) : null;
+  });
   const controlRef = useRef(null);
   const refreshProfileRef = useRef(() => {});
   const authenticated = session.status === "ready";
@@ -118,7 +122,11 @@ export function LoginControl() {
       }
       setRestoring(true);
       try {
-        const data = await getSessionJson("/api/me", { signal });
+        const data = await getSessionJson("/api/me", {
+          signal,
+          fresh: true,
+          serverRefresh: "live",
+        });
         if (!signal.aborted) {
           setProfile(normalizePlayerProfile(data));
           setRestoring(false);
