@@ -1,7 +1,7 @@
 import { StatTag } from "../../components/ui/StatTag/StatTag.jsx";
 import { MutagenLabel } from "../../components/ui/MutagenLabel/MutagenLabel.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
-import { ConfirmButton } from "../../components/ui/ConfirmButton/ConfirmButton.jsx";
+import { ApprovableButton } from "../../components/ui/ConfirmButton/ConfirmButton.jsx";
 import { inventoryDisplayStats } from "./inventory.js";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
@@ -212,9 +212,14 @@ export function InventoryItemCard({
         )}
       </div>
       {item.status === "buyable" && price && onAction && (
-        <ConfirmButton
+        <ApprovableButton
           confirmationKey={`${item.type}:${item.id}:${price.currency}:${price.amount}`}
           variant="primary"
+          confirmationLabel={
+            <>
+              Точно? · {fmt(price.amount)} {currencies[price.currency]}
+            </>
+          }
           disabled={equipmentBusy}
           icon={
             price.currency === "gold"
@@ -228,13 +233,13 @@ export function InventoryItemCard({
           onClick={() => onAction(item, "buy")}
         >
           Купить · {fmt(price.amount)} {currencies[price.currency]}
-        </ConfirmButton>
+        </ApprovableButton>
       )}
       {item.status === "owned" &&
         (onAction || (item.type === "weapon" && onEquip)) && (
           <div className="inventory-item-actions">
             {item.type === "weapon" && item.isBroken && (
-              <ConfirmButton
+              <ApprovableButton
                 confirmationKey={`${item.id}:${item.repairCost}`}
                 className="inventory-item-action"
                 disabled={equipmentBusy || item.repairCost == null || !onAction}
@@ -245,7 +250,7 @@ export function InventoryItemCard({
                 {item.repairCost != null
                   ? ` (${fmt(item.repairCost)})`
                   : " — цена неизвестна"}
-              </ConfirmButton>
+              </ApprovableButton>
             )}
             <Button
               className="inventory-item-action"
