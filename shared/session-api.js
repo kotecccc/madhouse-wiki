@@ -286,6 +286,15 @@ export function createSessionApi({
         if (!response.ok) {
           const error = new Error("Не удалось загрузить данные");
           error.status = response.status;
+          if (path === "/api/automation/commands") {
+            const failure = await response.json().catch(() => null);
+            if (
+              /^(inventory_[a-z_]+|automation_[a-z_]+|weapon_equipment_uncertain)$/.test(
+                failure?.inventoryReason || "",
+              )
+            )
+              error.inventoryReason = failure.inventoryReason;
+          }
           const retryAfter = response.headers?.get?.("Retry-After");
           if (retryAfter) {
             const delay = /^\d+$/.test(retryAfter)
