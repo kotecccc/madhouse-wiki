@@ -170,6 +170,23 @@ test("time deadline ticks, survives restore, and blocks starts at closure", () =
   assert.equal(restored.getSnapshot().status, "completed");
 });
 
+test("finishing the current battle defers the goal deadline across a restart", () => {
+  const f = fixture(),
+    g = f.goal();
+  g.configure(config("time", { targetCount: undefined, durationHours: 1 }));
+  g.finishCurrentBattle();
+  const saved = g.exportState();
+  f.setTime(3601000);
+  g.tick();
+  assert.equal(g.getSnapshot().status, "active");
+  const restored = f.goal();
+  restored.restoreState(saved);
+  restored.tick();
+  assert.equal(restored.getSnapshot().status, "active");
+  restored.stop();
+  assert.equal(restored.getSnapshot().status, "stopped");
+});
+
 test("duration deadlines expire quantitative goals and survive restore", () => {
   for (const kind of ["battles", "business_items", "drops"]) {
     const f = fixture();

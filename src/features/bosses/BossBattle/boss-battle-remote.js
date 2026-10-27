@@ -76,6 +76,7 @@ export function createRemoteBattleSession({
   const businessListeners = new Set();
   const characterListeners = new Set();
   const workFarmListeners = new Set();
+  const floorListeners = new Set();
   const invitationListeners = new Set();
   const subscriptionListeners = new Set();
   let connected = false;
@@ -83,6 +84,7 @@ export function createRemoteBattleSession({
   let transportError = null;
   let workCommandError = null;
   let businessCommandError = null;
+  let floorCommandError = null;
   let characterCommandError = null;
   let invitationCommandError = null;
   let friendCommandError = null;
@@ -110,6 +112,11 @@ export function createRemoteBattleSession({
     loaded: false,
   });
   let workFarmSnapshot = EMPTY_WORK_FARM;
+  let floorSnapshot = Object.freeze({
+    status: "stopped",
+    loaded: false,
+    pending: false,
+  });
   let invitationSnapshot = EMPTY_INVITATIONS;
   let subscriptionSnapshot = Object.freeze({
     detectedRaids: [],
@@ -196,6 +203,13 @@ export function createRemoteBattleSession({
       error: transportError || workCommandError,
     });
     notify(workFarmListeners, workFarmSnapshot);
+    floorSnapshot = Object.freeze({
+      ...(server?.floorRunner ?? { status: "stopped" }),
+      loaded: Boolean(server),
+      pending: pendingCommands > 0,
+      error: transportError || floorCommandError,
+    });
+    notify(floorListeners, floorSnapshot);
     invitationSnapshot = Object.freeze({
       ...EMPTY_INVITATIONS,
       ...(server?.invitations ?? {}),
@@ -226,6 +240,7 @@ export function createRemoteBattleSession({
     transportError = null;
     workCommandError = null;
     businessCommandError = null;
+    floorCommandError = null;
     characterCommandError = null;
     invitationCommandError = null;
     const incomingVersion = value?.version;
@@ -262,8 +277,9 @@ export function createRemoteBattleSession({
       server?.goal?.status === "running" ||
       server?.goal?.status === "active" ||
       server?.businessAssistant?.run?.status === "running" ||
-      server?.characterUpgrade?.run?.status === "running" ||
-      server?.workFarm?.run?.status === "running"
+      server?.workFarm?.run?.status === "running" ||
+      server?.floorRunner?.status === "running" ||
+      server?.characterUpgrade?.run?.status === "running"
     );
   }
   const pollInterval = () =>
@@ -415,7 +431,10 @@ export function createRemoteBattleSession({
       command === "business.run.stop" ||
       command === "character.stop" ||
       command === "work.stop";
-    if (!connected || (!urgent && pendingCommands > 0)) return false;
+    const floorStop = command === "floor.stop";
+    if (!connected || (!urgent && !floorStop && pendingCommands > 0))
+      return false;
+    if (command.startsWith("floor.")) floorCommandError = null;
     if (command.startsWith("raid.friend.")) friendCommandError = null;
     pendingCommands++;
     publish();
@@ -447,6 +466,11 @@ export function createRemoteBattleSession({
       return true;
     } catch (error) {
       if (!connected || run !== epoch) return false;
+      if (command.startsWith("floor.")) {
+        floorCommandError =
+          "Не удалось изменить авторежим. Проверьте активные цели и повторите попытку.";
+        publish();
+      }
       if (
         error?.status === 409 &&
         error.snapshot &&
@@ -746,7 +770,17 @@ export function createRemoteBattleSession({
       send("raid.friend.request", { playerId, username }),
     refreshFriend: () => send("raid.friend.refresh"),
   };
+  const floorAutomation = {
+    subscribe(listener) {
+      floorListeners.add(listener);
+      return () => floorListeners.delete(listener);
+    },
+    getSnapshot: () => floorSnapshot,
+    start: () => send("floor.start"),
+    stop: () => send("floor.stop"),
+  };
   return Object.freeze({
+    floorAutomation,
     bossInvitations,
     raidSubscriptions,
     businessAssistant,
