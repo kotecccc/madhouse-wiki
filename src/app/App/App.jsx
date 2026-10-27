@@ -11,6 +11,9 @@ import {
 } from "../../features/inventory/inventory.js";
 import { InventorySection } from "../../features/inventory/InventorySection.jsx";
 import { BossBattleDialog } from "../../features/bosses/BossBattle/BossBattleDialog.jsx";
+import { bossBattle } from "../../features/bosses/BossBattle/boss-battle-session.js";
+import { CharacterUpgrade } from "../../features/overview/CharacterUpgrade/CharacterUpgrade.jsx";
+import { WorkFarmDialog } from "../../features/works/WorkCard/WorkFarmDialog.jsx";
 import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/ActiveBattleDock.jsx";
 import { BottomDock } from "../../components/layout/BottomDock/BottomDock.jsx";
 import { knowledgeBase as kb } from "virtual:madhouse-catalogue";
@@ -63,6 +66,7 @@ export function App() {
   const raidSchedule = useRaidSchedule();
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
+  const [queueDialog, setQueueDialog] = useState(null);
   const [sessionStatus, setSessionStatus] = useState(
     () => readSession().status,
   );
@@ -260,6 +264,52 @@ export function App() {
     changeScreen("overview");
   };
   const onOpenRaids = () => changeScreen("raids");
+  const openQueueAction = (card) => {
+    const type = card.destination;
+    if (["work", "work.start", "work.booster"].includes(type) && card.work) {
+      setQueueDialog({ type: "work", work: card.work });
+    } else if (type === "character" || type === "character.start") {
+      setQueueDialog({ type: "character" });
+    } else if (type === "business" || type === "business.start") {
+      const business = kb.businesses.find(
+        (item) => item.id === card.businessId,
+      );
+      if (business)
+        setUpgradeDialog({
+          business,
+          upgrade: kb.businessUpgrades.find(
+            (item) => item.businessId === business.id,
+          ),
+        });
+      else changeScreen("overview");
+    } else if (
+      ["auto", "goal", "raid"].includes(type) ||
+      type.startsWith("battle.") ||
+      type === "auto.start" ||
+      type === "raid.start"
+    ) {
+      const boss = card.bossId
+        ? kb.bosses.find(
+            (item) =>
+              String(item.id) === String(card.bossId) ||
+              Number(item.numericId ?? item.apiId) === Number(card.bossId),
+          )
+        : actionQueue.state?.battle?.boss;
+      if (boss) void bossBattle.open(boss);
+      else changeScreen("overview");
+    } else if (type.startsWith("friend.") || type === "buddy") {
+      changeScreen("friends");
+    } else if (type === "inventory") {
+      changeScreen("inventory");
+    } else if (
+      type.startsWith("subscription") ||
+      type === "invitation.accept"
+    ) {
+      changeScreen("raids");
+    } else {
+      changeScreen("overview");
+    }
+  };
   const onDepartmentState = useCallback((state) => {
     if (state?.status === "ready" || state?.status === "error")
       setDepartmentState(state);
@@ -374,6 +424,7 @@ export function App() {
                   state={actionQueue.state}
                   catalogue={kb}
                   onCommand={actionQueue.command}
+                  onOpen={openQueueAction}
                   pending={actionQueue.pending}
                 />
                 {actionQueue.error && (
@@ -451,6 +502,16 @@ export function App() {
           />
         )}
         <BossBattleDialog />
+        {queueDialog?.type === "character" && (
+          <CharacterUpgrade onClose={() => setQueueDialog(null)} />
+        )}
+        {queueDialog?.type === "work" && (
+          <WorkFarmDialog
+            work={queueDialog.work}
+            energy={queueDialog.work.energyCycle?.full}
+            onClose={() => setQueueDialog(null)}
+          />
+        )}
         <TelegramLaunchScreen />
       </div>
     </ToastTargetContext.Provider>

@@ -1,9 +1,10 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import { RaidArchive } from "../RaidArchive/RaidArchive.jsx";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { raidSubscriptions } from "../../bosses/BossBattle/boss-battle-session.js";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { combineRaids, raidFriendKey, raidFriendTarget } from "../raid-list.js";
@@ -17,6 +18,7 @@ export function RaidScheduleSection({
   active = false,
 }) {
   const latest = state.posts[0];
+  const [queueNotice, setQueueNotice] = useState(null);
   const subscriptionState = useSyncExternalStore(
     raidSubscriptions.subscribe,
     raidSubscriptions.getSnapshot,
@@ -97,6 +99,16 @@ export function RaidScheduleSection({
         </p>
       )}
       <ErrorToast message={subscriptionState.error} />
+      {queueNotice && (
+        <Toast
+          floating
+          success
+          title="В очереди"
+          onDismiss={() => setQueueNotice(null)}
+        >
+          {queueNotice}
+        </Toast>
+      )}
       {subscriptionState.friendError && (
         <ErrorToast message={subscriptionState.friendError}>
           <Button
@@ -118,16 +130,20 @@ export function RaidScheduleSection({
             authenticated={authenticated}
             detectedRaids={subscriptionState.detectedRaids}
             subscriptionState={subscriptionState}
-            onSubscribe={(leader, boss, username) =>
-              void raidSubscriptions.start(leader, boss, username)
-            }
+            onSubscribe={async (leader, boss, username) => {
+              if (await raidSubscriptions.start(leader, boss, username))
+                setQueueNotice("Подписка добавлена в очередь.");
+            }}
             onUnsubscribe={(queueId) => void raidSubscriptions.stop(queueId)}
-            onRequestFriend={(target) =>
-              void raidSubscriptions.requestFriend(
-                target.playerId ?? null,
-                target.username ?? "",
+            onRequestFriend={async (target) => {
+              if (
+                await raidSubscriptions.requestFriend(
+                  target.playerId ?? null,
+                  target.username ?? "",
+                )
               )
-            }
+                setQueueNotice("Заявка добавлена в очередь.");
+            }}
             onInspectFriend={(target) =>
               void raidSubscriptions.inspectFriend(
                 target.playerId ?? null,

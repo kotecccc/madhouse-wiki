@@ -1,4 +1,5 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { WorkStashCard } from "./WorkStashCard.jsx";
 import {
   getSessionJson,
@@ -14,8 +15,8 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { RequirementCalculatorDialog } from "../../calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
-import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
+import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -503,15 +504,7 @@ export function WorkFarmDialog({
               заблокирован.
             </CardDescription>
           )}
-          {active ? (
-            <BaseCard>{activeProgress}</BaseCard>
-          ) : running ? (
-            <BaseCard className="work-calculator-goal">
-              <CardDescription title={run.reason}>
-                Другая работёнка выполняется. Новая цель будет ждать в очереди.
-              </CardDescription>
-            </BaseCard>
-          ) : null}
+          {active && <BaseCard>{activeProgress}</BaseCard>}
         </>
       }
       onClose={onClose}
@@ -577,11 +570,25 @@ export function WorkFarmDialog({
             ["limited", "error"].includes(run.status) &&
             run.reason && <ErrorToast message={run.reason} />}
           {boosterNotice && (
-            <CardDescription role="status">{boosterNotice}</CardDescription>
+            <Toast
+              floating
+              success
+              title="В очереди"
+              onDismiss={() => setBoosterNotice(null)}
+            >
+              {boosterNotice}
+            </Toast>
           )}
           {!active && <ErrorToast message={launchError} />}
           {queueNotice && (
-            <CardDescription role="status">{queueNotice}</CardDescription>
+            <Toast
+              floating
+              success
+              title="В очереди"
+              onDismiss={() => setQueueNotice(null)}
+            >
+              {queueNotice}
+            </Toast>
           )}
         </>
       }

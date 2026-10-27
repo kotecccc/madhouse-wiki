@@ -60,6 +60,7 @@ export function actionQueueCards(state, catalogue = {}) {
       progress,
       image,
       actor: true,
+      destination: key,
     });
   const floor = state.floorRunner;
   const business = state.businessAssistant?.run;
@@ -130,6 +131,7 @@ export function actionQueueCards(state, catalogue = {}) {
               ? "Ожидает игру"
               : null,
       );
+      cards.at(-1).businessId = business.businessId;
       if (subscription?.hasSuspendedGoal || buddy?.hasSuspendedGoal) {
         cards.at(-1).status = "Ожидает рейд";
       } else if (!business.resumeRequested && !business.stopRequested)
@@ -188,7 +190,11 @@ export function actionQueueCards(state, catalogue = {}) {
       );
       addActor(
         "work",
-        ref?.nameRu || ref?.name || work.title || "Фарм работёнки",
+        ref?.title ||
+          ref?.nameRu ||
+          ref?.name ||
+          work.title ||
+          "Фарм работёнки",
         "work.stop",
         work.status === "paused"
           ? "На паузе"
@@ -208,6 +214,7 @@ export function actionQueueCards(state, catalogue = {}) {
         ref?.image,
       );
       const card = cards.at(-1);
+      card.work = ref;
       if (work.status === "stopped") {
         card.status = "Проверяем результат";
         card.command = null;
@@ -277,14 +284,19 @@ export function actionQueueCards(state, catalogue = {}) {
         Number(ref.id) === job.args.id &&
         (ref.type !== "ornament" || ref.zoneId === job.args.zoneId),
     );
-    const queuedWork =
-      job.type === "work.start"
-        ? catalogue.works?.find(
-            (ref) =>
-              Number(ref.workId ?? ref.numericId ?? ref.apiId) ===
-              job.args.workId,
-          )
-        : null;
+    const queuedWork = ["work.start", "work.booster"].includes(job.type)
+      ? catalogue.works?.find(
+          (ref) =>
+            Number(ref.workId ?? ref.numericId ?? ref.apiId) ===
+            job.args.workId,
+        )
+      : null;
+    const bossId = job.args?.bossId ?? job.args?.settings?.bossId;
+    const queuedBoss = catalogue.bosses?.find(
+      (ref) =>
+        String(ref.id) === String(bossId) ||
+        Number(ref.numericId ?? ref.apiId) === Number(bossId),
+    );
     cards.push({
       id: job.id,
       title:
@@ -293,7 +305,10 @@ export function actionQueueCards(state, catalogue = {}) {
           : job.type === "subscription.start"
             ? "Подписка на рейды"
             : job.type === "work.start"
-              ? queuedWork?.nameRu || queuedWork?.name || "Фарм работёнки"
+              ? queuedWork?.title ||
+                queuedWork?.nameRu ||
+                queuedWork?.name ||
+                "Фарм работёнки"
               : job.type === "floor.start"
                 ? "Открытие этажа"
                 : job.type === "auto.start"
@@ -401,10 +416,16 @@ export function actionQueueCards(state, catalogue = {}) {
                       ? job.args.type === "full"
                         ? "Полный"
                         : "Малый"
-                      : item?.name
-                        ? actions[job.args?.action]
-                        : null,
-      image: queuedWork?.image || item?.image,
+                      : queuedBoss?.name
+                        ? queuedBoss.name
+                        : item?.name
+                          ? actions[job.args?.action]
+                          : null,
+      image: queuedWork?.image || queuedBoss?.image || item?.image,
+      destination: job.type,
+      work: queuedWork,
+      businessId: job.args?.businessId,
+      bossId,
       command: job.cancelRequested ? null : "queue.cancel",
       position: ready(job) ? ++position : null,
       actor: false,

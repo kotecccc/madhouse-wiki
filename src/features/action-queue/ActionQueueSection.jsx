@@ -5,7 +5,6 @@ import { CardDescription } from "../../components/ui/CardDescription/CardDescrip
 import { ContentSection } from "../../components/ui/ContentSection/ContentSection.jsx";
 import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
 import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
-import { Title } from "../../components/ui/Title/Title.jsx";
 import { actionQueueCards } from "./action-queue-view.js";
 import "./ActionQueueSection.css";
 
@@ -14,12 +13,12 @@ export function ActionQueueSection({
   state,
   catalogue,
   onCommand,
+  onOpen,
   pending,
 }) {
   const cards = actionQueueCards(state, catalogue);
   return (
     <ContentSection>
-      <Title>Очередь действий</Title>
       {!authenticated ? (
         <CardDescription>Войдите, чтобы увидеть свои действия.</CardDescription>
       ) : !state ? (
@@ -44,6 +43,11 @@ export function ActionQueueSection({
                     </CardDescription>
                   )}
                 </div>
+                {card.destination && (
+                  <Button size="sm" onClick={() => onOpen(card)}>
+                    Открыть
+                  </Button>
+                )}
                 {card.pauseCommand && (
                   <Button
                     size="sm"

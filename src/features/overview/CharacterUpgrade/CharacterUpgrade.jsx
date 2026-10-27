@@ -1,4 +1,5 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
@@ -33,6 +34,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
   const [armed, setArmed] = useState(null);
   const [approvedSingles, setApprovedSingles] = useState({});
   const [submittedSingle, setSubmittedSingle] = useState(null);
+  const [queueNotice, setQueueNotice] = useState(false);
   const previousRunStatus = useRef(state.run?.status);
   useEffect(() => {
     void characterUpgrade.refresh();
@@ -117,6 +119,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
             expected: selection,
           });
     const runId = characterUpgrade.getSnapshot().run?.id;
+    if (ok) setQueueNotice(true);
     if (
       ok &&
       key.startsWith("single:") &&
@@ -178,19 +181,15 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
         ["uncertain", "stopped", "error"].includes(state.run.status) && (
           <ErrorToast message={state.run.reason} />
         )}
-      {state.run && running && (
-        <BaseCard padding="12">
-          <CardTitle>{running ? "Прокачка в очереди" : "Прокачка"}</CardTitle>
-          <CardDescription>
-            {state.run.reason ||
-              `Выполнено ${fmt(state.run.completed)} из ${fmt(state.run.target)}${state.run.items ? "" : ` · потрачено ${fmt(state.run.spent)}`}`}
-          </CardDescription>
-          {running && (
-            <Button onClick={() => void characterUpgrade.stop()}>
-              Остановить
-            </Button>
-          )}
-        </BaseCard>
+      {queueNotice && (
+        <Toast
+          floating
+          success
+          title="В очереди"
+          onDismiss={() => setQueueNotice(false)}
+        >
+          Прокачка добавлена в очередь.
+        </Toast>
       )}
       {pending && (
         <Button

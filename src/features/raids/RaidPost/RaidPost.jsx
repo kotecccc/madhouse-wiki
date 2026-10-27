@@ -41,10 +41,6 @@ export function RaidFriendAction({
       disabled={pending}
       onClick={() => onInspectFriend?.(friendTarget)}
     />
-  ) : !archive && authenticated && friendStatus === "queued" ? (
-    <Pill variant="unknown" size="xs" dot={false}>
-      В очереди
-    </Pill>
   ) : !archive && authenticated && friendStatus === "pending" ? (
     <Pill variant="unknown" size="xs" dot={false}>
       Заявка отправлена
@@ -145,15 +141,13 @@ export function RaidPost({
                 dropItems: [],
               })
             : undefined;
-          const actionLabel = queued
-            ? "Отменить подписку в очереди"
-            : selected
-              ? subscription?.enabled
-                ? "Отписаться"
-                : "Завершаем рейд"
-              : candidate
-                ? "Подписаться"
-                : "Ведущий не подтверждён";
+          const actionLabel = selected
+            ? subscription?.enabled
+              ? "Отписаться"
+              : "Завершаем рейд"
+            : candidate
+              ? "Подписаться"
+              : "Ведущий не подтверждён";
           const friendTarget = raidFriendTarget(raid, candidate);
           const friendStatus =
             subscriptionState?.friend?.statuses?.[raidFriendKey(friendTarget)];
@@ -171,13 +165,14 @@ export function RaidPost({
             !archive && authenticated ? (
               <Button
                 size="sm"
-                icon={selected || queued ? "close" : "target"}
+                icon={selected ? "close" : "target"}
                 iconOnly
                 title={actionLabel}
                 aria-label={actionLabel}
                 disabled={
                   !subscriptionState?.loaded ||
                   subscriptionState?.pending ||
+                  Boolean(queued) ||
                   (selected && !subscription?.enabled) ||
                   (!selected &&
                     !queued &&
@@ -186,8 +181,8 @@ export function RaidPost({
                       subscription?.hasSuspendedGoal))
                 }
                 onClick={() =>
-                  selected || queued
-                    ? onUnsubscribe?.(queued?.id)
+                  selected
+                    ? onUnsubscribe?.()
                     : onSubscribe?.(
                         candidate.leaderPlayerId,
                         candidate.bossId,
