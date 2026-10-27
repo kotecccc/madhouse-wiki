@@ -65,3 +65,8 @@
 .inventory-tattoo-loading-label {
   text-align: center;
 }
+
+.inventory-next-dialog {
+  display: grid;
+  gap: var(--space-16);
+}

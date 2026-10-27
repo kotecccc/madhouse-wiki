@@ -72,10 +72,40 @@ export async function createAutomationRuntime({
     getCatalogue,
     origin: env.WIKI_PUBLIC_ORIGIN || null,
   });
-  const handle = (request) =>
-    new URL(request.url).pathname === "/api/automation/bosses"
+  const handle = async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/automation/inventory-snapshots") {
+      const headers = {
+        "Content-Type": "application/json",
+        "Cache-Control": "private, no-store",
+      };
+      if (request.method !== "GET")
+        return new Response(null, { status: 405, headers });
+      if (
+        url.search ||
+        (request.headers.get("origin") &&
+          request.headers.get("origin") !==
+            (env.WIKI_PUBLIC_ORIGIN || url.origin))
+      )
+        return new Response(null, { status: 403, headers });
+      const authorization = request.headers.get("authorization");
+      try {
+        await service.identify(authorization);
+        return new Response(
+          JSON.stringify(snapshots.inventory(authorization)),
+          { headers },
+        );
+      } catch (error) {
+        return new Response(null, {
+          status: Number.isInteger(error.status) ? error.status : 401,
+          headers,
+        });
+      }
+    }
+    return url.pathname === "/api/automation/bosses"
       ? bossCardsHandle(request)
       : automationHandle(request);
+  };
   return {
     handle,
     proxy,
