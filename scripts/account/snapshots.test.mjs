@@ -1020,6 +1020,39 @@ test("health exposes safe failing functions and removes only recovered functions
   assert.deepEqual(snapshots.health("Bearer other-account").failedFeatures, []);
 });
 
+test("friends failures are scoped and clear only on a valid friends response", async () => {
+  const queue = queueFetcher([
+    reply({ playerId: 41 }),
+    reply({}, 500),
+    reply({ items: [] }),
+    reply({ items: [], nextCursor: null }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("friends-health"));
+  await snapshots.liveFetch(
+    `${origin}/api/friends?limit=100`,
+    auth("friends-health"),
+  );
+  assert.deepEqual(snapshots.health("Bearer friends-health").failedFeatures, [
+    "friends",
+  ]);
+  await snapshots.liveFetch(
+    `${origin}/api/friends?limit=100`,
+    auth("friends-health"),
+  );
+  assert.deepEqual(snapshots.health("Bearer friends-health").failedFeatures, [
+    "friends",
+  ]);
+  await snapshots.liveFetch(
+    `${origin}/api/friends?limit=100`,
+    auth("friends-health"),
+  );
+  assert.equal(snapshots.health("Bearer friends-health").status, "available");
+});
+
 test("successful features require fresh clean sections and exclude failed functions", async () => {
   let clock = 1000;
   const fake = queueFetcher([

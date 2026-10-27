@@ -38,6 +38,7 @@ const failedFeatureLabels = {
   ornaments: "Татуировки",
   businesses: "Бизнесы",
   bosses: "Боссы",
+  friends: "Друзья",
   game: "Игровые данные",
 };
 
