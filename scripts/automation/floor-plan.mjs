@@ -48,6 +48,7 @@ export function planFloorProgress({ floors, info, catalogue }) {
       status: "waiting",
       reason: "Условия открытия ещё не подтверждены.",
     };
+  let unresolved = null;
   for (const requirement of requirements) {
     if (requirement.met === true) continue;
     const mapping = {
@@ -60,11 +61,10 @@ export function planFloorProgress({ floors, info, catalogue }) {
       !positive(requirement[mapping[1]]) ||
       !positive(requirement.required) ||
       !count(requirement.current)
-    )
-      return {
-        status: "waiting",
-        reason: "Не удалось подтвердить цель и её текущий прогресс.",
-      };
+    ) {
+      unresolved ??= "Не удалось подтвердить цель и её текущий прогресс.";
+      continue;
+    }
     if (requirement.current >= requirement.required) continue;
     const [kind, field] = mapping;
     const items =
@@ -74,11 +74,10 @@ export function planFloorProgress({ floors, info, catalogue }) {
     const matches = (items || []).filter(
       (item) => Number(item.apiId ?? item.numericId) === requirement[field],
     );
-    if (matches.length !== 1)
-      return {
-        status: "waiting",
-        reason: "Цель отсутствует в справочнике или неоднозначна.",
-      };
+    if (matches.length !== 1) {
+      unresolved ??= "Цель отсутствует в справочнике или неоднозначна.";
+      continue;
+    }
     return {
       status: "ready",
       destination: destination.blockCode ?? destination.code,
@@ -92,5 +91,8 @@ export function planFloorProgress({ floors, info, catalogue }) {
           : Math.min(requirement.required, requirement.current + 1000),
     };
   }
-  return { status: "waiting", reason: "Ожидаем подтверждения открытия." };
+  return {
+    status: "waiting",
+    reason: unresolved ?? "Ожидаем подтверждения открытия.",
+  };
 }

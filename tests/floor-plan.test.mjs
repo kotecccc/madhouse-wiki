@@ -64,6 +64,19 @@ test("does not skip an unknown access state", () => {
   assert.equal(planFloorProgress(input).status, "waiting");
 });
 
+test("an unknown condition does not prevent another confirmed target", () => {
+  const input = structuredClone(fixture);
+  input.info.departments[1].requirements.unshift({
+    type: "player_level",
+    current: 1,
+    required: 2,
+    met: false,
+  });
+  assert.equal(planFloorProgress(input).kind, "work");
+  input.info.departments[1].requirements[1].met = true;
+  assert.equal(planFloorProgress(input).status, "waiting");
+});
+
 test("resolves boss and business targets against their API IDs", () => {
   for (const [type, key, id, kind] of [
     ["boss_kills", "bossId", 4, "boss"],
