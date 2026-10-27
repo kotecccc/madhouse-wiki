@@ -203,11 +203,13 @@ export function BossBattleDialog() {
         )}
         <div className="boss-battle-column boss-battle-settings-column">
           {goalPanel}
-          {state.healing?.notice && (
-            <CardDescription role="status" title={state.healing.notice}>
-              {state.healing.notice}
-            </CardDescription>
-          )}
+          {state.healing?.notice &&
+            state.healing.notice !==
+              "Результат удара проверяется. Автоматического повтора не будет." && (
+              <CardDescription role="status" title={state.healing.notice}>
+                {state.healing.notice}
+              </CardDescription>
+            )}
           <BossHealingSettings
             key={`healing-${state.boss.id}`}
             state={state}
