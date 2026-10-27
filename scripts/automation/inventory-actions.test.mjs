@@ -355,3 +355,43 @@ test("new user action stops if the automatic fresh inventory read fails", async 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("another user command is not blocked by an old inventory checkpoint", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "other-command-reconcile-"));
+  const game = inventoryGame({ owned: true });
+  const service = createAutomationService({
+    store: createAutomationStateStore({ directory }),
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 17 }),
+    getBoss: (id) => ({ numericId: id }),
+  });
+  try {
+    const entry = await service.identify("Bearer fake-token");
+    entry.equipment = {
+      pending: {
+        id: "old-purchase",
+        type: "weapon",
+        entityId: 1,
+        action: "buy",
+      },
+      checked: false,
+    };
+    const result = await service.command(entry, {
+      id: "favorite-friend-1",
+      expectedVersion: service.snapshot(entry).version,
+      command: "friends.favorite",
+      args: { playerId: 99, enabled: false },
+    });
+    assert.equal(result.equipment.pending, null);
+    assert.ok(!result.preferences.favoriteFriendIds.includes(99));
+    assert.equal(game.mutations().length, 0);
+  } finally {
+    service.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

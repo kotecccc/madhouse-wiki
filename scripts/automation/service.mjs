@@ -1872,21 +1872,6 @@ export function createAutomationService({
     )
       throw failure(409, "automation_controls_equipment");
     if (
-      entry.equipment?.pending &&
-      ![
-        "equipment.refresh",
-        "inventory.refresh",
-        "inventory.action",
-        "auto.start",
-        "raid.start",
-        "character.upgrade",
-        "character.start",
-        "character.startAll",
-      ].includes(input.command) &&
-      !safeCommands.has(input.command)
-    )
-      throw failure(409, "weapon_equipment_uncertain");
-    if (
       entry.workFarm.getSnapshot().manualPending &&
       !["character.upgrade", "character.start", "character.startAll"].includes(
         input.command,
@@ -1951,7 +1936,15 @@ export function createAutomationService({
       let reconciledPurchase = false;
       if (
         entry.equipment?.pending &&
-        ["inventory.action", "auto.start", "raid.start"].includes(input.command)
+        !safeCommands.has(input.command) &&
+        !(input.command === "buddy.set" && input.args?.enabled === false) &&
+        !safetyBuddySettings &&
+        ![
+          "equipment.refresh",
+          "character.upgrade",
+          "character.start",
+          "character.startAll",
+        ].includes(input.command)
       ) {
         const previous = entry.equipment.pending;
         const reconciled = await inventoryAction({
