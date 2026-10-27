@@ -29,6 +29,7 @@ export function MobileNavigation({
             <Button
               key={id}
               variant="nav-tab"
+              className="mobile-navigation-tab"
               aria-label={
                 id === "inventory" && inventoryCount > 0
                   ? `${label}: доступно для покупки ${inventoryCount}`
@@ -39,17 +40,15 @@ export function MobileNavigation({
               aria-controls={`screen-${id}`}
               onClick={() => onScreenChange(id)}
             >
-              <span className="mobile-navigation-icon">
-                <Icon type={icon} size="large" />
-                {id === "inventory" && inventoryCount > 0 && (
-                  <span className="mobile-navigation-count" aria-hidden="true">
-                    <Pill size="2xs" dot={false}>
-                      {inventoryCount}
-                    </Pill>
-                  </span>
-                )}
-              </span>
+              <Icon type={icon} size="large" />
               <span className="mobile-navigation-label">{label}</span>
+              {id === "inventory" && inventoryCount > 0 && (
+                <span className="mobile-navigation-count" aria-hidden="true">
+                  <Pill size="2xs" dot={false}>
+                    {inventoryCount}
+                  </Pill>
+                </span>
+              )}
             </Button>
           ))}
       </nav>
