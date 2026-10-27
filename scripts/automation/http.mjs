@@ -33,8 +33,8 @@ export function createAutomationHttp({
     )
       return json({ error: "origin_rejected" }, 403);
     let entry;
+    let input;
     try {
-      let input;
       if (request.method === "POST") {
         if (
           request.headers.get("content-type")?.split(";")[0] !==
@@ -90,6 +90,14 @@ export function createAutomationHttp({
                   : status === 409
                     ? "automation_state_changed"
                     : "automation_unavailable",
+          ...(["inventory.action", "inventory.refresh"].includes(
+            input?.command,
+          ) &&
+          /^(inventory_[a-z_]+|automation_[a-z_]+|weapon_equipment_uncertain)$/.test(
+            error.message,
+          )
+            ? { inventoryReason: error.message }
+            : {}),
           ...(entry ? { gameHealth: service.snapshot(entry).gameHealth } : {}),
           ...(entry && status === 409
             ? { snapshot: service.snapshot(entry) }

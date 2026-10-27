@@ -89,12 +89,11 @@ export function InventorySection({
         needsCheck: false,
         notice: refreshOnly ? "Экипировка проверена." : "Экипировка обновлена.",
       });
-    } catch {
+    } catch (error) {
       setEquipmentState({
         busy: false,
         needsCheck: true,
-        notice:
-          "Смена экипировки не подтверждена. Проверьте состояние перед новым действием. При работающей автоматизации сначала остановите её.",
+        notice: `Действие не подтверждено. Проверьте состояние перед новым действием.${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}`,
       });
     } finally {
       equipmentPending.current = false;
