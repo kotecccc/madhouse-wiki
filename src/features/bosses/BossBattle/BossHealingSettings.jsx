@@ -194,9 +194,6 @@ export function BossHealingSettings({ state, onSave, collapsed = false }) {
             }}
           />
         </div>
-        {healing.notice && (
-          <CardDescription role="status">{healing.notice}</CardDescription>
-        )}
         {healing.uncertain && (
           <>
             <CardDescription>
