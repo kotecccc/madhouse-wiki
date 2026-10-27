@@ -29,13 +29,14 @@ const catalogue = {
   })),
 };
 
-for (const [cap, restart, autoUpgrade] of [
+for (const [cap, restart, autoUpgrade, viaFloor] of [
   [1, false],
   [5, false],
   [5, true],
   [5, true, true],
+  [5, false, true, true],
 ])
-  test(`server business collection switches bosses and obeys global cap ${cap}, restart ${restart}, upgrade ${Boolean(autoUpgrade)}`, async () => {
+  test(`server business collection switches bosses and obeys global cap ${cap}, restart ${restart}, upgrade ${Boolean(autoUpgrade)}, floor ${Boolean(viaFloor)}`, async () => {
     const directory = mkdtempSync(
       join(tmpdir(), "business-collector-service-"),
     );
@@ -88,6 +89,26 @@ for (const [cap, restart, autoUpgrade] of [
           wallet: { gold: 1000 },
         });
       if (path === "/api/combat") return Response.json({ activeBattle: null });
+      if (path === "/api/floors")
+        return Response.json([{ code: "A", isAvailable: true }]);
+      if (path === "/api/floors/A/info")
+        return Response.json({
+          departments: [
+            { blockCode: "A1", unlocked: true },
+            {
+              blockCode: "A2",
+              unlocked: false,
+              requirements: [
+                {
+                  type: "business_level",
+                  businessId: 7,
+                  current: 1,
+                  required: 2,
+                },
+              ],
+            },
+          ],
+        });
       if (path === "/api/me/bag")
         return Response.json({
           activityItems: [...stock].map(([itemId, quantity]) => ({
@@ -143,7 +164,14 @@ for (const [cap, restart, autoUpgrade] of [
         store,
         fetcher,
         getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
-        getBusinessCatalogue: () => catalogue,
+        getBusinessCatalogue: () => ({
+          ...catalogue,
+          floors: [{ id: "a", code: "A" }],
+          departments: [
+            { id: "a1", floorId: "a", code: "A1" },
+            { id: "a2", floorId: "a", code: "A2" },
+          ],
+        }),
         now: () => now,
         schedule: (callback, delay) => {
           const timer = { callback, delay };
@@ -166,24 +194,30 @@ for (const [cap, restart, autoUpgrade] of [
           expectedVersion: service.snapshot(entry).version,
           args,
         });
-      await command("business.select", { businessId });
-      await command("business.save", {
-        businessId,
-        targetLevel: 2,
-        maxAttempts: cap,
-        durationHours: 1,
-        autoUpgrade: Boolean(autoUpgrade),
-      });
-      await command("business.refresh", { businessId });
-      const plan = service.snapshot(entry).businessAssistant.plans[0];
-      await command("business.run.start", {
-        businessId,
-        expectedPlan: plan.config,
-        expectedMissing: plan.materials.map((item) => ({
-          itemId: item.entityId,
-          amount: item.missingAmount,
-        })),
-      });
+      if (viaFloor) {
+        await command("floor.start", {});
+        await entry.floorRunner.tick();
+        assert.equal(service.snapshot(entry).floorRunner.phase, "executing");
+      } else {
+        await command("business.select", { businessId });
+        await command("business.save", {
+          businessId,
+          targetLevel: 2,
+          maxAttempts: cap,
+          durationHours: 1,
+          autoUpgrade: Boolean(autoUpgrade),
+        });
+        await command("business.refresh", { businessId });
+        const plan = service.snapshot(entry).businessAssistant.plans[0];
+        await command("business.run.start", {
+          businessId,
+          expectedPlan: plan.config,
+          expectedMissing: plan.materials.map((item) => ({
+            itemId: item.entityId,
+            amount: item.missingAmount,
+          })),
+        });
+      }
       if (restart) {
         for (let i = 0; i < 2; i++) {
           const timer = timers.find((timer) => !timer.canceled && !timer.done);
