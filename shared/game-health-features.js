@@ -9,6 +9,7 @@ export const GAME_HEALTH_FEATURES = Object.freeze([
   "ornaments",
   "businesses",
   "bosses",
+  "friends",
   "game",
 ]);
 
@@ -33,6 +34,7 @@ export function featureForGamePath(path) {
   if (path === "/api/me/bag" || path === "/api/stash/sets") return "inventory";
   if (path === "/api/clothing/by-category/1") return "weapons";
   if (path === "/api/clothing/by-category/9") return "pets";
+  if (path === "/api/friends") return "friends";
   for (const [prefix, feature] of [
     ["floors", "floors"],
     ["rooms", "rooms"],

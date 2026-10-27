@@ -1020,6 +1020,56 @@ test("health exposes safe failing functions and removes only recovered functions
   assert.deepEqual(snapshots.health("Bearer other-account").failedFeatures, []);
 });
 
+test("friends failures are scoped and clear only on a valid friends response", async () => {
+  const queue = queueFetcher([
+    reply({ playerId: 41 }),
+    reply({}, 500),
+    reply({ items: [] }),
+    reply({ items: [], nextCursor: null }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("friends-health"));
+  await snapshots.liveFetch(
+    `${origin}/api/friends?limit=100`,
+    auth("friends-health"),
+  );
+  assert.deepEqual(snapshots.health("Bearer friends-health").failedFeatures, [
+    "friends",
+  ]);
+  await snapshots.liveFetch(
+    `${origin}/api/friends?limit=100`,
+    auth("friends-health"),
+  );
+  assert.deepEqual(snapshots.health("Bearer friends-health").failedFeatures, [
+    "friends",
+  ]);
+  await snapshots.liveFetch(
+    `${origin}/api/friends?limit=100`,
+    auth("friends-health"),
+  );
+  assert.equal(snapshots.health("Bearer friends-health").status, "available");
+});
+
+test("upstream reads respect caller cancellation", async () => {
+  const controller = new AbortController();
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async (_url, options) => {
+      controller.abort();
+      assert.equal(options.signal.aborted, true);
+      throw new DOMException("Aborted", "AbortError");
+    },
+  });
+  const response = await snapshots.read(`${origin}/api/me`, {
+    ...auth("cancelled-read"),
+    signal: controller.signal,
+  });
+  assert.equal(response.status, 503);
+});
+
 test("successful features require fresh clean sections and exclude failed functions", async () => {
   let clock = 1000;
   const fake = queueFetcher([

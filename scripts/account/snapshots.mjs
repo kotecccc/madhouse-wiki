@@ -219,10 +219,12 @@ export function createAccountSnapshots({
   }
   async function upstream(url, init) {
     try {
+      const read = (init.method || "GET").toUpperCase() === "GET";
+      const timeout = AbortSignal.timeout(read ? 15000 : 8000);
       return await fetcher(url, {
         ...init,
         redirect: "error",
-        signal: AbortSignal.timeout(8000),
+        signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
       });
     } catch {
       return json({ error: "game_unavailable" }, 503);
@@ -720,8 +722,45 @@ export function createAccountSnapshots({
         ),
       });
     }
+    const friendList = method === "GET" && path === "/api/friends";
     if (response.status === 429 || response.status >= 500)
-      mark(accounts.get(playerId), "unavailable");
+      mark(accounts.get(playerId), "unavailable", friendList ? path : "*");
+    else if (
+      friendList &&
+      response.ok &&
+      record?.health?.failedSections?.includes(path)
+    ) {
+      const body = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      if (
+        Array.isArray(body?.items) &&
+        Object.hasOwn(body, "nextCursor") &&
+        !body.partial &&
+        body.success !== false &&
+        !body.error
+      ) {
+        const current = accounts.get(playerId);
+        const failedSections = (current.health?.failedSections || []).filter(
+          (failed) => failed !== path,
+        );
+        persist({
+          ...current,
+          health: {
+            ...current.health,
+            status: failedSections.length ? "unavailable" : "available",
+            checkedAt: now(),
+            failedSections,
+            failedAt: Object.fromEntries(
+              Object.entries(current.health?.failedAt || {}).filter(
+                ([failed]) => failed !== path,
+              ),
+            ),
+          },
+        });
+      }
+    }
     return response;
   }
   return {
