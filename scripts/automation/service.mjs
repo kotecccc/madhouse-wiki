@@ -51,6 +51,14 @@ import {
 
 const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
+export const characterBattleUncertain = (state) =>
+  Boolean(
+    state?.pending ||
+    state?.needsRefresh ||
+    state?.error ||
+    state?.pendingInvitation ||
+    state?.purchaseUncertain,
+  );
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
   "character.refresh",
@@ -1017,8 +1025,7 @@ export function createAutomationService({
           entry.workFarm.running() ||
           entry.raidWorker.getSnapshot().enabled ||
           entry.raidSubscription.getSnapshot().enabled ||
-          entry.controller.getSnapshot().pending ||
-          entry.controller.getSnapshot().battle?.status === "active"
+          characterBattleUncertain(entry.controller.getSnapshot())
         )
           return false;
         entry.busy = true;
@@ -1658,8 +1665,7 @@ export function createAutomationService({
         entry.workFarm.running() ||
         entry.raidWorker.getSnapshot().enabled ||
         entry.raidSubscription.getSnapshot().enabled ||
-        entry.controller.getSnapshot().battle?.status === "active" ||
-        entry.controller.getSnapshot().pending)
+        characterBattleUncertain(entry.controller.getSnapshot()))
     )
       throw failure(409, "automation_controls_resources");
     const args = input.args ?? {};
