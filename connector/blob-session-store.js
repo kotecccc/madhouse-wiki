@@ -3,10 +3,11 @@ import { get, put } from "../scripts/storage/client.mjs";
 // Consistent reads + conditional writes preserve logout under concurrent logins.
 export function createBlobSessionStore() {
   return {
-    async read(pathname) {
+    async read(pathname, { signal } = {}) {
       const result = await get(pathname, {
         access: "private",
         useCache: false,
+        ...(signal ? { abortSignal: signal } : {}),
       });
       if (!result) return null;
       if (result.statusCode !== 200 || result.blob.size > 32768)

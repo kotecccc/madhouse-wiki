@@ -98,3 +98,42 @@ test("device status fails closed for restore, wrong route and changed credential
   });
   assert.equal(await missing.status(), "auth_required");
 });
+
+test("cancelled verification cannot issue a late game request after a delayed credential read", async () => {
+  let finish;
+  const waiting = new Promise((resolve) => {
+    finish = resolve;
+  });
+  let gameReads = 0;
+  let receivedSignal;
+  const controller = new AbortController();
+  const status = createDeviceGameStatusReader({
+    store: { isRestoreRequired: () => false, readRoutePolicy: () => route },
+    resolveVerifiedOwnerSession: async (_owner, { signal }) => {
+      receivedSignal = signal;
+      await waiting;
+      return session;
+    },
+    snapshots: {
+      registerVerifiedCredential() {},
+      async verifyIdentity() {
+        gameReads++;
+        return Response.json({
+          playerId: Number(playerId),
+          telegramId: Number(ownerId),
+        });
+      },
+    },
+  });
+  const result = status({
+    ownerId,
+    deviceId,
+    routeEpoch: 9,
+    signal: controller.signal,
+  });
+  controller.abort();
+  finish();
+  assert.equal(await result, "unknown");
+  assert.equal(receivedSignal, controller.signal);
+  assert.equal(gameReads, 0);
+});

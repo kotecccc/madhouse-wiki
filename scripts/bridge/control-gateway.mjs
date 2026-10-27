@@ -22,6 +22,7 @@ const SERVER_CAPABILITIES = Object.freeze([
 const HELLO_TIMEOUT_MS = 5000;
 const STREAM_READY_TIMEOUT_MS = 15_000;
 const GAME_LAUNCH_TIMEOUT_MS = 35_000;
+const GAME_STATUS_TIMEOUT_MS = 18_000;
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const HEARTBEAT_STALE_MS = 60_000;
 const MAX_PENDING_PINGS = 3;
@@ -107,6 +108,7 @@ export function createBridgeControlGateway({
   maxControlConnections = MAX_CONTROL_CONNECTIONS,
   maxPendingUpgrades = MAX_PENDING_UPGRADES,
   upgradeTimeoutMs = UPGRADE_TIMEOUT_MS,
+  gameStatusTimeoutMs = GAME_STATUS_TIMEOUT_MS,
   getDeviceGameStatus = null,
 } = {}) {
   if (typeof registry?.authorizeDeviceSession !== "function")
@@ -144,6 +146,12 @@ export function createBridgeControlGateway({
     upgradeTimeoutMs > 10_000
   )
     throw new TypeError("bridge_upgrade_timeout_invalid");
+  if (
+    !Number.isSafeInteger(gameStatusTimeoutMs) ||
+    gameStatusTimeoutMs < 10 ||
+    gameStatusTimeoutMs > GAME_STATUS_TIMEOUT_MS
+  )
+    throw new TypeError("bridge_game_status_timeout_invalid");
   let ticketRegistry = null;
   if (sessionSigningKey !== undefined && sessionSigningKey !== null)
     ticketRegistry = createStreamTicketRegistry({
@@ -276,6 +284,7 @@ export function createBridgeControlGateway({
   function cleanupConnection(connection) {
     if (connection.cleaned) return;
     connection.cleaned = true;
+    connection.statusAbort?.abort();
     clearTimeout(connection.helloTimer);
     cancelHeartbeat(connection.heartbeatTimer);
     if (connections.get(connection.session.deviceId) === connection)
@@ -396,6 +405,7 @@ export function createBridgeControlGateway({
       negotiatedCapabilities: new Set(),
       pendingLaunch: null,
       pendingStatus: false,
+      statusAbort: null,
       lastStatusAtMs: null,
       updateDrainRequestId: null,
       updateDrainAcknowledged: false,
@@ -528,6 +538,13 @@ export function createBridgeControlGateway({
           return;
         }
         connection.pendingStatus = true;
+        const statusAbort = new AbortController();
+        const statusTimer = setTimeout(
+          () => statusAbort.abort(),
+          gameStatusTimeoutMs,
+        );
+        statusTimer.unref?.();
+        connection.statusAbort = statusAbort;
         connection.lastStatusAtMs = timestamp;
         void (async () => {
           let status = "unknown";
@@ -539,7 +556,8 @@ export function createBridgeControlGateway({
               validSession(current, "control") &&
               sameSession(connection.session, current) &&
               !connection.cleaned &&
-              !connection.updateDrainRequestId
+              !connection.updateDrainRequestId &&
+              !statusAbort.signal.aborted
             ) {
               const paused = registry.getHelperPaused(current.ownerId);
               if (typeof paused !== "boolean")
@@ -550,6 +568,7 @@ export function createBridgeControlGateway({
                     ownerId: current.ownerId,
                     deviceId: current.deviceId,
                     routeEpoch: current.routeEpoch,
+                    signal: statusAbort.signal,
                   });
               const after = await registry.authorizeDeviceSession(
                 connection.credential,
@@ -560,6 +579,7 @@ export function createBridgeControlGateway({
                 sameSession(current, after) &&
                 !connection.cleaned &&
                 !connection.updateDrainRequestId &&
+                !statusAbort.signal.aborted &&
                 ["ready", "auth_required", "paused", "unknown"].includes(
                   result,
                 ) &&
@@ -570,14 +590,22 @@ export function createBridgeControlGateway({
           } catch {
             /* A failed read never proves readiness. */
           }
-          if (!connection.cleaned)
-            sendJson(socket, {
-              type: "game_status_result",
-              requestId: message.requestId,
-              status,
-            });
-          connection.pendingStatus = false;
-          resolveDrainWaitersIfIdle();
+          clearTimeout(statusTimer);
+          if (connection.statusAbort === statusAbort)
+            connection.statusAbort = null;
+          try {
+            if (!connection.cleaned)
+              sendJson(socket, {
+                type: "game_status_result",
+                requestId: message.requestId,
+                status,
+              });
+          } catch {
+            closeConnection(connection, 1011, "game_status_unavailable");
+          } finally {
+            connection.pendingStatus = false;
+            resolveDrainWaitersIfIdle();
+          }
         })();
         return;
       }

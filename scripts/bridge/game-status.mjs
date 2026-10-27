@@ -12,16 +12,19 @@ export function createDeviceGameStatusReader({
     typeof snapshots?.verifyIdentity !== "function"
   )
     throw new TypeError("device_game_status_dependencies_invalid");
-  return async function readStatus({ ownerId, deviceId, routeEpoch }) {
+  return async function readStatus({ ownerId, deviceId, routeEpoch, signal }) {
     let before;
     try {
-      before = await resolveVerifiedOwnerSession(ownerId);
+      if (signal?.aborted) return "unknown";
+      before = await resolveVerifiedOwnerSession(ownerId, { signal });
     } catch (error) {
+      if (signal?.aborted) return "unknown";
       return error?.code === "game_session_required"
         ? "auth_required"
         : "unknown";
     }
     try {
+      if (signal?.aborted) return "unknown";
       if (store.isRestoreRequired(before.playerId)) return "paused";
       if (
         before.routePolicy !== "bridge_required" ||
@@ -39,7 +42,10 @@ export function createDeviceGameStatusReader({
         before.authorization,
         before.playerId,
       );
-      const response = await snapshots.verifyIdentity(before.authorization);
+      const response = await snapshots.verifyIdentity(before.authorization, {
+        signal,
+      });
+      if (signal?.aborted) return "unknown";
       if (response.status === 401) return "auth_required";
       if (!response.ok) return "unknown";
       const profile = await response.json();
@@ -48,7 +54,8 @@ export function createDeviceGameStatusReader({
         String(profile?.telegramId) !== ownerId
       )
         return "unknown";
-      const after = await resolveVerifiedOwnerSession(ownerId);
+      const after = await resolveVerifiedOwnerSession(ownerId, { signal });
+      if (signal?.aborted) return "unknown";
       const currentRoute = store.readRoutePolicy(before.playerId);
       if (
         store.isRestoreRequired(before.playerId) ||

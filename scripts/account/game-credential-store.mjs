@@ -176,7 +176,7 @@ export function createGameCredentialStore({ store, encryptionKey } = {}) {
   const pathKey = deriveKey(masterKey, "path");
   const payloadKey = deriveKey(masterKey, "payload");
 
-  async function read(ownerId) {
+  async function read(ownerId, { signal } = {}) {
     if (
       typeof ownerId !== "string" ||
       !/^[1-9][0-9]{0,15}$/u.test(ownerId) ||
@@ -186,7 +186,7 @@ export function createGameCredentialStore({ store, encryptionKey } = {}) {
     const path = ownerPath(pathKey, ownerId);
     let stored;
     try {
-      stored = await store.read(path);
+      stored = await store.read(path, { signal });
     } catch {
       throw credentialError("game_credential_store_unavailable");
     }

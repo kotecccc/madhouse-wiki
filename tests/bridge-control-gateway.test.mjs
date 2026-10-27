@@ -1356,7 +1356,9 @@ test("device game status is owner-scoped, bounded and drains before update ackno
         ownerId: session.ownerId,
         deviceId,
         routeEpoch: session.routeEpoch,
+        signal: seen[0].signal,
       });
+      assert.equal(seen[0].signal.aborted, false);
       const drainId = "00000000-0000-4000-8000-000000000408";
       const nonce = Buffer.alloc(32, 8).toString("base64url");
       const pong = message(control);
@@ -1448,6 +1450,102 @@ test("device game status cannot report ready after session revocation during ver
         getDeviceGameStatus: async () => {
           started();
           await barrier;
+          return "ready";
+        },
+      },
+    },
+  );
+});
+
+test("device disconnect aborts its in-flight game-status verification", async () => {
+  let started;
+  const invoked = new Promise((resolve) => {
+    started = resolve;
+  });
+  let observedSignal;
+  await withGateway(
+    async ({ url }) => {
+      const control = new WebSocket(url, {
+        headers: { authorization: "Bearer signed.session.credential" },
+      });
+      await once(control, "open");
+      control.send(
+        JSON.stringify({
+          type: "hello",
+          protocolMajor: 1,
+          protocolMinor: 0,
+          clientVersion: "0.1.0",
+          capabilities: ["cargo-byte-tunnel-v1", "game-status-v1"],
+        }),
+      );
+      await message(control);
+      control.send(
+        JSON.stringify({
+          type: "game_status_check",
+          requestId: "00000000-0000-4000-8000-000000000407",
+        }),
+      );
+      await invoked;
+      const closed = once(control, "close");
+      control.close();
+      await closed;
+      await waitFor(() => observedSignal.aborted);
+      assert.equal(observedSignal.aborted, true);
+    },
+    {
+      gatewayOptions: {
+        getDeviceGameStatus: async ({ signal }) => {
+          observedSignal = signal;
+          started();
+          await new Promise((resolve) =>
+            signal.addEventListener("abort", resolve, { once: true }),
+          );
+          return "ready";
+        },
+      },
+    },
+  );
+});
+
+test("expired game-status verification aborts and cannot report late readiness", async () => {
+  await withGateway(
+    async ({ url }) => {
+      const control = new WebSocket(url, {
+        headers: { authorization: "Bearer signed.session.credential" },
+      });
+      await once(control, "open");
+      control.send(
+        JSON.stringify({
+          type: "hello",
+          protocolMajor: 1,
+          protocolMinor: 0,
+          clientVersion: "0.1.0",
+          capabilities: ["cargo-byte-tunnel-v1", "game-status-v1"],
+        }),
+      );
+      await message(control);
+      const result = message(control);
+      control.send(
+        JSON.stringify({
+          type: "game_status_check",
+          requestId: "00000000-0000-4000-8000-000000000407",
+        }),
+      );
+      assert.deepEqual(await result, {
+        type: "game_status_result",
+        requestId: "00000000-0000-4000-8000-000000000407",
+        status: "unknown",
+      });
+      control.close();
+      await once(control, "close");
+    },
+    {
+      gatewayOptions: {
+        gameStatusTimeoutMs: 20,
+        getDeviceGameStatus: async ({ signal }) => {
+          await new Promise((resolve) =>
+            signal.addEventListener("abort", resolve, { once: true }),
+          );
           return "ready";
         },
       },

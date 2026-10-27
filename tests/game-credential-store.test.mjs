@@ -214,3 +214,24 @@ test("credential store rejects malformed keys, records, and ciphertext", async (
     code: "game_credential_record_authentication_failed",
   });
 });
+
+test("credential reads forward cancellation to private storage", async () => {
+  const controller = new AbortController();
+  let forwarded;
+  const store = {
+    async read(_path, { signal }) {
+      forwarded = signal;
+      return null;
+    },
+    async write() {},
+  };
+  const credentials = createGameCredentialStore({
+    store,
+    encryptionKey: randomBytes(32),
+  });
+  assert.equal(
+    await credentials.read("7654321", { signal: controller.signal }),
+    null,
+  );
+  assert.equal(forwarded, controller.signal);
+});

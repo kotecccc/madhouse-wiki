@@ -1137,10 +1137,13 @@ export function createAccountSnapshots({
       return state(accounts.get(playerId), playerId);
     },
     read,
-    verifyIdentity(authorization) {
+    verifyIdentity(authorization, { signal } = {}) {
       return execute(
         "https://cargohustle.online/api/me",
-        { headers: { Authorization: authorization } },
+        {
+          headers: { Authorization: authorization },
+          ...(signal ? { signal } : {}),
+        },
         {
           fallback: false,
           cache: false,

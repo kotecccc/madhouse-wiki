@@ -1796,3 +1796,31 @@ test("active battle strikes preserve inventory snapshots across restart; termina
   });
   assert.deepEqual(snapshots.inventory(authorization).dirty, ["/api/rooms"]);
 });
+
+test("identity verification forwards cancellation to the game transport", async () => {
+  const controller = new AbortController();
+  let requestSeen;
+  const started = new Promise((resolve) => {
+    requestSeen = resolve;
+  });
+  let forwarded;
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async (_url, init) => {
+      forwarded = init.signal;
+      requestSeen();
+      await new Promise((resolve) =>
+        init.signal.addEventListener("abort", resolve, { once: true }),
+      );
+      throw new Error("synthetic_abort");
+    },
+  });
+  const result = snapshots.verifyIdentity("Bearer fixture-token", {
+    signal: controller.signal,
+  });
+  await started;
+  controller.abort();
+  const response = await result;
+  assert.equal(forwarded.aborted, true);
+  assert.equal(response.status, 503);
+});

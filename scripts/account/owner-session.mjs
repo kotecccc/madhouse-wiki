@@ -18,7 +18,10 @@ export function createVerifiedOwnerGameSessionResolver({
   )
     throw new TypeError("owner_game_session_dependencies_required");
 
-  return async function resolveVerifiedOwnerGameSession(ownerId) {
+  return async function resolveVerifiedOwnerGameSession(
+    ownerId,
+    { signal } = {},
+  ) {
     const timestamp = now();
     if (!Number.isSafeInteger(timestamp) || timestamp < 1)
       throw ownerSessionError("owner_session_unavailable", 503);
@@ -55,7 +58,7 @@ export function createVerifiedOwnerGameSessionResolver({
     let saved;
     let route;
     try {
-      saved = await credentialStore.read(ownerId);
+      saved = await credentialStore.read(ownerId, { signal });
       route = store.readRoutePolicy(binding.playerId);
     } catch {
       throw ownerSessionError("owner_session_unavailable", 503);
