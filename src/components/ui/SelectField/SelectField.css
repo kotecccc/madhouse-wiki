@@ -61,3 +61,15 @@ select.select-field:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
+
+.select-field-leading-icon {
+  position: absolute;
+  top: 50%;
+  left: var(--space-12);
+  color: var(--text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+select.select-field--with-icon {
+  padding-left: var(--space-32);
+}

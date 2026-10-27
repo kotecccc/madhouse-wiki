@@ -1,7 +1,6 @@
 import {
   readRetryStartedAt,
   writeRetryStartedAt,
-  retrySeconds,
 } from "../../../../shared/retry-countdown.js";
 import { safeFailedFeatures } from "../../../../shared/game-health-features.js";
 import { StatusList } from "../../ui/StatusList/StatusList.jsx";
@@ -162,25 +161,13 @@ export function GameHealthWarningIndicator() {
     readRetryStartedAt(HEALTH_RETRY_KEY),
   );
   const refreshUntil = useRef(initialRefreshAt + 60000);
-  const [remainingSeconds, setRemainingSeconds] = useState(() =>
-    retrySeconds(refreshUntil.current),
-  );
   const refreshPending = useRef(false);
-  useEffect(() => {
-    if (!open) return;
-    const updateCountdown = () =>
-      setRemainingSeconds(Math.min(59, retrySeconds(refreshUntil.current)));
-    updateCountdown();
-    const timer = window.setInterval(updateCountdown, 1000);
-    return () => window.clearInterval(timer);
-  }, [open]);
   const refreshHealth = async () => {
     if (refreshPending.current || Date.now() < refreshUntil.current) return;
     refreshPending.current = true;
     const startedAt = Date.now();
     refreshUntil.current = startedAt + 60000;
     writeRetryStartedAt(HEALTH_RETRY_KEY, startedAt);
-    setRemainingSeconds(59);
     setManualChecking(true);
     try {
       await getSessionJson("/api/me", { fresh: true, serverRefresh: true });
@@ -218,15 +205,8 @@ export function GameHealthWarningIndicator() {
             health.status === "unavailable" ? "Состояние игры" : message.label
           }
           loading={manualChecking}
-          footerStart={
-            <Button
-              onClick={refreshHealth}
-              disabled={manualChecking || remainingSeconds > 0}
-              aria-busy={manualChecking}
-            >
-              {healthRefreshLabel(remainingSeconds, manualChecking)}
-            </Button>
-          }
+          onRefresh={refreshHealth}
+          refreshKey="game-health"
           footerNote={
             <>
               Последнее обновление:

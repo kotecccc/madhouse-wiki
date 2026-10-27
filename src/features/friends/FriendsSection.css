@@ -1,0 +1,67 @@
+.friends-section,
+.friends-list,
+.friends-card-content,
+.friends-name {
+  display: grid;
+}
+.friends-section {
+  gap: var(--layout-gap-group);
+}
+.friends-list,
+.friends-card-content {
+  gap: var(--space-8);
+}
+.friends-name {
+  gap: var(--space-4);
+}
+.friends-heading,
+.friends-card-heading,
+.friends-identity,
+.friends-pagination,
+.friends-stats,
+.friends-stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.friends-heading,
+.friends-card-heading,
+.friends-pagination {
+  justify-content: space-between;
+}
+.friends-card-heading {
+  align-items: start;
+}
+.friends-identity,
+.friends-name {
+  min-width: 0;
+}
+.friends-avatar {
+  position: relative;
+  flex: none;
+}
+.friends-status-dot {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+}
+.friends-stats {
+  flex-wrap: wrap;
+}
+.friends-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: var(--space-8);
+}
+.friends-filter-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.friends-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8);
+}

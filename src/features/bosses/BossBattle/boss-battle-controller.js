@@ -334,7 +334,7 @@ export function battleActionHint(state) {
   if (state.errorStatus)
     return `Игровой сервер вернул HTTP ${state.errorStatus}. Обновите состояние боя.`;
   if (state.needsRefresh)
-    return "Не удалось проверить состояние боя. Нажмите «Обновить».";
+    return "Не удалось проверить состояние боя. Потяните содержимое вниз, чтобы повторить проверку.";
   if (!state.battle && !state.canStart)
     return "Игровой сервер пока не разрешил начать бой.";
   return undefined;

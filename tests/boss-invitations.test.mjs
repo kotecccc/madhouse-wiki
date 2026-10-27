@@ -1320,3 +1320,305 @@ test("missing me active battle never treats an incomplete boss response as no fi
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("Buddy inviter identity is retained only when peer identity agrees", async () => {
+  const base = {
+    bossId: 7,
+    status: "pending",
+    battleStatus: "active",
+    expiresAtUtc: future,
+    battleExpiresAtUtc: future,
+    leaderPlayerId: 9,
+    inviterPlayerId: 42,
+  };
+  const rows = await projectBossInvitations(
+    {
+      items: [
+        { ...base, invitationId: "good", battleId: "a", peerPlayerId: 42 },
+        { ...base, invitationId: "bad", battleId: "b", peerPlayerId: 9 },
+        { ...base, invitationId: "unknown", battleId: "c" },
+      ],
+    },
+    () => ({ name: "Босс" }),
+    now,
+  );
+  assert.equal(rows[0].inviterPlayerId, 42);
+  assert.equal(rows[0].leaderPlayerId, undefined);
+  assert.equal(rows[1].inviterPlayerId, undefined);
+  assert.equal(rows[2].inviterPlayerId, undefined);
+});
+
+test("Buddy follows a verified friend who is not the leader and survives restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-invitation-"));
+  const invitations = () => [
+    {
+      invitationId: "invite-9",
+      battleId: "battle-9",
+      bossId: 7,
+      leaderPlayerId: 9,
+      inviterPlayerId: 42,
+      peerPlayerId: 42,
+      status: "pending",
+      battleStatus: "active",
+      expiresAtUtc: future,
+      battleExpiresAtUtc: future,
+    },
+  ];
+  const options = {
+    invitations,
+    extraRoute: (path) =>
+      path === "/api/friends"
+        ? Response.json({
+            items: [{ player: { playerId: 42 } }],
+            nextCursor: null,
+          })
+        : null,
+  };
+  let ctx = setup(directory, options);
+  try {
+    let entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "enable-buddy-42", "buddy.set", {
+      playerId: 42,
+      enabled: true,
+    });
+    assert.deepEqual(ctx.service.snapshot(entry).buddy.friendIds, [42]);
+    assert.equal(ctx.service.snapshot(entry).subscription.enabled, false);
+    await issue(ctx.service, entry, "buddy-settings-42", "buddy.configure", {
+      boostersEnabled: true,
+      fullBoosterReserve: 3,
+      stashEnabled: true,
+      stashReserve: 2,
+    });
+    assert.equal(ctx.service.snapshot(entry).buddyHelp.fullBoosterReserve, 3);
+    ctx.close();
+    ctx = setup(directory, options);
+    entry = await ctx.service.identify(token);
+    assert.deepEqual(ctx.service.snapshot(entry).buddy.friendIds, [42]);
+    assert.equal(ctx.service.snapshot(entry).buddyHelp.stashReserve, 2);
+    assert.equal(ctx.service.snapshot(entry).buddyHelp.boostersEnabled, true);
+    await issue(ctx.service, entry, "buddy-refresh-42", "invitations.refresh");
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).buddy.phase, "fighting");
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
+    assert.ok(ctx.pendingBeforePost[0]);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Buddy booster worker continues without browser and saves reserve and pending before sending", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-booster-worker-"));
+  let observedPending = null;
+  let ctx;
+  const options = {
+    invitations: () => [],
+    extraRoute: (path, method) => {
+      if (path === "/api/friends")
+        return Response.json({
+          items: [{ player: { playerId: 42 } }],
+          nextCursor: null,
+        });
+      if (path === "/api/player-interactions/booster-requests/incoming")
+        return Response.json({
+          items: [
+            {
+              requestId: "buddy-req",
+              playerId: 42,
+              status: "pending",
+              expiresAtUtc: future,
+            },
+          ],
+          nextCursor: null,
+        });
+      if (path === "/api/me/bag")
+        return Response.json({ boosters: { full: { count: 4 } } });
+      if (
+        path ===
+          "/api/player-interactions/booster-requests/buddy-req/fulfill" &&
+        method === "POST"
+      ) {
+        observedPending = ctx.store.read("101").buddyHelp.pending;
+        return Response.json({ success: true });
+      }
+      return null;
+    },
+  };
+  ctx = setup(directory, options);
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "buddy-booster-friend", "buddy.set", {
+      playerId: 42,
+      enabled: true,
+    });
+    await issue(
+      ctx.service,
+      entry,
+      "buddy-booster-settings",
+      "buddy.configure",
+      {
+        boostersEnabled: true,
+        fullBoosterReserve: 2,
+        stashEnabled: false,
+        stashReserve: 1,
+      },
+    );
+    await ctx.service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 2700));
+    assert.equal(observedPending?.requestId, "buddy-req");
+    assert.equal(ctx.store.read("101").buddyHelp.pending, null);
+    assert.equal(ctx.store.read("101").buddyHelp.log[0].result, "confirmed");
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.includes("/fulfill"),
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Buddy stash worker sends only above reserve after restart without a browser", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-stash-worker-"));
+  let pendingAtPost = null;
+  let ctx;
+  const options = {
+    invitations: () => [],
+    extraRoute: (path, method) => {
+      if (path === "/api/friends")
+        return Response.json({
+          items: [{ player: { playerId: 42 } }],
+          nextCursor: null,
+        });
+      if (path === "/api/stash/help-requests/42")
+        return Response.json({
+          items: [{ setId: 1, ingredientId: 2, ownedByMe: 3, canSend: true }],
+          remainingToday: 2,
+        });
+      if (path === "/api/stash/help-gifts" && method === "POST") {
+        pendingAtPost = ctx.store.read("101").buddyHelp.stashPending;
+        return Response.json({ success: true });
+      }
+      return null;
+    },
+  };
+  ctx = setup(directory, options);
+  try {
+    let entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "buddy-stash-friend", "buddy.set", {
+      playerId: 42,
+      enabled: true,
+    });
+    await issue(ctx.service, entry, "buddy-stash-settings", "buddy.configure", {
+      boostersEnabled: false,
+      fullBoosterReserve: 1,
+      stashEnabled: true,
+      stashReserve: 2,
+    });
+    ctx.close();
+    ctx = setup(directory, options);
+    await ctx.service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 2700));
+    assert.equal(pendingAtPost?.ingredientId, 2);
+    assert.equal(ctx.store.read("101").buddyHelp.stashPending, null);
+    assert.equal(ctx.store.read("101").buddyHelp.log[0].result, "confirmed");
+    assert.equal(
+      ctx.calls.filter(
+        (call) =>
+          call.method === "POST" && call.path === "/api/stash/help-gifts",
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("manual Buddy resolution reads game state and records no-replay markers", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-resolve-"));
+  const options = {
+    invitations: () => [],
+    extraRoute: (path) => {
+      if (path === "/api/player-interactions/booster-requests/incoming")
+        return Response.json({ items: [], nextCursor: null });
+      if (path === "/api/stash/help-requests/42")
+        return Response.json({
+          items: [{ setId: 1, ingredientId: 2 }],
+          remainingToday: 1,
+        });
+      return null;
+    },
+  };
+  let ctx = setup(directory, options);
+  try {
+    let entry = await ctx.service.identify(token);
+    await issue(
+      ctx.service,
+      entry,
+      "settings-before-pending",
+      "buddy.configure",
+      {
+        boostersEnabled: false,
+        fullBoosterReserve: 1,
+        stashEnabled: false,
+        stashReserve: 1,
+      },
+    );
+    const saved = ctx.store.read("101");
+    saved.buddyHelp.pending = {
+      playerId: 42,
+      requestId: "req-1",
+      operationId: "secret-operation",
+      expiresAt: now + 60000,
+    };
+    saved.buddyHelp.stashPending = {
+      playerId: 42,
+      setId: 1,
+      ingredientId: 2,
+      operationId: "secret-stash-operation",
+    };
+    ctx.store.write("101", saved);
+    ctx.close();
+    ctx = setup(directory, options);
+    entry = await ctx.service.identify(token);
+    assert.deepEqual(ctx.service.snapshot(entry).buddyHelp.pendingBooster, {
+      playerId: 42,
+    });
+    assert.equal(
+      JSON.stringify(ctx.service.snapshot(entry)).includes("secret-operation"),
+      false,
+    );
+    await issue(
+      ctx.service,
+      entry,
+      "resolve-booster-pending",
+      "buddy.resolve",
+      { kind: "booster" },
+    );
+    assert.equal(
+      ctx.store.read("101").buddyHelp.completed[0].requestId,
+      "req-1",
+    );
+    await issue(ctx.service, entry, "resolve-stash-pending", "buddy.resolve", {
+      kind: "stash",
+    });
+    assert.deepEqual(ctx.store.read("101").buddyHelp.stashBlocked, [
+      { playerId: 42, setId: 1, ingredientId: 2 },
+    ]);
+    assert.equal(
+      ctx.calls.some((call) => call.method === "POST"),
+      false,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

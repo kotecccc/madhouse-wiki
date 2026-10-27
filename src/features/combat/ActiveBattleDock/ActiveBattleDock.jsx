@@ -363,17 +363,9 @@ export function ActiveBattleControl({ children }) {
           title="Текущий бой PvP"
           loading={Boolean(pvp.pending)}
           onClose={pvpBattle.close}
-          footer={
-            <>
-              <Button onClick={pvpBattle.close}>Закрыть</Button>
-              <Button
-                disabled={pvp.pending}
-                onClick={() => void pvpBattle.refresh()}
-              >
-                {pvp.pending ? "Обновление…" : "Обновить"}
-              </Button>
-            </>
-          }
+          onRefresh={() => pvpBattle.refresh()}
+          refreshKey="pvp-battle"
+          footer={<Button onClick={pvpBattle.close}>Закрыть</Button>}
         >
           {pvp.battle ? (
             <>

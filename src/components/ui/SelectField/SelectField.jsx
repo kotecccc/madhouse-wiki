@@ -5,6 +5,7 @@ export function SelectField({
   id,
   label,
   options,
+  icon,
   className = "",
   spacing = "normal",
   size = "md",
@@ -17,8 +18,15 @@ export function SelectField({
     >
       {label ? <FieldLabel htmlFor={id}>{label}</FieldLabel> : null}
       <div className="select-field-wrap">
+        {icon && (
+          <Icon
+            type={icon}
+            size="small"
+            className="select-field-leading-icon"
+          />
+        )}
         <select
-          className={`select-field select-field--${safeSize} ${className}`.trim()}
+          className={`select-field select-field--${safeSize} ${icon ? "select-field--with-icon" : ""} ${className}`.trim()}
           id={id}
           {...props}
         >

@@ -47,6 +47,8 @@ export function RequirementCalculatorDialog({
   loading = false,
   contentLoading = false,
   boostersLoading = false,
+  onRefresh,
+  refreshKey,
 }) {
   const [energyLimit, setEnergyLimit] = useState("");
   const [localProfileEnergy, setProfileEnergy] = useState(null);
@@ -199,6 +201,8 @@ export function RequirementCalculatorDialog({
       contentVariant="inset"
       loading={loading || contentLoading || profileStatus === "loading"}
       onClose={onClose}
+      onRefresh={onRefresh}
+      refreshKey={refreshKey}
     >
       {contentLoading ? (
         <div className="requirement-calculator-card" aria-busy="true">

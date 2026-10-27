@@ -34,6 +34,9 @@ import {
 } from "./boss-invitations.mjs";
 import { detectedRaids, observeRaids } from "./raid-observations.mjs";
 import { createRaidPriority } from "./raid-priority.mjs";
+import { tickBuddyStash } from "./buddy-stash.mjs";
+import { tickBuddyBooster } from "./buddy-booster.mjs";
+import { removeFriend, reconcileFriendRemoval } from "./friend-removal.mjs";
 import { createRaidSubscription } from "./raid-subscription.mjs";
 import {
   checkRaidFriends,
@@ -41,12 +44,14 @@ import {
   reconcileRaidFriend,
   refreshWatchedRaidFriends,
   requestRaidFriend,
+  readRaidFriendStatus,
 } from "./raid-friends.mjs";
 
 const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
+  "friends.reconcile",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.refresh",
@@ -64,6 +69,13 @@ const safeCommands = new Set([
   "business.refresh",
 ]);
 const commands = new Set([
+  "buddy.set",
+  "buddy.order",
+  "buddy.configure",
+  "buddy.resolve",
+  "friends.remove",
+  "friends.reconcile",
+  "friends.favorite",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.request",
@@ -183,6 +195,8 @@ export function createAutomationService({
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
       equipment: entry.equipment,
+      buddyHelp: entry.buddyHelp,
+      friendRemoval: entry.friendRemoval,
       raidFriend: entry.raidFriend,
       raidFriendStatuses: entry.raidFriendStatuses,
       raidFriendWatch: entry.raidFriendWatch,
@@ -294,8 +308,24 @@ export function createAutomationService({
       raid: entry.raidWorker.getSnapshot(),
       subscription: (() => {
         const subscription = entry.raidSubscription.getSnapshot();
+        if (subscription.mode === "buddy")
+          return { enabled: false, phase: "idle", hasSuspendedGoal: false };
         const { checkpoint, ...publicState } = subscription;
         return { ...publicState, hasSuspendedGoal: Boolean(checkpoint) };
+      })(),
+      buddy: (() => {
+        const value = entry.raidSubscription.getSnapshot();
+        if (value.mode !== "buddy")
+          return { enabled: false, phase: "idle", friendIds: [] };
+        return {
+          mode: "buddy",
+          enabled: value.enabled,
+          phase: value.phase,
+          friendIds: value.friendIds ?? [],
+          activeFriendId: value.activeFriendId ?? null,
+          hasSuspendedGoal: Boolean(value.checkpoint),
+          log: value.log ?? [],
+        };
       })(),
       detectedRaids: detectedRaids(
         entry.raidObservations,
@@ -330,6 +360,28 @@ export function createAutomationService({
       },
       pvp: entry.pvp,
       equipment: entry.equipment,
+      buddyHelp: {
+        boostersEnabled: entry.buddyHelp.boostersEnabled,
+        fullBoosterReserve: entry.buddyHelp.fullBoosterReserve,
+        stashEnabled: entry.buddyHelp.stashEnabled,
+        stashReserve: entry.buddyHelp.stashReserve,
+        hasPending: Boolean(
+          entry.buddyHelp.pending || entry.buddyHelp.stashPending,
+        ),
+        pendingBooster: entry.buddyHelp.pending
+          ? { playerId: entry.buddyHelp.pending.playerId }
+          : null,
+        pendingStash: entry.buddyHelp.stashPending
+          ? {
+              playerId: entry.buddyHelp.stashPending.playerId,
+              setId: entry.buddyHelp.stashPending.setId,
+              ingredientId: entry.buddyHelp.stashPending.ingredientId,
+            }
+          : null,
+        notice: entry.buddyHelp.notice,
+        log: entry.buddyHelp.log ?? [],
+      },
+      friendRemoval: entry.friendRemoval,
       raidFriend: {
         playerId:
           entry.raidFriend.pending?.playerId ??
@@ -366,6 +418,19 @@ export function createAutomationService({
       credential: saved?.credential ?? null,
       player: saved?.player ?? null,
       equipment: saved?.equipment ?? { pending: null, checked: false },
+      buddyHelp: {
+        boostersEnabled: false,
+        fullBoosterReserve: 1,
+        stashEnabled: false,
+        stashReserve: 1,
+        pending: null,
+        stashPending: null,
+        notice: null,
+        log: [],
+        ...saved?.buddyHelp,
+      },
+      buddyHelpNextAt: 0,
+      friendRemoval: saved?.friendRemoval ?? { pending: null },
       raidFriend: saved?.raidFriend ?? { pending: null, status: null },
       raidFriendStatuses: saved?.raidFriendStatuses ?? {},
       raidFriendWatch: saved?.raidFriendWatch ?? {},
@@ -758,6 +823,7 @@ export function createAutomationService({
       join: (invitation, allowed) =>
         acceptInvitation(entry, invitation.invitationId, allowed, {
           leaderPlayerId: invitation.leaderPlayerId,
+          inviterPlayerId: invitation.inviterPlayerId,
           bossId: invitation.bossId,
           battleId: invitation.battleId,
         }),
@@ -1147,10 +1213,22 @@ export function createAutomationService({
     if (
       expected &&
       (invitation.leaderPlayerId !== expected.leaderPlayerId ||
+        invitation.inviterPlayerId !== expected.inviterPlayerId ||
         invitation.bossId !== expected.bossId ||
         invitation.battleId !== expected.battleId)
     )
       throw failure(409, "invitation_identity_changed");
+    if (expected && entry.raidSubscription.getSnapshot().mode === "buddy") {
+      if (!positive(expected.inviterPlayerId))
+        throw failure(409, "invitation_identity_changed");
+      const status = await readRaidFriendStatus({
+        fetcher,
+        credential: entry.credential,
+        playerId: expected.inviterPlayerId,
+        includeIncoming: false,
+      });
+      if (status !== "friend") throw failure(409, "friend_not_found");
+    }
     const boss = await getBoss(invitation.bossId);
     if (!boss) throw failure(404, "unknown_boss");
     // /api/me omits activeBossBattle in the current game response. The boss
@@ -1329,6 +1407,7 @@ export function createAutomationService({
       entry.businessHelper.run?.pendingUpgrade &&
       ![
         "business.run.stop",
+        "friends.reconcile",
         "business.select",
         "business.refresh",
         "invitations.refresh",
@@ -1344,11 +1423,23 @@ export function createAutomationService({
       ].includes(input.command)
     )
       throw failure(409, "business_upgrade_uncertain");
+    const safetyBuddySettings =
+      input.command === "buddy.configure" &&
+      typeof input.args?.boostersEnabled === "boolean" &&
+      typeof input.args?.stashEnabled === "boolean" &&
+      (!input.args.boostersEnabled || entry.buddyHelp.boostersEnabled) &&
+      (!input.args.stashEnabled || entry.buddyHelp.stashEnabled) &&
+      Number.isSafeInteger(input.args.fullBoosterReserve) &&
+      input.args.fullBoosterReserve >= entry.buddyHelp.fullBoosterReserve &&
+      Number.isSafeInteger(input.args.stashReserve) &&
+      input.args.stashReserve >= entry.buddyHelp.stashReserve;
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");
     if (
       (entry.busy || entry.inventoryBusy) &&
+      !(input.command === "buddy.set" && input.args?.enabled === false) &&
+      !safetyBuddySettings &&
       ![
         "raid.stop",
         "subscription.stop",
@@ -1368,6 +1459,8 @@ export function createAutomationService({
         positive(input.args?.businessId));
     if (
       !safeCommands.has(input.command) &&
+      !(input.command === "buddy.set" && input.args?.enabled === false) &&
+      !safetyBuddySettings &&
       !durableIntent &&
       input.expectedVersion !== entry.version
     )
@@ -1376,7 +1469,12 @@ export function createAutomationService({
       entry.raidSubscription.getSnapshot().checkpoint &&
       ![
         "subscription.stop",
+        "buddy.set",
+        "buddy.order",
+        "buddy.configure",
+        "buddy.resolve",
         "invitations.refresh",
+        "friends.reconcile",
         "raid.friend.check",
         "raid.friend.inspect",
         "raid.friend.refresh",
@@ -1499,6 +1597,211 @@ export function createAutomationService({
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
+        case "buddy.resolve": {
+          if (!["booster", "stash"].includes(args.kind))
+            throw failure(400, "invalid_buddy_resolution");
+          const helper = entry.buddyHelp;
+          if (args.kind === "booster") {
+            const pending = helper.pending;
+            if (!pending) throw failure(409, "buddy_no_pending_action");
+            const response = await gameJson(
+              entry.credential,
+              "/api/player-interactions/booster-requests/incoming?limit=100",
+            );
+            if (
+              !Array.isArray(response?.items) ||
+              response.success === false ||
+              response.partial === true ||
+              response.error
+            )
+              throw failure(503, "buddy_read_unavailable");
+            const completed = (helper.completed ?? []).filter(
+              (item) =>
+                item.expiresAt > now() && item.requestId !== pending.requestId,
+            );
+            if (completed.length >= 1000)
+              throw failure(409, "buddy_history_full");
+            if (pending.expiresAt > now())
+              completed.push({
+                requestId: pending.requestId,
+                expiresAt: pending.expiresAt,
+              });
+            helper.completed = completed;
+            helper.pending = null;
+            helper.log = [
+              {
+                at: now(),
+                playerId: pending.playerId,
+                type: "booster",
+                result: "acknowledged",
+              },
+              ...(helper.log ?? []),
+            ].slice(0, 30);
+          } else {
+            const pending = helper.stashPending;
+            if (!pending) throw failure(409, "buddy_no_pending_action");
+            const response = await gameJson(
+              entry.credential,
+              `/api/stash/help-requests/${pending.playerId}`,
+            );
+            if (
+              !Array.isArray(response?.items) ||
+              response.success === false ||
+              response.partial === true ||
+              response.error ||
+              !Number.isSafeInteger(response.remainingToday) ||
+              response.remainingToday < 0
+            )
+              throw failure(503, "buddy_read_unavailable");
+            const blocked = (helper.stashBlocked ?? []).filter(
+              (item) =>
+                !(
+                  item.playerId === pending.playerId &&
+                  item.setId === pending.setId &&
+                  item.ingredientId === pending.ingredientId
+                ),
+            );
+            if (blocked.length >= 1000)
+              throw failure(409, "buddy_history_full");
+            blocked.push({
+              playerId: pending.playerId,
+              setId: pending.setId,
+              ingredientId: pending.ingredientId,
+            });
+            helper.stashBlocked = blocked;
+            helper.stashPending = null;
+            helper.log = [
+              {
+                at: now(),
+                playerId: pending.playerId,
+                type: "stash",
+                result: "acknowledged",
+              },
+              ...(helper.log ?? []),
+            ].slice(0, 30);
+          }
+          helper.notice =
+            "Результат отправки остался неизвестен; повтор этой просьбы заблокирован.";
+          break;
+        }
+        case "buddy.configure": {
+          if (
+            typeof args.boostersEnabled !== "boolean" ||
+            !Number.isSafeInteger(args.fullBoosterReserve) ||
+            args.fullBoosterReserve < 0 ||
+            args.fullBoosterReserve > 10000 ||
+            typeof args.stashEnabled !== "boolean" ||
+            !Number.isSafeInteger(args.stashReserve) ||
+            args.stashReserve < 0 ||
+            args.stashReserve > 10000
+          )
+            throw failure(400, "invalid_buddy_settings");
+          Object.assign(entry.buddyHelp, {
+            boostersEnabled: args.boostersEnabled,
+            fullBoosterReserve: args.fullBoosterReserve,
+            stashEnabled: args.stashEnabled,
+            stashReserve: args.stashReserve,
+          });
+          break;
+        }
+        case "buddy.order": {
+          const subscription = entry.raidSubscription.getSnapshot();
+          const current =
+            subscription.mode === "buddy" ? (subscription.friendIds ?? []) : [];
+          if (
+            !Array.isArray(args.friendIds) ||
+            args.friendIds.length !== current.length ||
+            new Set(args.friendIds).size !== current.length ||
+            !args.friendIds.every((id) => current.includes(id))
+          )
+            throw failure(400, "invalid_buddy_order");
+          if (!entry.raidSubscription.setBuddyFriends(args.friendIds))
+            throw failure(409, "buddy_unavailable");
+          break;
+        }
+        case "buddy.set": {
+          if (!positive(args.playerId) || typeof args.enabled !== "boolean")
+            throw failure(400, "invalid_friend_player");
+          const subscription = entry.raidSubscription.getSnapshot();
+          if (
+            (subscription.enabled || subscription.checkpoint) &&
+            subscription.mode !== "buddy"
+          )
+            throw failure(409, "subscription_active");
+          const ids =
+            subscription.mode === "buddy"
+              ? [...(subscription.friendIds ?? [])]
+              : [];
+          if (args.enabled && !ids.includes(args.playerId)) {
+            const status = await readRaidFriendStatus({
+              fetcher,
+              credential: entry.credential,
+              playerId: args.playerId,
+              includeIncoming: false,
+            });
+            if (status !== "friend") throw failure(409, "friend_not_found");
+            ids.push(args.playerId);
+          }
+          if (!args.enabled) {
+            const index = ids.indexOf(args.playerId);
+            if (index !== -1) ids.splice(index, 1);
+          }
+          if (!entry.raidSubscription.setBuddyFriends(ids))
+            throw failure(409, "buddy_unavailable");
+          break;
+        }
+        case "friends.favorite": {
+          if (!positive(args.playerId) || typeof args.enabled !== "boolean")
+            throw failure(400, "invalid_friend_player");
+          const ids = new Set(entry.preferences.favoriteFriendIds ?? []);
+          if (args.enabled) {
+            if (ids.size >= 1000 && !ids.has(args.playerId))
+              throw failure(400, "too_many_favorites");
+            const status = await readRaidFriendStatus({
+              fetcher,
+              credential: entry.credential,
+              playerId: args.playerId,
+              includeIncoming: false,
+            });
+            if (status !== "friend") throw failure(409, "friend_not_found");
+            ids.add(args.playerId);
+          } else ids.delete(args.playerId);
+          entry.preferences = {
+            ...entry.preferences,
+            favoriteFriendIds: [...ids],
+          };
+          break;
+        }
+        case "friends.remove": {
+          const buddy = entry.raidSubscription.getSnapshot();
+          if (
+            positive(args.playerId) &&
+            buddy.mode === "buddy" &&
+            (buddy.friendIds ?? []).includes(args.playerId)
+          ) {
+            if (
+              !entry.raidSubscription.setBuddyFriends(
+                buddy.friendIds.filter((id) => id !== args.playerId),
+              )
+            )
+              throw failure(409, "buddy_unavailable");
+          }
+          await removeFriend({
+            entry,
+            playerId: args.playerId,
+            commandId: input.id,
+            fetcher,
+            save,
+            allowed: () => {
+              ensureLease();
+              return !closed && !entry.storageFailed;
+            },
+          });
+          break;
+        }
+        case "friends.reconcile":
+          await reconcileFriendRemoval({ entry, fetcher, save });
+          break;
         case "raid.friend.inspect": {
           const result = await inspectRaidFriend({ entry, args, fetcher });
           const status =
@@ -1994,6 +2297,67 @@ export function createAutomationService({
           discoverInvitations(entry);
           void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});
+          const buddy = entry.raidSubscription.getSnapshot();
+          if (
+            !entry.busy &&
+            !entry.inventoryBusy &&
+            entry.workFarm.canSuspend() &&
+            !entry.workFarm.getSnapshot().manualPending &&
+            !entry.storageFailed &&
+            entry.credential &&
+            now() >= entry.buddyHelpNextAt &&
+            (entry.buddyHelp.pending ||
+              entry.buddyHelp.stashPending ||
+              (buddy.mode === "buddy" &&
+                buddy.enabled &&
+                !buddy.checkpoint &&
+                (entry.buddyHelp.boostersEnabled ||
+                  entry.buddyHelp.stashEnabled)))
+          ) {
+            entry.buddyHelpNextAt = now() + 30000;
+            entry.busy = true;
+            // Prevent work/inventory resource mutations between the fresh reserve
+            // read and the buddy gift; existing work must be at a safe boundary.
+            entry.inventoryBusy = true;
+            const chooseStash =
+              Boolean(entry.buddyHelp.stashPending) ||
+              (!entry.buddyHelp.pending &&
+                entry.buddyHelp.stashEnabled &&
+                (!entry.buddyHelp.boostersEnabled ||
+                  entry.buddyHelp.turn === "stash"));
+            entry.buddyHelp.turn = chooseStash ? "booster" : "stash";
+            const allowed = () => {
+              ensureLease();
+              const current = entry.raidSubscription.getSnapshot();
+              return (
+                !closed &&
+                !entry.storageFailed &&
+                current.mode === "buddy" &&
+                current.enabled &&
+                accountHealth(entry.credential)?.status !==
+                  "credentials_invalid" &&
+                !current.checkpoint &&
+                (chooseStash
+                  ? entry.buddyHelp.stashEnabled
+                  : entry.buddyHelp.boostersEnabled)
+              );
+            };
+            const run = chooseStash ? tickBuddyStash : tickBuddyBooster;
+            void run({ entry, fetcher, save, now, allowed })
+              .catch(() => {
+                if (!closed && !entry.storageFailed) {
+                  entry.buddyHelp.notice =
+                    entry.buddyHelp.pending || entry.buddyHelp.stashPending
+                      ? "Результат помощи не подтверждён; повтор заблокирован."
+                      : "Не удалось проверить просьбы Buddy. Повторим проверку позже.";
+                  save(entry);
+                }
+              })
+              .finally(() => {
+                entry.inventoryBusy = false;
+                entry.busy = false;
+              });
+          }
           if (now() < (entry.workerRetryAt ?? 0)) continue;
           try {
             updateGoal(entry);

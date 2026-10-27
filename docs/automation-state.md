@@ -297,3 +297,47 @@ the weapon and continues the battle without it. An uncertain repair is never
 replayed or followed by removal. A stop during verification prevents submission;
 pending maintenance also blocks attacks. Fake-transport tests cover continued
 attacks in both autobattle and raids, boundary balances and restart uncertainty.
+
+## Buddy: friends, raids and gifts
+
+Buddy is a server-owned mode on the helper's verified account. `buddy.set`
+adds or removes a confirmed friend; the ordered list supplies raid priority and
+`buddy.order` changes it. A Buddy run and a scheduled leader subscription share
+the same raid coordinator and cannot run simultaneously. The coordinator
+accepts only a fresh pending invitation whose `inviterPlayerId` agrees with
+`peerPlayerId` and is a currently confirmed friend. The inviter can differ
+from the leader. Unidentified senders are not matched by name. Checkpoints
+suspend compatible work/raid/goal state before joining, retain attempted
+invitation IDs until expiry and restore the previous state after a quiet period.
+A lost acceptance is reconciled, never repeated. Competing friends receive
+turns without discarding their configured priority.
+
+`buddy.configure` enables booster and stash assistance independently and sets
+nonnegative reserves. Both kinds of gifts start disabled; the default reserve
+is one full booster and one of each ingredient. Polling and dispatch run on the
+server while no browser is connected. Requests are scoped to selected verified
+friends. Before sending, the worker requires a fresh pending request, confirmed
+availability above the configured reserve, and the game's current permission or
+limit where available. During a reserve check the account's work and inventory
+actions wait at a safe boundary. Purchases are never made by Buddy.
+
+The client bundle uses a full booster for a booster request and describes
+`full_booster_unavailable`; this is client evidence, not an independent server
+contract. Its stash-help view reads `items`, `remainingToday`, `ownedByMe` and
+`canSend`; the gift sends one `{setId, ingredientId}`. Game API limits and
+response details are not guaranteed. Requests are rate-limited and each POST
+has a durable operation ID and checkpoint before dispatch. Confirmed booster
+requests remain deduplicated until expiry; a confirmed stash request remains
+deduplicated until a later fresh read shows it absent. A lost reply blocks
+repeating the action, including across restarts. The owner can inspect the
+result in the game and explicitly acknowledge the uncertainty; the server
+records a no-replay marker and does not send the original action again. Since
+stash requests have no verified request ID, acknowledging an uncertain gift
+blocks future automatic gifts of that ingredient to that friend. A missing
+request alone is not proof of successful delivery.
+
+The UI shows the chosen friends, their order, current raid state, gift options,
+reserves, bounded recent events and uncertain-action notices. The settings,
+checkpoints and journal live in the encrypted account record; public catalogue
+storage is not used. Tests use fake game responses. No live raid, booster or
+stash gift is implied by passing the automated suite.

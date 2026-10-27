@@ -6,6 +6,7 @@ import "./MobileNavigation.css";
 const screens = [
   { id: "raids", label: "Рейды", icon: "boss" },
   { id: "overview", label: "Главная", icon: "character" },
+  { id: "friends", label: "Друзья", icon: "character" },
   { id: "inventory", label: "Инвентарь", icon: "loot" },
 ];
 
@@ -22,7 +23,10 @@ export function MobileNavigation({
     >
       <nav className="mobile-navigation-items" aria-label="Разделы Wiki">
         {screens
-          .filter((screen) => screen.id !== "inventory" || authenticated)
+          .filter(
+            (screen) =>
+              !["inventory", "friends"].includes(screen.id) || authenticated,
+          )
           .map(({ id, label, icon }) => (
             <Button
               key={id}

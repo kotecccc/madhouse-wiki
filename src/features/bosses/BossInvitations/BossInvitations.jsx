@@ -124,17 +124,9 @@ export function BossInvitationsButton({ preferredBossId }) {
           loading={Boolean(state.pending)}
           contentVariant="inset"
           onClose={close}
-          footer={
-            <div className="boss-invitations-actions">
-              <Button
-                disabled={state.pending}
-                onClick={() => void bossInvitations.refresh()}
-              >
-                Обновить
-              </Button>
-              <Button onClick={close}>Закрыть</Button>
-            </div>
-          }
+          onRefresh={() => bossInvitations.refresh()}
+          refreshKey="boss-invitations"
+          footer={<Button onClick={close}>Закрыть</Button>}
         >
           <BossInvitationsContent
             state={state}
