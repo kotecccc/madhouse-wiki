@@ -56,6 +56,7 @@ const REQUEST_TYPES = Object.freeze([
   "telegram.logout",
   "startup.settings.get",
   "startup.settings.set",
+  "update.check",
   "device.pause",
   "device.resume",
   "device.disconnect",
@@ -75,6 +76,7 @@ export function parseIpcRequest(request) {
     case "telegram.status.get":
     case "telegram.logout":
     case "startup.settings.get":
+    case "update.check":
     case "device.pause":
     case "device.resume":
     case "device.disconnect":
@@ -334,6 +336,23 @@ export function parseIpcResponse(response) {
         "approval_required",
         "unsupported",
       ]);
+      break;
+    case "update.check.result":
+      exactKeys(response, ["type", "requestId", "status"], ["version"]);
+      assertEnum(response.status, [
+        "available",
+        "current",
+        "unavailable",
+        "incompatible",
+        "system_managed",
+      ]);
+      if (response.status === "available")
+        assertStringBytes(response.version, {
+          min: 5,
+          max: 128,
+          pattern: /^[0-9A-Za-z.+-]+$/u,
+        });
+      else if (Object.hasOwn(response, "version")) fail();
       break;
     case "wiki.open.result":
       exactKeys(response, ["type", "requestId", "status"]);
