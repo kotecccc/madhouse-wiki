@@ -255,6 +255,13 @@ test("battle, medicine, purchase, auto, goal, and pvp actions map to command env
       { businessId: "business:1" },
     ],
     [h.businessAssistant.stopRun, "business.run.stop", {}],
+    [h.characterUpgrade.refresh, "character.refresh", {}],
+    [
+      () => h.characterUpgrade.start({ stat: "rage", amount: 2 }),
+      "character.start",
+      { stat: "rage", amount: 2 },
+    ],
+    [h.characterUpgrade.stop, "character.stop", {}],
     [() => h.workFarm.refresh(7), "work.refresh", { workId: 7 }],
     [
       () => h.workFarm.plan({ workId: 7, targetCycles: 25 }),

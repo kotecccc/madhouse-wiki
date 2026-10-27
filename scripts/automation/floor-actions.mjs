@@ -33,6 +33,8 @@ export function createFloorActions({
       entry.workFarm.getSnapshot().manualPending ||
       entry.workFarm.getSnapshot().run?.pending ||
       entry.businessHelper.run?.pendingUpgrade ||
+      entry.characterUpgrade?.pending ||
+      entry.characterBatch?.running() ||
       entry.equipment?.pending
     );
   };

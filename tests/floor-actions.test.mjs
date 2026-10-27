@@ -149,3 +149,15 @@ test("does not replace an existing work goal", async () => {
   );
   assert.equal(h.goal(), null);
 });
+
+test("does not start when character upgrades hold account resources", async () => {
+  const h = fixture();
+  h.entry.characterBatch = { running: () => true };
+  await assert.rejects(
+    h.actions.launch(
+      { kind: "boss", apiId: 17, current: 0, required: 1 },
+      () => true,
+    ),
+    /floor_resources_busy/,
+  );
+});

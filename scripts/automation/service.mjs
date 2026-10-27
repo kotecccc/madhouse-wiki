@@ -26,6 +26,12 @@ import { createFloorRunner } from "./floor-runner.mjs";
 import { createFloorActions } from "./floor-actions.mjs";
 import { createBusinessCollector } from "./business-collector.mjs";
 import { advanceBusinessUpgrade } from "./business-upgrade.mjs";
+import {
+  characterUpgradeRejection,
+  upgradeCharacterPoint,
+} from "./character-stat-upgrade.mjs";
+import { createCharacterStatBatch } from "./character-stat-batch.mjs";
+import { characterUpgradeQuote } from "../../src/lib/character-stat-upgrades.js";
 import { createBattleSeries } from "./battle-series.mjs";
 import { createBossBattleRequest } from "../../src/features/bosses/BossBattle/boss-battle-request.js";
 import { normalizePvpBattle } from "../../src/features/combat/ActiveBattleDock/active-battle-state.js";
@@ -50,6 +56,8 @@ const positive = (id) => Number.isSafeInteger(id) && id > 0;
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
   "floor.stop",
+  "character.refresh",
+  "character.stop",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.refresh",
@@ -69,6 +77,10 @@ const safeCommands = new Set([
 const commands = new Set([
   "floor.start",
   "floor.stop",
+  "character.refresh",
+  "character.upgrade",
+  "character.start",
+  "character.stop",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.request",
@@ -176,6 +188,63 @@ export function createAutomationService({
       throw failure(502, "game_response_too_large");
     return JSON.parse(text);
   };
+  const readCharacterProfile = async (entry, credential) => {
+    const character = entry.characterUpgrade;
+    const response = await fetcher("https://cargohustle.online/api/me", {
+      headers: {
+        Authorization: credential,
+        Accept: "application/json",
+        "X-Madhouse-Snapshot-Refresh": "live",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok || response.headers.get("X-Madhouse-Snapshot") === "stale")
+      throw failure(503, "character_profile_unavailable");
+    const raw = await response.json();
+    if (String(raw?.playerId) !== entry.playerId || raw?.partial || raw?.error)
+      throw failure(503, "character_profile_unavailable");
+    const keys = ["madness", "aggression", "rage"];
+    const fields = [
+      "costPerPoint",
+      "currency",
+      "dailyLimit",
+      "dailyUsed",
+      "dailyRemaining",
+      "nextCost",
+      "startCost",
+      "maxCost",
+    ];
+    const projection = {
+      characterStats: Object.fromEntries(
+        keys.map((key) => [
+          key,
+          {
+            base: raw.characterStats?.[key]?.base,
+            total: raw.characterStats?.[key]?.total,
+          },
+        ]),
+      ),
+      characterStatsUpgrade: {
+        resetAtUtc: raw.characterStatsUpgrade?.resetAtUtc,
+        ...Object.fromEntries(
+          keys.map((key) => [
+            key,
+            Object.fromEntries(
+              fields.map((field) => [
+                field,
+                raw.characterStatsUpgrade?.[key]?.[field],
+              ]),
+            ),
+          ]),
+        ),
+      },
+      wallet: { gold: raw.wallet?.gold, pills: raw.wallet?.pills },
+    };
+    character.profile = projection;
+    return projection;
+  };
   function persisted(entry) {
     return {
       version: entry.version,
@@ -184,6 +253,7 @@ export function createAutomationService({
       battle: entry.controller.getSnapshot(),
       goalRecord: entry.goal.exportState(),
       businessHelper: entry.businessHelper,
+      characterUpgrade: entry.characterUpgrade,
       workFarm: entry.workFarm.exportState(),
       floorRunner: entry.floorRunner?.getSnapshot() ?? null,
       auto: entry.auto.exportState(),
@@ -213,6 +283,61 @@ export function createAutomationService({
       entry.storageFailed = true;
     }
   }
+  async function submitCharacterPoint(entry, expected, allowed, onConfirmed) {
+    const credential = entry.credential;
+    const permitted = () =>
+      allowed() &&
+      !closed &&
+      !entry.storageFailed &&
+      entry.credential === credential;
+    return upgradeCharacterPoint({
+      state: entry.characterUpgrade,
+      stat: expected.stat,
+      expected,
+      getProfile: () => readCharacterProfile(entry, credential),
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      allowed: permitted,
+      onConfirmed,
+      post: async (body) => {
+        const response = await fetcher(
+          "https://cargohustle.online/api/character-stats/upgrade",
+          {
+            method: "POST",
+            headers: {
+              Authorization: credential,
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            redirect: "error",
+            cache: "no-store",
+            signal: AbortSignal.timeout(20000),
+            canDispatch: () => {
+              ensureLease();
+              return permitted();
+            },
+          },
+        );
+        const result = await response.json();
+        if (
+          !response.ok &&
+          (response.status < 400 ||
+            response.status >= 500 ||
+            response.status === 429)
+        )
+          throw failure(response.status, "character_upgrade_failed");
+        return {
+          ...result,
+          _explicitRejection:
+            (!response.ok && response.status >= 400 && response.status < 500) ||
+            result?.success === false,
+        };
+      },
+    });
+  }
   function updateGoal(entry) {
     entry.goal.tick();
     const goal = entry.goal.getSnapshot();
@@ -221,6 +346,8 @@ export function createAutomationService({
     return goal;
   }
   function canAct(entry) {
+    if (entry.characterUpgrade?.pending) return false;
+    if (entry.characterBatch?.running()) return false;
     if (entry.workFarm?.getSnapshot().manualPending) return false;
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
@@ -357,6 +484,7 @@ export function createAutomationService({
         },
       },
       preferences: entry.preferences,
+      characterUpgrade: entry.characterUpgrade,
       workFarm: entry.workFarm.getSnapshot(),
       floorRunner: entry.floorRunner.getSnapshot(),
       businessAssistant: businessProjection(
@@ -371,6 +499,11 @@ export function createAutomationService({
     const entry = {
       playerId,
       businessHelper: saved?.businessHelper ?? emptyBusinessHelper(),
+      characterUpgrade: saved?.characterUpgrade ?? {
+        pending: null,
+        profile: null,
+        notice: null,
+      },
       credential: saved?.credential ?? null,
       player: saved?.player ?? null,
       equipment: saved?.equipment ?? { pending: null, checked: false },
@@ -622,6 +755,8 @@ export function createAutomationService({
         Boolean(entry.credential) &&
         !entry.inventoryBusy &&
         !entry.equipment?.pending &&
+        !entry.characterUpgrade.pending &&
+        !entry.characterBatch?.running() &&
         !entry.businessHelper.run?.pendingUpgrade &&
         !entry.controller.getSnapshot().pending &&
         (mode === "energy" ||
@@ -739,6 +874,8 @@ export function createAutomationService({
           entry.busy ||
           entry.inventoryBusy ||
           entry.storageFailed ||
+          entry.characterUpgrade.pending ||
+          entry.characterBatch?.running() ||
           !entry.credential
         )
           return false;
@@ -886,6 +1023,42 @@ export function createAutomationService({
       },
       now,
     });
+    entry.characterBatch = createCharacterStatBatch({
+      state: entry.characterUpgrade,
+      read: () => readCharacterProfile(entry, entry.credential),
+      step: (quote, allowed, confirmed) =>
+        submitCharacterPoint(entry, quote, allowed, confirmed),
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      lock: () => {
+        if (
+          entry.busy ||
+          entry.inventoryBusy ||
+          entry.storageFailed ||
+          !entry.credential ||
+          entry.auto.getSnapshot().enabled ||
+          entry.collector.running() ||
+          entry.workFarm.running() ||
+          entry.raidWorker.getSnapshot().enabled ||
+          entry.raidSubscription.getSnapshot().enabled ||
+          entry.floorRunner.getSnapshot().status === "running" ||
+          entry.floorRunner.getSnapshot().phase === "launching" ||
+          entry.controller.getSnapshot().pending ||
+          entry.controller.getSnapshot().battle?.status === "active"
+        )
+          return false;
+        entry.busy = true;
+        return true;
+      },
+      unlock: () => {
+        entry.busy = false;
+      },
+      schedule,
+      cancel,
+      now,
+    });
     let savedGoal = JSON.stringify(entry.goal.exportState());
     entry.unsubscribers = [entry.controller, entry.auto].map((source) =>
       source.subscribe(() => save(entry)),
@@ -901,6 +1074,8 @@ export function createAutomationService({
     );
     entry.restoring = false;
     actors.set(playerId, entry);
+    if (entry.credential && entry.characterBatch.running())
+      entry.characterBatch.resume();
     return entry;
   }
   async function actor(playerId) {
@@ -1349,6 +1524,14 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
+    if (
+      entry.characterUpgrade.pending &&
+      input.command !== "character.refresh" &&
+      !safeCommands.has(input.command)
+    )
+      throw failure(409, "character_upgrade_uncertain");
+    if (entry.characterBatch.running() && !safeCommands.has(input.command))
+      throw failure(409, "character_batch_running");
     if (entry.raidFriendRefreshing && input.command.startsWith("raid.friend."))
       throw failure(409, "friend_status_pending");
     if (
@@ -1356,6 +1539,7 @@ export function createAutomationService({
       ![
         "floor.stop",
         "business.run.stop",
+        "character.stop",
         "business.select",
         "business.refresh",
         "invitations.refresh",
@@ -1383,6 +1567,7 @@ export function createAutomationService({
         "auto.stop",
         "goal.stop",
         "business.run.stop",
+        "character.stop",
         "work.stop",
         "work.start",
       ].includes(input.command)
@@ -1497,6 +1682,17 @@ export function createAutomationService({
         entry.controller.getSnapshot().pending)
     )
       throw failure(409, "automation_controls_resources");
+    if (
+      ["character.upgrade", "character.start"].includes(input.command) &&
+      (entry.auto.getSnapshot().enabled ||
+        entry.collector.running() ||
+        entry.workFarm.running() ||
+        entry.raidWorker.getSnapshot().enabled ||
+        entry.raidSubscription.getSnapshot().enabled ||
+        entry.controller.getSnapshot().battle?.status === "active" ||
+        entry.controller.getSnapshot().pending)
+    )
+      throw failure(409, "automation_controls_resources");
     const args = input.args ?? {};
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw failure(400, "invalid_command_arguments");
@@ -1545,6 +1741,79 @@ export function createAutomationService({
         case "floor.stop":
           entry.floorRunner.stop();
           break;
+        case "character.stop":
+          entry.characterBatch.stop();
+          break;
+        case "character.start": {
+          const profile = await readCharacterProfile(entry, entry.credential);
+          const quote = characterUpgradeQuote(profile, args.stat, args.amount);
+          const expected = args.expected;
+          if (
+            !quote ||
+            !expected ||
+            expected.stat !== args.stat ||
+            quote.base !== expected.base ||
+            quote.dailyUsed !== expected.dailyUsed ||
+            quote.resetAt !== expected.resetAt ||
+            quote.currency !== expected.currency ||
+            quote.nextCost !== expected.nextCost ||
+            quote.maxCost !== expected.maxCost ||
+            quote.maxPrice !== expected.maxPrice ||
+            quote.amount !== expected.amount
+          )
+            throw failure(409, "character_upgrade_quote_changed");
+          entry.characterBatch.start({
+            stat: args.stat,
+            amount: args.amount,
+            quote,
+            budget: expected.maxPrice,
+          });
+          break;
+        }
+        case "character.refresh":
+        case "character.upgrade": {
+          const character = entry.characterUpgrade;
+          const credential = entry.credential;
+          const readProfile = () => readCharacterProfile(entry, credential);
+          if (input.command === "character.refresh") {
+            const profile = await readProfile();
+            const pending = character.pending;
+            if (
+              pending &&
+              profile.characterStatsUpgrade.resetAtUtc === pending.resetAt &&
+              profile.characterStatsUpgrade[pending.stat]?.dailyUsed ===
+                pending.dailyUsed + 1 &&
+              profile.characterStats[pending.stat]?.base === pending.base + 1 &&
+              profile.wallet[pending.currency] ===
+                pending.balance - pending.price
+            ) {
+              character.pending = null;
+              character.notice =
+                "Игра показывает повышение характеристики на один пункт. Проверьте результат перед следующей операцией.";
+            } else {
+              character.notice = pending
+                ? "Результат предыдущей операции не подтверждён; повторная отправка заблокирована."
+                : null;
+            }
+          } else {
+            if (args.stat !== args.expected?.stat)
+              throw failure(400, "invalid_character_upgrade");
+            const result = await submitCharacterPoint(
+              entry,
+              args.expected,
+              () => true,
+            );
+            character.notice =
+              result.status === "confirmed"
+                ? "Характеристика улучшена."
+                : result.status === "rejected"
+                  ? characterUpgradeRejection(result.reason)
+                  : "Результат не подтверждён; повторная отправка заблокирована.";
+            if (result.status === "confirmed")
+              await readProfile().catch(() => {});
+          }
+          break;
+        }
         case "raid.friend.inspect": {
           const result = await inspectRaidFriend({ entry, args, fetcher });
           const status =
@@ -2182,6 +2451,7 @@ export function createAutomationService({
         entry.floorRunner.dispose();
         for (const unsub of entry.unsubscribers) unsub();
         entry.workFarm.dispose();
+        entry.characterBatch.dispose();
         entry.collector.dispose();
         entry.auto.dispose();
         entry.goal.dispose();
