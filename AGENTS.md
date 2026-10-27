@@ -74,3 +74,8 @@ The entire application renders through React and the production build uses Vite.
 - Execute background automation on the server so closing, reloading or disconnecting a browser does not stop it. Keep only presentation state such as an open modal on the client. Do not add localStorage, IndexedDB or client timers as an automation persistence/execution fallback.
 - Keep personal automation data separate from the public reference catalogue. Encrypt saved game credentials, never return them through state APIs, serialize game actions and durably record pending operations before submitting them. An uncertain operation must not be replayed automatically after restart.
 - Use the shared server state/command API for new automations and settings. Tests must use fake game responses; live game traffic requires the explicit runtime gate and user authorization for verification.
+
+## Release changelog and version
+
+- Before every production release or deployment, add a concise summary of the changes to `changelog.json`, newest release first, and increment the application version in both `package.json` and `package-lock.json` to match the changelog entry. The header logo opens this changelog in the application.
+- Versions use three numeric components: `major.minor.patch`. Increment major for a large change, minor for a new feature or feature enhancement, and patch for minor changes and fixes; reset lower components when incrementing a higher component. Every release must have a new version and summary.
