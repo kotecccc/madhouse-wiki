@@ -28,7 +28,8 @@ export function createCharacterStatBatch({
     if (disposed || timer != null || !running()) return;
     timer = schedule(() => {
       timer = null;
-      void tick();
+      // A failed durable write must not become an unhandled worker rejection.
+      void tick().catch(() => {});
     }, delay);
   };
   const finish = (status, reason) => {
