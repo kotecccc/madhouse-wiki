@@ -41,6 +41,7 @@ function setup({
   terminalStatus = "won",
   invitationOutage = false,
   inviteAvailable = false,
+  battleTtl = 120000,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "automation-series-"));
   const store = createAutomationStateStore({ directory });
@@ -88,12 +89,10 @@ function setup({
       if (startFails)
         return Response.json({ error: "start_failed" }, { status: 503 });
       starts++;
-      current = makeBattle(
-        `battle-${starts}`,
-        "active",
-        now,
-        inviteAvailable ? { maxParticipants: 10 } : {},
-      );
+      current = makeBattle(`battle-${starts}`, "active", now, {
+        expiresAtUtc: new Date(now + battleTtl).toISOString(),
+        ...(inviteAvailable ? { maxParticipants: 10 } : {}),
+      });
       return Response.json({ battle: current });
     }
     if (url.pathname.endsWith("/invitations/bulk") && method === "POST")
@@ -369,6 +368,25 @@ test("raid.stop keeps invitations and auto attacks until the current fight ends"
     assert.equal(ctx.starts, 1);
     assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
     assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+  });
+});
+
+test("a stopped raid continues its current fight after the original time limit", async () => {
+  await withSetup({ battleTtl: 7200000 }, async (ctx) => {
+    const entry = await ctx.openAndConfigure("time", null, {
+      durationHours: 1,
+    });
+    assert.equal(entry.raidWorker.start(7), true);
+    await entry.raidWorker.tick();
+    await ctx.command(entry, "raidstopdeadline", "raid.stop");
+    await ctx.advance(3600001, entry);
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.path.endsWith("/attack") && call.method === "POST",
+      ).length,
+      1,
+    );
+    assert.equal(ctx.starts, 1);
   });
 });
 
