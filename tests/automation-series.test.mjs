@@ -40,6 +40,7 @@ function setup({
   startFails = false,
   terminalStatus = "won",
   invitationOutage = false,
+  inviteAvailable = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "automation-series-"));
   const store = createAutomationStateStore({ directory });
@@ -87,9 +88,16 @@ function setup({
       if (startFails)
         return Response.json({ error: "start_failed" }, { status: 503 });
       starts++;
-      current = makeBattle(`battle-${starts}`, "active", now);
+      current = makeBattle(
+        `battle-${starts}`,
+        "active",
+        now,
+        inviteAvailable ? { maxParticipants: 10 } : {},
+      );
       return Response.json({ battle: current });
     }
+    if (url.pathname.endsWith("/invitations/bulk") && method === "POST")
+      return Response.json({ invitedCount: 1 });
     const id = url.pathname.match(/^\/api\/bosses\/battles\/([^/]+)$/)?.[1];
     if (id && method === "GET")
       return Response.json(current || makeBattle(id, "active", now));
@@ -330,6 +338,38 @@ test("auto.stop cancels the queued next battle", async () => {
       assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
     },
   );
+});
+
+test("raid.stop keeps invitations and auto attacks until the current fight ends", async () => {
+  await withSetup({ inviteAvailable: true }, async (ctx) => {
+    const entry = await ctx.openAndConfigure("battles", 3);
+    assert.equal(entry.raidWorker.start(7), true);
+    await entry.raidWorker.tick();
+    assert.equal(ctx.service.snapshot(entry).battle.battle.status, "active");
+    await ctx.command(entry, "raidstopfinish01", "raid.stop");
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    assert.equal(ctx.store.read("101").raid.stopAfterBattle, true);
+    await ctx.advance(10000, entry);
+    await ctx.advance(10000, entry);
+    await entry.raidWorker.tick();
+    await ctx.advance(10000, entry);
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.path.endsWith("/attack") && call.method === "POST",
+      ).length,
+      1,
+    );
+    assert.equal(
+      ctx.calls.filter(
+        (call) =>
+          call.path.endsWith("/invitations/bulk") && call.method === "POST",
+      ).length,
+      1,
+    );
+    assert.equal(ctx.starts, 1);
+    assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+  });
 });
 
 test("stop during next battle preflight prevents its start POST", async () => {

@@ -31,6 +31,8 @@ The series keeps Auto enabled between fights and saves its `phase`, `nextBattleA
 
 `auto.stop` cancels the queued next fight and invalidates an in-flight preflight before its POST, preserving the goal. `goal.stop` also stops the goal. Explicit stop commands work even when another command is pending. An already submitted game request may still finish. The modal and bottom dock retain a stop control throughout transitions; manual starts/next commands cannot compete with an enabled series.
 
+`raid.stop` stops seeking or starting further fights, but an active or already submitted fight is completed with its auto attacks, invitation schedule and healing settings intact. The finish-current intent and single-fight checkpoint survive a server restart; the previous goal deadline cannot interrupt that fight. An uncertain join or start is reconciled by reads and is never submitted a second time. Stopping floor progression while its raid is fighting follows the same rule.
+
 ## Live-traffic gate and development
 
 The normal runtime is enabled by default, including DEV Compose. Authenticated UI commands reach the server; tests still use fake upstream responses and do not submit real strikes or purchases.

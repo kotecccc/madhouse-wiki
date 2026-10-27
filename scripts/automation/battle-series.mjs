@@ -281,6 +281,15 @@ export function createBattleSeries({
         singleBattleId,
       };
     },
+    finishCurrent() {
+      const battle = controller.getSnapshot().battle;
+      if (!enabled || battle?.status !== "active" || !battle.id) return false;
+      if (singleBattle && singleBattleId === battle.id) return true;
+      singleBattle = true;
+      singleBattleId = battle.id;
+      publish();
+      return true;
+    },
     start({
       checkpoint: restored = null,
       resumeAt = null,

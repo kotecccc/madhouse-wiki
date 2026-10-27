@@ -216,9 +216,7 @@ export function createFloorActions({
         target?.kind === "boss" &&
         entry.goal.getSnapshot()?.boss?.id === target.apiId
       ) {
-        entry.raidWorker.stop();
-        entry.auto.stop();
-        entry.goal.stop();
+        entry.raidWorker.finishAfterCurrent();
       }
     },
   };

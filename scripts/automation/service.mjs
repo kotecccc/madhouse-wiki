@@ -361,6 +361,7 @@ export function createAutomationService({
     return !(
       goal?.deadlineAt != null &&
       now() >= goal.deadlineAt &&
+      !entry.raidWorker?.getSnapshot().stopAfterBattle &&
       goal.status !== "stopped"
     );
   }
@@ -641,6 +642,7 @@ export function createAutomationService({
     entry.goal = createBossBattleGoal({ controller: entry.controller, now });
     const restoredGoal = restoredShopDropGoal(saved?.goalRecord);
     if (restoredGoal) entry.goal.restoreState(restoredGoal);
+    if (saved?.raid?.stopAfterBattle) entry.goal.finishCurrentBattle();
     const refreshAvailability = async () => {
       if (
         ["unavailable", "credentials_invalid"].includes(
@@ -1705,7 +1707,7 @@ export function createAutomationService({
       )
     )
       throw failure(409, "floor_automation_controls_resources");
-    updateGoal(entry);
+    if (input.command !== "raid.stop") updateGoal(entry);
     let state = entry.controller.getSnapshot();
     if (
       [
@@ -1727,9 +1729,10 @@ export function createAutomationService({
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
       if (
-        ["auto.stop", "raid.stop", "goal.stop", "business.run.stop"].includes(
+        ["auto.stop", "goal.stop", "business.run.stop"].includes(
           input.command,
-        )
+        ) ||
+        (input.command === "raid.stop" && state.battle?.status !== "active")
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
@@ -1998,8 +2001,7 @@ export function createAutomationService({
           break;
         }
         case "raid.stop":
-          entry.raidWorker.stop();
-          entry.goal.stop({ clearProgress: true });
+          entry.raidWorker.finishAfterCurrent();
           break;
         case "invitations.refresh":
           await refreshInvitations(entry);
@@ -2395,7 +2397,13 @@ export function createAutomationService({
             entry.controller.getSnapshot().battle?.status === "active"
           ) {
             entry.auto.start({
-              checkpoint: value.auto,
+              checkpoint: value.raid.stopAfterBattle
+                ? {
+                    ...value.auto,
+                    singleBattle: true,
+                    singleBattleId: entry.controller.getSnapshot().battle.id,
+                  }
+                : value.auto,
               resumeAt: value.auto?.nextAttackAt,
             });
           }

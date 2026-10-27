@@ -57,6 +57,10 @@ function fixture() {
       stop: () => {
         raid = false;
       },
+      finishAfterCurrent: () => {
+        raid = false;
+        goal = { ...goal, status: "stopped" };
+      },
     },
     assistant: { begin: () => true },
     raidSubscription: { getSnapshot: () => ({ enabled: false }) },

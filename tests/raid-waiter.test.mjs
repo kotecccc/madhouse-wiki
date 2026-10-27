@@ -15,7 +15,12 @@ function setup({ saved, refresh, startSolo } = {}) {
     saved,
     now: () => clock,
     state: () => state,
-    goal: { getSnapshot: () => goal },
+    goal: {
+      getSnapshot: () => goal,
+      stop() {
+        goal.status = "stopped";
+      },
+    },
     auto: {
       getSnapshot: () => ({ enabled }),
       start() {
@@ -25,6 +30,10 @@ function setup({ saved, refresh, startSolo } = {}) {
       },
       stop() {
         enabled = false;
+      },
+      finishCurrent() {
+        calls.push("auto.finishCurrent");
+        return true;
       },
     },
     available: () => true,
@@ -176,6 +185,34 @@ test("stop during pending invitation read prevents joining and concurrent ticks 
   await pending;
   assert.deepEqual(ctx.calls, ["refresh"]);
   assert.equal(ctx.worker.getSnapshot().enabled, false);
+});
+
+test("stopping a raid keeps attacks running until the current fight ends", async () => {
+  const ctx = setup();
+  ctx.worker.start(7);
+  ctx.setItems([invitation]);
+  await ctx.worker.tick();
+  ctx.worker.finishAfterCurrent();
+  assert.equal(ctx.worker.getSnapshot().stopAfterBattle, true);
+  assert.equal(ctx.goal.status, "active");
+  assert.equal(ctx.calls.at(-1), "auto.finishCurrent");
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().enabled, true);
+  ctx.finish();
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().enabled, false);
+  assert.equal(ctx.goal.status, "stopped");
+  assert.equal(ctx.calls.filter((call) => call === "invite-7").length, 1);
+});
+
+test("stopping before any fight ends the raid without starting one", async () => {
+  const ctx = setup();
+  ctx.worker.start(7);
+  ctx.worker.finishAfterCurrent();
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().enabled, false);
+  assert.equal(ctx.goal.status, "stopped");
+  assert.deepEqual(ctx.calls, []);
 });
 
 test("uncertain restart checkpoint pauses and never accepts again", async () => {

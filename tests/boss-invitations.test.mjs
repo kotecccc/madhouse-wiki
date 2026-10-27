@@ -205,6 +205,7 @@ function setup(directory, options = {}) {
       const saved = store.read("101");
       pendingBeforePost.push(saved?.battle?.pendingInvitation ?? null);
       accepted = true;
+      if (options.acceptGate) await options.acceptGate();
       if (options.timeoutPost) throw new Error("simulated timeout");
       return new Response(null, { status: 204 });
     }
@@ -713,7 +714,11 @@ test("floor mode accepts an invitation using the durable raid checkpoint", async
 
 test("raid command persists waiting intent, accepts with checkpoint, and blocks competing actions", async () => {
   const directory = mkdtempSync(join(tmpdir(), "raid-service-"));
-  const ctx = setup(directory, { omitActiveBossBattle: true });
+  let battleStatus = "active";
+  const ctx = setup(directory, {
+    omitActiveBossBattle: true,
+    battleStatus: () => battleStatus,
+  });
   try {
     const entry = await ctx.service.identify(token);
     await entry.controller.open({ numericId: 7, name: "Boss 7" });
@@ -756,11 +761,83 @@ test("raid command persists waiting intent, accepts with checkpoint, and blocks 
       false,
     );
     await issue(ctx.service, entry, "stop-raid-01", "raid.stop");
+    assert.equal(ctx.service.snapshot(entry).raid.stopAfterBattle, true);
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    assert.equal(ctx.store.read("101").auto.singleBattle, true);
+    assert.equal(ctx.store.read("101").auto.singleBattleId, "battle-9");
+    assert.equal(ctx.service.snapshot(entry).goal.status, "active");
+    battleStatus = "won";
+    await entry.controller.refresh();
+    await entry.raidWorker.tick();
     assert.equal(ctx.service.snapshot(entry).goal.status, "stopped");
     assert.equal(ctx.service.snapshot(entry).goal.progress, 0);
     assert.equal(ctx.service.snapshot(entry).goal.remainingSeconds, null);
     assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
     assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("raid stop during an already submitted join finishes the confirmed fight", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-stop-join-"));
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const ctx = setup(directory, {
+    omitActiveBossBattle: true,
+    acceptGate: () => gate,
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "start-stop-join", "raid.start", {
+      settings: raidSettings,
+    });
+    const joining = entry.raidWorker.tick();
+    for (let i = 0; i < 30 && ctx.pendingBeforePost.length === 0; i++)
+      await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ctx.pendingBeforePost.length, 1);
+    await issue(ctx.service, entry, "stop-during-join", "raid.stop");
+    release();
+    await joining;
+    await entry.raidWorker.tick();
+    const state = ctx.service.snapshot(entry);
+    assert.equal(state.raid.stopAfterBattle, true);
+    assert.equal(state.battle.battle?.status, "active");
+    assert.equal(state.auto.enabled, true);
+    assert.equal(ctx.pendingBeforePost.length, 1);
+  } finally {
+    release();
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("raid stop-after-fight survives a restart without reopening the series", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-finish-restart-"));
+  let ctx = setup(directory, { omitActiveBossBattle: true });
+  try {
+    let entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "start-raid-finish", "raid.start", {
+      settings: raidSettings,
+    });
+    await entry.raidWorker.tick();
+    await issue(ctx.service, entry, "stop-raid-finish", "raid.stop");
+    ctx.close();
+    ctx = setup(directory, {
+      activeBattle: { battleId: "battle-9", bossId: 7 },
+    });
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    const state = ctx.service.snapshot(entry);
+    assert.equal(state.raid.stopAfterBattle, true);
+    assert.equal(state.auto.enabled, true);
+    assert.equal(ctx.store.read("101").auto.singleBattleId, "battle-9");
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
