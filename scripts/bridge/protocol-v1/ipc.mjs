@@ -57,6 +57,7 @@ const REQUEST_TYPES = Object.freeze([
   "startup.settings.get",
   "startup.settings.set",
   "update.check",
+  "update.install",
   "device.pause",
   "device.resume",
   "device.disconnect",
@@ -77,6 +78,7 @@ export function parseIpcRequest(request) {
     case "telegram.logout":
     case "startup.settings.get":
     case "update.check":
+    case "update.install":
     case "device.pause":
     case "device.resume":
     case "device.disconnect":
@@ -353,6 +355,10 @@ export function parseIpcResponse(response) {
           pattern: /^[0-9A-Za-z.+-]+$/u,
         });
       else if (Object.hasOwn(response, "version")) fail();
+      break;
+    case "update.install.result":
+      exactKeys(response, ["type", "requestId", "status"]);
+      assertEnum(response.status, ["handed_off", "unavailable"]);
       break;
     case "wiki.open.result":
       exactKeys(response, ["type", "requestId", "status"]);
