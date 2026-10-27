@@ -126,6 +126,7 @@ function setup({
       current = makeBattle(attackId, terminalStatus, now, {
         playerHealth: terminalStatus === "lost" ? 0 : 80,
         bossHealth: terminalStatus === "lost" ? 40 : 0,
+        myDamage: (current?.myDamage ?? 60) + 1,
         reward: { drops: rewardDrops },
       });
       return Response.json({ battle: current });

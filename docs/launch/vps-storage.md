@@ -52,8 +52,24 @@ Before a future initial startup, establish the encrypted
 Telegram session with `scripts/telegram/setup-raids-session.mjs`. If it is
 missing, the worker must not claim synchronization is live.
 
+The prepared storage server additionally accepts only the HMAC-named
+`game-credentials/<64-hex>.json` namespace for encrypted Wiki game credentials,
+with the same 32 KiB limit and conditional-write rules as account sessions.
+It is deployed separately from Wiki images. Confirm the installed storage server
+supports this namespace before enabling Bridge or migrating Wiki authentication;
+the source change alone does not establish the installed host state.
+
 Backups live under `/opt/madhouse-storage/backups`; `scripts/storage/backup.sh`
 runs daily with seven rotating slots. Keys and environment files are excluded.
 Keep a separate protected
 off-host copy before any destructive maintenance. Never replace or delete the
 session or lease while a live worker holds the lease.
+
+The checked-in legacy `backup.sh` writes an unencrypted compressed archive; it
+does not satisfy the Bridge encrypted-backup gate. A separate prepared
+`backup-encrypted.sh` pipes an offline, quiescent `data` copy through `age` and
+requires an explicit operator confirmation and recipient. It has not been
+installed or scheduled on the host. The confirmation is an operator assertion,
+not a service-stop or snapshot-consistency check. Test restore, encryption keys,
+retention, off-host custody and coordination with the independent automation
+database before adopting it; do not stop or alter production for a local test.

@@ -749,7 +749,7 @@ export function createBossBattleController({
         }
         // A confirmed strike already returns state. Never fetch the whole fight
         // again here; incomplete replies require an explicit user refresh.
-        const complete =
+        const replyComplete =
           typeof response.battle.status === "string" &&
           number(response.battle.playerHealth) !== null &&
           number(response.battle.bossHealth) !== null &&
@@ -778,6 +778,11 @@ export function createBossBattleController({
         const damage = playerHits.length
           ? playerHits.reduce((sum, hit) => sum + hit.damage, 0)
           : null;
+        const effectConfirmed =
+          (previous?.totalDamage != null &&
+            battle.totalDamage > previous.totalDamage) ||
+          (damage !== null && damage > 0);
+        const complete = replyComplete && effectConfirmed;
         if (
           complete &&
           !Object.hasOwn(response.battle, "myDamage") &&

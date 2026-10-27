@@ -1,5 +1,12 @@
 import { normalizeActiveBossBattle } from "../shared/active-boss-battle.js";
 
+const ROUTE_BLOCKING_ERRORS = new Set([
+  "bridge_auth_required",
+  "bridge_route_unavailable",
+  "invalid_wiki_identity",
+  "try_later",
+]);
+
 function levelProgressFields(value) {
   if (
     !Number.isSafeInteger(value?.playerLevel) ||
@@ -25,7 +32,8 @@ export async function silentlyRefreshSharedSessionData(gameLogin) {
       ...levelProgressFields(result),
       activeBossBattle: normalizeActiveBossBattle(result.activeBossBattle),
     };
-  } catch {
+  } catch (error) {
+    if (ROUTE_BLOCKING_ERRORS.has(error?.message || error?.code)) throw error;
     return null;
   }
 }

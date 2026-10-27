@@ -143,6 +143,15 @@ export function createSessionApi({
   let tail = Promise.resolve();
   let lastStarted = -Infinity;
   let refreshing = 0;
+  const requestIdentity = (path) => {
+    const headers = authorize({ url: path }).headers || {};
+    const key = Object.keys(headers).find((name) =>
+      ["authorization", "x-madhouse-wiki-init-data"].includes(
+        name.toLowerCase(),
+      ),
+    );
+    return key ? headers[key] : null;
+  };
   const isSnapshotPath = (path) =>
     /^\/api\/(?:automation\/bosses|me|me\/bag|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
@@ -193,7 +202,7 @@ export function createSessionApi({
       return Promise.reject(new Error("Недопустимый API-запрос"));
     // Validate even a cache hit, so expired/cleared sessions cannot reuse it.
     try {
-      const current = authorize({ url: path }).headers.Authorization;
+      const current = requestIdentity(path);
       if (identity !== current) {
         clear();
         identity = current;
@@ -404,7 +413,7 @@ export function createSessionApi({
   return {
     get(path, options = {}) {
       try {
-        const current = authorize({ url: path }).headers.Authorization;
+        const current = requestIdentity(path);
         if (identity !== current) {
           clear();
           identity = current;
@@ -432,7 +441,7 @@ export function createSessionApi({
     post: (path, body, options) => request("POST", path, body, options),
     peek(path, { allowStale = false } = {}) {
       try {
-        if (authorize({ url: path }).headers.Authorization !== identity) {
+        if (requestIdentity(path) !== identity) {
           return null;
         }
       } catch {
@@ -468,10 +477,15 @@ function ensureSessionApi() {
     shouldRefresh: () =>
       typeof document === "undefined" || document.visibilityState === "visible",
   });
-  if (typeof window !== "undefined")
+  if (typeof window !== "undefined") {
+    let sessionIdentity = readSession().identity;
     subscribeSession(() => {
-      if (readSession().status !== "ready") sessionApi.clear();
+      const session = readSession();
+      if (session.status !== "ready" || session.identity !== sessionIdentity)
+        sessionApi.clear();
+      sessionIdentity = session.identity;
     });
+  }
   if (!refreshLifecycleStarted && typeof window !== "undefined") {
     refreshLifecycleStarted = true;
     const refresh = () => {

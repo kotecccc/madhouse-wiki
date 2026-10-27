@@ -112,6 +112,49 @@ test("a work batch stopped at its action limit waits for confirmed progress befo
   await h.runner.tick();
   assert.equal(h.launches(), 2);
 });
+test("stop and restart preserve an unresolved launch and reject a new start", async () => {
+  const h = setup({
+    saved: {
+      status: "paused",
+      phase: "launching",
+      target: { kind: "work", apiId: 1 },
+    },
+  });
+  h.runner.stop();
+  assert.equal(h.runner.getSnapshot().status, "stopped");
+  assert.equal(h.runner.getSnapshot().phase, "launching");
+  assert.match(h.runner.getSnapshot().reason, /не подтверждён/u);
+  assert.throws(() => h.runner.start(), /floor_run_active/u);
+  const restarted = setup({ saved: h.writes.at(-1) });
+  assert.throws(() => restarted.runner.start(), /floor_run_active/u);
+  assert.equal(restarted.launches(), 0);
+});
+
+test("stop during a pending launch does not erase its uncertain checkpoint", async () => {
+  let release;
+  let signalStarted;
+  const started = new Promise((resolve) => {
+    signalStarted = resolve;
+  });
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const h = setup({
+    launch: async () => {
+      signalStarted();
+      await pending;
+    },
+  });
+  h.runner.start();
+  const tick = h.runner.tick();
+  await started;
+  h.runner.stop();
+  release();
+  await tick;
+  assert.equal(h.runner.getSnapshot().phase, "launching");
+  assert.throws(() => h.runner.start(), /floor_run_active/u);
+});
+
 test("never repeats a launch with an unknown outcome", async () => {
   let calls = 0;
   const h = setup({

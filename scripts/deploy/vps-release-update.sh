@@ -9,6 +9,8 @@ readonly CHECKSUM_FILE="${IMAGE_ARCHIVE}.sha256"
 readonly COMPOSE_FILE="${ROOT}/vps-compose.yml"
 readonly RELEASE_ENV="${ROOT}/release.env"
 readonly PREVIOUS_RELEASE_ENV="${ROOT}/previous-release.env"
+readonly ROLLBACK_FLOOR_ENV="${ROOT}/rollback-floor.env"
+readonly COMPARE_API="https://api.github.com/repos/${REPOSITORY}/compare"
 readonly BEFORE_DOWNLOAD_KB=$((6 * 1024 * 1024))
 readonly BEFORE_LOAD_KB=$((4 * 1024 * 1024))
 readonly RESERVE_KB=$((1024 * 1024))
@@ -18,6 +20,20 @@ case "${1:-}" in
   *) echo "Usage: $0 [--check-space]" >&2; exit 2 ;;
 esac
 if [[ "$#" -gt 1 ]]; then exit 2; fi
+
+# Release markers and the update lock are authority boundaries. Do not follow
+# symlinks or trust a directory writable by a non-root user.
+if [[ -L "${ROOT}" || ! -d "${ROOT}" ]]; then
+  echo "Wiki release directory must be a real directory" >&2
+  exit 1
+fi
+root_owner="$(stat -c '%u' -- "${ROOT}")" || exit 1
+root_mode="$(stat -c '%a' -- "${ROOT}")" || exit 1
+if [[ "${root_owner}" != 0 || ! "${root_mode}" =~ ^[0-7]{3}$ ]] ||
+  [[ "${root_mode:1:1}" =~ [2367] || "${root_mode:2:1}" =~ [2367] ]]; then
+  echo "Wiki release directory must be root-owned and not group/world-writable" >&2
+  exit 1
+fi
 
 # Shared by the timer, manual updates and the space-only maintenance command.
 umask 077
@@ -38,8 +54,23 @@ finish() {
 trap finish EXIT
 
 read_marker() {
-  local path="$1" key="$2" value="" contents
-  if [[ -f "${path}" ]]; then
+  local path="$1" key="$2" value="" contents owner mode
+  if [[ -L "${path}" ]]; then
+    echo "Invalid release marker; refusing to update or clean images" >&2
+    return 1
+  fi
+  if [[ -e "${path}" ]]; then
+    if [[ ! -f "${path}" ]]; then
+      echo "Invalid release marker; refusing to update or clean images" >&2
+      return 1
+    fi
+    owner="$(stat -c '%u' -- "${path}")" || return 1
+    mode="$(stat -c '%a' -- "${path}")" || return 1
+    if [[ "${owner}" != 0 || ! "${mode}" =~ ^[0-7]{3}$ ]] ||
+      [[ "${mode:1:1}" =~ [2367] || "${mode:2:1}" =~ [2367] ]]; then
+      echo "Release markers must be root-owned and not group/world-writable" >&2
+      return 1
+    fi
     contents="$(cat "${path}")" || return 1
     if [[ "${contents}" != "${key}="* ]]; then
       echo "Invalid release retention marker; refusing to update or clean images" >&2
@@ -57,12 +88,57 @@ read_marker() {
 }
 previous_sha="$(read_marker "${RELEASE_ENV}" MADHOUSE_RELEASE_SHA)"
 retained_previous_sha="$(read_marker "${PREVIOUS_RELEASE_ENV}" MADHOUSE_PREVIOUS_RELEASE_SHA)"
+minimum_safe_sha="$(read_marker "${ROLLBACK_FLOOR_ENV}" MADHOUSE_MINIMUM_SAFE_RELEASE_SHA)"
 protected_release_sha="${previous_sha}"
 protected_previous_sha="${retained_previous_sha}"
 retention_known=0
 if [[ -f "${PREVIOUS_RELEASE_ENV}" ]]; then retention_known=1; fi
 initial_retention_known="${retention_known}"
 candidate_sha=""
+
+at_or_above_rollback_floor() {
+  local sha="$1" comparison_file="${work}/rollback-floor-comparison.json"
+  if [[ -z "${minimum_safe_sha}" || "${sha}" == "${minimum_safe_sha}" ]]; then
+    return 0
+  fi
+  curl --fail --silent --show-error --location \
+    --max-time 30 \
+    --max-filesize 1000000 \
+    --header 'Accept: application/vnd.github+json' \
+    --header 'X-GitHub-Api-Version: 2022-11-28' \
+    "${COMPARE_API}/${minimum_safe_sha}...${sha}" \
+    --output "${comparison_file}"
+  python3 - "${comparison_file}" "${minimum_safe_sha}" "${sha}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    comparison = json.load(source)
+base_commit = (
+    comparison.get("base_commit") if isinstance(comparison, dict) else None
+)
+head_commit = (
+    comparison.get("head_commit") if isinstance(comparison, dict) else None
+)
+merge_base_commit = (
+    comparison.get("merge_base_commit") if isinstance(comparison, dict) else None
+)
+if (
+    not isinstance(base_commit, dict)
+    or not isinstance(head_commit, dict)
+    or not isinstance(merge_base_commit, dict)
+    or base_commit.get("sha") != sys.argv[2]
+    or head_commit.get("sha") != sys.argv[3]
+    or merge_base_commit.get("sha") != sys.argv[2]
+    or comparison.get("status") != "ahead"
+    or type(comparison.get("ahead_by")) is not int
+    or comparison["ahead_by"] < 1
+    or type(comparison.get("behind_by")) is not int
+    or comparison.get("behind_by") != 0
+):
+    raise SystemExit("release is not at or above the configured rollback floor")
+PY
+}
 
 cleanup_old_images() {
   # A legacy installation has no trustworthy previous-release pointer. Do not
@@ -199,6 +275,19 @@ if [[ "${candidate_sha}" == "${previous_sha}" ]]; then
   exit 0
 fi
 
+if [[ -n "${minimum_safe_sha}" ]]; then
+  if [[ -n "${previous_sha}" ]] && ! at_or_above_rollback_floor "${previous_sha}"; then
+    echo "Current release is below the configured rollback floor; refusing to update" >&2
+    exit 1
+  fi
+  if [[ "${candidate_sha}" != "${previous_sha}" ]]; then
+    if ! at_or_above_rollback_floor "${candidate_sha}"; then
+      echo "Candidate release is below the configured rollback floor; refusing to update" >&2
+      exit 1
+    fi
+  fi
+fi
+
 prepare_space_paths
 require_free_space "${BEFORE_DOWNLOAD_KB}"
 
@@ -230,10 +319,16 @@ rm -f -- "${work}/${IMAGE_ARCHIVE}"
 require_free_space "${RESERVE_KB}"
 
 compose() {
-  docker compose \
-    --project-name madhouse-wiki \
-    --file "${COMPOSE_FILE}" \
-    --env-file "${RELEASE_ENV}" \
+  local compose_args=(
+    docker compose
+    --project-name madhouse-wiki
+    --file "${COMPOSE_FILE}"
+    --env-file "${RELEASE_ENV}"
+  )
+  if [[ -f "${ROLLBACK_FLOOR_ENV}" ]]; then
+    compose_args+=(--env-file "${ROLLBACK_FLOOR_ENV}")
+  fi
+  "${compose_args[@]}" \
     "$@"
 }
 

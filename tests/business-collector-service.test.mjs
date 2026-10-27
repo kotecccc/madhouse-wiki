@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { createAccountSnapshots } from "../scripts/account/snapshots.mjs";
+import { createRestoreOperationGuard } from "../scripts/automation/runtime.mjs";
 
 const businessId = "business:7";
 const materials = [55, 56];
@@ -28,6 +30,126 @@ const catalogue = {
     ],
   })),
 };
+
+test("restored business upgrade reconciles only an exact observed level without another POST", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "business-restore-reconcile-"));
+  const store = createAutomationStateStore({ directory });
+  const calls = [];
+  let level = 1;
+  let invalidateOnReconciliation = false;
+  let detailReads = 0;
+  const fetcher = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    calls.push({ path, method: init.method || "GET" });
+    if (path === "/api/me/bag") return Response.json({ activityItems: [] });
+    if (path === "/api/businesses/7") {
+      detailReads++;
+      if (invalidateOnReconciliation && detailReads === 2)
+        store.armRestoreGuardForMarker({ createdAt: 2000 });
+      return Response.json({
+        id: 7,
+        level,
+        maxLevel: 2,
+        canUpgrade: true,
+        requiredItems: [],
+      });
+    }
+    throw new Error("unexpected synthetic game call");
+  };
+  store.write("101", {
+    credential: "Bearer restore.payload.sig",
+    player: { playerId: 101 },
+    businessHelper: {
+      configs: {},
+      selectedBusinessId: null,
+      resources: { details: {}, inventory: null, updatedAt: null },
+      notice: null,
+      run: {
+        businessId,
+        targetLevel: 2,
+        status: "stopped",
+        pendingUpgrade: {
+          businessId: 7,
+          fromLevel: 1,
+          operationId: "old-operation",
+        },
+      },
+    },
+  });
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher,
+    allowOperation: createRestoreOperationGuard(store),
+  });
+  snapshots.registerVerifiedCredential("Bearer restore.payload.sig", "101");
+  const service = createAutomationService({
+    store,
+    fetcher: snapshots.liveFetch,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    getBoss: () => null,
+    getBusinessCatalogue: () => catalogue,
+    now: () => 10000,
+  });
+  try {
+    const entry = await service.identify("Bearer restore.payload.sig");
+    calls.length = 0;
+    store.activateRestoreGuard({ activatedAt: 1000 });
+    store.bindVerifiedGameAccount("7654321", "101", 1001);
+    store.confirmRestoredAccount({
+      ownerId: "7654321",
+      playerId: "101",
+      verifiedAt: 1002,
+    });
+    store.selectRoutePolicy("101", {
+      policy: "direct",
+      activeDeviceId: null,
+      expectedRouteEpoch: 0,
+      updatedAt: 1003,
+    });
+    const refresh = (id) =>
+      service.command(entry, {
+        id,
+        command: "business.refresh",
+        expectedVersion: service.snapshot(entry).version,
+        args: { businessId },
+      });
+    await refresh("restorebusiness01");
+    assert.ok(store.read("101").businessHelper.run.pendingUpgrade);
+    assert.equal(store.isRestoreRequired("101"), true);
+    level = 2;
+    detailReads = 0;
+    invalidateOnReconciliation = true;
+    await assert.rejects(
+      () => refresh("restorebusiness02"),
+      /business_assistant_conflict/u,
+    );
+    assert.ok(store.read("101").businessHelper.run.pendingUpgrade);
+    store.bindVerifiedGameAccount("7654321", "101", 2001);
+    store.confirmRestoredAccount({
+      ownerId: "7654321",
+      playerId: "101",
+      verifiedAt: 2002,
+    });
+    store.selectRoutePolicy("101", {
+      policy: "direct",
+      activeDeviceId: null,
+      expectedRouteEpoch: 0,
+      updatedAt: 2003,
+    });
+    invalidateOnReconciliation = false;
+    await refresh("restorebusiness03");
+    assert.equal(store.read("101").businessHelper.run.pendingUpgrade, null);
+    assert.equal(store.read("101").businessHelper.run.status, "stopped");
+    assert.equal(store.isRestoreRequired("101"), false);
+    assert.ok(
+      calls.length > 0 && calls.every(({ method }) => method === "GET"),
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 for (const [cap, restart, autoUpgrade, viaFloor] of [
   [1, false],
@@ -153,6 +275,7 @@ for (const [cap, restart, autoUpgrade, viaFloor] of [
         const itemId = current.bossId === 17 ? 55 : 56;
         stock.set(itemId, (stock.get(itemId) || 0) + 1);
         current = battle(current.battleId, current.bossId, "won");
+        current.myDamage = 2;
         return Response.json({ battle: current });
       }
       if (path.startsWith("/api/bosses/battles/"))

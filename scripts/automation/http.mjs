@@ -10,12 +10,14 @@ export function createAutomationHttp({
   service,
   enabled = true,
   origin = null,
+  resolveOwnerSession = null,
 }) {
   return async (request) => {
     const url = new URL(request.url);
     if (
       ![
         "/api/automation/state",
+        "/api/automation/command-ticket",
         "/api/automation/commands",
         "/api/automation/launch",
       ].includes(url.pathname) ||
@@ -61,13 +63,24 @@ export function createAutomationHttp({
           return json({ error: "invalid_json" }, 400);
         }
       }
-      entry = await service.identify(request.headers.get("authorization"));
+      const authorization = request.headers.get("authorization");
+      const ownerInitData = request.headers.get("x-madhouse-wiki-init-data");
+      if (authorization && ownerInitData)
+        return json({ error: "game_session_required" }, 401);
+      if (ownerInitData !== null) {
+        if (ownerInitData.length > 4096 || !resolveOwnerSession)
+          return json({ error: "game_session_required" }, 401);
+        const owner = await resolveOwnerSession(ownerInitData);
+        entry = await service.identifyOwner(owner.ownerId);
+      } else entry = await service.identify(authorization);
       return json(
         request.method === "GET"
           ? service.snapshot(entry)
-          : url.pathname.endsWith("/launch")
-            ? await service.launch(entry, input?.activeBossBattle)
-            : await service.command(entry, input),
+          : url.pathname.endsWith("/command-ticket")
+            ? service.issueCommandTicket(entry, input)
+            : url.pathname.endsWith("/launch")
+              ? await service.launch(entry, input?.activeBossBattle)
+              : await service.command(entry, input),
       );
     } catch (error) {
       const status =
@@ -81,15 +94,17 @@ export function createAutomationHttp({
       return json(
         {
           error:
-            error.message === "game_unavailable_actions_paused"
-              ? "game_unavailable_actions_paused"
-              : status === 400
-                ? "invalid_automation_command"
-                : status === 401
-                  ? "game_session_required"
-                  : status === 409
-                    ? "automation_state_changed"
-                    : "automation_unavailable",
+            error.message === "automation_restore_confirmation_required"
+              ? "automation_restore_confirmation_required"
+              : error.message === "game_unavailable_actions_paused"
+                ? "game_unavailable_actions_paused"
+                : status === 400
+                  ? "invalid_automation_command"
+                  : status === 401
+                    ? "game_session_required"
+                    : status === 409
+                      ? "automation_state_changed"
+                      : "automation_unavailable",
           ...(["inventory.action", "inventory.refresh"].includes(
             input?.command,
           ) &&

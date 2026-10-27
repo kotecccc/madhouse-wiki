@@ -53,6 +53,9 @@ import {
 } from "./raid-friends.mjs";
 
 const failure = (status, code) => Object.assign(new Error(code), { status });
+const missingGameTransport = async () => {
+  throw failure(503, "game_transport_not_configured");
+};
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
 export const characterBattleUncertain = (state, assistant) =>
   Boolean(
@@ -62,6 +65,11 @@ export const characterBattleUncertain = (state, assistant) =>
     state?.pendingInvitation ||
     state?.purchaseUncertain ||
     assistant?.uncertain,
+  );
+const characterIntentWhileAttackPending = (command, pending) =>
+  pending?.kind === "attack" &&
+  ["character.upgrade", "character.start", "character.startAll"].includes(
+    command,
   );
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
@@ -85,6 +93,33 @@ const safeCommands = new Set([
   "business.select",
   "business.refresh",
 ]);
+const commandControlCommands = new Set([
+  "raid.stop",
+  "auto.stop",
+  "goal.stop",
+  "business.run.stop",
+  "work.stop",
+  "floor.stop",
+  "character.stop",
+  "subscription.stop",
+]);
+const readOnlyWhilePending = new Set([
+  "refresh",
+  "hydrate",
+  "invitations.refresh",
+  "inventory.refresh",
+  "equipment.refresh",
+  "pvp.refresh",
+  "business.refresh",
+]);
+const restoreReconciliationCommands = new Set([
+  "buddy.resolve",
+  "character.refresh",
+  "friends.reconcile",
+  "raid.friend.refresh",
+]);
+const COMMAND_ADMISSION_TTL_MS = 5 * 60 * 1000;
+const MAX_COMMAND_ADMISSIONS = 128;
 const commands = new Set([
   "buddy.set",
   "buddy.order",
@@ -149,6 +184,38 @@ const commands = new Set([
   "business.run.stop",
 ]);
 
+function canonicalJson(value) {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return JSON.stringify(value);
+  if (typeof value === "number" && Number.isFinite(value))
+    return JSON.stringify(value);
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (
+    typeof value === "object" &&
+    (Object.getPrototypeOf(value) === Object.prototype ||
+      Object.getPrototypeOf(value) === null)
+  ) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  throw new TypeError("automation_command_arguments_not_json");
+}
+
+function commandArgumentsDigest(args) {
+  let normalized;
+  try {
+    normalized = canonicalJson(args);
+  } catch {
+    throw failure(400, "invalid_command_arguments");
+  }
+  if (Buffer.byteLength(normalized) > 16_384)
+    throw failure(413, "command_arguments_too_large");
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
 // One wiki process owns all actors and timers. Browser connections are observers.
 export function createAutomationService({
   store,
@@ -158,7 +225,7 @@ export function createAutomationService({
     businessUpgrades: [],
     bosses: [],
   }),
-  fetcher = fetch,
+  fetcher = missingGameTransport,
   identifyPlayer,
   accountHealth = () => null,
   snapshotFetch = fetcher,
@@ -166,7 +233,10 @@ export function createAutomationService({
   schedule = setTimeout,
   cancel = clearTimeout,
   random = Math.random,
+  commandAdmissionTtlMs = COMMAND_ADMISSION_TTL_MS,
 }) {
+  if (!Number.isSafeInteger(commandAdmissionTtlMs) || commandAdmissionTtlMs < 1)
+    throw new TypeError("automation_command_admission_ttl_invalid");
   const actors = new Map();
   const loading = new Map();
   const identities = new Map();
@@ -181,10 +251,11 @@ export function createAutomationService({
   });
   let closed = false;
   let booting = false;
+  let disposed = false;
   let heartbeat = null;
   const owner = randomUUID();
-  function ensureLease() {
-    if (closed || !store.acquireLease(owner, now(), 15000))
+  function ensureLease({ allowClosed = false } = {}) {
+    if ((closed && !allowClosed) || !store.acquireLease(owner, now(), 15000))
       throw failure(503, "automation_worker_unavailable");
   }
   const gameJson = async (authorization, path) => {
@@ -299,17 +370,65 @@ export function createAutomationService({
       raid: entry.raidWorker.getSnapshot(),
       raidSubscription: entry.raidSubscription?.getSnapshot() ?? null,
       receipts: entry.receipts,
+      pendingReceiptId: entry.pendingReceiptId,
+      commandAdmissions: entry.commandAdmissions,
       updatedAt: now(),
     };
   }
-  function save(entry) {
-    if (entry.restoring || closed) return;
+  function save(entry, restoreCheck = null) {
+    if (entry.restoring || disposed) return;
+    const expectedVersion = entry.version;
     try {
-      ensureLease();
-      entry.version++;
-      store.write(entry.playerId, persisted(entry));
+      ensureLease({ allowClosed: true });
+      const pendingAttack = entry.assistant?.exportState()?.pending;
+      if (
+        pendingAttack?.kind === "attack" &&
+        typeof entry.activeAttackCommandId === "string"
+      )
+        entry.pendingReceiptId = entry.activeAttackCommandId;
+      else if (pendingAttack?.kind !== "attack" && entry.pendingReceiptId) {
+        entry.receipts = [
+          ...entry.receipts
+            .filter((id) => id !== entry.pendingReceiptId)
+            .slice(-127),
+          entry.pendingReceiptId,
+        ];
+        entry.pendingReceiptId = null;
+      }
+      if (entry.commandAdmissionCompletionId) {
+        const admission = entry.commandAdmissions.find(
+          ({ id }) => id === entry.commandAdmissionCompletionId,
+        );
+        if (admission?.state === "consumed") {
+          admission.state = "completed";
+          admission.result = {
+            id: admission.id,
+            command: admission.command,
+            completedAt: now(),
+            version: entry.version + 1,
+          };
+        }
+      }
+      if (
+        !Number.isSafeInteger(expectedVersion) ||
+        expectedVersion < 0 ||
+        expectedVersion >= Number.MAX_SAFE_INTEGER ||
+        typeof store.writeIfVersion !== "function"
+      )
+        throw new Error("automation_storage_version_unavailable");
+      entry.version = expectedVersion + 1;
+      if (
+        !store.writeIfVersion(
+          entry.playerId,
+          expectedVersion,
+          persisted(entry),
+          restoreCheck,
+        )
+      )
+        throw new Error("automation_state_version_conflict");
     } catch {
       // No game call is allowed after a durability failure.
+      entry.version = expectedVersion;
       entry.storageFailed = true;
     }
   }
@@ -319,6 +438,7 @@ export function createAutomationService({
       allowed() &&
       !closed &&
       !entry.storageFailed &&
+      !store.isRestoreRequired(entry.playerId) &&
       entry.credential === credential;
     return upgradeCharacterPoint({
       state: entry.characterUpgrade,
@@ -368,6 +488,215 @@ export function createAutomationService({
       },
     });
   }
+
+  function boundAuthState(playerId) {
+    if (
+      typeof store.readGameAccountOwner !== "function" ||
+      typeof store.readGameAuthRecovery !== "function"
+    )
+      return null;
+    const binding = store.readGameAccountOwner(String(playerId));
+    if (!binding) return null;
+    return {
+      binding,
+      recovery: store.readGameAuthRecovery(binding.ownerId),
+      bootstrap: store.readGameAuthBootstrap?.(binding.ownerId) || null,
+      route: store.readRoutePolicy(String(playerId)),
+    };
+  }
+  function canUseAccountSession(playerId) {
+    const bound = boundAuthState(playerId);
+    if (!bound) return true;
+    if (["logout_pending", "logged_out"].includes(bound.recovery?.state))
+      return false;
+    if (bound.bootstrap && bound.bootstrap.state !== "ready") return false;
+    return (
+      bound.route?.policy !== "bridge_required" ||
+      bound.recovery?.state === "ready"
+    );
+  }
+  function assertIdentityAllowed(playerId, authorization, entry) {
+    const bound = boundAuthState(playerId);
+    if (!bound) return;
+    if (["logout_pending", "logged_out"].includes(bound.recovery?.state))
+      throw failure(401, "game_session_logged_out");
+    if (bound.bootstrap && bound.bootstrap.state !== "ready")
+      throw failure(401, "game_session_required");
+    if (
+      bound.route?.policy === "bridge_required" &&
+      (bound.recovery?.state !== "ready" || entry?.credential !== authorization)
+    )
+      throw failure(401, "game_session_required");
+  }
+  function admitGameMutation({ operation, route, request }) {
+    try {
+      ensureLease();
+      const accountId = request?.context?.accountId;
+      const attempt = request?.context?.automationAttempt;
+      if (
+        route?.policy !== "bridge_required" ||
+        typeof accountId !== "string" ||
+        attempt?.playerId !== accountId ||
+        attempt?.kind !== "boss.attack" ||
+        request.method !== "POST" ||
+        operation?.operationClass !== "mutation"
+      )
+        return null;
+      const match = /^\/api\/bosses\/battles\/([A-Za-z0-9_-]+)\/attack$/u.exec(
+        request.path,
+      );
+      if (!match) return null;
+      let body;
+      try {
+        body = JSON.parse(request.body);
+      } catch {
+        return null;
+      }
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        Object.keys(body).length !== 1 ||
+        body.operationId !== attempt.operationId ||
+        match[1] !== attempt.battleId
+      )
+        return null;
+      const entry = actors.get(accountId);
+      const pending = entry?.assistant?.exportState()?.pending;
+      const authorization = request.headers.get("authorization");
+      const binding = store.readGameAccountOwner(accountId);
+      const recovery = binding
+        ? store.readGameAuthRecovery(binding.ownerId)
+        : null;
+      const currentRoute = store.readRoutePolicy(accountId);
+      const state = entry?.controller?.getSnapshot();
+      if (
+        !entry ||
+        entry.storageFailed ||
+        !entry.credential ||
+        authorization !== entry.credential ||
+        !canAct(entry) ||
+        !binding ||
+        binding.playerId !== accountId ||
+        recovery?.state !== "ready" ||
+        route.routeEpoch !== currentRoute.routeEpoch ||
+        route.activeDeviceId !== currentRoute.activeDeviceId ||
+        currentRoute.policy !== "bridge_required" ||
+        pending?.kind !== "attack" ||
+        attempt.commandId !== pending.commandId ||
+        attempt.attemptId !== pending.attemptId ||
+        pending.operationId !== body.operationId ||
+        pending.battleId !== match[1] ||
+        state?.pending !== "attack" ||
+        state.battle?.id !== match[1]
+      )
+        return null;
+      const argumentsDigest = createHash("sha256")
+        .update(
+          JSON.stringify({
+            method: "POST",
+            path: request.path,
+            body: { operationId: body.operationId },
+          }),
+        )
+        .digest("hex");
+      const admission = {
+        schemaVersion: 1,
+        action: "boss.attack",
+        playerId: accountId,
+        ownerId: binding.ownerId,
+        commandId: pending.commandId,
+        attemptId: pending.attemptId,
+        operationId: body.operationId,
+        battleId: match[1],
+        argumentsDigest,
+        workerEpoch: owner,
+        actorVersion: entry.version + 1,
+        authGeneration: recovery.authGeneration,
+        consentGeneration: recovery.consentGeneration,
+        credentialVersion: recovery.credentialVersion,
+        routeEpoch: route.routeEpoch,
+        deviceId: route.activeDeviceId,
+        admittedAt: now(),
+        connectionId: null,
+        connectionEstablishedAt: null,
+      };
+      if (!entry.assistant.bindAdmission(admission) || entry.storageFailed)
+        return null;
+      return Object.freeze(admission);
+    } catch {
+      return null;
+    }
+  }
+  function bindGameMutationConnection({ admission, connectionId, route } = {}) {
+    try {
+      ensureLease();
+      if (
+        !admission ||
+        admission.action !== "boss.attack" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+          connectionId || "",
+        )
+      )
+        return false;
+      const entry = actors.get(admission.playerId);
+      const pending = entry?.assistant?.exportState()?.pending;
+      const savedAdmission = pending?.admission;
+      const binding = store.readGameAccountOwner(admission.playerId);
+      const recovery = binding
+        ? store.readGameAuthRecovery(binding.ownerId)
+        : null;
+      const currentRoute = store.readRoutePolicy(admission.playerId);
+      if (
+        !entry ||
+        entry.storageFailed ||
+        entry.credential == null ||
+        binding?.ownerId !== admission.ownerId ||
+        binding.playerId !== admission.playerId ||
+        recovery?.state !== "ready" ||
+        recovery.authGeneration !== admission.authGeneration ||
+        recovery.consentGeneration !== admission.consentGeneration ||
+        recovery.credentialVersion !== admission.credentialVersion ||
+        route?.policy !== "bridge_required" ||
+        currentRoute.policy !== "bridge_required" ||
+        route.routeEpoch !== admission.routeEpoch ||
+        route.activeDeviceId !== admission.deviceId ||
+        currentRoute.routeEpoch !== admission.routeEpoch ||
+        currentRoute.activeDeviceId !== admission.deviceId ||
+        pending?.kind !== "attack" ||
+        pending.commandId !== admission.commandId ||
+        pending.attemptId !== admission.attemptId ||
+        pending.operationId !== admission.operationId ||
+        pending.battleId !== admission.battleId ||
+        savedAdmission?.commandId !== admission.commandId ||
+        savedAdmission?.attemptId !== admission.attemptId
+      )
+        return false;
+      if (savedAdmission.connectionId != null)
+        return savedAdmission.connectionId === connectionId;
+      const {
+        connectionId: _ignoredConnectionId,
+        connectionEstablishedAt: _ignoredConnectionTime,
+        ...requestedBase
+      } = admission;
+      const {
+        connectionId: _ignoredSavedConnectionId,
+        connectionEstablishedAt: _ignoredSavedConnectionTime,
+        ...savedBase
+      } = savedAdmission;
+      if (JSON.stringify(requestedBase) !== JSON.stringify(savedBase))
+        return false;
+      return (
+        entry.assistant.bindAdmission({
+          ...savedAdmission,
+          connectionId,
+          connectionEstablishedAt: now(),
+        }) && !entry.storageFailed
+      );
+    } catch {
+      return false;
+    }
+  }
   function updateGoal(entry) {
     entry.goal.tick();
     const goal = entry.goal.getSnapshot();
@@ -381,6 +710,7 @@ export function createAutomationService({
     );
   }
   function canAct(entry) {
+    if (!canUseAccountSession(entry.playerId)) return false;
     if (characterPriorityActive(entry)) return false;
     if (entry.workFarm?.getSnapshot().manualPending) return false;
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
@@ -607,6 +937,25 @@ export function createAutomationService({
       },
       raidObservations: observeRaids(saved?.raidObservations, [], now()),
       receipts: saved?.receipts ?? [],
+      pendingReceiptId: saved?.pendingReceiptId ?? null,
+      commandAdmissions: Array.isArray(saved?.commandAdmissions)
+        ? saved.commandAdmissions
+            .filter(
+              (admission) =>
+                admission &&
+                typeof admission.id === "string" &&
+                /^[A-Za-z0-9_-]{8,80}$/u.test(admission.id) &&
+                Number.isSafeInteger(admission.expiresAt) &&
+                Number.isSafeInteger(admission.intentVersion) &&
+                Number.isSafeInteger(admission.routeEpoch) &&
+                typeof admission.command === "string" &&
+                /^[0-9a-f]{64}$/u.test(admission.argumentsDigest) &&
+                ["issued", "consumed", "completed"].includes(admission.state),
+            )
+            .slice(-MAX_COMMAND_ADMISSIONS)
+        : [],
+      commandAdmissionCompletionId: null,
+      activeAttackCommandId: null,
       version: saved?.version ?? 0,
       pvp: saved?.pvp
         ? {
@@ -642,10 +991,43 @@ export function createAutomationService({
           if (entry.storageFailed)
             throw failure(503, "automation_storage_unavailable");
         }
+        let automationAttempt;
+        if (init.method === "POST") {
+          const path = new URL(url).pathname;
+          const match =
+            /^\/api\/bosses\/battles\/([A-Za-z0-9_-]+)\/attack$/u.exec(path);
+          let body;
+          try {
+            body = JSON.parse(init.body);
+          } catch {
+            /* Unsupported or malformed mutations receive no actor admission. */
+          }
+          const pending = entry.assistant?.exportState()?.pending;
+          if (
+            match &&
+            pending?.kind === "attack" &&
+            pending.battleId === match[1] &&
+            pending.operationId === body?.operationId
+          )
+            automationAttempt = {
+              playerId: entry.playerId,
+              kind: "boss.attack",
+              commandId: pending.commandId,
+              attemptId: pending.attemptId,
+              operationId: pending.operationId,
+              battleId: pending.battleId,
+            };
+        }
+        const requestHeaders = new Headers(init.headers);
+        requestHeaders.delete("X-Madhouse-Allow-Mutations");
         const dispatchGeneration = entry.autoStartGeneration ?? 0;
         const credential = entry.credential;
         const response = await fetcher(url, {
           ...init,
+          headers: requestHeaders,
+          ...(automationAttempt
+            ? { madhouseAutomationAttempt: automationAttempt }
+            : {}),
           redirect: "error",
           canDispatch: () => {
             if (
@@ -746,6 +1128,16 @@ export function createAutomationService({
       readAvailable: () =>
         !closed && !entry.storageFailed && Boolean(entry.credential),
       refreshAvailability,
+      canReconcileStart: () => {
+        try {
+          return (
+            (store.readRoutePolicy?.(entry.playerId)?.policy ?? "direct") ===
+            "direct"
+          );
+        } catch {
+          return false;
+        }
+      },
       onChange: () => save(entry),
     });
     const startAssistant = () =>
@@ -1160,6 +1552,7 @@ export function createAutomationService({
           entry.busy ||
           entry.inventoryBusy ||
           entry.storageFailed ||
+          store.isRestoreRequired(entry.playerId) ||
           !entry.credential ||
           !entry.collector.idleForPriority() ||
           !entry.workFarm.canSuspend() ||
@@ -1213,7 +1606,11 @@ export function createAutomationService({
       }
     }
     actors.set(playerId, entry);
-    if (entry.credential && entry.characterBatch.running())
+    if (
+      entry.credential &&
+      entry.characterBatch.running() &&
+      !store.isRestoreRequired(playerId)
+    )
       entry.characterBatch.resume();
     return entry;
   }
@@ -1582,6 +1979,7 @@ export function createAutomationService({
       const entry = await actor(cached.playerId);
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
+      assertIdentityAllowed(cached.playerId, authorization, entry);
       return entry;
     }
     if (loading.has(hash)) return loading.get(hash);
@@ -1593,6 +1991,7 @@ export function createAutomationService({
       if (!positive(me?.playerId)) throw failure(401, "invalid_game_identity");
       const playerId = String(me.playerId);
       const entry = await actor(playerId);
+      assertIdentityAllowed(playerId, authorization, entry);
       entry.credential = authorization;
       entry.player = {
         playerId: me.playerId,
@@ -1624,6 +2023,339 @@ export function createAutomationService({
     } finally {
       loading.delete(hash);
     }
+  }
+  async function identifyOwner(ownerId) {
+    if (closed) throw failure(503, "automation_unavailable");
+    ensureLease();
+    const normalizedOwnerId = String(ownerId ?? "");
+    if (
+      !/^[1-9][0-9]{0,15}$/.test(normalizedOwnerId) ||
+      !Number.isSafeInteger(Number(normalizedOwnerId))
+    )
+      throw failure(401, "game_session_required");
+    let binding;
+    let recovery;
+    let bootstrap;
+    try {
+      binding = store.readGameAccountBinding(normalizedOwnerId);
+      recovery = store.readGameAuthRecovery(normalizedOwnerId);
+      bootstrap = store.readGameAuthBootstrap?.(normalizedOwnerId) || null;
+    } catch {
+      throw failure(503, "automation_storage_unavailable");
+    }
+    const bootstrapAfterLogout = Boolean(
+      recovery?.state === "logged_out" &&
+      bootstrap?.state === "ready" &&
+      bootstrap.authGeneration > recovery.authGeneration &&
+      bootstrap.consentGeneration > recovery.consentGeneration,
+    );
+    if (
+      !binding ||
+      (bootstrap && bootstrap.state !== "ready") ||
+      (recovery && recovery.state !== "ready" && !bootstrapAfterLogout)
+    )
+      throw failure(401, "game_session_required");
+    const entry = await actor(String(binding.playerId));
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    if (!entry.credential) throw failure(401, "game_session_required");
+    const identified = await identify(entry.credential);
+    const currentBinding = store.readGameAccountBinding(normalizedOwnerId);
+    const currentBootstrap =
+      store.readGameAuthBootstrap?.(normalizedOwnerId) || null;
+    const currentRecovery = store.readGameAuthRecovery(normalizedOwnerId);
+    const currentBootstrapAfterLogout = Boolean(
+      currentRecovery?.state === "logged_out" &&
+      currentBootstrap?.state === "ready" &&
+      currentBootstrap.authGeneration > currentRecovery.authGeneration &&
+      currentBootstrap.consentGeneration > currentRecovery.consentGeneration,
+    );
+    if (
+      currentBinding?.playerId !== binding.playerId ||
+      (currentBootstrap && currentBootstrap.state !== "ready") ||
+      (currentRecovery &&
+        currentRecovery.state !== "ready" &&
+        !currentBootstrapAfterLogout) ||
+      (bootstrap?.operationId &&
+        currentBootstrap?.operationId !== bootstrap.operationId) ||
+      (recovery?.operationId &&
+        currentRecovery?.operationId !== recovery.operationId)
+    )
+      throw failure(401, "game_session_required");
+    return identified;
+  }
+  async function adoptGameCredential({
+    ownerId,
+    playerId,
+    authOperationId,
+    bootstrapOperationId,
+    authGeneration,
+    consentGeneration,
+    routeEpoch,
+    credentialVersion,
+    accessToken,
+    profile,
+    restored = false,
+  } = {}) {
+    if (closed) throw failure(503, "automation_unavailable");
+    ensureLease();
+    const normalizedPlayerId = String(playerId ?? "");
+    const normalizedTelegramId =
+      typeof profile?.telegramId === "number" &&
+      Number.isSafeInteger(profile.telegramId) &&
+      profile.telegramId > 0
+        ? String(profile.telegramId)
+        : typeof profile?.telegramId === "string" &&
+            /^[1-9][0-9]{0,15}$/.test(profile.telegramId) &&
+            Number.isSafeInteger(Number(profile.telegramId))
+          ? profile.telegramId
+          : null;
+    if (
+      typeof ownerId !== "string" ||
+      !/^[1-9][0-9]{0,15}$/.test(ownerId) ||
+      !Number.isSafeInteger(Number(ownerId)) ||
+      normalizedTelegramId !== ownerId ||
+      !positive(Number(normalizedPlayerId)) ||
+      String(profile?.playerId) !== normalizedPlayerId ||
+      typeof authOperationId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+        authOperationId,
+      ) ||
+      !positive(authGeneration) ||
+      !positive(consentGeneration) ||
+      typeof restored !== "boolean" ||
+      (restored && (!bootstrapOperationId || routeEpoch !== 1)) ||
+      (bootstrapOperationId
+        ? !restored && routeEpoch !== 0
+        : !positive(routeEpoch)) ||
+      (bootstrapOperationId != null &&
+        (typeof bootstrapOperationId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+            bootstrapOperationId,
+          ))) ||
+      !positive(credentialVersion) ||
+      typeof accessToken !== "string" ||
+      accessToken.length > 16_384 ||
+      !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(accessToken)
+    )
+      throw failure(400, "game_auth_credential_invalid");
+    const assertAdoptable = () => {
+      const binding = store.readGameAccountBinding(ownerId);
+      const route = store.readRoutePolicy(normalizedPlayerId);
+      if (bootstrapOperationId) {
+        const bootstrap = store.readGameAuthBootstrap(ownerId);
+        const recovery = store.readGameAuthRecovery(ownerId);
+        const bootstrapAfterLogout = Boolean(
+          recovery?.state === "logged_out" &&
+          bootstrap?.authGeneration > recovery.authGeneration &&
+          bootstrap?.consentGeneration > recovery.consentGeneration,
+        );
+        const consent = restored
+          ? store.readRestoreOwnerConsent?.(ownerId)
+          : null;
+        if (
+          binding?.playerId !== normalizedPlayerId ||
+          (recovery && recovery.state !== "ready" && !bootstrapAfterLogout) ||
+          bootstrap?.operationId !== bootstrapOperationId ||
+          bootstrap.authGeneration !== authGeneration ||
+          bootstrap.consentGeneration !== consentGeneration ||
+          bootstrap.routeEpoch !== routeEpoch ||
+          bootstrap.credentialVersion !== credentialVersion ||
+          bootstrap.playerId !== normalizedPlayerId ||
+          !["credential_stored", "ready"].includes(bootstrap.state) ||
+          route?.policy !== "direct" ||
+          route.routeEpoch !== routeEpoch ||
+          (restored &&
+            (!store.isRestoreGuardActive() ||
+              store.isRestoreAccountReauthorized(normalizedPlayerId) ||
+              consent?.requestId !== bootstrap.requestId ||
+              consent.routePolicy !== "direct" ||
+              authOperationId !== bootstrapOperationId))
+        )
+          throw failure(409, "game_auth_operation_stale");
+      } else {
+        const recovery = store.readGameAuthRecovery(ownerId);
+        if (
+          binding?.playerId !== normalizedPlayerId ||
+          recovery?.operationId !== authOperationId ||
+          recovery.authGeneration !== authGeneration ||
+          recovery.consentGeneration !== consentGeneration ||
+          recovery.routeEpoch !== routeEpoch ||
+          recovery.credentialVersion !== credentialVersion ||
+          !["credential_stored", "ready"].includes(recovery.state) ||
+          route?.policy !== "bridge_required" ||
+          route.routeEpoch !== routeEpoch
+        )
+          throw failure(409, "game_auth_operation_stale");
+      }
+    };
+    assertAdoptable();
+    const entry = await actor(normalizedPlayerId);
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    // Actor restoration can yield; recheck all durable authorizations immediately
+    // before persisting the candidate so a route switch cannot adopt a late JWT.
+    ensureLease();
+    assertAdoptable();
+    if (restored) stopRestoredAutomation(entry);
+    entry.credential = `Bearer ${accessToken}`;
+    entry.player = {
+      playerId: Number(normalizedPlayerId),
+      nickname:
+        typeof profile.nickname === "string"
+          ? profile.nickname.slice(0, 80)
+          : "Игрок",
+    };
+    save(entry);
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    const hash = createHash("sha256").update(entry.credential).digest("hex");
+    identities.set(hash, {
+      playerId: normalizedPlayerId,
+      until: now() + 5 * 60 * 1000,
+    });
+    if (identities.size > 500)
+      identities.delete(identities.keys().next().value);
+    return snapshot(entry);
+  }
+  function stopRestoredAutomation(entry) {
+    entry.floorRunner.stop();
+    entry.characterBatch.stop();
+    entry.auto.stop();
+    entry.collector.stop();
+    entry.workFarm.stop();
+    entry.raidWorker.stop(
+      "paused",
+      "Восстановленный аккаунт подтверждён. Прежние автоматизации остановлены; неизвестные игровые действия не повторяются.",
+    );
+    entry.goal.stop();
+    entry.commandAdmissions = [];
+    entry.commandAdmissionCompletionId = null;
+  }
+  async function confirmRestoredAccount({
+    ownerId,
+    playerId,
+    authorization,
+  } = {}) {
+    const normalizedPlayerId = String(playerId ?? "");
+    if (!store.isRestoreRequired(normalizedPlayerId)) return false;
+    const entry = await identify(authorization);
+    if (entry.playerId !== normalizedPlayerId)
+      throw failure(403, "automation_restore_account_mismatch");
+    const binding = store.readGameAccountOwner(normalizedPlayerId);
+    if (binding?.ownerId !== String(ownerId ?? ""))
+      throw failure(403, "automation_restore_owner_mismatch");
+    ensureLease();
+    stopRestoredAutomation(entry);
+    save(entry);
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    store.confirmRestoredAccount({
+      ownerId: binding.ownerId,
+      playerId: normalizedPlayerId,
+      verifiedAt: now(),
+    });
+    return true;
+  }
+  async function logoutGameSession({
+    ownerId,
+    playerId,
+    operationId,
+    authGeneration,
+    consentGeneration,
+  } = {}) {
+    if (closed) throw failure(503, "automation_unavailable");
+    ensureLease();
+    const binding = store.readGameAccountBinding(ownerId);
+    const recovery = store.readGameAuthRecovery(ownerId);
+    if (
+      binding?.playerId !== String(playerId) ||
+      recovery?.operationId !== operationId ||
+      recovery.authGeneration !== authGeneration ||
+      recovery.consentGeneration !== consentGeneration ||
+      !["logout_pending", "logged_out"].includes(recovery.state)
+    )
+      throw failure(409, "game_auth_operation_stale");
+
+    for (const [credentialHash, identity] of identities) {
+      if (identity.playerId === String(playerId))
+        identities.delete(credentialHash);
+    }
+    const entry = await actor(String(playerId));
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    entry.credential = null;
+    entry.player = null;
+    entry.auto.stop();
+    entry.collector.stop();
+    entry.workFarm.stop();
+    entry.raidWorker.stop(
+      "paused",
+      "Игровой вход закрыт. Подключите аккаунт заново перед новыми действиями.",
+    );
+    save(entry);
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    return { status: "logged_out", playerId: String(playerId) };
+  }
+  async function pauseForRouteChange({ ownerId, previous } = {}) {
+    if (closed) throw failure(503, "automation_worker_unavailable");
+    const binding = store.readGameAccountBinding?.(ownerId);
+    if (!binding) return false;
+    const playerId = String(binding.playerId);
+    const route = store.readRoutePolicy(playerId);
+    if (
+      !route ||
+      route.routeEpoch !== previous?.routeEpoch ||
+      route.policy !== previous.policy ||
+      route.activeDeviceId !== previous.activeDeviceId
+    )
+      throw failure(409, "automation_route_epoch_conflict");
+
+    const loaded = actors.get(playerId);
+    if (loaded?.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    const saved = store.read(playerId) ?? {};
+    const hasRunningAutomation =
+      saved.auto?.enabled ||
+      saved.raid?.enabled ||
+      saved.businessHelper?.run?.status === "running" ||
+      saved.workFarm?.run?.status === "running" ||
+      loaded?.auto.getSnapshot().enabled ||
+      loaded?.raidWorker.getSnapshot().enabled ||
+      loaded?.collector.running() ||
+      loaded?.workFarm.getSnapshot().run?.status === "running";
+    if (!hasRunningAutomation) return false;
+
+    ensureLease();
+    const entry = loaded ?? (await actor(playerId));
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    const latestRoute = store.readRoutePolicy(playerId);
+    if (
+      !latestRoute ||
+      latestRoute.routeEpoch !== previous.routeEpoch ||
+      latestRoute.policy !== previous.policy ||
+      latestRoute.activeDeviceId !== previous.activeDeviceId
+    )
+      throw failure(409, "automation_route_epoch_conflict");
+
+    entry.restoring = true;
+    try {
+      entry.raidWorker.stop(
+        "paused",
+        "Маршрут Wiki меняется. Автоматизации остановлены; после подключения компьютера проверьте состояние и запустите их вручную.",
+      );
+      entry.collector.stop();
+      entry.workFarm.stop();
+      entry.auto.stop();
+    } finally {
+      entry.restoring = false;
+    }
+    save(entry);
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    return true;
   }
   function configureAutoGoal(entry, settingsInput, state) {
     if (settingsInput == null) return;
@@ -1662,21 +2394,224 @@ export function createAutomationService({
       JSON.stringify(previous.items) === JSON.stringify(settings.items);
     if (!unchanged) entry.goal.configure(settings);
   }
+  function commandAdmissionContext(entry) {
+    const route = store.readRoutePolicy?.(entry.playerId) ?? {
+      policy: "direct",
+      routeEpoch: 0,
+    };
+    const owner = store.readGameAccountOwner?.(entry.playerId) ?? null;
+    if (route.policy === "bridge_required" && !owner)
+      throw failure(409, "automation_command_owner_unbound");
+    if (
+      typeof store.commandAdmissionOwnerRef !== "function" ||
+      typeof store.commandAdmissionPlayerRef !== "function"
+    )
+      throw failure(503, "automation_command_admission_unavailable");
+    return {
+      route,
+      ownerRef: owner ? store.commandAdmissionOwnerRef(owner.ownerId) : null,
+      playerRef: store.commandAdmissionPlayerRef(entry.playerId),
+    };
+  }
+
+  function issueCommandTicket(entry, input) {
+    if (
+      !input ||
+      typeof input !== "object" ||
+      !commands.has(input.command) ||
+      commandControlCommands.has(input.command) ||
+      !Number.isSafeInteger(input.expectedVersion)
+    )
+      throw failure(400, "invalid_automation_command_ticket_request");
+    if (Object.hasOwn(input, "id") || Object.hasOwn(input, "admissionTicket"))
+      throw failure(400, "automation_command_id_server_generated");
+    ensureLease();
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    const pendingAttack = entry.assistant.exportState().pending;
+    if (
+      pendingAttack &&
+      !readOnlyWhilePending.has(input.command) &&
+      !characterIntentWhileAttackPending(input.command, pendingAttack) &&
+      !(
+        input.command === "healing.ack" &&
+        ["heal", "buy", "invite"].includes(pendingAttack.kind)
+      )
+    )
+      throw failure(409, "battle_action_unresolved");
+    if (entry.busy || entry.inventoryBusy)
+      throw failure(409, "automation_command_pending");
+    if (
+      input.expectedVersion !== entry.version ||
+      !Number.isSafeInteger(entry.version + 1)
+    )
+      throw failure(409, "automation_state_changed");
+    if (
+      store.isRestoreRequired(entry.playerId) &&
+      !readOnlyWhilePending.has(input.command) &&
+      !(
+        restoreReconciliationCommands.has(input.command) &&
+        store.isRestoreAccountReauthorized(entry.playerId) &&
+        store.hasExplicitRoutePolicy(entry.playerId)
+      )
+    )
+      throw failure(409, "automation_restore_confirmation_required");
+    const args = input.args ?? {};
+    if (!args || typeof args !== "object" || Array.isArray(args))
+      throw failure(400, "invalid_command_arguments");
+    const argumentsDigest = commandArgumentsDigest(args);
+    if (typeof store.signCommandAdmissionTicket !== "function")
+      throw failure(503, "automation_command_admission_unavailable");
+    const issuedAt = now();
+    const expiresAt = issuedAt + commandAdmissionTtlMs;
+    const context = commandAdmissionContext(entry);
+    entry.commandAdmissions = entry.commandAdmissions.filter(
+      (admission) => admission.expiresAt > issuedAt,
+    );
+    if (entry.commandAdmissions.length >= MAX_COMMAND_ADMISSIONS)
+      throw failure(429, "automation_command_admissions_full");
+    const id = randomUUID();
+    const intentVersion = entry.version + 1;
+    const payload = {
+      version: 1,
+      id,
+      playerRef: context.playerRef,
+      ownerRef: context.ownerRef,
+      command: input.command,
+      argumentsDigest,
+      intentVersion,
+      routeEpoch: context.route.routeEpoch,
+      issuedAt,
+      expiresAt,
+    };
+    const ticket = store.signCommandAdmissionTicket(payload);
+    entry.commandAdmissions.push({
+      id,
+      command: input.command,
+      argumentsDigest,
+      intentVersion,
+      routeEpoch: context.route.routeEpoch,
+      issuedAt,
+      expiresAt,
+      state: "issued",
+      result: null,
+    });
+    save(entry);
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    return { id, ticket, intentVersion, expiresAt };
+  }
+
+  function resolveCommandAdmission(entry, input, context) {
+    if (typeof input.admissionTicket !== "string") return null;
+    if (typeof store.verifyCommandAdmissionTicket !== "function")
+      throw failure(503, "automation_command_admission_unavailable");
+    const payload = store.verifyCommandAdmissionTicket(input.admissionTicket);
+    if (!payload || payload.version !== 1 || typeof payload.id !== "string")
+      throw failure(403, "automation_command_admission_invalid");
+    if (!Number.isSafeInteger(payload.expiresAt) || payload.expiresAt <= now())
+      throw failure(409, "automation_command_admission_expired");
+    const argsDigest = commandArgumentsDigest(input.args ?? {});
+    if (
+      payload.playerRef !== context.playerRef ||
+      payload.ownerRef !== context.ownerRef ||
+      payload.command !== input.command ||
+      payload.argumentsDigest !== argsDigest ||
+      payload.intentVersion !== input.expectedVersion ||
+      payload.routeEpoch !== context.route.routeEpoch ||
+      (input.id !== undefined && input.id !== payload.id)
+    )
+      throw failure(403, "automation_command_admission_mismatch");
+    const admission = entry.commandAdmissions.find(
+      (candidate) => candidate.id === payload.id,
+    );
+    if (
+      !admission ||
+      admission.expiresAt !== payload.expiresAt ||
+      admission.command !== payload.command ||
+      admission.argumentsDigest !== payload.argumentsDigest ||
+      admission.intentVersion !== payload.intentVersion ||
+      admission.routeEpoch !== payload.routeEpoch
+    )
+      throw failure(409, "automation_command_admission_unknown");
+    if (admission.state === "completed" && admission.result)
+      return { admission, completed: true };
+    if (admission.state !== "issued")
+      throw failure(409, "automation_command_already_received");
+    if (input.expectedVersion !== entry.version)
+      throw failure(409, "automation_state_changed");
+    return { admission, completed: false };
+  }
+
   async function command(entry, input) {
     if (
       !input ||
       typeof input !== "object" ||
-      typeof input.id !== "string" ||
-      !/^[A-Za-z0-9_-]{8,80}$/.test(input.id) ||
       !commands.has(input.command) ||
       !Number.isSafeInteger(input.expectedVersion)
+    )
+      throw failure(400, "invalid_automation_command");
+    if (
+      input.id !== undefined &&
+      (typeof input.id !== "string" || !/^[A-Za-z0-9_-]{8,80}$/u.test(input.id))
     )
       throw failure(400, "invalid_automation_command");
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
-    if (entry.raidFriendRefreshing && input.command.startsWith("raid.friend."))
-      throw failure(409, "friend_status_pending");
+    const route = store.readRoutePolicy?.(entry.playerId) ?? {
+      policy: "direct",
+      routeEpoch: 0,
+    };
+    const controlCommand = commandControlCommands.has(input.command);
+    const ticketRequired =
+      route.policy === "bridge_required" && !controlCommand;
+    if (ticketRequired && typeof input.admissionTicket !== "string")
+      throw failure(409, "automation_command_admission_required");
+    if (controlCommand && input.admissionTicket !== undefined)
+      throw failure(400, "automation_command_admission_not_required");
+    const admissionContext = input.admissionTicket
+      ? commandAdmissionContext(entry)
+      : null;
+    const admissionResolution = admissionContext
+      ? resolveCommandAdmission(entry, input, admissionContext)
+      : null;
+    if (!admissionResolution && !controlCommand && typeof input.id !== "string")
+      throw failure(400, "invalid_automation_command");
+    const commandId = admissionResolution
+      ? admissionResolution.admission.id
+      : (input.id ?? randomUUID());
+    if (admissionResolution?.completed)
+      return {
+        ...snapshot(entry),
+        commandReceipt: structuredClone(admissionResolution.admission.result),
+      };
+    const battlePending = entry.assistant.exportState().pending;
+    const stopWhilePending = commandControlCommands;
+    const restoreConfirmed = store.isRestoreAccountReauthorized(entry.playerId);
+    if (
+      store.isRestoreRequired(entry.playerId) &&
+      !readOnlyWhilePending.has(input.command) &&
+      !stopWhilePending.has(input.command) &&
+      !(
+        restoreReconciliationCommands.has(input.command) &&
+        restoreConfirmed &&
+        store.hasExplicitRoutePolicy(entry.playerId)
+      ) &&
+      !(restoreConfirmed && input.command === "healing.ack")
+    )
+      throw failure(409, "automation_restore_confirmation_required");
+    const canAcknowledgePending =
+      input.command === "healing.ack" &&
+      ["heal", "buy", "invite"].includes(battlePending?.kind);
+    if (
+      battlePending &&
+      !readOnlyWhilePending.has(input.command) &&
+      !characterIntentWhileAttackPending(input.command, battlePending) &&
+      !stopWhilePending.has(input.command) &&
+      !canAcknowledgePending
+    )
+      throw failure(409, "battle_action_unresolved");
     if (
       entry.characterUpgrade.pending &&
       input.command !== "character.refresh" &&
@@ -1724,7 +2659,7 @@ export function createAutomationService({
       Number.isSafeInteger(input.args.stashReserve) &&
       input.args.stashReserve >= entry.buddyHelp.stashReserve;
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
-    if (entry.receipts.includes(input.id))
+    if (entry.receipts.includes(commandId))
       throw failure(409, "automation_command_already_received");
     // Read-only refresh may coexist with another actor's in-flight action;
     // it must not reconcile an active or uncertain character operation.
@@ -1938,8 +2873,11 @@ export function createAutomationService({
     )
       throw failure(409, "automation_action_pending");
     const wasBusy = entry.busy;
+    let restoreSaveCheck = null;
     entry.busy = true;
-    entry.receipts = [...entry.receipts.slice(-127), input.id];
+    if (!controlCommand || route.policy !== "bridge_required")
+      entry.receipts = [...entry.receipts.slice(-127), commandId];
+    if (admissionResolution) admissionResolution.admission.state = "consumed";
     save(entry);
     try {
       if (entry.storageFailed)
@@ -1956,13 +2894,25 @@ export function createAutomationService({
           if (!["booster", "stash"].includes(args.kind))
             throw failure(400, "invalid_buddy_resolution");
           const helper = entry.buddyHelp;
+          const credential = entry.credential;
+          restoreSaveCheck = {
+            epoch: store.readRestoreGuardEpoch(),
+            ownerId:
+              store.readGameAccountOwner(entry.playerId)?.ownerId ?? null,
+            route: store.readRoutePolicy(entry.playerId),
+          };
+          const checkCredential = () => {
+            if (entry.credential !== credential)
+              throw failure(409, "automation_restore_account_changed");
+          };
           if (args.kind === "booster") {
             const pending = helper.pending;
             if (!pending) throw failure(409, "buddy_no_pending_action");
             const response = await gameJson(
-              entry.credential,
+              credential,
               "/api/player-interactions/booster-requests/incoming?limit=100",
             );
+            checkCredential();
             if (
               !Array.isArray(response?.items) ||
               response.success === false ||
@@ -1996,9 +2946,10 @@ export function createAutomationService({
             const pending = helper.stashPending;
             if (!pending) throw failure(409, "buddy_no_pending_action");
             const response = await gameJson(
-              entry.credential,
+              credential,
               `/api/stash/help-requests/${pending.playerId}`,
             );
+            checkCredential();
             if (
               !Array.isArray(response?.items) ||
               response.success === false ||
@@ -2435,7 +3386,7 @@ export function createAutomationService({
           await inventoryAction({
             entry,
             args,
-            commandId: input.id,
+            commandId,
             refreshOnly: input.command === "inventory.refresh",
             fetcher,
             save,
@@ -2447,7 +3398,7 @@ export function createAutomationService({
           await weaponEquipment({
             entry,
             args,
-            commandId: input.id,
+            commandId,
             refreshOnly: input.command === "equipment.refresh",
             fetcher,
             save,
@@ -2539,7 +3490,9 @@ export function createAutomationService({
           break;
         }
         case "refresh":
-          await entry.controller.refresh();
+          if (entry.assistant.exportState().pending?.kind === "attack")
+            await entry.assistant.recover();
+          else await entry.controller.refresh();
           break;
         case "hydrate":
           await entry.controller.hydrateDetails();
@@ -2551,7 +3504,8 @@ export function createAutomationService({
           await entry.controller.startNextBattle();
           break;
         case "attack":
-          await entry.controller.attack();
+          entry.activeAttackCommandId = commandId;
+          await entry.assistant.attackManually();
           break;
         case "medicines.open":
           await entry.controller.openMedicines();
@@ -2676,6 +3630,49 @@ export function createAutomationService({
                 get: (path) => gameJson(entry.credential, path),
                 now,
               });
+              const run = helper.run;
+              const business = catalogue.businesses.find(
+                (item) => item.id === args.businessId,
+              );
+              if (
+                store.isRestoreRequired(entry.playerId) &&
+                store.isRestoreAccountReauthorized(entry.playerId) &&
+                store.hasExplicitRoutePolicy(entry.playerId) &&
+                run?.businessId === args.businessId &&
+                run.pendingUpgrade &&
+                Number(business?.apiId) === run.pendingUpgrade.businessId
+              ) {
+                const credential = entry.credential;
+                const expectedRoute = store.readRoutePolicy(entry.playerId);
+                const result = await advanceBusinessUpgrade({
+                  run,
+                  businessId: run.pendingUpgrade.businessId,
+                  get: (path) => gameJson(credential, path),
+                  post: () => {
+                    throw new Error("restore_reconciliation_must_not_mutate");
+                  },
+                  allowed: () => false,
+                  persist: () => {
+                    const currentRoute = store.readRoutePolicy(entry.playerId);
+                    if (
+                      entry.credential !== credential ||
+                      !store.isRestoreAccountReauthorized(entry.playerId) ||
+                      !store.hasExplicitRoutePolicy(entry.playerId) ||
+                      currentRoute.policy !== expectedRoute.policy ||
+                      currentRoute.routeEpoch !== expectedRoute.routeEpoch ||
+                      currentRoute.activeDeviceId !==
+                        expectedRoute.activeDeviceId
+                    )
+                      return false;
+                    save(entry);
+                    return !entry.storageFailed;
+                  },
+                });
+                helper.notice =
+                  result.status === "confirmed"
+                    ? "Игра подтвердила повышение уровня. Проверьте состояние бизнеса перед продолжением."
+                    : "Результат повышения не подтверждён; повторная отправка заблокирована.";
+              }
             }
             if (input.command === "business.goal") {
               if (state.pending) throw new Error("business_action_pending");
@@ -2764,19 +3761,53 @@ export function createAutomationService({
           break;
         }
       }
-      save(entry);
+      if (admissionResolution)
+        entry.commandAdmissionCompletionId = admissionResolution.admission.id;
+      save(entry, restoreSaveCheck);
+      entry.commandAdmissionCompletionId = null;
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
-      return snapshot(entry);
+      const result = snapshot(entry);
+      if (admissionResolution)
+        result.commandReceipt = structuredClone(
+          admissionResolution.admission.result,
+        );
+      return result;
     } finally {
+      if (entry.activeAttackCommandId === commandId)
+        entry.activeAttackCommandId = null;
       entry.busy = wasBusy;
     }
   }
+  function beginDrain() {
+    if (closed) return;
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = null;
+    for (const entry of actors.values()) {
+      entry.floorRunner.dispose();
+      entry.characterBatch.dispose();
+      entry.workFarm.dispose();
+      entry.collector.dispose();
+      entry.auto.dispose();
+      entry.goal.dispose();
+    }
+  }
+
   return {
     identify,
+    identifyOwner,
+    admitGameMutation,
+    bindGameMutationConnection,
+    adoptGameCredential,
+    confirmRestoredAccount,
+    logoutGameSession,
+    pauseForRouteChange,
     launch,
     snapshot,
+    issueCommandTicket,
     command,
+    beginDrain,
     async boot() {
       ensureLease();
       booting = true;
@@ -2792,6 +3823,12 @@ export function createAutomationService({
           return;
         }
         for (const entry of actors.values()) {
+          try {
+            if (store.isRestoreRequired(entry.playerId)) continue;
+          } catch {
+            // Unreadable restore state fails closed for this account only.
+            continue;
+          }
           discoverInvitations(entry);
           void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});
@@ -2895,13 +3932,11 @@ export function createAutomationService({
       heartbeat.unref?.();
       // Restore enabled workers without waiting for a browser to reconnect.
       for (const { playerId, value } of store.list()) {
+        if (store.isRestoreRequired(playerId)) continue;
+        if (!canUseAccountSession(playerId)) continue;
         // Discovery is server-owned and continues even when no browser is open.
         if (value?.credential) await actor(playerId);
-        if (
-          value?.credential &&
-          value?.floorRunner?.status === "running" &&
-          value.floorRunner.phase === "launching"
-        ) {
+        if (value?.credential && value?.floorRunner?.phase === "launching") {
           const entry = await actor(playerId);
           entry.floorActions.stopOwned(value.floorRunner.target);
           save(entry);
@@ -3001,18 +4036,13 @@ export function createAutomationService({
       booting = false;
     },
     close() {
-      closed = true;
+      beginDrain();
+      if (disposed) return;
+      disposed = true;
       for (const entry of actors.values()) {
-        entry.floorRunner.dispose();
         for (const unsub of entry.unsubscribers) unsub();
-        entry.workFarm.dispose();
-        entry.characterBatch.dispose();
-        entry.collector.dispose();
-        entry.auto.dispose();
-        entry.goal.dispose();
         entry.controller.reset();
       }
-      if (heartbeat) clearInterval(heartbeat);
       store.releaseLease(owner);
       actors.clear();
       identities.clear();

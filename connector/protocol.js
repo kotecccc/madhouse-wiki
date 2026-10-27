@@ -63,6 +63,7 @@ export function validRequest(data) {
         "expectedUserId",
         "interactive",
         "wikiInitData",
+        "restoreRequestId",
         "requestId",
         "command",
       ].includes(key),
@@ -77,6 +78,13 @@ export function validRequest(data) {
     (data.wikiInitData == null ||
       (typeof data.wikiInitData === "string" &&
         data.wikiInitData.length <= 8192)) &&
+    (data.restoreRequestId == null ||
+      (data.action === "connect-game" &&
+        data.interactive === true &&
+        typeof data.restoreRequestId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+          data.restoreRequestId,
+        ))) &&
     (data.action === "ui-action"
       ? /^[a-f0-9-]{36}$/.test(data.requestId || "") &&
         UI_COMMANDS.includes(data.command) &&

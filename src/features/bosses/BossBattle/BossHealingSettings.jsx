@@ -197,14 +197,19 @@ export function BossHealingSettings({ state, onSave, collapsed = false }) {
         {healing.uncertain && (
           <>
             <CardDescription>
-              Обновите бой и запас, затем подтвердите учёт резерва.
+              {healing.pendingKind === "attack" ||
+              healing.pendingKind === "start"
+                ? "Обновите бой. Если исход удара или входа останется неизвестным, автоматизация будет ждать дальнейшей сверки."
+                : "Обновите бой и запас, затем подтвердите учёт резерва."}
             </CardDescription>
-            <Button
-              disabled={pending || state.needsRefresh || Boolean(state.error)}
-              onClick={() => void onSave(null)}
-            >
-              Состояние проверено
-            </Button>
+            {["heal", "buy", "invite"].includes(healing.pendingKind) && (
+              <Button
+                disabled={pending || state.needsRefresh || Boolean(state.error)}
+                onClick={() => void onSave(null)}
+              >
+                Состояние проверено
+              </Button>
+            )}
           </>
         )}
       </div>

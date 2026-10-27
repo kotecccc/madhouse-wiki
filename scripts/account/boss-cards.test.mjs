@@ -199,6 +199,11 @@ test("combined boss cards reuse durable private sections after restart with no g
   const store = {
     readSnapshots: () =>
       [...records.values()].map((record) => structuredClone(record)),
+    readRoutePolicy: () => ({
+      policy: "direct",
+      activeDeviceId: null,
+      routeEpoch: 0,
+    }),
     writeSnapshot: (id, record) => records.set(id, structuredClone(record)),
     list: () => [],
   };

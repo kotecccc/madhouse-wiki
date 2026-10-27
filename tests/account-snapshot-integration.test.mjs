@@ -8,6 +8,7 @@ import { createAccountSnapshots } from "../scripts/account/snapshots.mjs";
 import { createAutomationHttp } from "../scripts/automation/http.mjs";
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { createRestoreOperationGuard } from "../scripts/automation/runtime.mjs";
 
 const origin = "https://cargohustle.online";
 const authorization = "Bearer integration-session";
@@ -16,6 +17,88 @@ const json = (body, status = 200) =>
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+test("restore confirmation gate flows through account snapshots to the shared mutation boundary", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "madhouse-account-restore-gate-"),
+  );
+  const store = createAutomationStateStore({ directory });
+  t.after(() => {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  store.write("319", { credential: authorization });
+  store.activateRestoreGuard({ activatedAt: 10_000 });
+  const upstreamCalls = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async (...args) => {
+      upstreamCalls.push(args);
+      return json({ playerId: 319 });
+    },
+    allowOperation: createRestoreOperationGuard(store),
+  });
+
+  const request = () =>
+    snapshots.liveFetch(`${origin}/api/bosses/7/battles`, {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  const unknownRoute = await request();
+  assert.equal(unknownRoute.status, 503);
+  assert.equal(upstreamCalls.length, 0);
+  store.selectRoutePolicy("319", {
+    policy: "direct",
+    activeDeviceId: null,
+    expectedRouteEpoch: 0,
+    updatedAt: 10001,
+  });
+  const response = await request();
+  assert.equal(response.status, 409);
+  assert.equal(
+    (await response.json()).error,
+    "game_restore_confirmation_required",
+  );
+  assert.equal(upstreamCalls.length, 0);
+  const beforeConfirmation = await snapshots.liveFetch(`${origin}/api/me`, {
+    headers: { Authorization: authorization },
+  });
+  assert.equal(beforeConfirmation.status, 409);
+  assert.equal(upstreamCalls.length, 0);
+  const identityBefore = await snapshots.verifyIdentity(authorization);
+  assert.equal(identityBefore.status, 409);
+  assert.equal(upstreamCalls.length, 0);
+  store.bindVerifiedGameAccount("54321", "319", 10002);
+  store.confirmRestoredAccount({
+    ownerId: "54321",
+    playerId: "319",
+    verifiedAt: 10003,
+  });
+  store.write("319", {
+    credential: authorization,
+    characterUpgrade: { pending: { id: "uncertain" } },
+  });
+  assert.equal(store.isRestoreRequired("319"), true);
+  const allowedRead = await snapshots.liveFetch(`${origin}/api/me`, {
+    headers: { Authorization: authorization },
+  });
+  assert.equal(allowedRead.status, 200);
+  assert.equal(upstreamCalls.length, 1);
+  const identityAfter = await snapshots.verifyIdentity(authorization);
+  assert.equal(identityAfter.status, 200);
+  assert.equal(upstreamCalls.length, 2);
+  const blockedWrite = await request();
+  assert.equal(blockedWrite.status, 409);
+  assert.equal(
+    (await blockedWrite.json()).error,
+    "game_restore_confirmation_required",
+  );
+  assert.equal(upstreamCalls.length, 2);
+});
 
 test("restarted gateway serves saved identity offline, accepts queued work intent, and accepts a safe preference command", async (t) => {
   const directory = mkdtempSync(

@@ -39,6 +39,63 @@ pointer when rolling back. On a legacy installation without this pointer,
 automatic image cleanup stays disabled rather than guessing which release to
 preserve. Before enabling cleanup on such a host, initialize this marker with the
 verified previous successful SHA; never infer it from the newest downloaded image.
+Before opening the update lock or contacting GitHub, the updater rejects a
+symlinked or non-root-owned release directory. Each release, previous-release,
+and rollback-floor marker must also be a regular non-symlink file owned by root
+with no group or other write permission. A malformed or weakly protected marker
+stops the update before release lookup.
+
+### Rollback floor
+
+After a bridge-aware R0 release has been installed and verified, the host may
+record its full source SHA in the root-controlled
+`/opt/madhouse-wiki/rollback-floor.env` as
+`MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=<40-character SHA>`. The floor lives outside
+SQLite and is not part of account-state backups. When a new release is available,
+the updater checks the current and candidate commits against GitHub's
+commit-compare API and accepts only the floor commit itself or its descendants.
+An unavailable, malformed, divergent, or older comparison fails closed before it
+stops the Wiki. The current release is also checked before transition so a
+restored or manually selected release below the floor cannot become the
+automatic rollback target. An unchanged release is a no-op and does not query
+commit comparison.
+
+The floor is not written or advanced automatically. Set it only after the exact
+R0 image is installed, healthy, and confirmed to preserve the bridge policy and
+auth/action recovery schema. Until then the bridge route-selection gate remains
+hard-disabled. If the floor marker is absent, the updater retains its legacy
+release behavior; that state is not sufficient to activate bridge routing.
+
+### Release compatibility and route-selection gate
+
+The Wiki `/release.json` reports separate application, wire-protocol, pinned
+protocol-package, server-schema and control-capability metadata, together with
+the required host-configuration version, configured R0 SHA, rollback-floor SHA
+and effective route-selection state. The Wiki Compose file supplies host
+configuration version `1`; the updater passes a validated
+`rollback-floor.env` into Compose so the running service reports the same floor
+the updater enforces.
+
+Route selection remains off unless `MADHOUSE_BRIDGE_ROUTE_SELECTION_ENABLED=1`
+in the protected `wiki.env`, the runtime release SHA matches the installed
+release marker, the minimum rollback floor equals
+`MADHOUSE_BRIDGE_R0_RELEASE_SHA`, and the Compose host-configuration version
+matches the release requirement. It also requires the operator to set
+`MADHOUSE_BRIDGE_LEGACY_EGRESS_REVIEWED=1` after checking that every deployed
+legacy direct game API has been retired or enforces the same owner route. The
+flag records an operator attestation; it does not discover or verify external
+deployments. `MADHOUSE_BRIDGE_STORAGE_CREDENTIAL_PATH_VERIFIED=1` is a second
+operator attestation: the separately deployed private storage service must
+support the narrow `game-credentials/<64-hex>.json` namespace and conditional
+writes. The Wiki image updater does not install the storage server source, and
+the flag cannot verify the installed server. Missing or inconsistent values keep the route
+closed and are reported as a finite `disabledReason` in release metadata. The
+provided `vps-wiki.env.example` sets the feature to `0` and leaves the R0 SHA
+empty, and leaves the legacy-egress attestation at `0`. Do not enable these
+values until the P9 readiness gate and the separate
+pilot authorization are satisfied. This source gate does not prove the host
+currently runs the installed Compose/Nginx files; that still requires the
+read-only VPS inventory.
 
 Space checks run against the temporary-download, deployment, Docker data and
 containerd filesystems. The conservative minimum free space is 6 GiB before
@@ -90,6 +147,11 @@ The host updater must be installed from the release source for this hook to run.
 - Both app containers use the existing storage origin at
   `https://storage.madhouse-wiki.ru/_madhouse-storage`; the Nginx storage
   route strips that public prefix before forwarding to the storage container.
+- The Wiki Nginx source forwards `/bridge/` WebSocket upgrades to the loopback
+  Wiki process with buffering disabled and bounded proxy timeouts. Control-WSS
+  admission follows the protected release and route-selection gate; the source
+  default keeps it closed. Prepared Nginx configuration is not evidence that it
+  has been installed on the host.
 - The app containers run as the Node user with a read-only root filesystem,
   no added capabilities, bounded memory and a temporary filesystem for Vite
   and Chromium runtime data. The Wiki image includes Puppeteer and its browser
@@ -99,6 +161,13 @@ The host updater must be installed from the release source for this hook to run.
   contents or VPS backups are imported or replaced.
 - Nginx access logging is disabled for the Wiki and connector virtual hosts.
   The app does not log request bodies or credentials.
+- On `SIGTERM` or `SIGINT`, each app server stops accepting HTTP and WebSocket
+  upgrades. The Wiki runtime blocks new game API dispatches, asks connected
+  desktop bridges to drain current streams and launch requests, and waits up to
+  35 seconds before closing remaining HTTP and upgraded sockets. Compose grants
+  both app containers 50 seconds before Docker sends a forced kill. These
+  settings take effect only after the matching image and Compose configuration
+  are installed; this change does not restart or update a VPS service.
 
 ## Runtime configuration
 
@@ -111,6 +180,29 @@ files only when they do not already exist.
 `/opt/madhouse-wiki/wiki.env` requires the current production values for
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_WEBHOOK_SECRET`,
 `WIKI_ADMIN_TELEGRAM_ID`, and `CRON_SECRET`.
+Wiki device approval also uses `MADHOUSE_BRIDGE_OWNER_PROOF_KEY`: a canonical
+43-character base64url encoding of 32 random bytes. Generate it once and store
+it only in the mode-0600 `wiki.env`; keep it stable across releases and never
+put it in Git, image layers, logs, command arguments, or release assets. Without
+this key, pairing requests can be created and queried, while approve/list/revoke
+fail closed with `bridge_owner_auth_unavailable`.
+The production runtime also hard-disables `route.select`; it has no environment
+switch. Keep it disabled until the integrated tunnel and bridge-aware rollback
+floor pass their readiness gates.
+Device session challenge issuance also requires
+`MADHOUSE_BRIDGE_SESSION_SIGNING_KEY`, a canonical base64url encoding of 32
+random bytes. Keep it in the mode-0600 `wiki.env`, stable across Wiki instances
+and releases, separate from the owner-proof key. It is not needed while route
+selection remains disabled; setting it alone does not activate bridge routing.
+Do not put it in Git, image layers, logs, command arguments, or release assets.
+The auth-recovery coordinator can use `MADHOUSE_GAME_CREDENTIAL_KEY`, another
+stable canonical base64url encoding of 32 random bytes, to encrypt the Cargo
+credential in private storage. It must be separate from both bridge keys and
+stable across releases; without it, desktop game-auth recovery remains
+unavailable. This key is optional while the P5 runtime gate is closed. Do not
+configure it until private storage, expiry/revocation handling, and the
+integrated desktop-to-Wiki auth flow have passed their readiness review. Never
+put it in Git, image layers, logs, command arguments, or release assets.
 `/opt/madhouse-wiki/connector.env` requires `TELEGRAM_API_ID`,
 `TELEGRAM_API_HASH`, `WIKI_INITDATA_KEY`, and `ACCOUNT_SESSION_KEY`. These are
 copied unchanged from their existing trusted source.

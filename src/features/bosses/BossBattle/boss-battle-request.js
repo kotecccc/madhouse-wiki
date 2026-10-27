@@ -39,11 +39,10 @@ export function createBossBattleRequest({
         AbortSignal.timeout(20000),
       ]),
     });
-    if (
-      response.status === 409 &&
+    const isBossAttack =
       method === "POST" &&
-      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]+\/attack$/.test(path)
-    ) {
+      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]+\/attack$/.test(path);
+    if (response.status === 409 && isBossAttack) {
       let value;
       try {
         value = await response.json();
@@ -58,7 +57,10 @@ export function createBossBattleRequest({
       )
         return { ...value, battleFinished: true };
     }
-    if (!response.ok) {
+    if (!response.ok || (isBossAttack && response.status !== 200)) {
+      if (isBossAttack && response.status >= 200 && response.status < 300) {
+        await response.body?.cancel().catch(() => {});
+      }
       const error = new Error("Не удалось выполнить действие боя");
       error.status = response.status;
       if (path.endsWith("/invitations/bulk")) {

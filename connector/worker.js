@@ -46,6 +46,7 @@ export function createConnectorWorker(assets, wikiOrigins) {
               apiHash: env.TELEGRAM_API_HASH,
             }),
             wikiOrigins,
+            wikiVerificationKey: env.WIKI_INITDATA_KEY,
           });
           response = await api(request);
         } else if (!["GET", "HEAD"].includes(request.method))

@@ -15,28 +15,6 @@
   padding-inline: var(--space-16);
 }
 
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-}
-
-.login-form > p,
-.login-form > small {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  line-height: 1.6;
-}
-
-.login-form [role="alert"] {
-  color: var(--red-bright);
-}
-
-.login-token-field {
-  min-height: 40px;
-}
-
 .profile-control {
   display: inline-flex;
   align-items: center;
@@ -115,114 +93,10 @@
   padding-inline: var(--space-12);
 }
 
-.login-modal-actions--single {
-  grid-template-columns: 1fr;
-}
-
 @media (max-width: 650px) {
   .login-modal-actions {
     grid-template-columns: 1fr;
   }
-}
-
-.login-token-help {
-  display: block;
-  overflow: hidden;
-}
-
-.login-token-help > summary {
-  display: flex;
-  align-items: center;
-  min-height: var(--space-24);
-  justify-content: space-between;
-  gap: var(--space-12);
-  list-style: none;
-  cursor: pointer;
-}
-
-.login-token-help > summary::-webkit-details-marker {
-  display: none;
-}
-
-.login-token-help > summary::after {
-  content: "";
-  flex: 0 0 8px;
-  width: 8px;
-  height: 8px;
-  margin-right: var(--space-4);
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  align-self: center;
-  transform: rotate(45deg);
-  transition: transform 0.18s ease;
-}
-
-.login-token-help[open] > summary::after {
-  transform: rotate(225deg);
-}
-
-.login-token-help > summary:focus-visible {
-  outline: 2px solid var(--red-bright);
-  outline-offset: 4px;
-  border-radius: var(--control-radius);
-}
-
-.login-token-device-switch {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-8);
-  margin-top: var(--space-12);
-}
-
-.login-token-help-content,
-.login-token-help-content section {
-  display: grid;
-  gap: var(--space-12);
-}
-
-.login-token-help-content {
-  margin-top: var(--space-8);
-}
-
-.login-token-help-content section {
-  gap: var(--space-8);
-}
-
-.login-token-phone-copy {
-  margin: 0;
-  color: var(--card-description-color);
-  font-size: var(--card-description-size);
-  line-height: 1.55;
-}
-
-.login-token-phone-copy strong {
-  color: var(--card-title-color);
-}
-
-.login-token-help-content ol {
-  display: grid;
-  gap: var(--space-12);
-  margin: 0;
-  padding-left: var(--space-24);
-  color: var(--card-description-color);
-  font-size: var(--card-description-size);
-  line-height: 1.6;
-}
-
-.login-token-help-content li {
-  padding-left: var(--space-4);
-}
-
-.login-token-help-content a {
-  color: var(--red-bright);
-  overflow-wrap: anywhere;
-}
-
-.login-token-help-content code,
-.login-token-help-content kbd {
-  color: var(--paper-bright);
-  font: var(--font-size-xs) var(--mono);
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 420px) {

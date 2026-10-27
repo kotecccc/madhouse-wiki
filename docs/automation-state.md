@@ -6,7 +6,9 @@ The wiki server owns personal battle state, goal settings and confirmed per-batt
 
 - `GET /api/automation/state` returns `{version, serverTime, battle, goal, auto, pvp, preferences}` for the authenticated game account. It does not forward a read of the entire battle to the game on every poll.
 - `POST /api/automation/launch` reconciles the current fight once per app connection. The auth response's `activeBossBattle` supplies a routing hint; the server verifies it against the authenticated boss summary and reads the specific battle before adoption. No boss scan or automatic activation of combat is performed. Without a hint it checks the account response and refreshes an already known fight. Regular state polling remains local.
-- `POST /api/automation/commands` accepts `{id, expectedVersion, command, args}`. The command ID is recorded before dispatch. Duplicate IDs, concurrent actions and stale versions are rejected with HTTP 409 and a current snapshot; the client does not retry mutations.
+- `POST /api/automation/command-ticket` accepts `{expectedVersion, command, args}` and returns a server-generated ID, signed admission ticket and intent version. Issuing a ticket does not call the game API. Tickets are bound to the authenticated owner/account, route epoch, command and canonical argument digest; they expire after five minutes. The issuer rejects client-supplied IDs, and a ticket cannot be renewed for an old ID.
+- `POST /api/automation/commands` accepts `{id, admissionTicket, expectedVersion, command, args}` for ticketed commands. Bridge-required accounts reject the legacy unticketed protocol; control stop commands remain ticketless. The server commits the command receipt before dispatch. Duplicate IDs, concurrent actions and stale versions are rejected with HTTP 409 and a current snapshot; the client does not retry mutations. An expired ticket remains rejected after its full receipt is rotated out.
+- A ticketed boss attack is bound to its verified bridge connection, then the current account/auth generations and route are checked again after TLS verification and before HTTP bytes are sent. The response stream is released to the actor only if those values still match after the complete body arrives; for bodyless HTTP statuses the final check runs as soon as the response is received. A renewal or route change during dispatch makes the response unusable; the pending action stays unknown for read-only reconciliation and is never replayed.
 - Supported commands: `open`, `refresh`, `hydrate`, `start`, `next`, `attack`, `medicines.open`, `medicines.close`, `medicine.use`, `purchase.prepare`, `purchase.cancel`, `purchase.buy`, `purchase.ack`, `auto.start`, `auto.stop`, `goal.configure`, `goal.stop`, `goal.reset`, `pvp.refresh`, `favorites.set`.
 - Favorite settings use `favorites.set` with `{bossIds: [positive game boss IDs]}`. New automation settings must use this authenticated server boundary, not localStorage.
 - `floor.start` and `floor.stop` control server-owned floor progression from the account menu. The MVP waits for energy, uses the raid worker (including available invitations and solo fallback), and collects materials and upgrades a business to the confirmed target level. It does not purchase energy. It starts only with fresh, explicitly identified and quantified unmet requirements; unknown or incomplete conditions remain waiting rather than becoming guessed actions.
@@ -22,6 +24,29 @@ DEV and VPS Compose mount the `automation_state` named volume at `/data/automati
 The directory is private (0700), the SQLite database and encryption key are 0600. Account row keys are HMAC-derived; each account record is AES-256-GCM encrypted with its row key as associated data. Both `automation.sqlite` and `encryption.key` are required for recovery. SQLite WAL uses `synchronous=FULL`. An encrypted account record is bounded at 4 MiB to accommodate long series deduplication history; writes beyond that bound fail closed rather than allowing untracked actions.
 
 One wiki process runs the actors. A durable singleton lease in the same SQLite database excludes competing workers; it is renewed every second, expires after fifteen seconds, and is checked before state writes and game mutations. This is a **single-host, shared-volume** design. Do not deploy independent replicas with separate volumes. Move coordination to a shared transactional database before introducing multiple hosts.
+
+## Desktop helper pause
+
+The Desktop helper's user pause is separate from automation stop and device
+disconnect. Wiki stores the pause record in `bridge_helper_controls`, encrypted
+and keyed by the verified owner; it survives a SQLite store reopen. An
+authenticated control connection negotiates `helper-pause-v1` and receives the
+stored state before the Desktop reports itself ready. Only an explicit
+`helper_control` resume clears it.
+
+While paused, `GameApiClient` and the bridge gateway both fail closed before
+starting a new game dispatch or issuing a new stream. Pausing closes an existing
+bridge data tunnel. This cannot undo an HTTP request whose bytes were already
+sent; its operation must keep the existing unknown/reconciliation semantics.
+Local fake tests cover encrypted-store restart, an open synthetic WSS tunnel,
+control reconnect, denial of a new stream, explicit resume, and transport
+non-invocation while the route is paused. No live Cargo traffic or production
+route activation is part of that evidence.
+
+Each actor write also compares its expected account version with the encrypted
+record inside the same SQLite write transaction. If an old process resumes after
+a newer worker has committed and released the lease, its delayed result cannot
+replace that newer snapshot; the old actor fails closed on the version conflict.
 
 Auto runs independently of browser connections. Closing or reloading the page does not stop it. On server restart, enabled work resumes only after reading the current battle, retaining the saved next-action deadline. If the previous process stopped during a pending action, or the state was already uncertain, the enabled mode waits for reconciliation: its POST is never replayed. The user can inspect and refresh the battle explicitly. Server-side storage failure or lease loss prevents new game actions.
 
@@ -43,7 +68,65 @@ Tests use temporary stores, fake upstream responses and injected timers. Cover a
 
 ## Backup and migration boundaries
 
-Back up the complete automation volume, including the key. Stop the wiki worker before copying SQLite/WAL files, or use a consistent SQLite backup procedure. Keep backups private and encrypted. Do not remove the named volume during normal container updates (`down -v` destroys it).
+`scripts/automation/backup-state.mjs` takes an online SQLite `VACUUM INTO`
+snapshot, so committed WAL rows are included without copying a live database
+file. The binary stream contains the snapshot and its 32-byte encryption key;
+the CLI refuses a terminal or regular-file output. Pipe it directly into
+`age` and store only the encrypted result. The ephemeral backup container must
+mount a private tmpfs for the temporary SQLite snapshot.
+
+On the Docker host, set `WIKI_AUTOMATION_VOLUME`, `WIKI_IMAGE`,
+`AGE_RECIPIENT` and `BACKUP_DEST` from that host's deployment. Do not infer
+volume names or use the app container's environment as an age identity:
+
+```sh
+set -o pipefail
+docker run --rm --network none --read-only \
+  --mount "type=volume,src=${WIKI_AUTOMATION_VOLUME},dst=/data/automation,readonly" \
+  --tmpfs /backup-tmp:rw,noexec,nosuid,size=1g,mode=0700,uid=1000,gid=1000 \
+  --env MADHOUSE_AUTOMATION_STATE_DIR=/data/automation \
+  --env MADHOUSE_AUTOMATION_SNAPSHOT_TMPDIR=/backup-tmp \
+  --entrypoint node "${WIKI_IMAGE}" /app/scripts/automation/backup-state.mjs \
+  | age --encrypt --recipient "$AGE_RECIPIENT" --output "$BACKUP_DEST"
+```
+
+Restore only into a new, empty automation volume while the Wiki worker is
+stopped. Set `NEW_AUTOMATION_VOLUME`, `WIKI_IMAGE`, `AGE_IDENTITY` and
+`BACKUP_SOURCE` from the recovery environment. Decrypt with the separately held
+age identity and stream directly into the restore command:
+
+```sh
+set -o pipefail
+age --decrypt --identity "$AGE_IDENTITY" "$BACKUP_SOURCE" \
+  | docker run --interactive --rm --network none --read-only \
+      --mount "type=volume,src=${NEW_AUTOMATION_VOLUME},dst=/data/automation" \
+      --entrypoint node "${WIKI_IMAGE}" /app/scripts/automation/restore-state.mjs \
+      --directory /data/automation
+```
+
+The restore command checks archive hashes, SQLite integrity and encrypted
+account rows, then arms a durable restore guard. A restore resets route policies,
+owner/game bindings, pending game-auth recovery, bridge pairings/devices and the
+worker lease. Existing enabled intent is not resumed. Reads and explicit stop or
+reconciliation commands remain available; every game mutation is blocked until
+a fresh Telegram-owner proof and matching Cargo `/api/me` identity bind that
+account. That confirmation stops the old workers and preserves unresolved
+pending actions. An unresolved action keeps the mutation gate closed until the
+existing reconciliation/acknowledgement path resolves it. Restored devices must
+pair again and routes must be selected again.
+
+The marker and encrypted SQLite guard are intentionally durable; restarting
+Wiki never removes them. If a restore command fails, discard that disposable
+empty target volume and retry from the authenticated encrypted archive. Do not
+delete the marker from a partially restored or live volume.
+
+This command covers only `automation_state`. It does not back up the separate
+private session/object store, its encryption environment key, Wiki deployment
+secrets, update-signing material or Vercel Blob data. Those sources need their
+own verified backup and restore procedures before a production recovery can be
+claimed. RPO/RTO values, key escrow/rotation and an isolated production-shaped
+restore exercise remain open. Do not remove named volumes during normal
+container updates (`down -v` destroys them).
 
 Historical in-memory goal progress was never durable and cannot be reconstructed after the old page is gone. Old localStorage battle references are no longer read or written by the application. An active battle is adopted from an explicit authenticated game reference or a manual boss open; no scan over every boss is used.
 
@@ -154,10 +237,15 @@ hide partial unavailability. Recovery is demand-driven after the cooldown.
 Game HTTP 401 records invalid credentials separately; it never becomes a stale
 success. HTTP 403 remains a permission refusal and does not revoke an entire
 account. Wiki launch identity validation stays in the connector and remains a
-separate error. Existing session expiry and logout rules still apply: this first
-iteration does not create a new long-lived Wiki login or grant access to an
-unknown credential during an outage. A verified, restorable session can read its
-saved sections after browser/server restart without contacting a healthy game.
+separate error. Telegram's signed `initData` is the browser's owner proof; the
+browser does not receive or persist the Cargo JWT. Wiki resolves that proof to
+the encrypted private credential and adds Cargo authorization only on the
+server. Session status and restore are read-only. Expired or revoked credentials
+require a fresh, user-initiated launch and consent. A durable `game_auth.logout`
+tombstone prevents reuse of the old credential; only a new verified launch may
+advance its generation. An uncertain exchange is never replayed automatically,
+and stale credentials do not grant access during an outage. Wiki logout does not
+establish that Cargo revoked its own session.
 
 The bottom navigation warning uses a shared UI Kit Button variant and Dialog.
 It explains section staleness, last successful update and paused actions. Normal
@@ -198,10 +286,13 @@ starts a new budget. Purchasing does not replenish per-battle use limits.
 Before a healing, buying or bulk-invitation POST, the encrypted record stores
 `assistant.pending` with the operation ID, battle ID, type and maximum reserved
 expense. A crash or lost result blocks automatic replay, including after restart.
-The explicit `healing.ack` command refreshes the battle and inventory and counts
-the reserved maximum as spent/used before removing uncertainty. Unknown invitations
-stay disabled for that battle after acknowledgement. Acknowledgement clears the reserved uncertainty; an already enabled waiting
-mode can continue on its next scheduled check. It is available only after a successful state reconciliation.
+The client first refreshes the battle; the explicit `healing.ack` command then
+refreshes inventory and counts a reserved healing, purchase or invitation maximum
+as spent/used before removing uncertainty. Unknown invitations stay disabled for
+that battle after acknowledgement. This command does not clear unknown starts or
+strikes: without sufficient operation-specific evidence, their checkpoints remain
+pending after fresh reads and conflicting actions stay blocked. An already enabled
+waiting mode can continue on its next scheduled check only after reconciliation.
 
 Automatic medicine use requires a matching item-result receipt, exact inventory
 change and increased HP. Automatic purchase preflights the current price and
@@ -238,8 +329,8 @@ Explicit user stop and configured goal/deadline completion still end the run.
 Unknown mutations are not read failures. Starts and strikes now have the same
 operation-ID reservation boundary as medicine actions. Their pending receipts
 survive restart and keep the mode waiting; they are never automatically replayed.
-`healing.ack` provides explicit reconciliation after fresh state reads, including
-unknown starts or strikes that carry no medicine expense. A stop received while
+Only operation-specific fresh state with sufficient evidence resolves an unknown
+start or strike; otherwise its checkpoint remains pending. A stop received while
 an API startup read is in flight invalidates that pending start intent.
 
 ### Quota and invitations

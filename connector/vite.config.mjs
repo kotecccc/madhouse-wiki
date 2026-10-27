@@ -28,6 +28,7 @@ export default defineConfig({
                 )
               : {},
           wikiOrigins: ["http://127.0.0.1:4174"],
+          wikiVerificationKey: process.env.WIKI_INITDATA_KEY,
         });
         server.middlewares.use(async (req, res, next) => {
           if (!req.url?.startsWith("/api/")) return next();

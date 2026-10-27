@@ -775,6 +775,10 @@ export function createWorkFarm({
     start(args) {
       if (running() || working || record.manualPending)
         throw new Error("Фарм уже запущен или запрос ещё выполняется.");
+      if (record.run?.pending)
+        throw new Error(
+          "Предыдущее действие не подтверждено. Новый запуск заблокирован до разрешения его исхода.",
+        );
       if (
         !positive(args.workId) ||
         !positive(args.targetCycles) ||

@@ -5,6 +5,10 @@ import {
   safeSuccessfulFeatures,
 } from "../../shared/game-health-features.js";
 import { createHash } from "node:crypto";
+import {
+  classifyGameOperation,
+  createGameApiClient,
+} from "../bridge/game-api-client.mjs";
 
 // Bounded, demand-driven personal sections. Battle state is deliberately live-only:
 // stale battle reads must never become inputs to an automated mutation.
@@ -30,6 +34,12 @@ const inventoryMutationAffects = (mutation, section, battleMayHaveFinished) => {
     return section.startsWith("/api/ornaments/zones/");
   return false;
 };
+
+function boundedRequestSignal(signal, timeoutMs) {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, deadline]) : deadline;
+}
+
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const MAX_BYTES = 3 * 1024 * 1024;
 const MAX_SECTIONS = 128;
@@ -111,7 +121,13 @@ export function createAccountSnapshots({
   ttl = 180000,
   cooldown = 30000,
   refreshProfileProgress,
+  bridgeTransport = null,
+  admitMutation = async () => null,
+  allowOperation = () => true,
+  resolveOwnerSession = null,
 }) {
+  if (typeof store?.readRoutePolicy !== "function")
+    throw new TypeError("snapshot_route_policy_store_required");
   const accounts = new Map();
   const credentials = new Map();
   const pending = new Map();
@@ -127,13 +143,252 @@ export function createAccountSnapshots({
   for (const { playerId, value } of store.list()) {
     if (value?.credential) credentials.set(hash(value.credential), playerId);
   }
+  const routeFor = (playerId) => {
+    if (
+      store.isRestoreGuardActive?.() &&
+      !store.hasExplicitRoutePolicy?.(playerId)
+    )
+      return null;
+    return store.readRoutePolicy(playerId);
+  };
+  const routeForAuthorization = (authorization) => {
+    const playerId =
+      typeof authorization === "string"
+        ? credentials.get(hash(authorization))
+        : null;
+    return playerId
+      ? ["logout_pending", "logged_out"].includes(
+          authRecoveryState(playerId),
+        ) || authRecoveryState(playerId) === "auth_outcome_unknown"
+        ? null
+        : routeFor(playerId)
+      : typeof authorization === "string" && !store.isRestoreGuardActive?.()
+        ? {
+            policy: "direct",
+            routeEpoch: 0,
+            identityBootstrap: true,
+          }
+        : null;
+  };
+  const gameApi = createGameApiClient({
+    directTransport: fetcher,
+    bridgeTransport,
+    admitMutation,
+    allowOperation,
+    resolveRoute: ({
+      accountId,
+      authorization,
+      ownerId,
+      authBootstrap,
+      authOperationId,
+      operation,
+    }) => {
+      if (
+        authBootstrap === true &&
+        ["auth_issuance", "identity_verification"].includes(
+          operation.operationClass,
+        )
+      ) {
+        if (
+          accountId != null ||
+          typeof ownerId !== "string" ||
+          typeof store.readGameAuthBootstrap !== "function" ||
+          typeof store.readGameAccountBinding !== "function" ||
+          typeof store.readGameAuthRecovery !== "function"
+        )
+          return null;
+        let binding;
+        let recovery;
+        let bootstrap;
+        let restoreConsent;
+        let restoring;
+        try {
+          binding = store.readGameAccountBinding(ownerId);
+          recovery = store.readGameAuthRecovery(ownerId);
+          bootstrap = store.readGameAuthBootstrap(ownerId);
+          restoring = store.isRestoreGuardActive?.() === true;
+          restoreConsent = restoring
+            ? store.readRestoreOwnerConsent?.(ownerId)
+            : null;
+        } catch {
+          return null;
+        }
+        const expectedStates =
+          operation.operationClass === "auth_issuance"
+            ? ["exchange_pending"]
+            : [
+                "verification_pending",
+                "credential_stored",
+                "ready",
+                ...(restoring ? ["auth_outcome_unknown"] : []),
+              ];
+        const supersedesLogout = Boolean(
+          recovery?.state === "logged_out" &&
+          bootstrap?.authGeneration > recovery.authGeneration &&
+          bootstrap?.consentGeneration > recovery.consentGeneration,
+        );
+        if (
+          (operation.operationClass === "auth_issuance" &&
+            authorization != null) ||
+          (operation.operationClass === "identity_verification" &&
+            (!authorization ||
+              authorization.length > 16_384 ||
+              !/^Bearer [A-Za-z0-9._~-]+$/u.test(authorization))) ||
+          (recovery && !supersedesLogout) ||
+          (binding &&
+            (!bootstrap ||
+              operation.operationClass !== "identity_verification" ||
+              binding.playerId !== bootstrap.playerId)) ||
+          !bootstrap ||
+          bootstrap.operationId !== authOperationId ||
+          (restoring &&
+            (bootstrap.routeEpoch !== 1 ||
+              restoreConsent?.requestId !== bootstrap.requestId ||
+              restoreConsent.routePolicy !== "direct")) ||
+          (!restoring && bootstrap.routeEpoch !== 0) ||
+          !expectedStates.includes(bootstrap.state)
+        )
+          return null;
+        return {
+          policy: "direct",
+          routeEpoch: 0,
+          authBootstrap: true,
+          restoreBootstrap: restoring,
+        };
+      }
+      return accountId
+        ? ["logout_pending", "logged_out"].includes(
+            authRecoveryState(accountId),
+          )
+          ? null
+          : routeFor(accountId)
+        : routeForAuthorization(authorization);
+    },
+    admitAuthBootstrap: async ({ route, context, launchData, operation }) => {
+      if (
+        route.policy !== "direct" ||
+        route.routeEpoch !== 0 ||
+        route.authBootstrap !== true ||
+        typeof context.ownerId !== "string" ||
+        context.expectedRouteEpoch !== 0 ||
+        !Number.isSafeInteger(context.expectedCredentialVersion) ||
+        context.expectedCredentialVersion < 0
+      )
+        return null;
+      let binding;
+      let recovery;
+      let bootstrap;
+      let restoreConsent;
+      let restoring;
+      try {
+        binding = store.readGameAccountBinding(context.ownerId);
+        recovery = store.readGameAuthRecovery(context.ownerId);
+        bootstrap = store.readGameAuthBootstrap(context.ownerId);
+        restoring = store.isRestoreGuardActive?.() === true;
+        restoreConsent = restoring
+          ? store.readRestoreOwnerConsent?.(context.ownerId)
+          : null;
+      } catch {
+        return null;
+      }
+      if (
+        (recovery &&
+          !(
+            recovery.state === "logged_out" &&
+            bootstrap?.authGeneration > recovery.authGeneration &&
+            bootstrap?.consentGeneration > recovery.consentGeneration
+          )) ||
+        (binding &&
+          (operation.operationClass !== "identity_verification" ||
+            binding.playerId !== bootstrap?.playerId)) ||
+        bootstrap?.operationId !== context.authOperationId ||
+        bootstrap.consentGeneration !== context.consentGeneration ||
+        (restoring &&
+          (route.restoreBootstrap !== true ||
+            bootstrap.routeEpoch !== 1 ||
+            restoreConsent?.requestId !== bootstrap.requestId ||
+            restoreConsent.routePolicy !== "direct")) ||
+        (!restoring &&
+          (route.restoreBootstrap === true || bootstrap.routeEpoch !== 0)) ||
+        bootstrap.expectedCredentialVersion !==
+          context.expectedCredentialVersion ||
+        (operation.operationClass === "auth_issuance"
+          ? bootstrap.state !== "exchange_pending" ||
+            bootstrap.launchDataDigest !== hash(launchData || "")
+          : operation.operationClass !== "identity_verification" ||
+            bootstrap.state === "prepared" ||
+            bootstrap.state === "exchange_pending" ||
+            operation.method !== "GET" ||
+            operation.path !== "/api/me")
+      )
+        return null;
+      return Object.freeze({
+        operationId: bootstrap.operationId,
+        routeEpoch: bootstrap.routeEpoch,
+      });
+    },
+    admitAuthIssuance: async ({ route, context }) => {
+      if (
+        route.policy !== "bridge_required" ||
+        route.routeEpoch !== context.expectedRouteEpoch ||
+        route.activeDeviceId !== context.expectedDeviceId ||
+        context.accountId !== context.playerId
+      )
+        return null;
+      const binding = store.readGameAccountBinding(context.ownerId);
+      const recovery = store.readGameAuthRecovery(context.ownerId);
+      if (
+        binding?.playerId !== context.playerId ||
+        recovery?.operationId !== context.authOperationId ||
+        recovery.state !== "exchange_pending" ||
+        recovery.playerId !== context.playerId ||
+        recovery.consentGeneration !== context.consentGeneration ||
+        recovery.routeEpoch !== context.expectedRouteEpoch
+      )
+        return null;
+      return Object.freeze({
+        operationId: recovery.operationId,
+        routeEpoch: recovery.routeEpoch,
+      });
+    },
+  });
   const persist = (record) => {
     if (Buffer.byteLength(JSON.stringify(record)) > MAX_BYTES)
       throw new Error("snapshot_capacity_exceeded");
     store.writeSnapshot(record.playerId, record);
     accounts.set(record.playerId, record);
   };
-  const state = (record) => {
+  const authRecoveryState = (playerId) => {
+    if (!playerId) return null;
+    if (
+      typeof store.readGameAccountOwner !== "function" ||
+      typeof store.readGameAuthRecovery !== "function"
+    )
+      return null;
+    try {
+      const binding = store.readGameAccountOwner(playerId);
+      const recovery = binding && store.readGameAuthRecovery(binding.ownerId);
+      const bootstrap =
+        binding && store.readGameAuthBootstrap?.(binding.ownerId);
+      const bootstrapAfterLogout = Boolean(
+        recovery?.state === "logged_out" &&
+        bootstrap?.state === "ready" &&
+        bootstrap.authGeneration > recovery.authGeneration &&
+        bootstrap.consentGeneration > recovery.consentGeneration,
+      );
+      if (recovery && recovery.state !== "ready" && !bootstrapAfterLogout)
+        return recovery.state;
+      if (bootstrap && bootstrap.state !== "ready")
+        return bootstrap.state === "failed" || bootstrap.state === "cancelled"
+          ? "auth_outcome_unknown"
+          : bootstrap.state;
+      return null;
+    } catch {
+      return "auth_outcome_unknown";
+    }
+  };
+  const state = (record, playerId = record?.playerId) => {
+    const authState = authRecoveryState(playerId);
     const failedFeatures = safeFailedFeatures(
       (record?.health?.failedSections || []).map(featureForGamePath),
     );
@@ -167,7 +422,7 @@ export function createAccountSnapshots({
       }),
     );
     return {
-      status: record?.health?.status || "unknown",
+      status: authState ? "unavailable" : record?.health?.status || "unknown",
       profileRevision: record?.profileRevision ?? 0,
       lastSuccessAt: record?.lastSuccessAt ?? null,
       failedFeatures,
@@ -218,16 +473,42 @@ export function createAccountSnapshots({
     );
     return new Response(response.body, { status: response.status, headers });
   }
-  async function upstream(url, init) {
+  async function upstream(url, init, operationClass = null) {
     try {
-      const read = (init.method || "GET").toUpperCase() === "GET";
-      const timeout = AbortSignal.timeout(read ? 15000 : 8000);
-      return await fetcher(url, {
-        ...init,
-        redirect: "error",
-        signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+      const parsed = new URL(url);
+      const method = (init.method || "GET").toUpperCase();
+      const path = parsed.pathname.replace(/%24/giu, "$");
+      const authorization = new Headers(init.headers).get("authorization");
+      const accountId = authorization
+        ? credentials.get(hash(authorization))
+        : null;
+      return await gameApi.request({
+        operation: {
+          method,
+          path,
+          operationClass:
+            operationClass || classifyGameOperation({ method, path }),
+        },
+        path,
+        upstreamPath: parsed.pathname,
+        search: parsed.search,
+        method,
+        headers: init.headers,
+        ...(init.body == null ? {} : { body: init.body }),
+        signal: boundedRequestSignal(
+          init.signal,
+          method === "GET" ? 15000 : 8000,
+        ),
+        context: {
+          accountId: accountId ?? null,
+          ...(init.madhouseAutomationAttempt
+            ? { automationAttempt: init.madhouseAutomationAttempt }
+            : {}),
+        },
       });
-    } catch {
+    } catch (error) {
+      if (error?.code === "game_restore_confirmation_required")
+        return json({ error: "game_restore_confirmation_required" }, 409);
       return json({ error: "game_unavailable" }, 503);
     }
   }
@@ -254,7 +535,12 @@ export function createAccountSnapshots({
   async function execute(
     url,
     init,
-    { fallback = true, cache = true, forceFailedRefresh = false } = {},
+    {
+      fallback = true,
+      cache = true,
+      forceFailedRefresh = false,
+      operationClass = null,
+    } = {},
   ) {
     const path = new URL(url).pathname;
     const authorization = new Headers(init.headers).get("authorization");
@@ -358,7 +644,7 @@ export function createAccountSnapshots({
         now() - section.updatedAt < ttl
       )
         return withMetadata(json(section.data), record, section);
-      const response = await upstream(url, upstreamInit);
+      const response = await upstream(url, upstreamInit, operationClass);
       // Re-read after await so concurrent section updates cannot overwrite one another.
       record = playerId ? accounts.get(playerId) : null;
       section = record?.sections?.[path];
@@ -678,6 +964,16 @@ export function createAccountSnapshots({
     const authorization = new Headers(init.headers).get("authorization");
     const playerId = authorization && credentials.get(hash(authorization));
     const record = accounts.get(playerId);
+    const authPending = authRecoveryState(playerId);
+    if (
+      method !== "GET" &&
+      (record?.health?.status === "credentials_invalid" ||
+        (!workRead && Boolean(authPending)))
+    )
+      return withMetadata(
+        json({ error: "game_unavailable_actions_paused" }, 503),
+        record,
+      );
     if (
       method === "GET" &&
       isSnapshotPath(new URL(url).pathname) &&
@@ -765,6 +1061,52 @@ export function createAccountSnapshots({
     }
     return response;
   }
+  async function ownerAuthorizedInit(init = {}) {
+    const headers = new Headers(init.headers);
+    const initData = headers.get("X-Madhouse-Wiki-Init-Data");
+    if (initData === null) return { init };
+    if (
+      typeof resolveOwnerSession !== "function" ||
+      initData.length > 4096 ||
+      headers.has("authorization")
+    )
+      return {
+        response: json({ error: "owner_session_required" }, 401),
+      };
+    try {
+      const owner = await resolveOwnerSession(initData);
+      if (
+        !owner ||
+        typeof owner.authorization !== "string" ||
+        typeof owner.playerId !== "string"
+      )
+        return {
+          response: json({ error: "owner_session_required" }, 401),
+        };
+      headers.delete("X-Madhouse-Wiki-Init-Data");
+      headers.set("Authorization", owner.authorization);
+      credentials.set(hash(owner.authorization), owner.playerId);
+      return { init: { ...init, headers } };
+    } catch (error) {
+      const status =
+        Number.isInteger(error?.status) &&
+        error.status >= 400 &&
+        error.status < 600
+          ? error.status
+          : 503;
+      return {
+        response: json(
+          {
+            error:
+              status === 401
+                ? "owner_session_required"
+                : "owner_session_unavailable",
+          },
+          status,
+        ),
+      };
+    }
+  }
   return {
     inventory(authorization) {
       const playerId = authorization && credentials.get(hash(authorization));
@@ -783,13 +1125,174 @@ export function createAccountSnapshots({
           .map(([path]) => path),
       };
     },
+    drain(options) {
+      return gameApi.drain(options);
+    },
+    routeForAuthorization,
+    routeForAccount(playerId) {
+      return routeFor(playerId);
+    },
     health(authorization) {
       const playerId = authorization && credentials.get(hash(authorization));
-      return state(accounts.get(playerId));
+      return state(accounts.get(playerId), playerId);
     },
     read,
+    verifyIdentity(authorization) {
+      return execute(
+        "https://cargohustle.online/api/me",
+        { headers: { Authorization: authorization } },
+        {
+          fallback: false,
+          cache: false,
+          forceFailedRefresh: true,
+          operationClass: "identity_verification",
+        },
+      );
+    },
+    issueGameCredential({
+      ownerId,
+      playerId,
+      launchData,
+      operationId,
+      consentGeneration,
+      routeEpoch,
+      deviceId,
+      signal,
+    }) {
+      const requestSignal = boundedRequestSignal(signal, 15_000);
+      return gameApi.request({
+        operation: {
+          method: "POST",
+          path: "/api/auth/telegram",
+          operationClass: "auth_issuance",
+        },
+        path: "/api/auth/telegram",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ initData: launchData }),
+        signal: requestSignal,
+        context: {
+          accountId: playerId,
+          ownerId,
+          playerId,
+          authOperationId: operationId,
+          consentGeneration,
+          expectedRouteEpoch: routeEpoch,
+          expectedDeviceId: deviceId,
+        },
+      });
+    },
+    issueBootstrapGameCredential({
+      ownerId,
+      launchData,
+      operationId,
+      consentGeneration,
+      expectedCredentialVersion,
+      signal,
+    }) {
+      const requestSignal = boundedRequestSignal(signal, 15_000);
+      return gameApi.request({
+        operation: {
+          method: "POST",
+          path: "/api/auth/telegram",
+          operationClass: "auth_issuance",
+        },
+        path: "/api/auth/telegram",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ initData: launchData }),
+        signal: requestSignal,
+        context: {
+          authBootstrap: true,
+          ownerId,
+          authOperationId: operationId,
+          consentGeneration,
+          expectedRouteEpoch: 0,
+          expectedCredentialVersion,
+        },
+      });
+    },
+    verifyBootstrapGameCredential({
+      ownerId,
+      operationId,
+      consentGeneration,
+      expectedCredentialVersion,
+      accessToken,
+      signal,
+    }) {
+      const requestSignal = boundedRequestSignal(signal, 8_000);
+      return gameApi.request({
+        operation: {
+          method: "GET",
+          path: "/api/me",
+          operationClass: "identity_verification",
+        },
+        path: "/api/me",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+        signal: requestSignal,
+        context: {
+          authBootstrap: true,
+          ownerId,
+          authOperationId: operationId,
+          consentGeneration,
+          expectedRouteEpoch: 0,
+          expectedCredentialVersion,
+        },
+      });
+    },
+    verifyGameCredential({
+      playerId,
+      accessToken,
+      routeEpoch,
+      deviceId,
+      signal,
+    }) {
+      const requestSignal = boundedRequestSignal(signal, 8_000);
+      return gameApi.request({
+        operation: {
+          method: "GET",
+          path: "/api/me",
+          operationClass: "identity_verification",
+        },
+        path: "/api/me",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+        signal: requestSignal,
+        context: {
+          accountId: playerId,
+          expectedRouteEpoch: routeEpoch,
+          expectedDeviceId: deviceId,
+        },
+      });
+    },
+    registerVerifiedCredential(authorization, playerId) {
+      const normalizedPlayerId = String(playerId ?? "");
+      if (
+        typeof authorization !== "string" ||
+        authorization.length > 16_384 ||
+        !/^Bearer [A-Za-z0-9._~-]+$/u.test(authorization) ||
+        !/^[1-9][0-9]{0,15}$/u.test(normalizedPlayerId) ||
+        !Number.isSafeInteger(Number(normalizedPlayerId))
+      )
+        throw new TypeError("game_credential_invalid");
+      credentials.set(hash(authorization), normalizedPlayerId);
+    },
     liveFetch,
     async fetch(url, init = {}) {
+      const authorized = await ownerAuthorizedInit(init);
+      if (authorized.response) return authorized.response;
+      init = authorized.init;
       if (
         (init.method || "GET").toUpperCase() === "GET" &&
         isSnapshotPath(new URL(url).pathname) &&

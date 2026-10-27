@@ -7,6 +7,8 @@ import { createVercelConnectorHandler } from "./vercel-connector-handler.mjs";
 import { connectorHeaders } from "../../connector/worker.js";
 import { startVpsInlineCards } from "../telegram/inline-cards-vps.mjs";
 import { VERSION } from "../../connector/protocol.js";
+import { installServerLifecycle } from "./server-lifecycle.mjs";
+import { createBridgeCompatibility } from "./release-compatibility.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
@@ -83,12 +85,16 @@ if (role === "wiki") {
     ]);
   const { createAutomationRuntime } = await import("../automation/runtime.mjs");
   automationRuntime = await createAutomationRuntime({ root });
+  const catalogueHandler = catalogue.createCatalogueApi({
+    resolveRoute: automationRuntime.routeForAuthorization,
+  });
   apiHandlers = new Map([
     ["/api/automation/state", automationRuntime.nodeHandler],
     ["/api/automation/launch", automationRuntime.nodeHandler],
     ["/api/automation/commands", automationRuntime.nodeHandler],
+    ["/api/bridge", automationRuntime.bridgeNodeHandler],
     ["/api", automationRuntime.proxy],
-    ["/api/catalogue", catalogue.default],
+    ["/api/catalogue", catalogueHandler],
     ["/api/raids", raids.default],
     ["/api/feedback", feedback.default],
     ["/api/analytics", analytics.default],
@@ -122,6 +128,10 @@ const releaseMarker =
         sourceCommit,
         provider: "VPS",
         catalogue: "reference-only-sqlite",
+        bridgeCompatibility: createBridgeCompatibility({
+          sourceCommit,
+          env: process.env,
+        }),
         telegramConnector: {
           origin: connectorOrigin,
           protocolVersion: VERSION,
@@ -182,14 +192,39 @@ const mimeTypes = new Map([
   [".woff2", "font/woff2"],
 ]);
 
+let lifecycle = null;
+const httpSockets = new Set();
+const upgradedSockets = new Set();
 const server = createServer(async (request, response) => {
   try {
+    if (lifecycle?.state !== "running") {
+      const result = json({ error: "service_draining" }, 503, {
+        ...noStore,
+        "Retry-After": "5",
+      });
+      if (request.method === "HEAD") {
+        response.writeHead(503, {
+          ...headerRecord(result.headers),
+          ...connectorSecurity,
+        });
+        response.end();
+      } else await writeFetchResponse(response, result, connectorSecurity);
+      return;
+    }
     const method = request.method || "GET";
     const url = new URL(request.url || "/", "http://localhost");
     if (url.pathname === "/healthz" && method === "GET") {
       await writeFetchResponse(
         response,
         json({ service: role, sourceCommit }, 200, noStore),
+        connectorSecurity,
+      );
+      return;
+    }
+    if (role === "wiki" && url.pathname.startsWith("/bridge/")) {
+      await writeFetchResponse(
+        response,
+        json({ error: "unknown_bridge_route" }, 404, noStore),
         connectorSecurity,
       );
       return;
@@ -291,12 +326,44 @@ const server = createServer(async (request, response) => {
   }
 });
 
+server.on("connection", (socket) => {
+  httpSockets.add(socket);
+  socket.once("close", () => httpSockets.delete(socket));
+});
+
+server.on("upgrade", (request, socket, head) => {
+  upgradedSockets.add(socket);
+  socket.once("close", () => upgradedSockets.delete(socket));
+  if (lifecycle?.state !== "running") {
+    const body = "Service Unavailable\n";
+    socket.end(
+      "HTTP/1.1 503 Service Unavailable\r\n" +
+        "Connection: close\r\n" +
+        "Cache-Control: no-store\r\n" +
+        "Content-Type: text/plain; charset=utf-8\r\n" +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
+    return;
+  }
+  if (role !== "wiki" || !automationRuntime?.bridgeUpgradeHandler) {
+    socket.destroy();
+    return;
+  }
+  automationRuntime.bridgeUpgradeHandler(request, socket, head).catch(() => {
+    socket.destroy();
+  });
+});
+
 server.requestTimeout = 30_000;
 server.headersTimeout = 15_000;
 server.keepAliveTimeout = 5_000;
+lifecycle = installServerLifecycle({
+  server,
+  runtime: automationRuntime,
+  httpSockets,
+  upgradedSockets,
+});
 server.listen(
   Number(process.env.PORT || (role === "wiki" ? 9092 : 9093)),
   "0.0.0.0",
 );
-
-server.once("close", () => automationRuntime?.close());

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { forecastQuota } from "./quota-forecast.mjs";
 import { medicinePurchaseQuote } from "../../src/features/bosses/BossBattle/boss-medicines.js";
 
@@ -140,6 +141,7 @@ export function createBattleAssistant({
   priorityActive = () => false,
   readAvailable = available,
   refreshAvailability = async () => {},
+  canReconcileStart = () => true,
 }) {
   let record = saved
     ? structuredClone(saved)
@@ -192,6 +194,11 @@ export function createBattleAssistant({
   function projection() {
     return {
       settings: structuredClone(settings()),
+      pendingKind: ["heal", "buy", "invite", "start", "attack"].includes(
+        record.pending?.kind,
+      )
+        ? record.pending.kind
+        : null,
       used: { ...battleRecord().used },
       spent: { ...record.spent },
       notice: notice ?? record.waiting?.notice ?? null,
@@ -222,7 +229,7 @@ export function createBattleAssistant({
     return { kind: "wait", retryAt: record.waiting.retryAt };
   }
   async function recover() {
-    if (stopped || !readAvailable()) return false;
+    if (!readAvailable()) return false;
     const recoveryGeneration = generation;
     await refreshAvailability();
     if (stopped || !readAvailable() || recoveryGeneration !== generation)
@@ -241,7 +248,8 @@ export function createBattleAssistant({
         record.battles[pending.battleId]?.samples?.at(-1)?.totalDamage;
       const confirmed =
         pending.kind === "start"
-          ? !current.needsRefresh &&
+          ? canReconcileStart() &&
+            !current.needsRefresh &&
             !current.error &&
             current.boss?.id === pending.bossId &&
             battle?.status === "active" &&
@@ -250,11 +258,10 @@ export function createBattleAssistant({
           : pending.kind === "attack" &&
             !current.needsRefresh &&
             !current.error &&
-            battle?.id &&
-            (battle.id !== pending.battleId ||
-              (Number.isFinite(beforeDamage) &&
-                Number.isFinite(battle.totalDamage) &&
-                battle.totalDamage > beforeDamage));
+            battle?.id === pending.battleId &&
+            Number.isFinite(beforeDamage) &&
+            Number.isFinite(battle.totalDamage) &&
+            battle.totalDamage > beforeDamage;
       if (!confirmed) return false;
       complete();
     }
@@ -305,10 +312,63 @@ export function createBattleAssistant({
       ...operation,
       battleId: controller.getSnapshot().battle?.id ?? null,
       ...(operation.kind === "attack"
+        ? {
+            commandId: randomUUID(),
+            attemptId: randomUUID(),
+            preparedAt: now(),
+            deliveryStatus: "prepared",
+          }
+        : {}),
+      ...(operation.kind === "attack"
         ? { beforeDamage: controller.getSnapshot().battle?.totalDamage ?? null }
         : {}),
     };
     publish(); // Durable account write occurs before the controller sends POST.
+  }
+  function bindAdmission(admission) {
+    const pending = record.pending;
+    if (
+      !pending ||
+      pending.kind !== "attack" ||
+      pending.operationId !== admission?.operationId ||
+      pending.battleId !== admission?.battleId
+    )
+      return false;
+    if (pending.admission) {
+      if (JSON.stringify(pending.admission) === JSON.stringify(admission))
+        return true;
+      const {
+        connectionId: priorConnectionId,
+        connectionEstablishedAt: priorConnectionAt,
+        ...priorBase
+      } = pending.admission;
+      const { connectionId, connectionEstablishedAt, ...nextBase } = admission;
+      if (
+        priorConnectionId === null &&
+        priorConnectionAt === null &&
+        typeof connectionId === "string" &&
+        Number.isSafeInteger(connectionEstablishedAt) &&
+        JSON.stringify(priorBase) === JSON.stringify(nextBase)
+      ) {
+        pending.admission = structuredClone(admission);
+        pending.deliveryStatus = "dispatching";
+        pending.dispatchStartedAt = connectionEstablishedAt;
+        publish(); // Persist the connection binding before TLS can send HTTP bytes.
+        return true;
+      }
+      return false;
+    }
+    pending.admission = structuredClone(admission);
+    pending.deliveryStatus = "admitted";
+    pending.admittedAt = admission.admittedAt;
+    publish(); // Persist bridge admission metadata before GameApiClient dispatch.
+    return true;
+  }
+  function markPendingUnknown() {
+    if (!record.pending) return;
+    record.pending.deliveryStatus = "unknown";
+    record.pending.outcomeUnknownAt = now();
+    publish();
   }
   function complete() {
     record.pending = null;
@@ -589,6 +649,7 @@ export function createBattleAssistant({
       publish();
       return attackResult;
     }
+    if (after.needsRefresh) markPendingUnknown();
     if (after.needsRefresh)
       return wait(
         "Результат удара проверяется. Автоматического повтора не будет.",
@@ -614,6 +675,41 @@ export function createBattleAssistant({
     }
     return { kind: "attack" };
   }
+  async function attackManually() {
+    if (record.pending)
+      return wait(
+        "Предыдущее действие не подтверждено. Проверьте состояние боя перед новым ударом.",
+      );
+    await controller.refresh();
+    let state = controller.getSnapshot();
+    if (state.needsRefresh || state.error || state.battle?.status !== "active")
+      return wait("Состояние боя не подтверждено. Удар не отправлен.");
+    await controller.refreshDamageLimit();
+    state = controller.getSnapshot();
+    if (
+      state.needsRefresh ||
+      state.error ||
+      state.battle?.status !== "active" ||
+      chooseBattleAction(state, projection(), damageBound()).kind !== "attack"
+    )
+      return wait("Свежие данные не подтверждают безопасный удар.");
+    const result = await controller.attack({
+      beforeSend: (operation) => {
+        if (record.pending) return false;
+        reserve({ kind: "attack", ...operation }, false);
+        return true;
+      },
+    });
+    const after = controller.getSnapshot();
+    if (!after.needsRefresh) complete();
+    else {
+      markPendingUnknown();
+      wait(
+        "Результат удара не подтверждён. Проверьте бой; автоматического повтора не будет.",
+      );
+    }
+    return result;
+  }
   return {
     projection,
     configure,
@@ -623,6 +719,8 @@ export function createBattleAssistant({
     use,
     buy,
     step,
+    attackManually,
+    bindAdmission,
     cancel() {
       stopped = true;
       generation++;
@@ -634,6 +732,7 @@ export function createBattleAssistant({
         state.needsRefresh ||
         state.error ||
         !record.pending ||
+        !["heal", "buy", "invite"].includes(record.pending.kind) ||
         (record.pending.kind !== "start" &&
           !record.battles[record.pending.battleId])
       )

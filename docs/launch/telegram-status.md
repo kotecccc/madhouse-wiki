@@ -70,11 +70,11 @@ A public Wiki bot and a functioning website do not establish a hosted game conne
 
 ## Reproducible local proof tool
 
-`node scripts/telegram/prove-game-auth.mjs /absolute/private/init-data-file`
+`MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF=1 node scripts/telegram/prove-game-auth.mjs /absolute/private/init-data-file`
 
-Use only deliberately supplied fresh initData for the official game. The file must be outside the repository, readable only by its owner (`0600` or `0400`), and at most 32 KiB. The command performs one fixed-upstream login, then `/api/me` only if a token is returned. It uses no previous Bearer, follows no redirects, retries no requests, prints only allowlisted proof metadata, and keeps token/profile responses in memory without saving them. Login itself may initialize game state; no gameplay operations are performed. It does not obtain Telegram user access or make an end-user connection flow available.
+The CLI and exported helper both fail closed unless `MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF=1` is set. Set it only for a specifically authorized proof. Use only deliberately supplied fresh initData for the official game. The file must be outside the repository, readable only by its owner (`0600` or `0400`), and at most 32 KiB. The command performs one fixed-upstream login, then `/api/me` only if a token is returned. It uses no previous Bearer, follows no redirects, retries no requests, prints only allowlisted proof metadata, and keeps token/profile responses in memory without saving them. Login itself may initialize game state; no gameplay operations are performed. It does not obtain Telegram user access or make an end-user connection flow available.
 
-Focused validation: `node --test scripts/telegram/prove-game-auth.test.mjs` — **4 tests passed** (clean auth header/body, subsequent token use, no personal/token output, rejection stopping before `/me`, no arbitrary error echo, invalid input preflight). Formatting and scoped `git diff --check` passed. Shared auth/frontend/deploy files were not changed by Track C.
+Focused validation: `node --test scripts/telegram/prove-game-auth.test.mjs` — **5 tests passed**, including refusal without the live runtime gate. The test uses fake fetch responses and does not contact Cargo.
 
 ## Final scope and limitations
 

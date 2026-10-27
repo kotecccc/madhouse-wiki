@@ -4,11 +4,40 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { CatalogueStore } from "./store.mjs";
 import { readKnowledgeBase } from "./query.mjs";
+import {
+  createGameApiClient,
+  legacyDirectRouteResolver,
+} from "../bridge/game-api-client.mjs";
 
-const GAME_ORIGIN = "https://cargohustle.online";
 const BOSS_ID = /^[1-9][0-9]{0,8}$/;
 const FLOOR_CODES = /^[A-O$]$/;
 const privateHeaders = { "Cache-Control": "private, no-store, max-age=0" };
+const CATALOGUE_GAME_OPERATIONS = [
+  { method: "GET", path: "/api/floors", pattern: /^\/api\/floors$/u },
+  {
+    method: "GET",
+    path: "/api/floors/{code}/info",
+    pattern: /^\/api\/floors\/[A-O$]\/info$/u,
+  },
+  {
+    method: "GET",
+    path: "/api/bosses/{bossId}",
+    pattern: /^\/api\/bosses\/[1-9][0-9]{0,8}$/u,
+  },
+  {
+    method: "GET",
+    path: "/api/businesses/{businessId}",
+    pattern: /^\/api\/businesses\/[1-9][0-9]{0,8}$/u,
+  },
+  {
+    method: "POST",
+    path: "/api/works/open",
+    pattern: /^\/api\/works\/open$/u,
+  },
+].map((operation) => ({
+  ...operation,
+  operationClass: operation.method === "POST" ? "effect_unknown" : "read",
+}));
 const publicData = (kb) => ({
   schemaVersion: kb.schemaVersion,
   floors: kb.floors,
@@ -28,16 +57,37 @@ function safeAuthorization(request) {
   return /^Bearer [A-Za-z0-9._~-]{20,4096}$/.test(value) ? value : null;
 }
 
-export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
+export function createCatalogueSyncApi({
+  root,
+  storeBlob,
+  fetcher = fetch,
+  resolveRoute,
+  bridgeTransport = null,
+  allowLegacyDirect = false,
+}) {
+  const gameApi = createGameApiClient({
+    directTransport: fetcher,
+    bridgeTransport,
+    resolveRoute:
+      resolveRoute ||
+      (allowLegacyDirect === true ? legacyDirectRouteResolver : undefined),
+  });
   async function fetchJson(path, authorization, method = "GET", body) {
-    const response = await fetcher(GAME_ORIGIN + path, {
+    const operation = CATALOGUE_GAME_OPERATIONS.find(
+      (candidate) =>
+        candidate.method === method && candidate.pattern.test(path),
+    );
+    if (!operation) return { status: 400, data: null };
+    const response = await gameApi.request({
+      operation,
+      path,
+      upstreamPath: path,
       method,
       headers: {
         Authorization: authorization,
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
-      redirect: "error",
       signal: AbortSignal.timeout(15000),
     });
     return {

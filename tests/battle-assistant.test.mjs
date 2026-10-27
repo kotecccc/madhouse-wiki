@@ -327,6 +327,36 @@ test("unknown start state stays pending after discovery and never retries the st
   assert.deepEqual(controller.calls, [["refresh"]]);
 });
 
+test("a bridge route keeps an unreviewed start pending after discovery", async () => {
+  const controller = fakeController(
+    baseState({ battle: null, needsRefresh: true, canStart: false }),
+    {
+      refresh: (current) => {
+        current.setSnapshot(
+          baseState({ battle: { ...baseState().battle, id: "battle-new" } }),
+        );
+      },
+    },
+  );
+  const assistant = createBattleAssistant({
+    controller,
+    canReconcileStart: () => false,
+    saved: {
+      pending: {
+        kind: "start",
+        operationId: "start-op",
+        bossId: 7,
+        beforeBattleId: null,
+        battleId: null,
+      },
+      battles: {},
+    },
+  });
+  assert.equal(await assistant.recover(), false);
+  assert.equal(assistant.projection().uncertain, true);
+  assert.deepEqual(controller.calls, [["refresh"]]);
+});
+
 test("battle use counts reset by battle identity; run budgets persist until a new goal", async () => {
   const controller = fakeController();
   controller.setSnapshot(
@@ -615,7 +645,7 @@ test("uncertain strikes refresh the battle and clear only after confirmed person
   );
 });
 
-test("a confirmed new battle releases an old strike reservation without replay", async () => {
+test("a different battle ID does not resolve an old strike without evidence", async () => {
   const controller = fakeController(baseState());
   controller.refreshDamageLimit = async () => {};
   const assistant = createBattleAssistant({
@@ -625,8 +655,8 @@ test("a confirmed new battle releases an old strike reservation without replay",
       battles: {},
     },
   });
-  assert.equal(await assistant.recover(), true);
-  assert.equal(assistant.projection().uncertain, false);
+  assert.equal(await assistant.recover(), false);
+  assert.equal(assistant.projection().uncertain, true);
   assert.equal(
     controller.calls.some(([kind]) => kind === "attack"),
     false,

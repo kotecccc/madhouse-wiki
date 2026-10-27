@@ -1,44 +1,79 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, webcrypto } from "node:crypto";
 import {
   createAccountSessions,
   verifyWikiIdentity,
 } from "../connector/account-session.js";
-const verificationKey = "11".repeat(32),
-  encryptionKey = "22".repeat(32);
+const verificationKey = "11".repeat(32);
+const encryptionKey = "22".repeat(32);
 const now = 1900000000000;
 const signed = (id = 42, time = now, key = verificationKey) => {
-  const p = new URLSearchParams({
+  const params = new URLSearchParams({
     auth_date: String(Math.floor(time / 1000)),
     user: JSON.stringify({ id }),
     signature: "signed-public-field",
   });
-  const check = [...p.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
+  const check = [...params.entries()]
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([name, value]) => `${name}=${value}`)
     .join("\n");
-  p.set(
+  params.set(
     "hash",
     createHmac("sha256", Buffer.from(key, "hex")).update(check).digest("hex"),
   );
-  return p.toString();
+  return params.toString();
 };
-const jwt = () =>
-  [
-    Buffer.from('{"alg":"HS256"}').toString("base64url"),
-    Buffer.from(JSON.stringify({ exp: now / 1000 + 3600 })).toString(
-      "base64url",
-    ),
-    "game-signature",
-  ].join(".");
-function setup({ profileStatuses = [] } = {}) {
+const accountId = (id) =>
+  "accounts/" +
+  createHmac("sha256", Buffer.from(encryptionKey, "hex"))
+    .update("account:" + id)
+    .digest("hex") +
+  ".json";
+async function sealRecord(id, record) {
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const key = await webcrypto.subtle.importKey(
+    "raw",
+    Buffer.from(encryptionKey, "hex"),
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
+  const cipher = await webcrypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(id) },
+    key,
+    new TextEncoder().encode(JSON.stringify(record)),
+  );
+  return JSON.stringify({
+    v: 1,
+    iv: Buffer.from(iv).toString("base64url"),
+    data: Buffer.from(cipher).toString("base64url"),
+  });
+}
+async function openRecord(id, value) {
+  const envelope = JSON.parse(value);
+  const key = await webcrypto.subtle.importKey(
+    "raw",
+    Buffer.from(encryptionKey, "hex"),
+    "AES-GCM",
+    false,
+    ["decrypt"],
+  );
+  const plain = await webcrypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: Buffer.from(envelope.iv, "base64url"),
+      additionalData: new TextEncoder().encode(id),
+    },
+    key,
+    Buffer.from(envelope.data, "base64url"),
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+function setup() {
   const records = new Map();
   let serial = 0;
-  let profileCalls = 0;
-  let clock = now,
-    gameId = 42,
-    accepted = true;
+  let clock = now;
   const store = {
     async read(key) {
       return records.get(key) || null;
@@ -55,35 +90,18 @@ function setup({ profileStatuses = [] } = {}) {
     verificationKey,
     encryptionKey,
     now: () => clock,
-    pause: async () => {},
-    fetcher: async (url, opts) => {
-      profileCalls++;
-      assert.equal(url, "https://cargohustle.online/api/me");
-      assert.equal(opts.headers.Authorization, "Bearer " + jwt());
-      assert.equal(opts.redirect, "error");
-      return new Response(
-        JSON.stringify({
-          telegramId: gameId,
-          privateProfile: "never-store-this",
-        }),
-        { status: profileStatuses.shift() ?? (accepted ? 200 : 401) },
-      );
-    },
   });
   const call = (action, extra = {}, id = 42) =>
     api({ action, wikiInitData: signed(id, clock), ...extra });
   return {
+    api,
     call,
     records,
     store,
-    api,
-    setTime: (t) => (clock = t),
-    setGameId: (id) => (gameId = id),
-    rejectGame: () => (accepted = false),
-    profileCalls: () => profileCalls,
+    setTime: (value) => (clock = value),
   };
 }
-test("signed Wiki identity rejects tampering, duplicate keys, wrong bot key and stale/future launches", async () => {
+test("signed Wiki identity rejects tampering, duplicate keys, wrong bot keys and stale or future launches", async () => {
   assert.equal(await verifyWikiIdentity(signed(), verificationKey, now), "42");
   for (const data of [
     signed().replace("42", "99"),
@@ -97,135 +115,90 @@ test("signed Wiki identity rejects tampering, duplicate keys, wrong bot key and 
       /invalid_wiki_identity/,
     );
 });
-test("same signed account restores across independent clients; another account never receives its JWT", async () => {
+test("logout overwrites a legacy Connector JWT record with an encrypted tombstone", async () => {
   const s = setup();
-  const start = await s.call("restore");
-  assert.equal(start.status, "login-required");
-  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
-  assert.equal((await s.call("restore")).accessToken, jwt());
-  const other = await s.call("restore", {}, 99);
-  assert.equal(other.status, "login-required");
-  assert.equal(other.accessToken, undefined);
-  for (const [key, record] of s.records) {
-    assert.doesNotMatch(key, /42|99/);
-    assert.ok(!record.value.includes(jwt()));
-    assert.ok(!record.value.includes("never-store-this"));
-  }
-});
-test("server requires actual game authentication and its Telegram account identity, not decoded JWT claims", async () => {
-  const s = setup();
-  const start = await s.call("restore");
-  s.setGameId(99);
-  await assert.rejects(
-    s.call("save", { ticket: start.ticket, accessToken: jwt() }),
-    /game_account_mismatch/,
-  );
-  s.setGameId(42);
-  s.rejectGame();
-  await assert.rejects(
-    s.call("save", { ticket: start.ticket, accessToken: jwt() }),
-    /invalid_game_session/,
-  );
-  assert.equal((await s.call("restore")).accessToken, undefined);
-});
-test("expiry does not extend game JWT and logout invalidates an earlier save ticket", async () => {
-  const s = setup();
-  const start = await s.call("restore");
-  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
-  s.setTime(now + 3600001);
-  assert.equal((await s.call("restore")).status, "login-required");
-  s.setTime(now);
-  const pending = await s.call("restore", {}, 99);
-  await s.call("logout", {}, 99);
-  await assert.rejects(
-    s.call("save", { ticket: pending.ticket, accessToken: jwt() }, 99),
-    /session_changed/,
-  );
-  await s.call("logout");
-  assert.equal((await s.call("restore")).revoked, true);
-  assert.equal((await s.call("restore")).accessToken, undefined);
-});
-test("CAS prevents a save already in flight resurrecting a logged-out server session", async () => {
-  const s = setup();
-  const start = await s.call("restore");
-  let release, entered;
-  const ready = new Promise((r) => (entered = r));
-  const original = s.store.write;
-  s.store.write = async (...args) => {
-    if (args[1].includes('"v":1') && release === undefined) {
-      await new Promise((r) => {
-        release = r;
-        entered();
-      });
-    }
-    return original(...args);
-  };
-  const pending = s.call("save", { ticket: start.ticket, accessToken: jwt() });
-  const rejected = assert.rejects(pending, /cas_conflict/);
-  await ready;
-  // Bypass this test's delayed write for logout, preserving its actual CAS.
-  s.store.write = original;
-  await s.call("logout");
-  release();
-  await rejected;
-  assert.equal((await s.call("restore")).revoked, true);
-});
+  const id = accountId(42);
+  const legacyToken = [
+    Buffer.from('{"alg":"HS256"}').toString("base64url"),
+    Buffer.from(JSON.stringify({ exp: now / 1000 + 3600 })).toString(
+      "base64url",
+    ),
+    "legacy-game-signature",
+  ].join(".");
+  s.records.set(id, {
+    value: await sealRecord(id, {
+      revision: "legacy-revision",
+      revoked: false,
+      expiresAt: now + 3600000,
+      accessToken: legacyToken,
+      playerLevel: 17,
+    }),
+    etag: "legacy-etag",
+  });
 
-test("short launch bootstrap exchanges for a bounded encrypted connector proof, with no raw initData persistence", async () => {
+  const result = await s.call("logout");
+
+  assert.equal(result.status, "disconnected");
+  assert.equal(typeof result.wikiProof, "string");
+  assert.equal(Object.hasOwn(result, "accessToken"), false);
+  assert.equal(s.records.size, 1);
+  assert.equal(id.includes("42"), false);
+  const tombstone = await openRecord(id, s.records.get(id).value);
+  assert.equal(tombstone.revoked, true);
+  assert.equal(tombstone.expiresAt, 0);
+  assert.equal(tombstone.accessToken, null);
+  assert.equal(Object.hasOwn(tombstone, "playerLevel"), false);
+  assert.notEqual(tombstone.revision, "legacy-revision");
+});
+test("Connector account-session no longer exposes legacy restore or save", async () => {
   const s = setup();
-  const initial = await s.call("restore");
-  s.setTime(now + 600000);
-  await assert.rejects(
-    s.api({ action: "restore", wikiInitData: signed() }),
-    /invalid_wiki_identity/,
-  );
-  assert.equal(
-    (await s.api({ action: "restore", wikiProof: initial.wikiProof })).status,
-    "login-required",
-  );
+  for (const action of ["restore", "save"])
+    await assert.rejects(s.call(action), /game_auth_server_managed_required/);
+  assert.equal(s.records.size, 0);
+});
+test("sealed Wiki identity proofs remain owner-bound and expire", async () => {
+  const s = setup();
+  const initial = await s.call("logout");
+  const sameOwner = await s.api({
+    action: "logout",
+    wikiProof: initial.wikiProof,
+    wikiInitData: signed(42, now),
+  });
+  assert.equal(sameOwner.status, "disconnected");
   await assert.rejects(
     s.api({
-      action: "restore",
-      wikiProof: initial.wikiProof.slice(0, -4) + "bad",
+      action: "logout",
+      wikiProof: initial.wikiProof,
+      wikiInitData: signed(99, now),
     }),
     /invalid_wiki_identity/,
   );
   s.setTime(now + 86400001);
   await assert.rejects(
-    s.api({ action: "restore", wikiProof: initial.wikiProof }),
+    s.api({ action: "logout", wikiProof: initial.wikiProof }),
+    /invalid_wiki_identity/,
+  );
+  await assert.rejects(
+    s.api({
+      action: "logout",
+      wikiProof: initial.wikiProof.slice(0, -4) + "bad",
+    }),
     /invalid_wiki_identity/,
   );
 });
-
-test("temporary profile verification failure recovers without weakening account matching", async () => {
-  const s = setup({ profileStatuses: [500, 200] });
-  const start = await s.call("restore");
-  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
-  assert.equal(s.profileCalls(), 2);
-  assert.equal((await s.call("restore")).accessToken, jwt());
-
-  const wrong = setup({ profileStatuses: [500, 200] });
-  const pending = await wrong.call("restore");
-  wrong.setGameId(99);
-  await assert.rejects(
-    wrong.call("save", { ticket: pending.ticket, accessToken: jwt() }),
-    /game_account_mismatch/,
+test("legacy Connector tombstones remain account-isolated", async () => {
+  const s = setup();
+  await s.call("logout", {}, 42);
+  await s.call("logout", {}, 99);
+  assert.equal(s.records.size, 2);
+  assert.equal(
+    [...s.records.keys()].some((key) => key.includes("42")),
+    false,
   );
-  assert.equal(wrong.profileCalls(), 2);
-  assert.equal((await wrong.call("restore")).status, "login-required");
-});
-
-test("profile verification retries are bounded and never retry rejected credentials", async () => {
-  for (const status of [401, 403, 429, 500, 502, 503, 504]) {
-    const s = setup({ profileStatuses: [status, status, status] });
-    const start = await s.call("restore");
-    await assert.rejects(
-      s.call("save", { ticket: start.ticket, accessToken: jwt() }),
-      status >= 500 || status === 429
-        ? /game_unavailable/
-        : /invalid_game_session/,
-    );
-    assert.equal(s.profileCalls(), status >= 500 ? 3 : 1);
-    assert.equal((await s.call("restore")).status, "login-required");
-  }
+  assert.equal(
+    [...s.records.keys()].some((key) => key.includes("99")),
+    false,
+  );
+  for (const [id, stored] of s.records)
+    assert.equal((await openRecord(id, stored.value)).accessToken, null);
 });

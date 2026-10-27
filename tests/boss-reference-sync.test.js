@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CatalogueStore } from "../scripts/catalogue/store.mjs";
 import { createCatalogueSyncApi } from "../scripts/catalogue/sync-api.mjs";
+import { legacyDirectRouteResolver } from "../scripts/bridge/game-api-client.mjs";
 
 const ROOT = process.cwd();
 const AUTH = `Bearer ${"x".repeat(24)}`;
 
-async function fixture(t, fetcher) {
+async function fixture(t, fetcher, routeOptions = {}) {
   const directory = await mkdtemp(join(tmpdir(), "boss-reference-sync-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, "catalogue.sqlite");
@@ -20,7 +21,13 @@ async function fixture(t, fetcher) {
   const storeBlob = {
     download: async () => ({ file, etag: "local", mutable: true }),
   };
-  const api = createCatalogueSyncApi({ root: ROOT, storeBlob, fetcher });
+  const api = createCatalogueSyncApi({
+    root: ROOT,
+    storeBlob,
+    fetcher,
+    resolveRoute: legacyDirectRouteResolver,
+    ...routeOptions,
+  });
   return { api, file, storeBlob };
 }
 
@@ -86,6 +93,7 @@ test("public boss read exposes uncaptured state, sync persists only currency pre
     fetcher: async () => {
       throw new Error("should not reach upstream");
     },
+    resolveRoute: legacyDirectRouteResolver,
   });
   assert.equal(
     (await body(await persistedApi(request("GET")))).boss.rewardPreviewCaptured,
@@ -99,6 +107,64 @@ test("public boss read exposes uncaptured state, sync persists only currency pre
     ).cached,
     true,
   );
+});
+
+test("bridge-required catalogue sync fails closed without a bridge transport", async (t) => {
+  let fetchCount = 0;
+  const { api } = await fixture(
+    t,
+    async () => {
+      fetchCount += 1;
+      return Response.json({ id: 49 });
+    },
+    {
+      resolveRoute: async () => ({
+        policy: "bridge_required",
+        activeDeviceId: "123e4567-e89b-42d3-a456-426614174000",
+        routeEpoch: 1,
+      }),
+    },
+  );
+
+  const response = await api(
+    request("POST", "/api/catalogue", { bossId: "49" }),
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await body(response)).error, "boss_reference_sync_unavailable");
+  assert.equal(fetchCount, 0);
+});
+
+test("bridge-required boss reference sync uses the reviewed Cargo read operation", async (t) => {
+  const requests = [];
+  const { api } = await fixture(
+    t,
+    async () => {
+      assert.fail("direct transport must not be used");
+    },
+    {
+      resolveRoute: async () => ({
+        policy: "bridge_required",
+        activeDeviceId: "123e4567-e89b-42d3-a456-426614174000",
+        routeEpoch: 1,
+      }),
+      bridgeTransport: async (request) => {
+        requests.push(request);
+        return Response.json({
+          id: 49,
+          rewardPreview: { gold: 5, pills: null, dollar: 0 },
+        });
+      },
+    },
+  );
+
+  const response = await api(
+    request("POST", "/api/catalogue", { bossId: "49" }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].operation.operationClass, "read");
+  assert.equal(requests[0].operation.path, "/api/bosses/{bossId}");
+  assert.equal(requests[0].path, "/api/bosses/49");
 });
 
 test("concurrent same-instance boss requests fetch upstream once", async (t) => {
@@ -207,6 +273,7 @@ test("production-style immutable SQLite storage uploads once and survives later 
         rewardPreview: { gold: 50, pills: null, dollar: 0 },
       });
     },
+    resolveRoute: legacyDirectRouteResolver,
   });
   assert.equal(
     (await api(request("POST", "/api/catalogue", { bossId: "49" }))).status,

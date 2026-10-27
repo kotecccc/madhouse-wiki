@@ -4,8 +4,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +23,7 @@ const previous = "b".repeat(40);
 function fixture({
   priorSha = previous,
   priorPreviousSha = null,
+  floorSha = null,
   stopFailures = [],
   upFailures = [],
   sleepFailures = [],
@@ -30,18 +33,38 @@ function fixture({
   probeFailure = false,
   checkSpace = false,
   malformedMarker = false,
+  malformedFloorMarker = false,
+  compareStatus = "ahead",
+  compareBaseSha = null,
+  compareHeadSha = candidate,
+  compareMergeBaseSha = null,
   freeAfterCleanupKb = null,
   freeAfterDownloadKb = null,
   flockFailure = false,
   notificationFailure = false,
+  rootOwner = "0",
+  rootMode = "755",
+  markerOwner = "0",
+  markerMode = "640",
+  rootSymlink = false,
+  symlinkMarker = null,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "vps-release-update-test-"));
   const root = join(directory, "root");
   const bin = join(directory, "bin");
   mkdirSync(root);
+  if (rootSymlink) {
+    const targetRoot = `${root}-target`;
+    renameSync(root, targetRoot);
+    symlinkSync(targetRoot, root, "dir");
+  }
   mkdirSync(bin);
   const dockerRoot = join(directory, "docker-root");
   mkdirSync(dockerRoot);
+  const comparisonBaseSha = compareBaseSha || floorSha;
+  const comparisonMergeBaseSha = compareMergeBaseSha || floorSha;
+  const compareBehindBy = compareStatus === "ahead" ? 0 : 1;
+  const compareAheadBy = compareStatus === "ahead" ? 1 : 0;
   const script = join(directory, "vps-release-update.sh");
   const source = readFileSync(updater, "utf8");
   assert.match(source, /readonly ROOT=\/opt\/madhouse-wiki/);
@@ -63,11 +86,27 @@ function fixture({
       join(root, "previous-release.env"),
       `MADHOUSE_PREVIOUS_RELEASE_SHA=${priorPreviousSha}\n`,
     );
+  if (floorSha)
+    writeFileSync(
+      join(root, "rollback-floor.env"),
+      `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${floorSha}\n`,
+    );
   if (malformedMarker)
     writeFileSync(
       join(root, "previous-release.env"),
       "MADHOUSE_RELEASE_SHA=bad\n",
     );
+  if (malformedFloorMarker)
+    writeFileSync(
+      join(root, "rollback-floor.env"),
+      "MADHOUSE_RELEASE_SHA=bad\n",
+    );
+  if (symlinkMarker) {
+    const markerPath = join(root, `${symlinkMarker}.env`);
+    const targetPath = join(directory, `${symlinkMarker}-target.env`);
+    renameSync(markerPath, targetPath);
+    symlinkSync(targetPath, markerPath);
+  }
 
   const log = join(directory, "calls.log");
   const put = (name, contents) => {
@@ -75,6 +114,13 @@ function fixture({
     writeFileSync(path, `#!/bin/sh\n${contents}\n`);
     chmodSync(path, 0o755);
   };
+  put(
+    "stat",
+    `format=$2; path=$4
+if [ "$3" != -- ]; then path=$3; fi
+if [ "$path" = '${root}' ]; then owner='${rootOwner}'; mode='${rootMode}'; else owner='${markerOwner}'; mode='${markerMode}'; fi
+case "$format" in %u) printf '%s\\n' "$owner" ;; %a) printf '%s\\n' "$mode" ;; *) exit 1 ;; esac`,
+  );
   put(
     "curl",
     `
@@ -84,6 +130,9 @@ while [ "$#" -gt 0 ]; do
   case "$1" in --output) out=$2; shift 2 ;; https://*) url=$1; shift ;; *) shift ;; esac
 done
 case "$url" in
+  https://api.github.com/*/compare/*)
+    printf '%s\\n' '{"status":"${compareStatus}","ahead_by":${compareAheadBy},"behind_by":${compareBehindBy},"base_commit":{"sha":"${comparisonBaseSha}"},"head_commit":{"sha":"${compareHeadSha}"},"merge_base_commit":{"sha":"${comparisonMergeBaseSha}"}}' >"$out"
+    ;;
   https://api.github.com/*)
     cat >"$out" <<'JSON'
 {"test":"fixture"}
@@ -97,7 +146,13 @@ printf 'curl %s\\n' "$url" >>'${log}'`,
   );
   put(
     "python3",
-    `printf '%s\\n' \\
+    `case "$*" in
+  *rollback-floor-comparison.json*)
+    node -e 'const fs = require("node:fs"); const [file, floor, head] = process.argv.slice(1); const comparison = JSON.parse(fs.readFileSync(file, "utf8")); const valid = comparison.base_commit?.sha === floor && comparison.head_commit?.sha === head && comparison.merge_base_commit?.sha === floor && comparison.status === "ahead" && Number.isInteger(comparison.ahead_by) && comparison.ahead_by > 0 && Number.isInteger(comparison.behind_by) && comparison.behind_by === 0; if (!valid) process.exit(1);' "$2" "$3" "$4"
+    exit $?
+    ;;
+esac
+printf '%s\\n' \\
   'https://github.com/kotecccc/madhouse-wiki/releases/download/test/madhouse-wiki-image.tar.gz' \\
   'https://github.com/kotecccc/madhouse-wiki/releases/download/test/madhouse-wiki-image.tar.gz.sha256' \\
   '${candidate}'`,
@@ -203,6 +258,9 @@ exit 0`,
     marker: existsSync(join(root, "release.env"))
       ? readFileSync(join(root, "release.env"), "utf8")
       : null,
+    floorMarker: existsSync(join(root, "rollback-floor.env"))
+      ? readFileSync(join(root, "rollback-floor.env"), "utf8")
+      : null,
     previousMarker: existsSync(join(root, "previous-release.env"))
       ? readFileSync(join(root, "previous-release.env"), "utf8")
       : null,
@@ -233,7 +291,7 @@ test("activation stops the worker and waits 16 seconds before candidate up", () 
 });
 
 test("same SHA is a no-op without stop, sleep, or up", () => {
-  const f = fixture({ priorSha: candidate });
+  const f = fixture({ priorSha: candidate, floorSha: previous });
   try {
     assert.equal(f.run.status, 0, `${f.run.stderr}\n${f.run.stdout}`);
     assert.equal(f.calls.filter((call) => call.startsWith("curl ")).length, 1);
@@ -244,9 +302,126 @@ test("same SHA is a no-op without stop, sleep, or up", () => {
         ["stop", "up", "sleep 16"].includes(call),
       ),
     );
+    assert.equal(
+      f.calls.some((call) => call.includes("/compare/")),
+      false,
+    );
     assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${candidate}\n`);
   } finally {
     f.cleanup();
+  }
+});
+
+test("configured rollback floor permits descendants and remains durable", () => {
+  const f = fixture({ floorSha: previous });
+  try {
+    assert.equal(f.run.status, 0, `${f.run.stderr}\n${f.run.stdout}`);
+    assert.deepEqual(lifecycle(f.calls), ["stop", "sleep 16", "up"]);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${candidate}\n`);
+    assert.equal(
+      f.floorMarker,
+      `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${previous}\n`,
+    );
+    assert.ok(f.calls.some((call) => call.includes("/compare/")));
+    assert.ok(
+      f.calls.some((call) =>
+        call.includes(
+          `--env-file ${join(f.directory, "root", "rollback-floor.env")}`,
+        ),
+      ),
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("candidate below the configured rollback floor is rejected before stopping", () => {
+  const f = fixture({ floorSha: previous, compareStatus: "behind" });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.deepEqual(lifecycle(f.calls), []);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+    assert.equal(existsSync(join(f.directory, "downloaded")), false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("commit comparison response must match the requested floor and candidate", () => {
+  const f = fixture({
+    floorSha: previous,
+    compareHeadSha: "c".repeat(40),
+  });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.deepEqual(lifecycle(f.calls), []);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+    assert.equal(existsSync(join(f.directory, "downloaded")), false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("current release below the configured rollback floor is not stopped or overwritten", () => {
+  const f = fixture({
+    floorSha: candidate,
+    compareStatus: "behind",
+  });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.deepEqual(lifecycle(f.calls), []);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+    assert.equal(
+      f.floorMarker,
+      `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${candidate}\n`,
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("malformed rollback floor marker fails closed before release lookup", () => {
+  const f = fixture({ malformedFloorMarker: true });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.equal(
+      f.calls.some((call) => call.startsWith("curl ")),
+      false,
+    );
+    assert.deepEqual(lifecycle(f.calls), []);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("release updater rejects untrusted roots and release markers before network access", () => {
+  const cases = [
+    { options: { rootSymlink: true }, label: "symlinked root" },
+    { options: { rootMode: "775" }, label: "writable root" },
+    { options: { rootOwner: "1000" }, label: "non-root-owned root" },
+    {
+      options: { markerOwner: "1000" },
+      label: "non-root-owned release marker",
+    },
+    { options: { markerMode: "660" }, label: "writable release marker" },
+    {
+      options: { floorSha: previous, symlinkMarker: "rollback-floor" },
+      label: "symlinked rollback floor",
+    },
+  ];
+  for (const { options, label } of cases) {
+    const f = fixture(options);
+    try {
+      assert.notEqual(f.run.status, 0, label);
+      assert.equal(
+        f.calls.some((call) => call.startsWith("curl ")),
+        false,
+        label,
+      );
+      assert.deepEqual(lifecycle(f.calls), [], label);
+    } finally {
+      f.cleanup();
+    }
   }
 });
 

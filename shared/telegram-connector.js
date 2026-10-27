@@ -5,7 +5,6 @@ import {
   VERSION,
   connectorOrigin,
 } from "../connector/protocol.js";
-import { normalizeActiveBossBattle } from "./active-boss-battle.js";
 
 export const AUTO_CONNECT_KEY = "madhouse.wiki.telegram-connected";
 export const CONNECTION_EPOCH_KEY = "madhouse.wiki.connection-generation";
@@ -120,7 +119,7 @@ export function createConnectorBridge({
       cancelled.has(data.id) &&
       data.kind === "result" &&
       data.status === "disconnected" &&
-      !data.accessToken
+      !Object.hasOwn(data, "accessToken")
     ) {
       cancelled.delete(data.id);
       if (data.remoteRevoked !== true || data.localCleared !== true)
@@ -138,11 +137,7 @@ export function createConnectorBridge({
           "id",
           "kind",
           "status",
-          "accessToken",
-          "playerLevel",
-          "currentExp",
-          "expToNextLevel",
-          "activeBossBattle",
+          "serverManaged",
           "remoteRevoked",
           "localCleared",
         ].includes(key),
@@ -151,8 +146,7 @@ export function createConnectorBridge({
       return;
     if (
       data.kind === "interaction-required" &&
-      data.status === "login-required" &&
-      !data.accessToken
+      data.status === "login-required"
     ) {
       if (pending.message.interactive) onInteraction();
       return;
@@ -169,56 +163,23 @@ export function createConnectorBridge({
     )
       return;
     if (
-      data.accessToken != null &&
-      (typeof data.accessToken !== "string" || data.accessToken.length > 16384)
+      data.serverManaged != null &&
+      (data.serverManaged !== true || data.status !== "connected")
     )
       return;
-    if (
-      data.playerLevel != null &&
-      (!Number.isSafeInteger(data.playerLevel) || data.playerLevel < 1)
-    )
-      return;
-    if (
-      data.currentExp != null &&
-      (!Number.isSafeInteger(data.currentExp) || data.currentExp < 0)
-    )
-      return;
-    if (
-      data.expToNextLevel != null &&
-      (!Number.isSafeInteger(data.expToNextLevel) || data.expToNextLevel < 1)
-    )
-      return;
-    if ((data.currentExp == null) !== (data.expToNextLevel == null)) return;
     if (
       pending.message.action === "connect-game" &&
       data.status === "connected" &&
-      !data.accessToken
+      data.serverManaged !== true
     )
       return;
-    if (
-      data.status === "pending" &&
-      (pending.message.action !== "connect-game" || data.accessToken)
-    )
+    if (data.status === "pending" && pending.message.action !== "connect-game")
       return;
-    if (data.accessToken && data.status !== "connected") return;
-    if (
-      (data.playerLevel != null || data.currentExp != null) &&
-      data.status !== "connected"
-    )
-      return;
-    if (data.currentExp != null && data.status !== "connected") return;
-    if (data.expToNextLevel != null && data.status !== "connected") return;
-    if (data.activeBossBattle != null && data.status !== "connected") return;
-    if (pending.message.action !== "connect-game" && data.accessToken) return;
     if (data.status === "failed") finish(new Error("connection_failed"));
     else
       finish(null, {
         status: data.status,
-        accessToken: data.accessToken,
-        playerLevel: data.playerLevel,
-        currentExp: data.currentExp,
-        expToNextLevel: data.expToNextLevel,
-        activeBossBattle: normalizeActiveBossBattle(data.activeBossBattle),
+        serverManaged: data.serverManaged === true,
         remoteRevoked: data.remoteRevoked === true,
         localCleared: data.localCleared === true,
       });
@@ -241,15 +202,31 @@ export function createConnectorBridge({
   return {
     request(
       action,
-      { expectedUserId, wikiInitData, interactive = false } = {},
+      {
+        expectedUserId,
+        wikiInitData,
+        interactive = false,
+        restoreRequestId,
+      } = {},
     ) {
       if (!["status", "connect-game", "logout"].includes(action))
+        return Promise.reject(new Error("invalid_action"));
+      if (
+        restoreRequestId != null &&
+        (action !== "connect-game" ||
+          interactive !== true ||
+          typeof restoreRequestId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+            restoreRequestId,
+          ))
+      )
         return Promise.reject(new Error("invalid_action"));
       if (
         pending &&
         action === "connect-game" &&
         pending.message.action === action &&
         pending.message.interactive === interactive &&
+        pending.message.restoreRequestId === restoreRequestId &&
         pending.message.expectedUserId ===
           (expectedUserId ? String(expectedUserId) : undefined)
       )
@@ -266,6 +243,7 @@ export function createConnectorBridge({
         action === "connect-game" && interactive ? message.id : null;
       if (expectedUserId) message.expectedUserId = String(expectedUserId);
       if (wikiInitData) message.wikiInitData = wikiInitData;
+      if (restoreRequestId) message.restoreRequestId = restoreRequestId;
       const entry = { message, generation, sent: false };
       entry.promise = new Promise((resolve, reject) => {
         entry.resolve = resolve;

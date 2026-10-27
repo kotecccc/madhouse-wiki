@@ -1,0 +1,18 @@
+{
+  "package": "@madhouse/bridge-protocol",
+  "version": "1.4.3",
+  "sourceTreeSha256": "bc579d74745f79d1d0a7181fc8d49f62727f55aac96e80d0c91b0cf4647aa4ed",
+  "files": [
+    "challenge.mjs",
+    "common.mjs",
+    "control.mjs",
+    "data-channel.mjs",
+    "index.mjs",
+    "internal-api.mjs",
+    "ipc.mjs",
+    "owner-proof.mjs",
+    "session-credential.mjs",
+    "stream-ticket.mjs",
+    "tickets.mjs"
+  ]
+}

@@ -97,3 +97,19 @@ test("shared refresh outage returns null so the caller can keep shared progress"
     null,
   );
 });
+
+test("silent refresh propagates route and Wiki identity denials", async () => {
+  for (const code of [
+    "bridge_auth_required",
+    "bridge_route_unavailable",
+    "invalid_wiki_identity",
+    "try_later",
+  ]) {
+    await assert.rejects(
+      silentlyRefreshActiveBossBattle(async () => {
+        throw new Error(code);
+      }),
+      new RegExp(code),
+    );
+  }
+});

@@ -40,6 +40,7 @@ async function fixture({
           status: victory ? "won" : "active",
           ...(missingCooldown ? { retryAfterMilliseconds: undefined } : {}),
         }),
+        hits: [{ actor: "player", damage: 10 }],
       };
     },
   });

@@ -23,6 +23,8 @@ const bossId = (boss) => {
 
 export function createBossCardsHttp({
   identify,
+  identifyOwner,
+  resolveOwnerSession = null,
   snapshots,
   getCatalogue,
   origin = null,
@@ -55,9 +57,25 @@ export function createBossCardsHttp({
     }
 
     const authorization = request.headers.get("authorization");
+    const ownerInitData = request.headers.get("x-madhouse-wiki-init-data");
     let identity;
     try {
-      identity = await identify(authorization);
+      if (authorization && ownerInitData)
+        throw Object.assign(new Error("game_session_required"), {
+          status: 401,
+        });
+      if (ownerInitData !== null) {
+        if (
+          ownerInitData.length > 4096 ||
+          typeof resolveOwnerSession !== "function" ||
+          typeof identifyOwner !== "function"
+        )
+          throw Object.assign(new Error("game_session_required"), {
+            status: 401,
+          });
+        const owner = await resolveOwnerSession(ownerInitData);
+        identity = await identifyOwner(owner.ownerId);
+      } else identity = await identify(authorization);
     } catch (error) {
       const status =
         Number.isInteger(error?.status) &&

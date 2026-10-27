@@ -17,7 +17,7 @@ export function createBlobSessionStore() {
       };
     },
     async write(pathname, value, etag) {
-      await put(pathname, value, {
+      return put(pathname, value, {
         access: "private",
         contentType: "application/json",
         addRandomSuffix: false,

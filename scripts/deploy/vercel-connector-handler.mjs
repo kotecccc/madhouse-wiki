@@ -9,23 +9,29 @@ export function createVercelConnectorHandler({
   wikiOrigins = [wikiOrigin],
   connectorOrigin,
   endpoint,
+  wikiVerificationKey = process.env.WIKI_INITDATA_KEY,
   appParams = () => ({
     apiId: process.env.TELEGRAM_API_ID,
     apiHash: process.env.TELEGRAM_API_HASH,
   }),
   fetcher = fetch,
+  wikiFetcher = fetch,
+  accountSessions,
 }) {
   const security = connectorHeaders(wikiOrigins);
   const api = createConnectorApi({
     appParams,
     wikiOrigins,
+    wikiVerificationKey,
     fetcher,
-    accountSessions: createAccountSessions({
-      store: createBlobSessionStore(),
-      verificationKey: process.env.WIKI_INITDATA_KEY,
-      encryptionKey: process.env.ACCOUNT_SESSION_KEY,
-      fetcher,
-    }),
+    wikiFetcher,
+    accountSessions:
+      accountSessions ??
+      createAccountSessions({
+        store: createBlobSessionStore(),
+        verificationKey: process.env.WIKI_INITDATA_KEY,
+        encryptionKey: process.env.ACCOUNT_SESSION_KEY,
+      }),
   });
   return async (request, response) => {
     let result;

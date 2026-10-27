@@ -163,6 +163,45 @@ test("simultaneous create requests allow only one conditional winner", async () 
   });
 });
 
+test("game credential namespace enforces narrow names, size and conditional writes", async () => {
+  await withServer(async ({ call }) => {
+    const path = `/v1/objects/game-credentials/${"b".repeat(64)}.json`;
+    const created = await call(path, {
+      method: "PUT",
+      headers: { "if-none-match": "*" },
+      body: "encrypted fixture",
+    });
+    assert.equal(created.status, 200);
+    assert.equal((await call(path)).status, 200);
+    assert.equal(
+      (
+        await call(path, {
+          method: "PUT",
+          headers: { "if-none-match": "*" },
+          body: "duplicate",
+        })
+      ).status,
+      412,
+    );
+    assert.equal(
+      (
+        await call(path, {
+          method: "PUT",
+          headers: { "if-match": created.headers.get("etag") },
+          body: Buffer.alloc(32 * 1024 + 1),
+        })
+      ).status,
+      413,
+    );
+    assert.equal(
+      (await call(`/v1/objects/game-credentials/${"g".repeat(64)}.json`))
+        .status,
+      404,
+    );
+    assert.equal((await call(path, { method: "DELETE" })).status, 405);
+  });
+});
+
 test("session records use a narrow path pattern, 32 KiB limit, and CAS", async () => {
   await withServer(async ({ call }) => {
     const path = `/v1/objects/accounts/${"a".repeat(64)}.json`;

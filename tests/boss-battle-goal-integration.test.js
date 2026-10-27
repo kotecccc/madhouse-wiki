@@ -38,11 +38,12 @@ function fixture({
         };
       }
       if (method === "GET") return current;
-      if (path.endsWith("/attack")) current = raw(outcomes[sequence - 1]);
-      else {
-        sequence++;
-        current = raw();
+      if (path.endsWith("/attack")) {
+        current = raw(outcomes[sequence - 1]);
+        return { battle: current, hits: [{ actor: "player", damage: 10 }] };
       }
+      sequence++;
+      current = raw();
       return { battle: current };
     },
   });

@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { createCatalogueSyncApi } from "./sync-api.mjs";
+import { legacyDirectRouteResolver } from "../bridge/game-api-client.mjs";
 
 export function catalogueSyncPlugin(root) {
   const database = resolve(root, "local-data/madhouse.sqlite");
@@ -9,7 +10,11 @@ export function catalogueSyncPlugin(root) {
     },
     async upload() {},
   };
-  const api = createCatalogueSyncApi({ root, storeBlob });
+  const api = createCatalogueSyncApi({
+    root,
+    storeBlob,
+    resolveRoute: legacyDirectRouteResolver,
+  });
   const middleware = (request, response, next) => {
     const path = (request.url || "").split("?")[0];
     if (path !== "/api/catalogue") return next();

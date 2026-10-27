@@ -3,6 +3,7 @@ services:
     image: madhouse-wiki:vps-${MADHOUSE_RELEASE_SHA:?MADHOUSE_RELEASE_SHA is required}
     command: ["wiki"]
     restart: unless-stopped
+    stop_grace_period: 50s
     init: true
     read_only: true
     security_opt:
@@ -25,6 +26,8 @@ services:
       MADHOUSE_VPS_INLINE_CARDS: "0"
       MADHOUSE_INLINE_CARDS_CACHE_DIR: /data/telegram-cards
       MADHOUSE_RELEASE_SHA: ${MADHOUSE_RELEASE_SHA}
+      MADHOUSE_MINIMUM_SAFE_RELEASE_SHA: ${MADHOUSE_MINIMUM_SAFE_RELEASE_SHA:-}
+      MADHOUSE_HOST_CONFIG_VERSION: "1"
       PORT: 9092
       WIKI_PUBLIC_ORIGIN: https://madhouse-wiki.ru
       CONNECTOR_PUBLIC_ORIGIN: https://connect.madhouse-wiki.ru
@@ -47,6 +50,7 @@ services:
     image: madhouse-wiki:vps-${MADHOUSE_RELEASE_SHA:?MADHOUSE_RELEASE_SHA is required}
     command: ["connector"]
     restart: unless-stopped
+    stop_grace_period: 50s
     init: true
     read_only: true
     security_opt:

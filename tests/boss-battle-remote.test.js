@@ -2,8 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRemoteBattleSession } from "../src/features/bosses/BossBattle/boss-battle-remote.js";
 
-function harness({ state, request: requestImpl, launchBattle } = {}) {
-  let nowId = 0;
+function harness({
+  state,
+  request: requestImpl,
+  ticket: ticketImpl,
+  launchBattle,
+} = {}) {
+  let ticketId = 0;
   let requestLog = [];
   let tasks = new Map();
   let taskId = 0;
@@ -17,22 +22,36 @@ function harness({ state, request: requestImpl, launchBattle } = {}) {
   const request = async (...args) => {
     requestLog.push(args);
     requests.push(args);
+    if (args[1] === "/api/automation/command-ticket") {
+      if (ticketImpl) return ticketImpl(...args);
+      ticketId += 1;
+      return {
+        id: `server-command-${ticketId}`,
+        ticket: `signed-ticket-${ticketId}`,
+        intentVersion: (args[2]?.expectedVersion ?? state?.version ?? 0) + 1,
+        expiresAt: Date.now() + 30_000,
+      };
+    }
     if (requestImpl) return requestImpl(...args);
     if (args[0] === "GET") return state ?? initialState();
-    return { ...(state ?? initialState()), version: (state?.version ?? 0) + 1 };
+    return {
+      ...(state ?? initialState()),
+      version: (args[2]?.expectedVersion ?? state?.version ?? 0) + 1,
+    };
   };
   const session = createRemoteBattleSession({
     request,
     launchBattle,
     schedule,
     cancel,
-    makeId: () => `id-${++nowId}`,
   });
   return {
     ...session,
     requests,
     get calls() {
-      return requestLog;
+      return requestLog.filter(
+        ([, path]) => path !== "/api/automation/command-ticket",
+      );
     },
     tasks,
     runTimer(id = tasks.keys().next().value) {
@@ -205,8 +224,9 @@ test("open commands target the numeric API id", async () => {
     "POST",
     "/api/automation/commands",
     {
-      id: "id-1",
-      expectedVersion: 7,
+      id: "server-command-1",
+      admissionTicket: "signed-ticket-1",
+      expectedVersion: 8,
       command: "open",
       args: { bossId: 29 },
     },
@@ -316,6 +336,7 @@ test("one mutation at a time; failed commands resolve and are never retried", as
   const first = h.bossBattle.attack();
   assert.equal(await h.bossBattle.refresh(), false);
   assert.equal(h.calls.filter(([method]) => method === "POST").length, 1);
+  await new Promise((resolve) => setImmediate(resolve));
   finish.reject(Object.assign(new Error("offline"), { status: 503 }));
   assert.equal(await first, false);
   assert.equal(h.bossBattle.getSnapshot().needsRefresh, true);
@@ -332,6 +353,7 @@ test("urgent stop commands can overlap a pending action without unlocking ordina
   });
   await h.connect();
   const attack = h.bossBattle.attack();
+  await new Promise((resolve) => setImmediate(resolve));
   const stopped = h.bossBattleAuto.stop();
   assert.equal(await h.bossBattle.refresh(), false);
   assert.equal(h.calls.filter(([method]) => method === "POST").length, 2);
@@ -356,6 +378,7 @@ test("business run stop is urgent while a run start command is pending", async (
   });
   await h.connect();
   const start = h.businessAssistant.startRun({ businessId: "business:1" });
+  await new Promise((resolve) => setImmediate(resolve));
   const stop = h.businessAssistant.stopRun();
   assert.equal(h.calls.filter(([method]) => method === "POST").length, 2);
   deferred[0]({ ...initialState(), version: 9 });
@@ -381,6 +404,7 @@ test("floor automation is server-owned and stop can interrupt a pending read", a
   assert.equal(h.floorAutomation.getSnapshot().status, "running");
   assert.equal([...h.tasks.values()][0].delay, 2000);
   const refresh = h.bossBattle.refresh();
+  await new Promise((resolve) => setImmediate(resolve));
   const stop = h.floorAutomation.stop();
   assert.equal(h.calls.at(-1)[2].command, "floor.stop");
   deferred[0]({ ...state, version: 8 });
@@ -521,39 +545,63 @@ test("friend errors stay visible after polling without marking the battle unavai
   h.disconnect();
 });
 
-test("work.refresh rebases once on a 409 snapshot, while mutations are never retried", async () => {
+test("work.refresh rebases only before admission and never replays a dispatched command", async () => {
   const rebased = {
     ...initialState(),
     version: 8,
     workFarm: { view: { workId: 7 } },
   };
+  const admissions = [];
   const calls = [];
   const h = harness({
+    ticket: async (_method, _path, body) => {
+      admissions.push(body);
+      if (admissions.length === 1)
+        throw Object.assign(new Error("state changed before admission"), {
+          status: 409,
+          snapshot: rebased,
+        });
+      return {
+        id: "server-command-rebased",
+        ticket: "signed-ticket-rebased",
+        intentVersion: body.expectedVersion + 1,
+        expiresAt: Date.now() + 30_000,
+      };
+    },
     request: async (method, _path, body) => {
       if (method === "GET") return initialState();
       calls.push(body);
-      if (calls.length === 1)
-        throw Object.assign(
-          new Error("state changed; refresh and retry manually"),
-          {
-            status: 409,
-            snapshot: rebased,
-          },
-        );
       return {
         ...rebased,
-        version: 9,
+        version: body.expectedVersion + 1,
         workFarm: { view: { workId: 7, energy: 3 } },
       };
     },
   });
   await h.connect();
   assert.equal(await h.workFarm.refresh(7), true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].expectedVersion, 8);
+  assert.equal(admissions.length, 2);
+  assert.equal(admissions[1].expectedVersion, 8);
+  assert.equal(calls.length, 1);
   assert.equal(h.workFarm.getSnapshot().error, null);
   assert.equal(h.workFarm.getSnapshot().view.energy, 3);
   h.disconnect();
+
+  const uncertainCalls = [];
+  const uncertain = harness({
+    request: async (method, _path, body) => {
+      if (method === "GET") return initialState();
+      uncertainCalls.push(body);
+      throw Object.assign(new Error("conflict after command submission"), {
+        status: 409,
+        snapshot: rebased,
+      });
+    },
+  });
+  await uncertain.connect();
+  assert.equal(await uncertain.workFarm.refresh(7), false);
+  assert.equal(uncertainCalls.length, 1);
+  uncertain.disconnect();
 
   const mutationCalls = [];
   const mutation = harness({
@@ -585,6 +633,7 @@ test("disconnect invalidates stale replies, cancels polling, and does not stop p
   });
   await h.connect();
   const pending = h.bossBattleAuto.start();
+  await new Promise((resolve) => setImmediate(resolve));
   h.disconnect();
   serverRecord = {
     ...serverRecord,
@@ -642,6 +691,7 @@ test("business helper observes server plans and uses only shared command endpoin
   assert.deepEqual(
     h.requests
       .filter(([method]) => method === "POST")
+      .filter(([, path]) => path === "/api/automation/commands")
       .map(([, path, body]) => [path, body.command]),
     [
       ["/api/automation/commands", "business.select"],
@@ -676,6 +726,7 @@ test("work stop overlaps a pending work action and clears account snapshots on d
   });
   await h.connect();
   const start = h.workFarm.start({ workId: 7 });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.workFarm.getSnapshot().pending, true);
   assert.equal(await h.workFarm.stop(), true);
   assert.equal(h.workFarm.getSnapshot().run.status, "stopped");
@@ -860,6 +911,7 @@ test("selecting a new boss hides the previous result until server reconciliation
   assert.equal(h.bossBattle.getSnapshot().boss.name, "Selected");
   assert.equal(h.bossBattle.getSnapshot().battle, null);
   assert.equal(h.bossBattle.getSnapshot().pending, "command");
+  await new Promise((resolve) => setImmediate(resolve));
   release({
     ...old,
     version: 8,

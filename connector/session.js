@@ -1,5 +1,4 @@
 import { connectionFailure } from "./diagnostics.js";
-import { normalizeActiveBossBattle } from "../shared/active-boss-battle.js";
 import {
   normalizePhoneNumber,
   requestPhoneCode,
@@ -172,34 +171,22 @@ export function createConnection({
             throw error;
         }
       }
-      const accessToken =
-        typeof exchanged === "string" ? exchanged : exchanged?.accessToken;
-      const playerLevel =
-        Number.isSafeInteger(exchanged?.playerLevel) &&
-        exchanged.playerLevel > 0
-          ? exchanged.playerLevel
-          : null;
-      const currentExp =
-        Number.isSafeInteger(exchanged?.currentExp) && exchanged.currentExp >= 0
-          ? exchanged.currentExp
-          : null;
-      const expToNextLevel =
-        Number.isSafeInteger(exchanged?.expToNextLevel) &&
-        exchanged.expToNextLevel > 0
-          ? exchanged.expToNextLevel
-          : null;
-      const activeBossBattle = normalizeActiveBossBattle(
-        exchanged?.activeBossBattle,
-      );
       if (started !== generation) throw new Error("cancelled");
+      if (
+        exchanged?.status === "pending" &&
+        !Object.hasOwn(exchanged, "accessToken")
+      )
+        return { status: "pending" };
+      if (
+        typeof exchanged !== "object" ||
+        exchanged === null ||
+        exchanged.serverManaged !== true ||
+        Object.hasOwn(exchanged, "accessToken")
+      )
+        throw new Error("game_auth_server_managed_required");
       return {
         status: "connected",
-        accessToken,
-        ...(playerLevel == null ? {} : { playerLevel }),
-        ...(currentExp == null || expToNextLevel == null
-          ? {}
-          : { currentExp, expToNextLevel }),
-        ...(activeBossBattle ? { activeBossBattle } : {}),
+        serverManaged: true,
       };
     })();
     const entry = { promise: task, identity };

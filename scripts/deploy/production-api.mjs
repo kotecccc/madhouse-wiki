@@ -1,3 +1,9 @@
+import {
+  classifyGameOperation,
+  createGameApiClient,
+  legacyDirectRouteResolver,
+} from "../bridge/game-api-client.mjs";
+
 // Shared Vercel/Sites transport; only documented routes reach the fixed origin.
 export const API_MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -31,6 +37,10 @@ function normalizeOperations(operations) {
       path: route.path,
       requiresAuth: route.requiresAuth !== false,
       allowsDevKey: route.allowsDevKey === true,
+      operationClass: classifyGameOperation({
+        method: route.method || "GET",
+        path: route.path,
+      }),
       regex: routePattern(route.path),
     };
   });
@@ -60,8 +70,28 @@ async function readLimitedBody(request) {
   return body;
 }
 
-export function createProductionApi(operations, fetcher = fetch) {
+export function createProductionApi(
+  operations,
+  fetcher = fetch,
+  routeOptions = {},
+) {
   const routes = normalizeOperations(operations);
+  const routePolicyDelegatedToFetcher =
+    routeOptions.routePolicyDelegatedToFetcher === true;
+  if (routePolicyDelegatedToFetcher && routeOptions.resolveRoute)
+    throw new TypeError("game_route_policy_delegation_conflict");
+  const resolveRoute = routePolicyDelegatedToFetcher
+    ? legacyDirectRouteResolver
+    : routeOptions.resolveRoute ||
+      (routeOptions.allowLegacyDirect === true
+        ? legacyDirectRouteResolver
+        : undefined);
+  const gameApi = createGameApiClient({
+    directTransport: fetcher,
+    bridgeTransport: routeOptions.bridgeTransport,
+    resolveRoute,
+    admitMutation: routeOptions.admitMutation,
+  });
   return async (request) => {
     const headers = {
       "Cache-Control": "private, no-store, max-age=0",
@@ -107,11 +137,17 @@ export function createProductionApi(operations, fetcher = fetch) {
       );
 
     const authorization = request.headers.get("authorization");
+    const ownerInitData = request.headers.get("x-madhouse-wiki-init-data");
+    if (ownerInitData && !routePolicyDelegatedToFetcher)
+      return fail(401, "A server-managed game session is required");
     if (
       matchingRoute.requiresAuth &&
-      (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
+      (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)) &&
+      (!ownerInitData || ownerInitData.length > 4096)
     )
       return fail(401, "A game session is required");
+    if (authorization && ownerInitData)
+      return fail(400, "Conflicting game session credentials");
     if (
       !matchingRoute.requiresAuth &&
       authorization &&
@@ -144,6 +180,8 @@ export function createProductionApi(operations, fetcher = fetch) {
 
     const upstreamHeaders = { Accept: "application/json" };
     if (authorization) upstreamHeaders.Authorization = authorization;
+    if (ownerInitData)
+      upstreamHeaders["X-Madhouse-Wiki-Init-Data"] = ownerInitData;
     if (
       method === "GET" &&
       request.headers.get("x-madhouse-snapshot-only") === "1"
@@ -164,17 +202,24 @@ export function createProductionApi(operations, fetcher = fetch) {
     }
 
     try {
-      const upstream = await fetcher(
-        "https://cargohustle.online" + url.pathname + url.search,
-        {
+      let upstream;
+      try {
+        upstream = await gameApi.request({
+          operation: matchingRoute,
+          path,
+          upstreamPath: url.pathname,
+          search: url.search,
           method,
           headers: upstreamHeaders,
           ...(body?.byteLength ? { body } : {}),
-          redirect: "manual",
-          cache: "no-store",
           signal: AbortSignal.timeout(20000),
-        },
-      );
+          context: routeOptions.context?.(authorization, matchingRoute) || {},
+        });
+      } catch (error) {
+        if (Number.isInteger(error?.status))
+          return fail(error.status, error.code || "Game API unavailable");
+        throw error;
+      }
       if (upstream.status >= 300 && upstream.status < 400) {
         let redirectClass = "unclassified";
         try {

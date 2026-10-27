@@ -4,11 +4,7 @@ import {
   peekSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
-import {
-  authorizeRequest,
-  readSession,
-  subscribeSession,
-} from "../../../shared/auth-session.js";
+import { readSession, subscribeSession } from "../../../shared/auth-session.js";
 import {
   normalizeActiveStashBuffs,
   normalizePlayerProfile,
@@ -57,14 +53,7 @@ export function usePlayerProfile() {
 
   useEffect(() => {
     let controller;
-    const sessionIdentity = () => {
-      try {
-        return authorizeRequest({ url: "/api/me" }).headers.Authorization;
-      } catch {
-        return null;
-      }
-    };
-    let identity = sessionIdentity();
+    let identity = readSession().identity;
     let workStatus = workFarm.getSnapshot().run?.status;
     let profileRevision = null;
     let profileRefreshTimer = null;
@@ -76,7 +65,7 @@ export function usePlayerProfile() {
         profileRefreshQueued = true;
         return;
       }
-      if (sessionIdentity() !== identity || !identity) return;
+      if (readSession().identity !== identity || !identity) return;
       profileRefreshRunning = true;
       try {
         await getSessionJson("/api/me", { fresh: true });
@@ -95,7 +84,7 @@ export function usePlayerProfile() {
         profileRefreshTimer = setTimeout(refreshChangedProfile, 2000);
     };
     const onProfileRevision = (event) => {
-      if (sessionIdentity() !== identity || !identity) return;
+      if (readSession().identity !== identity || !identity) return;
       const revision = event.detail;
       if (!Number.isSafeInteger(revision) || revision < 0) return;
       if (profileRevision !== null && revision > profileRevision)
@@ -108,9 +97,8 @@ export function usePlayerProfile() {
       controller = new AbortController();
       const { signal } = controller;
       const session = readSession();
-      const currentIdentity = sessionIdentity();
-      const changed = identity !== currentIdentity;
-      identity = currentIdentity;
+      const changed = identity !== session.identity;
+      identity = session.identity;
       if (session.status !== "ready") {
         setState({ status: "idle", profile: null });
         return;
@@ -196,7 +184,7 @@ export function usePlayerProfile() {
       }
     });
     const unsubscribeWork = workFarm.subscribe(() => {
-      if (sessionIdentity() !== identity) return;
+      if (readSession().identity !== identity) return;
       const view = workFarm.getSnapshot().view;
       setState((current) => {
         const profile = applyWorkFarmEnergy(current.profile, view);

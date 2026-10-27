@@ -7,6 +7,8 @@ import test from "node:test";
 import { createPlayerProgressReader } from "./player-progress.mjs";
 import { createAccountSnapshots, isSnapshotPath } from "./snapshots.mjs";
 import { createAutomationStateStore } from "../automation/state-store.mjs";
+import { createBootstrapAuthCoordinator } from "./bootstrap-auth-coordinator.mjs";
+import { createRestoreOperationGuard } from "../automation/runtime.mjs";
 
 const origin = "https://cargohustle.online";
 const auth = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
@@ -30,6 +32,11 @@ function memoryStore() {
   return {
     readSnapshots: () =>
       [...snapshots.values()].map((value) => structuredClone(value)),
+    readRoutePolicy: () => ({
+      policy: "direct",
+      activeDeviceId: null,
+      routeEpoch: 0,
+    }),
     writeSnapshot: (id, value) =>
       snapshots.set(String(id), structuredClone(value)),
     list: () => [...values].map(([playerId, value]) => ({ playerId, value })),
@@ -49,6 +56,423 @@ function queueFetcher(steps) {
   };
   return { fetcher, calls };
 }
+
+test("account snapshots require persistent route policy", () => {
+  assert.throws(
+    () =>
+      createAccountSnapshots({
+        store: {
+          readSnapshots: () => [],
+          list: () => [],
+        },
+      }),
+    /snapshot_route_policy_store_required/,
+  );
+});
+
+test("restored accounts never fall back to direct routing without an explicit route", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "restore-route-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  store.write("101", { credential: "Bearer restored.token.signature" });
+  store.activateRestoreGuard({ activatedAt: 1000 });
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async () => {
+      assert.fail("direct_transport_must_not_run");
+    },
+  });
+  assert.equal(
+    snapshots.routeForAuthorization("Bearer restored.token.signature"),
+    null,
+  );
+  assert.equal(
+    snapshots.routeForAuthorization("Bearer unknown.token.signature"),
+    null,
+  );
+  store.selectRoutePolicy("101", {
+    policy: "direct",
+    activeDeviceId: null,
+    expectedRouteEpoch: 0,
+    updatedAt: 1001,
+  });
+  assert.equal(
+    snapshots.routeForAuthorization("Bearer restored.token.signature").policy,
+    "direct",
+  );
+  assert.equal(
+    snapshots.routeForAuthorization("Bearer unknown.token.signature"),
+    null,
+  );
+});
+
+test("restore guard blocks an already prepared bootstrap before direct auth issuance", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "restore-bootstrap-route-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  store.activateRestoreGuard({ activatedAt: 1000 });
+  const operationId = "00000000-0000-4000-8000-000000000125";
+  let record = store.startGameAuthBootstrap({
+    schemaVersion: 1,
+    ownerId: "7654321",
+    requestId: "00000000-0000-4000-8000-000000000126",
+    operationId,
+    authGeneration: 1,
+    consentGeneration: 1,
+    routeEpoch: 0,
+    launchDataDigest: "a".repeat(64),
+    state: "prepared",
+    expectedCredentialVersion: 0,
+    credentialVersion: null,
+    playerId: null,
+    createdAt: 1001,
+    updatedAt: 1001,
+  });
+  record = store.updateGameAuthBootstrap(record.ownerId, operationId, {
+    ...record,
+    state: "exchange_pending",
+    updatedAt: 1002,
+  });
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async () => {
+      calls++;
+      return reply({ accessToken: "fixture" });
+    },
+  });
+  await assert.rejects(() =>
+    snapshots.issueBootstrapGameCredential({
+      ownerId: record.ownerId,
+      launchData: "fixture",
+      operationId,
+      consentGeneration: 1,
+      expectedCredentialVersion: 0,
+    }),
+  );
+  assert.equal(calls, 0);
+});
+
+test("restore bootstrap transport permits only the current consent and journal", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "restore-bootstrap-transport-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  const ownerId = "7654321";
+  const playerId = "101";
+  const requestId = "00000000-0000-4000-8000-000000000130";
+  const operationId = "00000000-0000-4000-8000-000000000131";
+  const timestamp = 1_800_000_000_000;
+  const token = `e30.${Buffer.from(JSON.stringify({ exp: 2_000_000_000 })).toString("base64url")}.fixture`;
+  const launch = new URLSearchParams({
+    auth_date: "1790000000",
+    hash: "a".repeat(64),
+    user: JSON.stringify({ id: Number(ownerId) }),
+  }).toString();
+  store.activateRestoreGuard({ activatedAt: timestamp });
+  const challenge = store.issueRestoreOwnerChallenge({
+    ownerId,
+    issuedAt: timestamp,
+    identityIssuedAt: timestamp,
+  });
+  store.recordRestoreOwnerConsent({
+    ownerId,
+    requestId,
+    routePolicy: "direct",
+    confirmedAt: timestamp,
+    identityIssuedAt: timestamp,
+    challenge: challenge.challenge,
+  });
+  let saved = null;
+  const credentialStore = {
+    read: async () => saved,
+    compareAndSwap: async ({ record }) => {
+      saved = { etag: '"fixture"', record };
+    },
+  };
+  const calls = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    allowOperation: createRestoreOperationGuard(store),
+    fetcher: async (url, init) => {
+      calls.push([new URL(url).pathname, init.method]);
+      return new URL(url).pathname === "/api/auth/telegram"
+        ? reply({ accessToken: token })
+        : reply({ telegramId: ownerId, playerId });
+    },
+  });
+  const adopted = [];
+  const coordinator = createBootstrapAuthCoordinator({
+    store,
+    credentialStore,
+    now: () => timestamp + 5,
+    uuid: () => operationId,
+    issueGameCredential: snapshots.issueBootstrapGameCredential,
+    verifyGameCredential: snapshots.verifyBootstrapGameCredential,
+    adoptGameCredential: async (candidate) => adopted.push(candidate),
+  });
+  await coordinator.prepareRestore(
+    { ownerId, cargoLaunchData: launch },
+    requestId,
+  );
+  assert.equal(
+    (
+      await coordinator.exchangeRestore(
+        { ownerId, cargoLaunchData: launch },
+        requestId,
+      )
+    ).status,
+    "credential_stored",
+  );
+  assert.equal(
+    (await coordinator.stageRestore({ ownerId }, requestId)).status,
+    "credential_stored",
+  );
+  assert.deepEqual(
+    calls.map(([path]) => path),
+    ["/api/auth/telegram", "/api/me", "/api/me"],
+  );
+  assert.equal(adopted.length, 1);
+  assert.equal(store.isRestoreRequired(playerId), true);
+  store.armRestoreGuardForMarker({ createdAt: timestamp + 10 });
+  await assert.rejects(
+    () => coordinator.stageRestore({ ownerId }, requestId),
+    /game_auth_operation_stale/u,
+  );
+  assert.equal(calls.length, 3);
+});
+
+test("unknown restore outcome verifies a matching saved candidate without another issuance", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "restore-unknown-transport-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  const ownerId = "7654321",
+    playerId = "101",
+    requestId = "00000000-0000-4000-8000-000000000130",
+    operationId = "00000000-0000-4000-8000-000000000131",
+    now = 1_800_000_000_000;
+  const token = `e30.${Buffer.from(JSON.stringify({ exp: 2_000_000_000 })).toString("base64url")}.fixture`;
+  store.activateRestoreGuard({ activatedAt: now });
+  const challenge = store.issueRestoreOwnerChallenge({
+    ownerId,
+    issuedAt: now,
+    identityIssuedAt: now,
+  });
+  store.recordRestoreOwnerConsent({
+    ownerId,
+    requestId,
+    routePolicy: "direct",
+    confirmedAt: now,
+    identityIssuedAt: now,
+    challenge: challenge.challenge,
+  });
+  let journal = store.startRestoreGameAuthBootstrap({
+    schemaVersion: 1,
+    ownerId,
+    requestId,
+    operationId,
+    authGeneration: 1,
+    consentGeneration: 1,
+    routeEpoch: 1,
+    launchDataDigest: "a".repeat(64),
+    state: "prepared",
+    expectedCredentialVersion: 0,
+    credentialVersion: null,
+    playerId: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  for (const state of [
+    "exchange_pending",
+    "verification_pending",
+    "auth_outcome_unknown",
+  ])
+    journal = store.updateGameAuthBootstrap(ownerId, operationId, {
+      ...journal,
+      state,
+      updatedAt: journal.updatedAt + 1,
+    });
+  const credentialStore = {
+    read: async () => ({
+      etag: '"fixture"',
+      record: {
+        ownerId,
+        playerId,
+        authOperationId: operationId,
+        credentialVersion: 1,
+        authGeneration: 1,
+        consentGeneration: 1,
+        routeEpoch: 1,
+        revoked: false,
+        expiresAt: now + 60000,
+        accessToken: token,
+      },
+    }),
+    compareAndSwap: async () => {
+      throw new Error("unexpected write");
+    },
+  };
+  const calls = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    allowOperation: createRestoreOperationGuard(store),
+    fetcher: async (url, init) => {
+      calls.push({ path: new URL(url).pathname, method: init.method || "GET" });
+      return reply({ telegramId: ownerId, playerId });
+    },
+  });
+  const coordinator = createBootstrapAuthCoordinator({
+    store,
+    credentialStore,
+    now: () => now + 100,
+    issueGameCredential: snapshots.issueBootstrapGameCredential,
+    verifyGameCredential: snapshots.verifyBootstrapGameCredential,
+    adoptGameCredential: async (candidate) =>
+      store.write(playerId, {
+        credential: `Bearer ${candidate.accessToken}`,
+        auto: { enabled: false },
+      }),
+  });
+  assert.equal((await coordinator.resumeRestore({ ownerId })).status, "ready");
+  assert.deepEqual(
+    calls.map(({ path, method }) => [path, method]),
+    [
+      ["/api/me", "GET"],
+      ["/api/me", "GET"],
+    ],
+  );
+  assert.equal(store.isRestoreRequired(playerId), true);
+});
+
+test("auth issuance and candidate verification stay bound to the pending bridge operation", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "madhouse-auth-snapshots-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = createAutomationStateStore({ directory });
+  t.after(() => store.close());
+  const activeDeviceId = "00000000-0000-4000-8000-000000000001";
+  const authOperationId = "00000000-0000-4000-8000-000000000123";
+  store.bindVerifiedGameAccount("7654321", "987654321", 1_798_000_000_000);
+  store.selectRoutePolicy("987654321", {
+    policy: "bridge_required",
+    activeDeviceId,
+    expectedRouteEpoch: 0,
+    updatedAt: 1_798_000_000_001,
+  });
+  let recovery = {
+    schemaVersion: 1,
+    ownerId: "7654321",
+    playerId: "987654321",
+    operationId: authOperationId,
+    authGeneration: 1,
+    consentGeneration: 4,
+    routeEpoch: 1,
+    state: "created",
+    expectedCredentialVersion: 0,
+    credentialVersion: null,
+    updatedAt: 1_798_000_000_010,
+  };
+  store.startGameAuthRecovery(recovery);
+  for (const state of ["launch_requested", "exchange_pending"]) {
+    recovery = store.updateGameAuthRecovery(
+      recovery.ownerId,
+      recovery.operationId,
+      { ...recovery, state, updatedAt: recovery.updatedAt + 1 },
+    );
+  }
+
+  const directCalls = [];
+  const bridgeCalls = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async (url) => {
+      directCalls.push(String(url));
+      return reply({ direct: true });
+    },
+    bridgeTransport: async (request) => {
+      bridgeCalls.push(request);
+      return reply(
+        request.path === "/api/me"
+          ? { telegramId: 7654321, playerId: 987654321 }
+          : { accessToken: "candidate" },
+      );
+    },
+  });
+  const issue = await snapshots.issueGameCredential({
+    ownerId: "7654321",
+    playerId: "987654321",
+    launchData: "signed-fixture-launch",
+    operationId: authOperationId,
+    consentGeneration: 4,
+    routeEpoch: 1,
+    deviceId: activeDeviceId,
+  });
+  assert.deepEqual(await issue.json(), { accessToken: "candidate" });
+  assert.equal(bridgeCalls[0].path, "/api/auth/telegram");
+  assert.equal(bridgeCalls[0].route.activeDeviceId, activeDeviceId);
+  assert.deepEqual(JSON.parse(bridgeCalls[0].body), {
+    initData: "signed-fixture-launch",
+  });
+
+  const verified = await snapshots.verifyGameCredential({
+    playerId: "987654321",
+    accessToken: "candidate",
+    routeEpoch: 1,
+    deviceId: activeDeviceId,
+  });
+  assert.deepEqual(await verified.json(), {
+    telegramId: 7654321,
+    playerId: 987654321,
+  });
+  assert.equal(bridgeCalls[1].path, "/api/me");
+  assert.equal(
+    bridgeCalls[1].operation.operationClass,
+    "identity_verification",
+  );
+  assert.equal(bridgeCalls[1].headers.get("authorization"), "Bearer candidate");
+  assert.deepEqual(directCalls, []);
+
+  await assert.rejects(
+    snapshots.issueGameCredential({
+      ownerId: "7654321",
+      playerId: "987654321",
+      launchData: "unapproved",
+      operationId: "00000000-0000-4000-8000-000000000124",
+      consentGeneration: 5,
+      routeEpoch: 1,
+      deviceId: activeDeviceId,
+    }),
+    { code: "game_auth_coordinator_required", status: 409 },
+  );
+  assert.equal(bridgeCalls.length, 2);
+  assert.deepEqual(directCalls, []);
+
+  snapshots.registerVerifiedCredential("Bearer adopted", "987654321");
+  assert.deepEqual(snapshots.routeForAuthorization("Bearer adopted"), {
+    policy: "bridge_required",
+    activeDeviceId,
+    routeEpoch: 1,
+    updatedAt: 1_798_000_000_001,
+    schemaVersion: 1,
+    playerId: "987654321",
+  });
+  const logoutPending = {
+    ...recovery,
+    operationId: "00000000-0000-4000-8000-000000000125",
+    authGeneration: 2,
+    consentGeneration: 5,
+    state: "logout_pending",
+    updatedAt: recovery.updatedAt + 1,
+  };
+  store.beginGameAuthLogout(logoutPending);
+  assert.equal(snapshots.routeForAuthorization("Bearer adopted"), null);
+  const blocked = await snapshots.fetch(`${origin}/api/me`, auth("adopted"));
+  assert.equal(blocked.status, 503);
+  assert.equal(bridgeCalls.length, 2);
+  assert.deepEqual(directCalls, []);
+});
 
 test("encrypted snapshots survive restart and serve stale sections while offline", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "madhouse-snapshot-"));
@@ -277,7 +701,7 @@ test("manual profile refresh is performed before unrelated failed sections", asy
     (url, init) => {
       assert.equal(new URL(url).pathname, "/api/me");
       assert.equal(init.method, "GET");
-      return reply({ playerId: 82, name: "current" });
+      return reply({ error: "still unavailable" }, 503);
     },
     (url, init) => {
       assert.equal(new URL(url).pathname, "/api/weapons/7");
@@ -1202,7 +1626,7 @@ test("opening the site revalidates sensitive profile even inside manual refresh 
   );
   assert.equal(queue.calls.length, 3);
   assert.equal(
-    queue.calls[1].init.headers.get("X-Madhouse-Snapshot-Refresh"),
+    new Headers(queue.calls[1].init.headers).get("X-Madhouse-Snapshot-Refresh"),
     null,
   );
 });

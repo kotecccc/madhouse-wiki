@@ -51,8 +51,13 @@ export function createFloorRunner({
     stop() {
       generation++;
       record.status = "stopped";
-      record.phase = "idle";
-      record.reason = null;
+      if (record.phase === "launching") {
+        record.reason =
+          "Запуск цели не подтверждён; повторная отправка остановлена.";
+      } else {
+        record.phase = "idle";
+        record.reason = null;
+      }
       try {
         publish();
       } finally {

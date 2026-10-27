@@ -57,8 +57,8 @@ function sendResult(response, result) {
   return result.arrayBuffer().then((body) => response.end(Buffer.from(body)));
 }
 
-export function createProxy(fetcher = fetch) {
-  const transport = createProductionApi(operations, fetcher);
+export function createProxy(fetcher = fetch, routeOptions = {}) {
+  const transport = createProductionApi(operations, fetcher, routeOptions);
   return async (request, response) => {
     const raw = request.url || "";
     const url =
@@ -108,6 +108,7 @@ export function createProxy(fetcher = fetch) {
     const headers = new Headers();
     for (const name of [
       "authorization",
+      "x-madhouse-wiki-init-data",
       "content-type",
       "x-madhouse-allow-mutations",
       "x-madhouse-snapshot-only",
@@ -128,4 +129,14 @@ export function createProxy(fetcher = fetch) {
   };
 }
 
-export default createProxy();
+// The legacy deployment cannot resolve the owner-scoped route policy. Retire its
+// game API instead of silently sending a bridge account directly to Cargo.
+export default async function retiredGameApi(_request, response) {
+  response.statusCode = 410;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.setHeader("Cache-Control", "private, no-store, max-age=0");
+  response.setHeader("CDN-Cache-Control", "no-store");
+  response.setHeader("Vercel-CDN-Cache-Control", "no-store");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.end(JSON.stringify({ error: "legacy_game_api_retired" }));
+}

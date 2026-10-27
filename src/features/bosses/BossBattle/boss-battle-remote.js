@@ -49,20 +49,11 @@ function numericId(boss) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-function commandId(makeId) {
-  try {
-    return makeId();
-  } catch {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  }
-}
-
 /** A server-backed, useSyncExternalStore-compatible facade for battle UI. */
 export function createRemoteBattleSession({
   request,
   schedule = setTimeout,
   cancel = clearTimeout,
-  makeId = () => crypto.randomUUID(),
   visibility = typeof document === "undefined" ? null : document,
   launchBattle,
 } = {}) {
@@ -432,23 +423,43 @@ export function createRemoteBattleSession({
     try {
       let value;
       for (let attempt = 0; ; attempt++) {
+        let phase = "admission";
         try {
-          value = await request("POST", "/api/automation/commands", {
-            id: commandId(makeId),
+          const intent = {
             expectedVersion: server?.version ?? null,
             command,
             args,
-          });
+          };
+          const admission =
+            urgent || floorStop
+              ? null
+              : await request("POST", "/api/automation/command-ticket", intent);
+          if (!connected || run !== epoch) return false;
+          const commandInput = admission
+            ? {
+                ...intent,
+                id: admission.id,
+                admissionTicket: admission.ticket,
+                expectedVersion: admission.intentVersion,
+              }
+            : intent;
+          phase = "command";
+          value = await request(
+            "POST",
+            "/api/automation/commands",
+            commandInput,
+          );
           break;
         } catch (error) {
           if (!connected || run !== epoch) return false;
           if (error?.status === 409 && error.snapshot) {
             setServerState(error.snapshot);
-            // Refresh is read-only, so it can safely rebase once on the
-            // conflict snapshot. Never replay a command that can mutate state.
+            // Admission has not dispatched a game request. Character refresh
+            // is read-only; work refresh may use an effect-unknown POST.
             if (
-              ["work.refresh", "character.refresh"].includes(command) &&
-              attempt === 0
+              attempt === 0 &&
+              (command === "character.refresh" ||
+                (command === "work.refresh" && phase === "admission"))
             )
               continue;
           }

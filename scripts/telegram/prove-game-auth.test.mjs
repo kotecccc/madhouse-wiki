@@ -64,3 +64,17 @@ test("invalid input is rejected before any network call", async () => {
     /invalid_init_data_shape/,
   );
 });
+
+test("default live auth proof requires the explicit runtime gate", async () => {
+  const original = process.env.MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF;
+  delete process.env.MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF;
+  try {
+    await assert.rejects(proveGameAuth(initData), {
+      message: "live_game_auth_proof_not_enabled",
+    });
+  } finally {
+    if (original === undefined)
+      delete process.env.MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF;
+    else process.env.MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF = original;
+  }
+});

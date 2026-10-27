@@ -23,6 +23,7 @@ const MAX = new Map([
   ["madhouse-raids/sync-lock.json", 2 * 1024],
 ]);
 const SESSION_PATH = /^accounts\/[a-f0-9]{64}\.json$/u;
+const GAME_CREDENTIAL_PATH = /^game-credentials\/[a-f0-9]{64}\.json$/u;
 const ANALYTICS_PREFIX = "madhouse-wiki/analytics/events/";
 const ANALYTICS_PATH =
   /^madhouse-wiki\/analytics\/events\/\d{4}-\d{2}-\d{2}\/[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.json$/u;
@@ -45,7 +46,10 @@ function objectPath(url) {
   } catch {
     return null;
   }
-  return MAX.has(name) || SESSION_PATH.test(name) || ANALYTICS_PATH.test(name)
+  return MAX.has(name) ||
+    SESSION_PATH.test(name) ||
+    GAME_CREDENTIAL_PATH.test(name) ||
+    ANALYTICS_PATH.test(name)
     ? name
     : null;
 }
@@ -279,7 +283,10 @@ export function createStorageServer({
     }
     if (req.method !== "PUT") return json(res, 405, "method not allowed");
     const limit =
-      MAX.get(name) || (SESSION_PATH.test(name) ? SESSION_MAX : ANALYTICS_MAX);
+      MAX.get(name) ||
+      (SESSION_PATH.test(name) || GAME_CREDENTIAL_PATH.test(name)
+        ? SESSION_MAX
+        : ANALYTICS_MAX);
     const contentLength = Number(req.headers["content-length"]);
     if (Number.isFinite(contentLength) && contentLength > limit) {
       req.resume();

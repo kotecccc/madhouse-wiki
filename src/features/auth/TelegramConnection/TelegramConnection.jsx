@@ -1,5 +1,4 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { projectLevelProgress } from "../../../../shared/profile-progress.js";
 import {
   useCallback,
   useEffect,
@@ -30,7 +29,7 @@ export function TelegramConnection({
   open,
   onClose,
   onBack,
-  onToken,
+  onServerManagedSession,
   onWarning,
   onEmpty,
   onRetry,
@@ -47,82 +46,66 @@ export function TelegramConnection({
     interactiveActive = useRef(false),
     restoreAttempted = useRef(false),
     requestedFooterFor = useRef(null),
-    callbacks = useRef({ onToken, onClose, onWarning });
+    callbacks = useRef({ onClose, onWarning, onServerManagedSession });
   callbacks.current = {
-    onToken,
+    onServerManagedSession,
     onClose,
     onWarning,
     onEmpty,
     onPending,
     onRestoreSettled,
   };
-  const request = useCallback(
-    async (interactive, { progressOnly = false, expectedUserId } = {}) => {
-      if (!bridge.current) throw new Error("connection_unavailable");
-      if (interactive) restoreAttempted.current = true;
-      if (!interactive && interactiveActive.current)
-        return { status: "pending" };
-      let epoch;
-      try {
-        epoch = window.localStorage.getItem(
-          accountStorageKey(CONNECTION_EPOCH_KEY),
-        );
-      } catch {
-        /* WebView storage may be disabled. */
-      }
-      const context = telegramContext();
-      if (context.isTelegram && !context.initData)
-        throw new Error("wiki_reopen_required");
-      const requestedUserId =
-        context.userId ??
-        (progressOnly ? String(expectedUserId ?? "") : undefined);
-      if (
-        progressOnly &&
-        (!/^[1-9][0-9]{0,19}$/.test(requestedUserId || "") ||
-          (context.userId && context.userId !== String(expectedUserId)))
-      )
-        throw new Error("invalid_progress_identity");
-      if (interactive) interactiveActive.current = true;
-      let result;
-      try {
-        result = await bridge.current.request("connect-game", {
-          expectedUserId: requestedUserId,
-          wikiInitData: context.initData,
-          interactive,
-        });
-      } finally {
-        if (interactive) interactiveActive.current = false;
-      }
-      let currentEpoch;
-      try {
-        currentEpoch = window.localStorage.getItem(
-          accountStorageKey(CONNECTION_EPOCH_KEY),
-        );
-      } catch {
-        /* unavailable */
-      }
-      if (epoch !== currentEpoch || context.userId !== telegramContext().userId)
-        throw new Error("cancelled");
-      if (progressOnly)
-        return {
-          status: result.status,
-          ...(projectLevelProgress(result) || {}),
-        };
-      if (result.status === "connected")
-        callbacks.current.onToken(
-          result.accessToken,
-          result.playerLevel,
-          result.currentExp,
-          result.expToNextLevel,
-          result.activeBossBattle,
-        );
-      else if (result.status === "login-required")
-        callbacks.current.onEmpty?.();
-      else if (result.status === "pending") callbacks.current.onPending?.();
-      return result;
-    },
-    [],
-  );
+  const request = useCallback(async (interactive, restoreRequestId) => {
+    if (!bridge.current) throw new Error("connection_unavailable");
+    if (interactive) restoreAttempted.current = true;
+    if (!interactive && interactiveActive.current) return { status: "pending" };
+    let epoch;
+    try {
+      epoch = window.localStorage.getItem(
+        accountStorageKey(CONNECTION_EPOCH_KEY),
+      );
+    } catch {
+      /* WebView storage may be disabled. */
+    }
+    const context = telegramContext();
+    if (context.isTelegram && !context.initData)
+      throw new Error("wiki_reopen_required");
+    if (interactive) interactiveActive.current = true;
+    let result;
+    try {
+      result = await bridge.current.request("connect-game", {
+        expectedUserId: context.userId,
+        wikiInitData: context.initData,
+        interactive,
+        ...(restoreRequestId ? { restoreRequestId } : {}),
+      });
+    } finally {
+      if (interactive) interactiveActive.current = false;
+    }
+    let currentEpoch;
+    try {
+      currentEpoch = window.localStorage.getItem(
+        accountStorageKey(CONNECTION_EPOCH_KEY),
+      );
+    } catch {
+      /* unavailable */
+    }
+    if (epoch !== currentEpoch || context.userId !== telegramContext().userId)
+      throw new Error("cancelled");
+    if (
+      result.status === "connected" &&
+      (result.serverManaged !== true || Object.hasOwn(result, "accessToken"))
+    ) {
+      signalAuthRestoreSettled();
+      throw new Error("game_auth_server_managed_required");
+    }
+    if (result.status === "connected")
+      callbacks.current.onServerManagedSession?.();
+    if (result.status === "connected") signalAuthRestoreSettled();
+    else if (result.status === "login-required") callbacks.current.onEmpty?.();
+    else if (result.status === "pending") callbacks.current.onPending?.();
+    return result;
+  }, []);
   const attach = useCallback((node) => {
     if (!node || iframe.current === node) return;
     iframe.current = node;
@@ -152,10 +135,8 @@ export function TelegramConnection({
   useImperativeHandle(
     ref,
     () => ({
-      connect: () => request(true),
+      connect: (restoreRequestId) => request(true, restoreRequestId),
       restore: () => request(false),
-      refreshProgress: (expectedUserId) =>
-        request(false, { progressOnly: true, expectedUserId }),
       cancel: () => bridge.current?.cancel(),
       logout: () =>
         bridge.current?.request("logout", {

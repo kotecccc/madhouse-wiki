@@ -4,6 +4,18 @@ import { createReferenceBlobStore } from "../scripts/catalogue/reference-blob-st
 import { createCatalogueSyncApi } from "../scripts/catalogue/sync-api.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-export default createWikiApiVercelHandler(
-  createCatalogueSyncApi({ root, storeBlob: createReferenceBlobStore() }),
-);
+export function createCatalogueApi({
+  root: apiRoot = root,
+  storeBlob = createReferenceBlobStore(),
+  ...routeOptions
+} = {}) {
+  return createWikiApiVercelHandler(
+    createCatalogueSyncApi({
+      root: apiRoot,
+      storeBlob,
+      ...routeOptions,
+    }),
+  );
+}
+
+export default createCatalogueApi({ allowLegacyDirect: true });

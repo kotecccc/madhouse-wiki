@@ -1,6 +1,8 @@
 // /api/me does not currently include experience. Read the authenticated
 // account's own public profile for its current level; never select a caller ID.
-export function createPlayerProgressReader({ fetcher = fetch } = {}) {
+export function createPlayerProgressReader({ fetcher } = {}) {
+  if (typeof fetcher !== "function")
+    throw new TypeError("player_progress_fetcher_required");
   return async (profile, authorization) => {
     if (!Number.isSafeInteger(profile?.playerId) || profile.playerId <= 0)
       return profile;

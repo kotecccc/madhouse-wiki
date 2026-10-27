@@ -8,37 +8,8 @@ import { Title } from "../../../src/components/ui/Title/Title.jsx";
 import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { normalizePhoneNumber } from "../../phone-auth.js";
 import { createConnection } from "../../session.js";
-import { silentlyRefreshSharedSessionData } from "../../shared-session-refresh.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
-
-function hasLevelProgress(value) {
-  return (
-    Number.isSafeInteger(value?.playerLevel) &&
-    value.playerLevel > 0 &&
-    Number.isSafeInteger(value?.currentExp) &&
-    value.currentExp >= 0 &&
-    Number.isSafeInteger(value?.expToNextLevel) &&
-    value.expToNextLevel > 0
-  );
-}
-
-function levelProgressFields(value) {
-  return {
-    ...(Number.isSafeInteger(value?.playerLevel) && value.playerLevel > 0
-      ? { playerLevel: value.playerLevel }
-      : {}),
-    ...(Number.isSafeInteger(value?.currentExp) &&
-    value.currentExp >= 0 &&
-    Number.isSafeInteger(value?.expToNextLevel) &&
-    value.expToNextLevel > 0
-      ? {
-          currentExp: value.currentExp,
-          expToNextLevel: value.expToNextLevel,
-        }
-      : {}),
-  };
-}
 
 const messages = {
   AUTH_FAILED: "Не удалось выполнить вход. Попробуйте ещё раз или выберите QR.",
@@ -67,10 +38,26 @@ const messages = {
   RESEND_UNAVAILABLE: "Telegram не предложил другой способ для этого запроса.",
   telegram_unavailable: "Не удалось соединиться с Telegram.",
   game_auth_rejected: "Игра не приняла вход. Попробуйте подключиться заново.",
+  game_auth_unknown:
+    "Сервер не смог подтвердить исход игрового входа. Повторная отправка этого входа заблокирована; обратитесь в поддержку Wiki.",
+  game_auth_busy:
+    "Для аккаунта уже выполняется или восстанавливается игровой вход. Подождите и проверьте состояние позже.",
   game_unavailable: "Игра сейчас недоступна.",
+  invalid_game_session:
+    "Wiki не смогла подтвердить этот игровой сеанс. Подключитесь заново.",
+  bridge_auth_required:
+    "Для выбранного устройства обновите игровой вход через Madhouse Connect в управлении устройствами Wiki.",
+  bridge_route_unavailable:
+    "Не удалось проверить маршрут Wiki. Обновите страницу и повторите подключение.",
   invalid_wiki_identity: "Откройте Wiki заново через меню бота Telegram.",
   game_account_mismatch:
     "Войдите в тот же Telegram-аккаунт, в котором открыта Wiki.",
+  game_account_already_bound:
+    "Этот игровой аккаунт уже привязан к другой учётной записи Wiki.",
+  game_account_binding_conflict:
+    "В этой Wiki уже подтверждён другой игровой аккаунт.",
+  game_account_binding_unavailable:
+    "Не удалось проверить привязку игрового аккаунта. Повторите попытку позже.",
   session_store_unavailable:
     "Синхронизация входа временно недоступна. Повторите попытку.",
   session_changed: "Сеанс изменился. Повторите подключение.",
@@ -351,13 +338,22 @@ export function ConnectionApp() {
   }, [authCooldownUntil, delivery?.nextType, delivery?.resendAt]);
   const accountSession = useCallback(async (request, action, extra = {}) => {
     if (!request?.data.wikiInitData) return null;
+    const cachedProof =
+      identityProof.current?.launch === request.data.wikiInitData
+        ? identityProof.current.proof
+        : null;
+    const identity =
+      action === "logout" && cachedProof
+        ? { wikiProof: cachedProof }
+        : {
+            wikiInitData: request.data.wikiInitData,
+            ...(cachedProof ? { wikiProof: cachedProof } : {}),
+          };
     const response = await fetch("/api/account-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...(identityProof.current?.launch === request.data.wikiInitData
-          ? { wikiProof: identityProof.current.proof }
-          : { wikiInitData: request.data.wikiInitData }),
+        ...identity,
         action,
         ...extra,
       }),
@@ -376,12 +372,49 @@ export function ConnectionApp() {
       };
     return data;
   }, []);
+  const gameSessionStatus = useCallback(async (request) => {
+    if (!request?.data.wikiInitData) return { status: "login-required" };
+    const response = await fetch("/api/game-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "status",
+        wikiInitData: request.data.wikiInitData,
+      }),
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "bridge_route_unavailable");
+    return data;
+  }, []);
+  const gameSessionLogout = useCallback(async (request) => {
+    if (!request?.data.wikiInitData) return null;
+    const response = await fetch("/api/game-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "logout",
+        wikiInitData: request.data.wikiInitData,
+      }),
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "game_logout_unavailable");
+    return data;
+  }, []);
   const disconnect = useCallback(
     async (request) => {
       // A storage/network failure must not prevent revocation of the local key.
-      const [local, shared] = await Promise.allSettled([
+      const [local, shared, game] = await Promise.allSettled([
         connection.current.logout(),
         accountSession(request, "logout"),
+        gameSessionLogout(request),
       ]);
       clearPendingLogin(request?.data.expectedUserId);
       phoneChallenge.current = null;
@@ -398,12 +431,19 @@ export function ConnectionApp() {
               remoteRevoked: false,
               localCleared: false,
             };
+      const gameLogoutConfirmed =
+        game.status === "fulfilled" &&
+        game.value?.status === "disconnected" &&
+        game.value?.serverManaged === true;
       return {
         ...result,
-        remoteRevoked: result.remoteRevoked && shared.status === "fulfilled",
+        remoteRevoked:
+          result.remoteRevoked &&
+          shared.status === "fulfilled" &&
+          gameLogoutConfirmed,
       };
     },
-    [accountSession],
+    [accountSession, gameSessionLogout],
   );
   const complete = useCallback(
     async (request) => {
@@ -414,14 +454,13 @@ export function ConnectionApp() {
         }
         return;
       }
-      // Restore the signed account's server session BEFORE touching browser IDB.
-      const shared = await accountSession(request, "restore");
+      // Ask Wiki whether its private server-side game session is ready before
+      // opening a new Telegram game session.
+      const shared = request.data.restoreRequestId
+        ? null
+        : await gameSessionStatus(request);
       if (currentRequest.current !== request) return;
-      if (shared?.status === "connected" && hasLevelProgress(shared)) {
-        const refreshed = await silentlyRefreshSharedSessionData(() =>
-          connection.current.gameLogin(request.data.expectedUserId),
-        );
-        if (currentRequest.current !== request) return;
+      if (shared?.status === "connected" && shared.serverManaged === true) {
         clearPendingLogin(request.data.expectedUserId);
         setCode("");
         setPassword("");
@@ -432,23 +471,15 @@ export function ConnectionApp() {
         connection.current.discardPhoneAuth();
         setAuthCooldownUntil(0);
         request.freshLogin = false;
-        reply(request, {
-          status: "connected",
-          accessToken: shared.accessToken,
-          ...levelProgressFields(shared),
-          ...levelProgressFields(refreshed),
-          ...(refreshed?.activeBossBattle
-            ? { activeBossBattle: refreshed.activeBossBattle }
-            : {}),
-        });
+        reply(request, { status: "connected", serverManaged: true });
         return;
       }
-      if (shared?.revoked && !request.data.interactive) {
-        reply(request, {
-          status: readPendingLogin(request.data.expectedUserId)
-            ? "pending"
-            : "login-required",
-        });
+      if (shared?.status === "pending") {
+        reply(request, { status: "pending" });
+        return;
+      }
+      if (!request.data.interactive) {
+        reply(request, { status: "login-required" });
         return;
       }
       const result = await connection.current.gameLogin(
@@ -470,32 +501,11 @@ export function ConnectionApp() {
         } else reply(request, { status: "pending" });
         return;
       }
-      const connectedProfile =
-        result.status === "connected"
-          ? {
-              ...shared,
-              ...result,
-              playerLevel: result.playerLevel ?? shared?.playerLevel,
-              currentExp: result.currentExp ?? shared?.currentExp,
-              expToNextLevel: result.expToNextLevel ?? shared?.expToNextLevel,
-              activeBossBattle:
-                result.activeBossBattle ?? shared?.activeBossBattle,
-            }
-          : shared?.status === "connected"
-            ? shared
-            : null;
-      if (result.status === "connected" && shared) {
-        await accountSession(request, "save", {
-          ticket: shared.ticket,
-          accessToken: result.accessToken,
-          ...levelProgressFields(connectedProfile),
-        });
-        if (currentRequest.current !== request) {
-          await accountSession(request, "logout");
-          return;
-        }
+      if (result.status === "pending") {
+        reply(request, { status: "pending" });
+        return;
       }
-      if (connectedProfile) {
+      if (result.status === "connected" && result.serverManaged === true) {
         clearPendingLogin(request.data.expectedUserId);
         setCode("");
         setPassword("");
@@ -506,14 +516,7 @@ export function ConnectionApp() {
         connection.current.discardPhoneAuth();
         setAuthCooldownUntil(0);
         request.freshLogin = false;
-        reply(request, {
-          status: "connected",
-          accessToken: connectedProfile.accessToken,
-          ...levelProgressFields(connectedProfile),
-          ...(connectedProfile.activeBossBattle
-            ? { activeBossBattle: connectedProfile.activeBossBattle }
-            : {}),
-        });
+        reply(request, { status: "connected", serverManaged: true });
       } else {
         const pending = readPendingLogin(request.data.expectedUserId);
         if (
@@ -544,7 +547,7 @@ export function ConnectionApp() {
         else reply(request, { status: "login-required" });
       }
     },
-    [reply, accountSession],
+    [reply, gameSessionStatus],
   );
   useEffect(() => {
     let stopped = false,
@@ -591,20 +594,26 @@ export function ConnectionApp() {
               },
             }),
           exchange: async (initData) => {
+            const wikiInitData = currentRequest.current?.data?.wikiInitData;
+            const restoreRequestId =
+              currentRequest.current?.data?.restoreRequestId;
             const result = await fetch("/api/game-session", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ initData }),
+              body: JSON.stringify({
+                initData,
+                ...(restoreRequestId
+                  ? { action: "restore", restoreRequestId }
+                  : {}),
+                ...(typeof wikiInitData === "string" ? { wikiInitData } : {}),
+              }),
               cache: "no-store",
             });
             const data = await result.json();
             if (!result.ok) throw new Error(data.error);
             return {
-              accessToken: data.accessToken,
-              playerLevel: data.playerLevel,
-              currentExp: data.currentExp,
-              expToNextLevel: data.expToNextLevel,
-              activeBossBattle: data.activeBossBattle,
+              ...(data.status === "pending" ? { status: "pending" } : {}),
+              ...(data.serverManaged === true ? { serverManaged: true } : {}),
             };
           },
           onState: (value) => {
@@ -818,7 +827,7 @@ export function ConnectionApp() {
         const result = await connection.current.logout();
         if (!result.remoteRevoked || !result.localCleared)
           setError(
-            "Не удалось подтвердить полное отключение. Проверьте Telegram → Настройки → Устройства и завершите сессию Madhouse Wiki.",
+            "Не удалось подтвердить полный выход. Проверьте Telegram → Настройки → Устройства и игровой сеанс в Wiki.",
           );
         else setStage("consent");
       });

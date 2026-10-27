@@ -103,7 +103,7 @@ export function useFloorAvailability() {
   useEffect(() => {
     let controller;
     let previousStatus = readSession().status;
-    let identity = readSession().token;
+    let identity = readSession().identity;
     const applyFloors = (floors) => {
       if (!Array.isArray(floors)) return;
       const next = floorState(floors);
@@ -118,8 +118,8 @@ export function useFloorAvailability() {
       const refreshModel = () => setAvailability((current) => ({ ...current }));
       const session = readSession();
       previousStatus = session.status;
-      const changed = identity !== session.token;
-      identity = session.token;
+      const changed = identity !== session.identity;
+      identity = session.identity;
       const cached = peekSessionJson("/api/floors", { allowStale: true });
       if (cached) applyFloors(cached);
       else if (changed || session.status !== "ready") {

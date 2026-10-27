@@ -15,7 +15,7 @@ import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
 import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../components/ui/Icon/Icon.jsx";
-import { authorizeRequest } from "../../../shared/auth-session.js";
+import { readSession } from "../../../shared/auth-session.js";
 import { sendFriendCommand } from "./friend-commands.js";
 import { loadFriends, selectFriends } from "./friends.js";
 import "../../components/ui/StatusList/StatusList.css";
@@ -38,9 +38,10 @@ const sendCommand = (command, args) =>
   sendFriendCommand({
     get: getSessionJson,
     post: postSessionJson,
-    authorize: () =>
-      authorizeRequest({ url: "/api/automation/state" }).headers.Authorization,
-    makeId: () => crypto.randomUUID(),
+    identity: () => {
+      const session = readSession();
+      return session.status === "ready" ? session.identity : null;
+    },
     command,
     args,
   });

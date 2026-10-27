@@ -1,12 +1,33 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { Readable } from "node:stream";
 import { createVercelConnectorHandler } from "../scripts/deploy/vercel-connector-handler.mjs";
 const wikiOrigin = "https://wiki.example";
 const legacyWikiOrigin = "https://legacy-wiki.example";
 const connectorOrigin = "https://connect.example";
 const settings = { apiId: 123456, apiHash: "a".repeat(32) }; // Synthetic app parameters.
-const initData = "hash=" + "0".repeat(64) + "&user=%7B%7D&auth_date=1";
+const testWikiVerificationKey = "11".repeat(32);
+const initData =
+  "hash=" + "0".repeat(64) + "&user=%7B%22id%22%3A42%7D&auth_date=1";
+function signedWikiInitData(id = 42) {
+  const params = new URLSearchParams({
+    auth_date: String(Math.floor(Date.now() / 1000)),
+    user: JSON.stringify({ id }),
+    signature: "synthetic-wiki-signature-field",
+  });
+  const check = [...params.entries()]
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  params.set(
+    "hash",
+    createHmac("sha256", Buffer.from(testWikiVerificationKey, "hex"))
+      .update(check)
+      .digest("hex"),
+  );
+  return params.toString();
+}
 function response() {
   return {
     headers: {},
@@ -28,7 +49,16 @@ async function invoke(
     parsed = false,
     appParams = () => settings,
     wikiOrigins = [wikiOrigin],
+    wikiVerificationKey = testWikiVerificationKey,
     fetcher,
+    accountSessions,
+    wikiFetcher = async (_url, options) =>
+      Response.json({
+        requestId: JSON.parse(options.body).requestId,
+        operation: "device.list",
+        devices: [],
+        routePolicy: null,
+      }),
   } = {},
 ) {
   const req = Readable.from(
@@ -52,7 +82,10 @@ async function invoke(
     connectorOrigin,
     endpoint,
     appParams,
+    wikiVerificationKey,
     fetcher,
+    accountSessions,
+    wikiFetcher,
   })(req, res);
   return res;
 }
@@ -93,31 +126,81 @@ test("Vercel connector accepts only the configured current and legacy Wiki origi
   });
   assert.equal(unrelated.statusCode, 403);
 });
-test("Vercel streamed and parsed bodies preserve shared game auth without old Bearer or cookies", async () => {
+test("Vercel streamed and parsed bodies delegate game auth to Wiki without old Bearer or cookies", async () => {
   for (const parsed of [false, true]) {
-    let call;
+    const wikiCalls = [];
     const r = await invoke("/api/game-session", {
       method: "POST",
-      body: { initData },
+      body: { initData, wikiInitData: signedWikiInitData() },
       parsed,
-      fetcher: async (url, opts) => {
-        call = { url, opts };
-        return new Response(
-          JSON.stringify({ accessToken: "synthetic.payload.signature" }),
+      fetcher: async () => assert.fail("Cargo auth must stay on the Wiki"),
+      wikiFetcher: async (url, options) => {
+        const request = JSON.parse(options.body);
+        wikiCalls.push({ url, options, request });
+        return Response.json(
+          request.operation === "device.list"
+            ? {
+                requestId: request.requestId,
+                operation: request.operation,
+                devices: [],
+                routePolicy: null,
+              }
+            : {
+                requestId: request.requestId,
+                operation: request.operation,
+                operationId: "00000000-0000-4000-8000-000000000001",
+                status: "ready",
+              },
         );
       },
     });
     assert.equal(r.statusCode, 200);
-    assert.equal(JSON.parse(r.body).accessToken, "synthetic.payload.signature");
-    assert.equal(call.url, "https://cargohustle.online/api/auth/telegram");
-    assert.deepEqual(JSON.parse(call.opts.body), { initData });
-    assert.deepEqual(call.opts.headers, {
-      "Content-Type": "application/json",
-      Accept: "application/json",
+    assert.deepEqual(JSON.parse(r.body), {
+      status: "connected",
+      serverManaged: true,
     });
-    assert.equal(call.opts.redirect, "error");
+    assert.equal(wikiCalls.length, 2);
+    assert.ok(wikiCalls.every(({ url }) => url === `${wikiOrigin}/api/bridge`));
+    assert.equal(wikiCalls[1].request.operation, "game_auth.bootstrap");
+    assert.equal(wikiCalls[1].request.cargoLaunchData, initData);
+    assert.deepEqual(wikiCalls[1].options.headers, {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Origin: wikiOrigin,
+    });
+    assert.equal(wikiCalls[1].options.credentials, "omit");
+    assert.equal(wikiCalls[1].options.redirect, "error");
+    assert.equal(Object.hasOwn(JSON.parse(r.body), "accessToken"), false);
     assert.equal(r.headers["set-cookie"], undefined);
   }
+});
+test("Vercel rejects legacy account-session saves without calling Wiki or storage", async () => {
+  let wikiCalls = 0;
+  let accountSessionCalls = 0;
+  const r = await invoke("/api/account-session", {
+    method: "POST",
+    body: {
+      action: "save",
+      wikiInitData: signedWikiInitData(),
+      ticket: "1.synthetic-ticket",
+      accessToken: "candidate.token.signature",
+    },
+    wikiFetcher: async () => {
+      wikiCalls += 1;
+      assert.fail("legacy account-session save must not call Wiki");
+    },
+    accountSessions: async () => {
+      accountSessionCalls += 1;
+      assert.fail("legacy account-session save must not call storage");
+    },
+  });
+
+  assert.equal(r.statusCode, 409);
+  assert.deepEqual(JSON.parse(r.body), {
+    error: "game_auth_server_managed_required",
+  });
+  assert.equal(wikiCalls, 0);
+  assert.equal(accountSessionCalls, 0);
 });
 test("Vercel adapter preserves rejected origins, query, methods, bodies and unknown API behavior", async () => {
   const cases = [

@@ -550,7 +550,11 @@ test("battle header contains countdown, hides automation manual controls and kee
       createElement(BossHealingSettings, {
         state: {
           ...healingState,
-          healing: { ...healingState.healing, uncertain: true },
+          healing: {
+            ...healingState.healing,
+            uncertain: true,
+            pendingKind: "buy",
+          },
         },
         onSave() {},
       }),
@@ -573,6 +577,21 @@ test("battle header contains countdown, hides automation manual controls and kee
     assert.ok(!expandedHealing.includes("Бюджет на весь запуск"));
     assert.ok(expandedHealing.includes("Автопокупка"));
     assert.ok(expandedHealing.includes("Состояние проверено"));
+    const unknownStrikeHealing = renderToStaticMarkup(
+      createElement(BossHealingSettings, {
+        state: {
+          ...healingState,
+          healing: {
+            ...healingState.healing,
+            uncertain: true,
+            pendingKind: "attack",
+          },
+        },
+        onSave() {},
+      }),
+    );
+    assert.ok(unknownStrikeHealing.includes("останется неизвестным"));
+    assert.ok(!unknownStrikeHealing.includes("Состояние проверено"));
     const referenceHealthPanel = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: { boss, battle: null },

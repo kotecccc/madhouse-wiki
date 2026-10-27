@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createPlayerProgressReader } from "./player-progress.mjs";
 
+test("player progress requires an injected route-aware transport", () => {
+  assert.throws(() => createPlayerProgressReader(), {
+    message: "player_progress_fetcher_required",
+  });
+});
+
 test("live level is read for the verified own player and unrelated response fields are discarded", async () => {
   const profile = { playerId: 41, energy: { current: 10, max: 100 } };
   const read = createPlayerProgressReader({

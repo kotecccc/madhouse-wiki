@@ -40,6 +40,7 @@ function createHarness({
   attackApplied = true,
   bagUnavailable = false,
   characterTest = false,
+  characterAlreadyApplied = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "battle-assistant-service-"));
   let now = nowStart;
@@ -61,7 +62,12 @@ function createHarness({
   let bagFailure = bagUnavailable;
   let holdAttack = false;
   let releaseAttack;
-  const charStats = { madness: { base: 20, total: 20 } };
+  const charStats = {
+    madness: {
+      base: characterAlreadyApplied ? 21 : 20,
+      total: characterAlreadyApplied ? 21 : 20,
+    },
+  };
   const charUpgrade = {
     resetAtUtc: "2099-01-01T00:00:00Z",
     madness: {
@@ -70,8 +76,8 @@ function createHarness({
       nextCost: 10,
       maxCost: 10,
       dailyLimit: 3,
-      dailyUsed: 0,
-      dailyRemaining: 3,
+      dailyUsed: characterAlreadyApplied ? 1 : 0,
+      dailyRemaining: characterAlreadyApplied ? 2 : 3,
     },
   };
   const calls = [];
@@ -434,7 +440,11 @@ test("service restart preserves an unknown purchase reservation and never repeat
     const restartedEntry = await ctx.service.identify(token);
     const pending = ctx.service.snapshot(restartedEntry).battle.healing;
     assert.equal(pending.uncertain, true);
-    await ctx.command(restartedEntry, "autostart03", "auto.start");
+    await assert.rejects(
+      ctx.command(restartedEntry, "autostart03", "auto.start"),
+      (error) =>
+        error.status === 409 && error.message === "battle_action_unresolved",
+    );
     await ctx.advance(120_000);
     assert.equal(
       ctx.calls.filter(({ path }) => path === "/api/me/bag/combat-items/buy")
@@ -806,6 +816,126 @@ test("explicit stop during API damageMax preflight cancels the pending start int
   }
 });
 
+test("a confirmed restored account may read character state without replaying an unresolved upgrade", async () => {
+  const ctx = createHarness({
+    health: 100,
+    wallet: { gold: 1000, dollar: 100, pills: 100 },
+    characterTest: true,
+  });
+  try {
+    const entry = await ctx.open();
+    entry.characterUpgrade.pending = {
+      id: "fixture",
+      stat: "madness",
+      base: 20,
+      dailyUsed: 0,
+      resetAt: "2099-01-01T00:00:00Z",
+      currency: "gold",
+      balance: 1000,
+      price: 10,
+    };
+    ctx.store.write("101", {
+      ...ctx.store.read("101"),
+      characterUpgrade: entry.characterUpgrade,
+    });
+    ctx.store.activateRestoreGuard({ activatedAt: 1000 });
+    ctx.store.bindVerifiedGameAccount("54321", "101", 1001);
+    ctx.store.selectRoutePolicy("101", {
+      policy: "direct",
+      activeDeviceId: null,
+      expectedRouteEpoch: 0,
+      updatedAt: 1002,
+    });
+    assert.throws(
+      () =>
+        ctx.service.issueCommandTicket(entry, {
+          command: "character.refresh",
+          expectedVersion: ctx.service.snapshot(entry).version,
+          args: {},
+        }),
+      /automation_restore_confirmation_required/u,
+    );
+    ctx.store.confirmRestoredAccount({
+      ownerId: "54321",
+      playerId: "101",
+      verifiedAt: 1003,
+    });
+    ctx.service.issueCommandTicket(entry, {
+      command: "character.refresh",
+      expectedVersion: ctx.service.snapshot(entry).version,
+      args: {},
+    });
+    const result = await ctx.command(
+      entry,
+      "restore-character-read",
+      "character.refresh",
+    );
+    assert.ok(result.characterUpgrade.pending);
+    assert.equal(ctx.store.isRestoreRequired("101"), true);
+    assert.equal(
+      ctx.calls.filter((call) => call.path === "/api/character-stats/upgrade")
+        .length,
+      0,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("restored character read clears a checkpoint only when all expected effects match", async () => {
+  const ctx = createHarness({
+    health: 100,
+    wallet: { gold: 990, dollar: 100, pills: 100 },
+    characterTest: true,
+    characterAlreadyApplied: true,
+  });
+  try {
+    const entry = await ctx.open();
+    entry.characterUpgrade.pending = {
+      id: "fixture",
+      stat: "madness",
+      base: 20,
+      dailyUsed: 0,
+      resetAt: "2099-01-01T00:00:00Z",
+      currency: "gold",
+      balance: 1000,
+      price: 10,
+    };
+    ctx.store.write("101", {
+      ...ctx.store.read("101"),
+      characterUpgrade: entry.characterUpgrade,
+    });
+    ctx.store.activateRestoreGuard({ activatedAt: 1000 });
+    ctx.store.bindVerifiedGameAccount("54321", "101", 1001);
+    ctx.store.selectRoutePolicy("101", {
+      policy: "direct",
+      activeDeviceId: null,
+      expectedRouteEpoch: 0,
+      updatedAt: 1002,
+    });
+    ctx.store.confirmRestoredAccount({
+      ownerId: "54321",
+      playerId: "101",
+      verifiedAt: 1003,
+    });
+    assert.equal(ctx.store.isRestoreRequired("101"), true);
+    const result = await ctx.command(
+      entry,
+      "restore-character-confirmed",
+      "character.refresh",
+    );
+    assert.equal(result.characterUpgrade.pending, null);
+    assert.equal(ctx.store.isRestoreRequired("101"), false);
+    assert.equal(
+      ctx.calls.filter((call) => call.path === "/api/character-stats/upgrade")
+        .length,
+      0,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("character priority waits for the in-flight strike and auto battle resumes afterwards", async () => {
   const ctx = createHarness({
     health: 100,
@@ -863,6 +993,55 @@ test("character priority waits for the in-flight strike and auto battle resumes 
     );
   } finally {
     ctx.releaseAttack();
+    ctx.cleanup();
+  }
+});
+
+test("character intent never dispatches while an attack outcome remains unknown, including after restart", async () => {
+  const ctx = createHarness({
+    health: 100,
+    wallet: { gold: 1000, dollar: 100, pills: 100 },
+    characterTest: true,
+    unknownAttack: true,
+    attackApplied: false,
+  });
+  try {
+    const entry = await ctx.open();
+    const initial = await ctx.command(
+      entry,
+      "unknown-character-read",
+      "character.refresh",
+    );
+    const quote = characterUpgradeQuote(
+      initial.characterUpgrade.profile,
+      "madness",
+      1,
+    );
+    await ctx.command(entry, "unknown-character-auto", "auto.start");
+    await ctx.advance(5000);
+    assert.equal(ctx.store.read("101").assistant.pending.kind, "attack");
+    await ctx.command(entry, "unknown-character-intent", "character.upgrade", {
+      stat: "madness",
+      expected: quote,
+    });
+    await ctx.advance(60000);
+    ctx.restart();
+    await ctx.service.boot();
+    await ctx.service.identify(token);
+    await ctx.advance(60000);
+    assert.equal(ctx.store.read("101").assistant.pending.kind, "attack");
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.path.endsWith("/attack") && call.method === "POST",
+      ).length,
+      1,
+    );
+    assert.equal(
+      ctx.calls.filter((call) => call.path === "/api/character-stats/upgrade")
+        .length,
+      0,
+    );
+  } finally {
     ctx.cleanup();
   }
 });

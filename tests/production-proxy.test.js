@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createProxy } from "../api/[...path].js";
+import retiredGameApi, { createProxy } from "../api/[...path].js";
+import { legacyDirectRouteResolver } from "../scripts/bridge/game-api-client.mjs";
+const createLegacyProxy = (fetcher) =>
+  createProxy(fetcher, { resolveRoute: legacyDirectRouteResolver });
 function response() {
   return {
     headers: {},
@@ -12,8 +15,22 @@ function response() {
     },
   };
 }
+test("Vercel's deployed legacy game API is retired without forwarding credentials", async () => {
+  for (const method of ["GET", "POST", "DELETE"]) {
+    const res = response();
+    await retiredGameApi(
+      { method, url: "/api/me", headers: { authorization: "Bearer fake" } },
+      res,
+    );
+    assert.equal(res.statusCode, 410);
+    assert.deepEqual(JSON.parse(res.body), {
+      error: "legacy_game_api_retired",
+    });
+    assert.match(res.headers["cache-control"], /no-store/);
+  }
+});
 test("production proxy rejects undocumented methods, unknown destinations and missing sessions without upstream calls", async () => {
-  const proxy = createProxy(() => {
+  const proxy = createLegacyProxy(() => {
     throw new Error("must not fetch");
   });
   for (const [method, url, expected] of [
@@ -31,7 +48,7 @@ test("production proxy rejects undocumented methods, unknown destinations and mi
 });
 test("production proxy forwards only Bearer and JSON Accept to fixed upstream; never forwards cookies or caches personal data", async () => {
   let call;
-  const proxy = createProxy(async (url, options) => {
+  const proxy = createLegacyProxy(async (url, options) => {
     call = { url, options };
     return new Response('{"ok":true}', {
       status: 200,
@@ -68,7 +85,7 @@ test("production proxy forwards only Bearer and JSON Accept to fixed upstream; n
 test("upstream failures preserve status and bounded retry while exceptions expose no secret", async () => {
   for (const status of [401, 403, 429]) {
     const res = response();
-    await createProxy(
+    await createLegacyProxy(
       async () =>
         new Response("{}", { status, headers: { "retry-after": "15" } }),
     )(
@@ -83,7 +100,7 @@ test("upstream failures preserve status and bounded retry while exceptions expos
     if (status === 429) assert.equal(res.headers["retry-after"], "15");
   }
   const res = response();
-  await createProxy(async () => {
+  await createLegacyProxy(async () => {
     throw new Error("secret");
   })(
     {
@@ -105,16 +122,20 @@ test("Sites Fetch transport shares the same route and privacy boundary", async (
   const { createProductionApi } =
     await import("../scripts/deploy/production-api.mjs");
   let called = false;
-  const transport = createProductionApi(["/api/me"], async (url, options) => {
-    called = true;
-    assert.equal(url, "https://cargohustle.online/api/me");
-    assert.equal(options.redirect, "manual");
-    assert.equal(options.headers.Cookie, undefined);
-    return new Response("{}", {
-      status: 403,
-      headers: { "set-cookie": "secret" },
-    });
-  });
+  const transport = createProductionApi(
+    ["/api/me"],
+    async (url, options) => {
+      called = true;
+      assert.equal(url, "https://cargohustle.online/api/me");
+      assert.equal(options.redirect, "manual");
+      assert.equal(options.headers.Cookie, undefined);
+      return new Response("{}", {
+        status: 403,
+        headers: { "set-cookie": "secret" },
+      });
+    },
+    { allowLegacyDirect: true },
+  );
   const denied = await transport(
     new Request("https://wiki.invalid/api/unknown", {
       headers: { Authorization: "Bearer fake" },
@@ -134,7 +155,7 @@ test("Sites Fetch transport shares the same route and privacy boundary", async (
 
 test("dollar-floor encoded identifier remains a valid fixed-upstream GET", async () => {
   let destination;
-  const proxy = createProxy(async (url) => {
+  const proxy = createLegacyProxy(async (url) => {
     destination = url;
     return new Response("{}");
   });
@@ -153,7 +174,7 @@ test("dollar-floor encoded identifier remains a valid fixed-upstream GET", async
 
 test("hosted redirects are rejected without forwarding Location, secrets or following target", async () => {
   let calls = 0;
-  const proxy = createProxy(async () => {
+  const proxy = createLegacyProxy(async () => {
     calls++;
     return new Response(null, {
       status: 302,
@@ -183,7 +204,7 @@ test("hosted redirects are rejected without forwarding Location, secrets or foll
 });
 
 test("personal snapshot metadata survives the fixed-origin transport without public caching", async () => {
-  const proxy = createProxy(async (_url, options) => {
+  const proxy = createLegacyProxy(async (_url, options) => {
     assert.equal(options.headers["X-Madhouse-Snapshot-Only"], "1");
     return new Response('{"playerId":7}', {
       headers: {
@@ -227,7 +248,7 @@ test("personal snapshot metadata survives the fixed-origin transport without pub
 
 test("production proxy preserves live profile revalidation through the snapshot boundary", async () => {
   let call;
-  const proxy = createProxy(async (url, options) => {
+  const proxy = createLegacyProxy(async (url, options) => {
     call = { url, options };
     return Response.json({ playerId: 1 });
   });

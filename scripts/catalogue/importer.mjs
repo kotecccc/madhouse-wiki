@@ -1,9 +1,23 @@
 import { catalogueRoute } from "./projection.mjs";
+import {
+  classifyGameOperation,
+  createGameApiClient,
+} from "../bridge/game-api-client.mjs";
 
 const origin = "https://cargohustle.online";
 // Credentials live only in this bounded job's closure, are never returned, and are
 // released on completion. There is no arbitrary URL or request-body interface.
-export async function importCatalogue(store, authorization, fetcher = fetch) {
+export async function importCatalogue(
+  store,
+  authorization,
+  fetcher = fetch,
+  routeOptions = {},
+) {
+  const gameApi = createGameApiClient({
+    directTransport: fetcher,
+    bridgeTransport: routeOptions.bridgeTransport,
+    resolveRoute: routeOptions.resolveRoute,
+  });
   const deadline = Date.now() + 15 * 60 * 1000;
   let stopped = false;
   let lastRequestAt = 0;
@@ -18,16 +32,28 @@ export async function importCatalogue(store, authorization, fetcher = fetch) {
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     lastRequestAt = Date.now();
     const method = workId == null ? "GET" : "POST";
+    const target = new URL(path, origin);
     if (
       method === "GET"
-        ? !catalogueRoute(path)
+        ? !catalogueRoute(target)
         : path !== "/api/works/open" ||
           !Number.isSafeInteger(workId) ||
           workId < 1
     )
       throw new Error("Import route rejected");
     try {
-      const response = await fetcher(origin + path, {
+      const response = await gameApi.request({
+        operation: {
+          method,
+          path: target.pathname,
+          operationClass: classifyGameOperation({
+            method,
+            path: target.pathname,
+          }),
+        },
+        path: target.pathname,
+        upstreamPath: target.pathname,
+        search: target.search,
         method,
         headers: {
           Authorization: authorization,
@@ -36,14 +62,14 @@ export async function importCatalogue(store, authorization, fetcher = fetch) {
         ...(method === "POST"
           ? { body: JSON.stringify({ workId, locale: "ru" }) }
           : {}),
-        redirect: "error",
         signal: AbortSignal.timeout(20000),
       });
       if ([401, 429].includes(response.status)) stopped = true;
       const body = response.ok ? await response.json() : null;
       store.capture(path, response.status, body, method, workId);
       return response.ok ? body : null;
-    } catch {
+    } catch (error) {
+      if (/^(?:game_|bridge_)/u.test(error?.code || "")) throw error;
       // Never include request, response, or exception text in logs.
       store.capture(path, 0, null, method, workId);
       return null;

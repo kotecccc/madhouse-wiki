@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
 import { VERSION } from "../../connector/protocol.js";
+import {
+  APPLICATION_VERSION,
+  PROTOCOL_PACKAGE,
+  REQUIRED_HOST_CONFIGURATION_VERSION,
+  SERVER_SCHEMA_VERSIONS,
+} from "./release-compatibility.mjs";
+import {
+  CONTROL_CAPABILITIES,
+  PROTOCOL_VERSION,
+} from "../bridge/protocol-v1/control.mjs";
 
 const [wikiOrigin, connectorOrigin, expectedCommit] = process.argv.slice(2);
 if (
@@ -40,6 +50,30 @@ assert.equal(wikiRelease.response.status, 200);
 assert.equal(wikiRelease.body.provider, "VPS");
 assert.equal(wikiRelease.body.sourceCommit, expectedCommit);
 assert.equal(wikiRelease.body.telegramConnector?.protocolVersion, VERSION);
+const compatibility = wikiRelease.body.bridgeCompatibility;
+assert.equal(compatibility?.applicationVersion, APPLICATION_VERSION);
+assert.equal(compatibility?.sourceCommit, expectedCommit);
+assert.deepEqual(compatibility?.wireProtocol, PROTOCOL_VERSION);
+assert.deepEqual(compatibility?.protocolPackage, PROTOCOL_PACKAGE);
+assert.deepEqual(compatibility?.schemaVersions, SERVER_SCHEMA_VERSIONS);
+assert.deepEqual(compatibility?.controlCapabilities, CONTROL_CAPABILITIES);
+assert.equal(
+  compatibility?.requiredHostConfigurationVersion,
+  REQUIRED_HOST_CONFIGURATION_VERSION,
+);
+assert.equal(typeof compatibility?.routeSelection?.requested, "boolean");
+assert.equal(typeof compatibility?.routeSelection?.enabled, "boolean");
+if (compatibility.routeSelection.enabled) {
+  assert.equal(compatibility.routeSelection.requested, true);
+  assert.equal(
+    compatibility.minimumSafeRollbackCommit,
+    compatibility.r0ReleaseCommit,
+  );
+  assert.equal(
+    compatibility.hostConfigurationVersion,
+    REQUIRED_HOST_CONFIGURATION_VERSION,
+  );
+}
 assert.equal(
   wikiRelease.body.telegramConnector?.origin,
   "https://connect.madhouse-wiki.ru",

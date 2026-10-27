@@ -1,23 +1,35 @@
-// Keep a read and its subsequent mutation on the same authenticated session.
-// The bearer value is compared only in memory and is never saved or returned.
+// Keep the read, admission and command on the same server-managed session.
 export async function sendFriendCommand({
   get,
   post,
-  authorize,
-  makeId,
+  identity,
   command,
   args,
 }) {
-  const credential = authorize();
+  const session = identity();
+  if (!session) throw new Error("session_changed");
   const current = await get("/api/automation/state", {
     fresh: true,
     revalidate: false,
   });
-  if (credential !== authorize()) throw new Error("session_changed");
-  return post("/api/automation/commands", {
-    id: makeId(),
+  if (session !== identity()) throw new Error("session_changed");
+  const intent = {
     expectedVersion: current.version,
     command,
     args: typeof args === "function" ? args(current) : args,
+  };
+  const admission = await post("/api/automation/command-ticket", intent);
+  if (session !== identity()) throw new Error("session_changed");
+  if (
+    typeof admission?.id !== "string" ||
+    typeof admission?.ticket !== "string" ||
+    !Number.isSafeInteger(admission?.intentVersion)
+  )
+    throw new Error("invalid_command_admission");
+  return post("/api/automation/commands", {
+    ...intent,
+    id: admission.id,
+    admissionTicket: admission.ticket,
+    expectedVersion: admission.intentVersion,
   });
 }

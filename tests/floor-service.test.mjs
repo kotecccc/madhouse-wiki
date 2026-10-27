@@ -109,6 +109,16 @@ test("floor mode owns a persisted work goal and stops it without a browser", asy
     entry = await service.identify("Bearer test.payload.sig");
     assert.equal(service.snapshot(entry).floorRunner.status, "paused");
     assert.equal(service.snapshot(entry).workFarm.run.status, "stopped");
+    service.close();
+    interrupted.floorRunner.status = "stopped";
+    store.write("101", interrupted);
+    service = makeService();
+    await service.boot();
+    entry = await service.identify("Bearer test.payload.sig");
+    assert.equal(service.snapshot(entry).floorRunner.status, "stopped");
+    assert.equal(service.snapshot(entry).floorRunner.phase, "launching");
+    assert.equal(service.snapshot(entry).workFarm.run.status, "stopped");
+    await assert.rejects(command("floor.start", "floor-start-unknown"));
   } finally {
     service.close();
     store.close();

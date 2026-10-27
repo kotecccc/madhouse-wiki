@@ -3,9 +3,15 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const upstream = "https://cargohustle.online";
+const LIVE_PROOF_GATE = "MADHOUSE_ENABLE_LIVE_GAME_AUTH_PROOF";
+
+function requireLiveProofGate() {
+  if (process.env[LIVE_PROOF_GATE] !== "1")
+    throw new Error("live_game_auth_proof_not_enabled");
+}
 
 /** One deliberate login, then one authenticated read. No previous token or refresh path. */
-export async function proveGameAuth(initData, fetchImpl = fetch) {
+export async function proveGameAuth(initData, fetchImpl = null) {
   const params = new URLSearchParams(initData);
   const authDate = Number(params.get("auth_date"));
   if (
@@ -16,6 +22,12 @@ export async function proveGameAuth(initData, fetchImpl = fetch) {
   ) {
     throw new Error("invalid_init_data_shape");
   }
+  if (fetchImpl === null) {
+    requireLiveProofGate();
+    fetchImpl = globalThis.fetch;
+  }
+  if (typeof fetchImpl !== "function")
+    throw new TypeError("game_auth_fetch_unavailable");
   const proof = {
     checkedAt: new Date().toISOString(),
     upstream,
@@ -69,6 +81,7 @@ export async function proveGameAuth(initData, fetchImpl = fetch) {
 }
 
 async function main() {
+  requireLiveProofGate();
   if (process.argv.length !== 3)
     throw new Error("usage_node_prove_game_auth_private_init_data_file");
   const input = await realpath(process.argv[2]);

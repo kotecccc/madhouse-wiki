@@ -1,5 +1,4 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { refreshRetainedProfileProgress } from "../../../../shared/profile-progress.js";
 import {
   telegramContext,
   accountStorageKey,
@@ -13,8 +12,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { floorAutomation } from "../../bosses/BossBattle/boss-battle-session.js";
 import {
   readSession,
-  authorizeRequest,
-  saveToken,
+  saveServerManagedSession,
   clearToken,
   subscribeSession,
   formatExpiry,
@@ -27,14 +25,13 @@ import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
-import { Input } from "../../../components/ui/Input/Input.jsx";
-import { TokenBookmarklet } from "./TokenBookmarklet.jsx";
 import "./LoginControl.css";
 import { normalizePlayerProfile } from "../profile.js";
 import {
   TelegramConnection,
   TELEGRAM_CONNECTOR_ORIGIN,
 } from "../TelegramConnection/TelegramConnection.jsx";
+import { DeviceManagerDialog } from "../DeviceManager/DeviceManagerDialog.jsx";
 import {
   AUTO_CONNECT_KEY,
   CONNECTION_EPOCH_KEY,
@@ -68,11 +65,9 @@ export function LoginControl() {
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
   const [buddyCount, setBuddyCount] = useState(0);
-  const [loginMethod, setLoginMethod] = useState("choose");
-  const [token, setToken] = useState("");
-  const [tokenHelpDevice, setTokenHelpDevice] = useState("computer");
   const [error, setError] = useState("");
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const [deviceManagerOpen, setDeviceManagerOpen] = useState(false);
   const [autoConnect, setAutoConnect] = useState(autoConnectionEnabled);
   const [restoring, setRestoring] = useState(() => {
     const current = readSession();
@@ -80,14 +75,15 @@ export function LoginControl() {
   });
   const [pendingLogin, setPendingLogin] = useState(false);
   const telegramRef = useRef(null);
+  const restoreRequestRef = useRef(null);
   const [profile, setProfile] = useState(() => {
     const cached = peekSessionJson("/api/me", { allowStale: true });
     return cached ? normalizePlayerProfile(cached) : null;
   });
   const controlRef = useRef(null);
   const refreshProfileRef = useRef(() => {});
-  const progressAttempts = useRef(new Set());
   const authenticated = session.status === "ready";
+  const hasTelegramInitData = Boolean(telegramContext().initData);
   useEffect(() => {
     let cancelled = false;
     let generation = 0;
@@ -183,8 +179,6 @@ export function LoginControl() {
       }
       setRestoring(true);
       try {
-        const credential = authorizeRequest({ url: "/api/me" }).headers
-          .Authorization;
         const data = await getSessionJson("/api/me", {
           signal,
           fresh: true,
@@ -193,26 +187,6 @@ export function LoginControl() {
         if (!signal.aborted) {
           setProfile(normalizePlayerProfile(data));
           setRestoring(false);
-          if (
-            !shouldRestoreTelegramSession() &&
-            TELEGRAM_CONNECTOR_ORIGIN &&
-            !progressAttempts.current.has(credential)
-          ) {
-            progressAttempts.current.add(credential);
-            void refreshRetainedProfileProgress({
-              telegramId: data.telegramId,
-              request: (id) => telegramRef.current.refreshProgress(id),
-              isCurrent: () =>
-                !signal.aborted &&
-                authorizeRequest({ url: "/api/me" }).headers.Authorization ===
-                  credential,
-              apply: (progress) =>
-                saveToken(credential, {
-                  ...progress,
-                  activeBossBattle: readSession().activeBossBattle,
-                }),
-            });
-          }
         }
       } catch {
         // A failed or cancelled profile request must not expose credentials.
@@ -253,10 +227,8 @@ export function LoginControl() {
   }, []);
   const close = () => {
     setOpen(false);
-    setToken("");
     setError("");
     setConnectionOpen(false);
-    setLoginMethod("choose");
   };
   const label = formatExpiry(session);
   const activeProfile = authenticated
@@ -295,11 +267,12 @@ export function LoginControl() {
       );
     }
   };
-  const connect = () => {
+  const connect = (restoreRequestId) => {
+    restoreRequestRef.current = restoreRequestId || null;
     setError("");
     setOpen(false);
     setConnectionOpen(true);
-    telegramRef.current.connect().catch((error) => {
+    telegramRef.current.connect(restoreRequestId).catch((error) => {
       setRestoring(false);
       if (error?.message !== "cancelled")
         setError(
@@ -357,17 +330,33 @@ export function LoginControl() {
             </span>
           </BaseCard>
         ) : (
-          <Button
-            variant="primary"
-            size="md"
-            onClick={() => {
-              setError("");
-              setLoginMethod(TELEGRAM_CONNECTOR_ORIGIN ? "choose" : "token");
-              setOpen(true);
-            }}
-          >
-            {pendingLogin ? "Продолжить вход" : "Войти"}
-          </Button>
+          <>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setError("");
+                if (!TELEGRAM_CONNECTOR_ORIGIN) {
+                  setError(
+                    "Откройте Wiki через Telegram для подключения игрового аккаунта.",
+                  );
+                  return;
+                }
+                setOpen(true);
+              }}
+            >
+              {pendingLogin ? "Продолжить вход" : "Войти"}
+            </Button>
+            {hasTelegramInitData && (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setDeviceManagerOpen(true)}
+              >
+                Устройства
+              </Button>
+            )}
+          </>
         )}
         {open && authenticated && (
           <BaseCard
@@ -433,6 +422,17 @@ export function LoginControl() {
               ))}
             </CardDescription>
             <ErrorToast message={error} />
+            {hasTelegramInitData && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setOpen(false);
+                  setDeviceManagerOpen(true);
+                }}
+              >
+                Устройства
+              </Button>
+            )}
             <Button variant="secondary" onClick={logout}>
               Выйти
             </Button>
@@ -446,7 +446,7 @@ export function LoginControl() {
           open={connectionOpen}
           error={error}
           autoConnect={autoConnect}
-          onRetry={connect}
+          onRetry={() => connect(restoreRequestRef.current)}
           onEmpty={() => {
             if (readSession().status !== "empty") clearToken();
             setSession(readSession());
@@ -466,23 +466,11 @@ export function LoginControl() {
           onClose={close}
           onBack={() => {
             setConnectionOpen(false);
-            setLoginMethod("choose");
             setError("");
             setOpen(true);
           }}
-          onToken={(
-            value,
-            playerLevel,
-            currentExp,
-            expToNextLevel,
-            activeBossBattle,
-          ) => {
-            saveToken(value, {
-              playerLevel,
-              currentExp,
-              expToNextLevel,
-              activeBossBattle,
-            });
+          onServerManagedSession={() => {
+            saveServerManagedSession(telegramContext().userId);
             try {
               window.localStorage.setItem(
                 accountStorageKey(AUTO_CONNECT_KEY),
@@ -491,7 +479,7 @@ export function LoginControl() {
                   : "1",
               );
             } catch {
-              /* JWT storage is checked separately. */
+              /* Session identity stays in memory when storage is unavailable. */
             }
             setAutoConnect(true);
             setPendingLogin(false);
@@ -500,259 +488,35 @@ export function LoginControl() {
           }}
         />
       )}
-      {open &&
-        !authenticated &&
-        TELEGRAM_CONNECTOR_ORIGIN &&
-        loginMethod === "choose" && (
-          <Modal
-            title="Вход в Madhouse Wiki"
-            titleId="login-title"
-            width={420}
-            contentVariant="inset"
-            onClose={close}
-          >
-            <div className="login-modal-actions">
-              <Button variant="primary" liftOnHover={false} onClick={connect}>
-                {pendingLogin ? "Продолжить вход" : "Войти через Telegram"}
-              </Button>
-              <Button
-                variant="secondary"
-                liftOnHover={false}
-                onClick={() => setLoginMethod("token")}
-              >
-                Войти по AccessToken
-              </Button>
-            </div>
-          </Modal>
-        )}
-      {open && !authenticated && loginMethod === "token" && (
+      <DeviceManagerDialog
+        open={deviceManagerOpen}
+        onClose={() => setDeviceManagerOpen(false)}
+        onRestoreConnect={
+          TELEGRAM_CONNECTOR_ORIGIN
+            ? (requestId) => {
+                setDeviceManagerOpen(false);
+                connect(requestId);
+              }
+            : undefined
+        }
+      />
+      {open && !authenticated && TELEGRAM_CONNECTOR_ORIGIN && (
         <Modal
-          title="Вход по AccessToken"
-          titleId="login-token-title"
-          width={400}
+          title="Вход в Madhouse Wiki"
+          titleId="login-title"
+          width={420}
+          contentVariant="inset"
           onClose={close}
         >
-          <form
-            id="login-token-form"
-            className="login-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              try {
-                saveToken(token);
-                setPendingLogin(false);
-                setSession(readSession());
-                close();
-              } catch (error) {
-                setError(error.message);
-              }
-            }}
-          >
-            <BaseCard
-              as="details"
-              variant="token-help"
-              className="login-token-help"
-              aria-label="Инструкция по получению AccessToken"
+          <div className="login-modal-actions">
+            <Button
+              variant="primary"
+              liftOnHover={false}
+              onClick={() => connect()}
             >
-              <summary className="card-title">Где взять AccessToken?</summary>
-              <div
-                className="login-token-device-switch"
-                role="group"
-                aria-label="Выберите устройство"
-              >
-                <Button
-                  variant="toggle"
-                  aria-pressed={tokenHelpDevice === "computer"}
-                  onClick={() => setTokenHelpDevice("computer")}
-                >
-                  Компьютер
-                </Button>
-                <Button
-                  variant="toggle"
-                  aria-pressed={tokenHelpDevice === "android"}
-                  onClick={() => setTokenHelpDevice("android")}
-                >
-                  Android
-                </Button>
-                <Button
-                  variant="toggle"
-                  aria-pressed={tokenHelpDevice === "iphone"}
-                  onClick={() => setTokenHelpDevice("iphone")}
-                >
-                  iPhone
-                </Button>
-              </div>
-              <div className="login-token-help-content">
-                {tokenHelpDevice === "computer" ? (
-                  <section aria-label="Инструкция для компьютера">
-                    <ol>
-                      <li>
-                        Откройте Telegram Web на сайте{" "}
-                        <a
-                          href="https://web.telegram.org"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          web.telegram.org
-                        </a>
-                        , найдите чат с игрой и запустите её.
-                      </li>
-                      <li>
-                        Откройте инструменты разработчика: <kbd>F12</kbd> →{" "}
-                        <span>Application</span> (в Firefox —{" "}
-                        <span>Storage</span>) → <span>Local Storage</span> →{" "}
-                        <code>https://cargohustle.online</code>.
-                      </li>
-                      <li>
-                        Скопируйте значение <code>cargo_access_token</code> и
-                        вставьте его в поле ниже. Если доступен только{" "}
-                        <code>cargo_auth_session</code>, найдите внутри его
-                        значения JWT и скопируйте только эту строку. Весь JSON в
-                        поле не вставляйте.
-                      </li>
-                    </ol>
-                  </section>
-                ) : tokenHelpDevice === "android" ? (
-                  <section aria-label="Инструкция для Android">
-                    <p className="login-token-phone-copy">
-                      <strong>Android — закладка-помощник.</strong> Используйте
-                      Firefox или Chrome. В Яндекс Браузере этот способ не
-                      работает.
-                    </p>
-                    <ol>
-                      <li>
-                        Один раз настройте закладку: добавьте в закладки
-                        браузера любой сайт, откройте у закладки «Изменить» и
-                        замените адрес кодом закладки-помощника. Задайте
-                        короткое имя <code>wiki</code>.
-                        <TokenBookmarklet />
-                      </li>
-                      <li>
-                        Откройте в браузере{" "}
-                        <a
-                          href="https://web.telegram.org"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          web.telegram.org
-                        </a>{" "}
-                        и перейдите в чат, из которого запускаете игру. Саму
-                        игру пока не запускайте.
-                      </li>
-                      <li>
-                        Вызовите закладку: нажмите адресную строку, наберите{" "}
-                        <code>wiki</code> и выберите закладку в подсказках.
-                        Когда она попросит открыть игру, запустите её — вкладка
-                        сама перейдёт на страницу игры.
-                      </li>
-                      <li>
-                        Сразу, не дожидаясь загрузки игры, вызовите закладку тем
-                        же способом ещё раз. В появившемся окне скопируйте
-                        токен, вернитесь сюда и вставьте его в поле ниже.
-                      </li>
-                    </ol>
-                    <p className="login-token-phone-copy">
-                      После настройки закладки выполняйте шаги без пауз. Если не
-                      получилось, начните заново со второго шага.
-                    </p>
-                  </section>
-                ) : (
-                  <section aria-label="Инструкция для iPhone">
-                    <p className="login-token-phone-copy">
-                      <strong>Подготовьте Safari один раз.</strong> Установите
-                      бесплатное расширение Web Inspector из App Store. В Safari
-                      нажмите кнопку слева от адреса сайта → «Управлять
-                      расширениями» → включите Web Inspector и разрешите ему
-                      доступ к сайтам. Если Telegram на телефоне работает только
-                      через VPN, включите VPN.
-                    </p>
-                    <p className="login-token-phone-copy">
-                      Перед переходом в Telegram скопируйте код помощника. Он
-                      понадобится в консоли Safari на двух шагах.
-                      <TokenBookmarklet />
-                    </p>
-                    <p className="login-token-phone-copy">
-                      <strong>Получите токен.</strong> Обычно эти шаги нужно
-                      повторять примерно раз в сутки.
-                    </p>
-                    <ol>
-                      <li>
-                        В Safari откройте{" "}
-                        <a
-                          href="https://web.telegram.org/k/"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          web.telegram.org/k/
-                        </a>
-                        , войдите в Telegram и откройте чат с игрой. Пока не
-                        нажимайте «Играть».
-                      </li>
-                      <li>
-                        Нажмите кнопку слева от адреса → Web Inspector. В нижней
-                        панели выберите вкладку Console. Вставьте скопированный
-                        код помощника и нажмите Enter.
-                      </li>
-                      <li>
-                        Вернитесь в чат и нажмите «Играть». Когда Safari
-                        перейдёт на страницу игры, сразу снова откройте Web
-                        Inspector → Console, вставьте тот же код и нажмите
-                        Enter. Не ждите полной загрузки игры.
-                      </li>
-                      <li>
-                        Когда появится окно с токеном, скопируйте его целиком,
-                        вернитесь в Wiki и вставьте в поле AccessToken ниже.
-                      </li>
-                    </ol>
-                    <p className="login-token-phone-copy">
-                      Если появилось «Игра не пустила (401…)», истекло время:
-                      начните сначала, код уже скопирован. Если написано «Эта
-                      игра открыта слишком давно», закройте игру и откройте её
-                      снова из Telegram.
-                    </p>
-                  </section>
-                )}
-              </div>
-            </BaseCard>
-            {session.status !== "empty" && <p>{label}</p>}
-            <Input
-              className="login-token-field"
-              id="login-jwt"
-              type="password"
-              autoFocus
-              value={token}
-              onChange={(event) => {
-                setToken(event.target.value);
-                setError("");
-              }}
-              autoComplete="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              required
-              placeholder="Вставьте JWT AccessToken"
-              aria-label="Игровой JWT AccessToken"
-            />
-            <ErrorToast message={error} />
-            <div
-              className={`login-modal-actions${
-                TELEGRAM_CONNECTOR_ORIGIN ? "" : " login-modal-actions--single"
-              }`}
-            >
-              {TELEGRAM_CONNECTOR_ORIGIN && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setError("");
-                    setLoginMethod("choose");
-                  }}
-                >
-                  Назад
-                </Button>
-              )}
-              <Button variant="primary" type="submit">
-                {TELEGRAM_CONNECTOR_ORIGIN ? "Продолжить" : "Войти"}
-              </Button>
-            </div>
-          </form>
+              {pendingLogin ? "Продолжить вход" : "Войти через Telegram"}
+            </Button>
+          </div>
         </Modal>
       )}
     </>

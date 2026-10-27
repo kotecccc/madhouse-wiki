@@ -58,7 +58,10 @@ test("opening only reads; attack applies its reply without a second GET and dupl
         release = resolve;
       });
     }
-    return { battle: rawBattle({ bossHealth: hits ? 150 : 200 }) };
+    return {
+      battle: rawBattle({ bossHealth: hits ? 150 : 200 }),
+      hits: [{ actor: "player", damage: 10 }],
+    };
   });
   assert.equal(calls.length, 0);
   store.open(boss);
@@ -568,7 +571,10 @@ test("partial attack reply preserves confirmed participants and journal without 
   const { store, calls } = setup((method) =>
     method === "GET"
       ? detail({ activeBattle: initial })
-      : { battle: rawBattle({ bossHealth: 150 }) },
+      : {
+          battle: rawBattle({ bossHealth: 150 }),
+          hits: [{ actor: "player", damage: 10 }],
+        },
   );
   store.open(boss);
   await settle();
@@ -584,7 +590,7 @@ test("partial attack reply preserves confirmed participants and journal without 
   assert.equal(after.events[1], before.events[0]);
   assert.equal(after.participantCount, 1);
   assert.equal(after.bossHealth, 150);
-  assert.equal(after.totalDamage, 20);
+  assert.equal(after.totalDamage, 30);
   assert.equal(store.getSnapshot().needsRefresh, false);
   assert.equal(calls.length, 2);
 });
@@ -662,7 +668,10 @@ test("a confirmed hit adds a local event while preserving existing participant l
             participants: [{ playerId: 42, nickname: "Игрок" }],
           }),
         })
-      : { battle: rawBattle({ actions }) },
+      : {
+          battle: rawBattle({ actions }),
+          hits: [{ actor: "player", damage: 5 }],
+        },
   );
   store.open(boss);
   await settle();

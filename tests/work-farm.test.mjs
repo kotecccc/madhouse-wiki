@@ -452,6 +452,15 @@ test("lost perform reply is reconciled by reading progress and completes without
     h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
     1,
   );
+  assert.throws(
+    () => start(h.farm, { targetCycles: 2 }),
+    /Фарм уже запущен|Новый запуск заблокирован/u,
+  );
+  assert.equal(h.farm.getSnapshot().run.pending.kind, "performing");
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
   await h.fireNext();
   assert.equal(h.farm.getSnapshot().run.status, "completed");
   assert.equal(h.farm.getSnapshot().run.energySpent, 1);
