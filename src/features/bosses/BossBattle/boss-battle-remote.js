@@ -419,6 +419,15 @@ export function createRemoteBattleSession({
           "Состояние изменилось. Проверьте рейд и попробуйте снова.";
         publish();
       }
+      if (
+        error?.status === 409 &&
+        error.snapshot &&
+        command.startsWith("business.")
+      ) {
+        businessCommandError =
+          "Состояние изменилось. Проверьте план и попробуйте снова.";
+        publish();
+      }
       if (!(error?.status === 409 && error.snapshot)) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (
