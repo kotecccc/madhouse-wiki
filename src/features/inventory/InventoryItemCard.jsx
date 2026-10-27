@@ -1,15 +1,17 @@
+import { useState } from "react";
 import { StatTag } from "../../components/ui/StatTag/StatTag.jsx";
 import { MutagenLabel } from "../../components/ui/MutagenLabel/MutagenLabel.jsx";
-import { Button } from "../../components/ui/Button/Button.jsx";
-import { ApprovableButton } from "../../components/ui/ConfirmButton/ConfirmButton.jsx";
+import { MenuItem } from "../../components/ui/MenuItem/MenuItem.jsx";
 import { inventoryDisplayStats } from "./inventory.js";
+import { CardActionMenu } from "../../components/ui/CardActionMenu/CardActionMenu.jsx";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
+import { LockIndicator } from "../floors/LockIndicator/LockIndicator.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { Icon } from "../../components/ui/Icon/Icon.jsx";
-import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
+import { Divider } from "../../components/ui/Divider/Divider.jsx";
 import { fmt } from "../../lib/format.js";
 import "./InventoryItemCard.css";
 
@@ -56,14 +58,68 @@ function InventoryStats({ values }) {
   );
 }
 
+export function InventoryDurability({ item }) {
+  return (
+    <MenuItem informational icon="wrench">
+      Прочность: {fmt(item.durability)} / {fmt(item.durabilityMax)}
+    </MenuItem>
+  );
+}
+
+export function InventoryMenuDetails({ item }) {
+  const activeMutagen =
+    item.installedMutagen &&
+    (item.type === "clothing_item" ||
+      (item.mutagenActive ?? (item.equipped === true && !item.isBroken)));
+  const hasLevel =
+    Number.isSafeInteger(item.ownedLevel) &&
+    item.ownedLevel >= 0 &&
+    (item.maxLevel == null || item.ownedLevel <= item.maxLevel);
+  return (
+    <>
+      {activeMutagen && (
+        <MenuItem informational icon="flask-filled">
+          {item.installedMutagen.name}
+        </MenuItem>
+      )}
+      {hasLevel && (
+        <MenuItem informational icon="levels">
+          Уровень: {fmt(item.ownedLevel)}
+          {Number.isSafeInteger(item.maxLevel) && item.maxLevel > 0
+            ? ` / ${fmt(item.maxLevel)}`
+            : null}
+        </MenuItem>
+      )}
+    </>
+  );
+}
+
 export function InventoryItemCard({
   item,
   onEquip,
   onAction,
   equipmentBusy = false,
 }) {
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [menuClosing, setMenuClosing] = useState(false);
+  function finishCloseMenu() {
+    setMenuAnchor(null);
+    setMenuClosing(false);
+    setPurchaseConfirmation(null);
+    setRepairConfirmation(null);
+  }
+  function closeMenu() {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+      finishCloseMenu();
+    else setMenuClosing(true);
+  }
+  const [repairConfirmation, setRepairConfirmation] = useState(null);
+  const [purchaseConfirmation, setPurchaseConfirmation] = useState(null);
+  const repairKey = `${item.type}:${item.id}:${item.repairCost}`;
+  const confirmingRepair = repairConfirmation === repairKey;
   const locked = item.status === "locked";
   const durabilityKnown =
+    item.type === "weapon" &&
     Number.isFinite(item.durability) &&
     item.durability >= 0 &&
     Number.isFinite(item.durabilityMax) &&
@@ -91,24 +147,39 @@ export function InventoryItemCard({
     item.ownedLevel <= item.maxLevel;
   const maxed = levelKnown && item.ownedLevel === item.maxLevel;
   const price = item.facts?.purchasePrice;
+  const purchaseKey = `${item.type}:${item.id}:${item.zoneId}:${price?.currency}:${price?.amount}`;
+  const confirmingPurchase = purchaseConfirmation === purchaseKey;
   const status = locked ? (
-    <span
-      className={room ? "inventory-room-status" : "inventory-item-status"}
-      role="img"
-      aria-label="Предмет недоступен"
-      title="Предмет недоступен"
-    >
-      <Pill variant="locked" size="2xs" dot={false}>
-        <Icon type="lock" size="text" tone="inherit" />
-      </Pill>
-    </span>
+    <LockIndicator
+      className={room ? "inventory-room-status" : "inventory-item-lock"}
+      variant="locked"
+      label="Предмет недоступен"
+    />
   ) : (
     !locked &&
     (item.equipped ||
       levelKnown ||
       item.isBroken ||
-      !["owned", "buyable"].includes(item.status)) && (
+      item.installedMutagen ||
+      item.status === "unknown") && (
       <div className={room ? "inventory-room-status" : "inventory-item-status"}>
+        {item.installedMutagen && (
+          <MutagenLabel
+            status
+            mutagen={item.installedMutagen}
+            active={
+              item.type === "clothing_item" ||
+              (item.mutagenActive ?? (item.equipped === true && !item.isBroken))
+            }
+            inactiveReason={
+              item.isBroken
+                ? "Почините оружие, чтобы установленный мутаген снова работал."
+                : item.type === "pet"
+                  ? "Выберите питомца, чтобы мутаген добавлял бонусы к общим характеристикам."
+                  : undefined
+            }
+          />
+        )}
         {item.equipped && (
           <Pill size="xs" dot={false} variant="scheduled">
             <Icon type={equippedIcon} size="text" />
@@ -130,22 +201,150 @@ export function InventoryItemCard({
             Ур. {item.ownedLevel}
           </Pill>
         )}
-        {!levelKnown &&
-          !item.equipped &&
-          !["owned", "buyable"].includes(item.status) && (
-            <Pill size="xs" dot={false}>
-              {states[item.status]}
-            </Pill>
-          )}
+        {!levelKnown && !item.equipped && item.status === "unknown" && (
+          <Pill size="xs" dot={false}>
+            {states[item.status]}
+          </Pill>
+        )}
       </div>
     )
   );
-  return (
+  const hasActions = Boolean(
+    durabilityKnown ||
+    (item.status === "buyable" && price && onAction) ||
+    (item.status === "owned" &&
+      (onAction || (item.type === "weapon" && onEquip))),
+  );
+  const purchaseAction = item.status === "buyable" && price && onAction && (
+    <MenuItem
+      key="buy"
+      warning={confirmingPurchase}
+      disabled={equipmentBusy}
+      icon={
+        price.currency === "gold"
+          ? "coin"
+          : price.currency === "pills"
+            ? "pill"
+            : price.currency === "stars"
+              ? "star"
+              : "banknote"
+      }
+      onClick={() => {
+        if (!confirmingPurchase) {
+          setPurchaseConfirmation(purchaseKey);
+          return;
+        }
+        closeMenu();
+        onAction(item, "buy");
+      }}
+    >
+      {confirmingPurchase ? "Точно?" : "Купить"} · {fmt(price.amount)}{" "}
+      {currencies[price.currency]}
+    </MenuItem>
+  );
+  const repairAction = item.status === "owned" &&
+    (onAction || onEquip) &&
+    item.type === "weapon" &&
+    item.isBroken && (
+      <MenuItem
+        key="repair"
+        warning={confirmingRepair}
+        disabled={equipmentBusy || item.repairCost == null || !onAction}
+        icon="pill"
+        onClick={() => {
+          if (!confirmingRepair) {
+            setRepairConfirmation(repairKey);
+            return;
+          }
+          closeMenu();
+          onAction(item, "repair");
+        }}
+      >
+        {confirmingRepair ? "Подтвердить ремонт" : "Починить"}
+        {item.repairCost != null
+          ? ` (${fmt(item.repairCost)})`
+          : " — цена неизвестна"}
+      </MenuItem>
+    );
+  const equipAction = item.status === "owned" &&
+    (onAction || (item.type === "weapon" && onEquip)) && (
+      <MenuItem
+        key="equip"
+        disabled={
+          equipmentBusy ||
+          (room && item.equipped) ||
+          (item.type === "weapon" && item.isBroken && !item.equipped)
+        }
+        icon={
+          item.equipped
+            ? room
+              ? "check"
+              : "close"
+            : item.type === "weapon"
+              ? "hand-stop"
+              : "check"
+        }
+        onClick={() => {
+          closeMenu();
+          if (onAction)
+            onAction(item, item.equipped && !room ? "unequip" : "equip");
+          else onEquip(item);
+        }}
+      >
+        {room
+          ? item.equipped
+            ? "Выбрана"
+            : "Выбрать"
+          : item.type === "pet"
+            ? item.equipped
+              ? "Убрать"
+              : "Выбрать"
+            : item.equipped
+              ? "Снять"
+              : "Надеть"}
+      </MenuItem>
+    );
+  const card = (
     <BaseCard
       as="article"
       padding="12"
       className="inventory-item-card"
-      state={item.status === "locked" ? "locked" : undefined}
+      state={
+        menuAnchor
+          ? "selected"
+          : item.status === "locked"
+            ? "locked"
+            : undefined
+      }
+      {...(hasActions
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-label": `Действия: ${item.name}`,
+            "aria-haspopup": "dialog",
+            "aria-expanded": Boolean(menuAnchor),
+            onClick: (event) => {
+              if (
+                event.target.closest(
+                  "button, a, input, select, textarea, [role=button]:not(.inventory-item-card)",
+                )
+              )
+                return;
+              if (menuAnchor) closeMenu();
+              else setMenuAnchor(event.currentTarget);
+            },
+            onKeyDown: (event) => {
+              if (
+                event.target !== event.currentTarget ||
+                !["Enter", " "].includes(event.key)
+              )
+                return;
+              event.preventDefault();
+              if (menuAnchor) closeMenu();
+              else setMenuAnchor(event.currentTarget);
+            },
+          }
+        : {})}
     >
       {!room && locked && status}
       {room && (
@@ -166,128 +365,45 @@ export function InventoryItemCard({
           </CardTitle>
           {!room && (
             <CardDescription size="xs">
-              {durabilityKnown
-                ? `Прочность: ${fmt(item.durability)} / ${fmt(item.durabilityMax)}`
-                : item.slotLabel ||
-                  item.setName ||
-                  (item.type === "ornament" && item.zoneId
-                    ? `Зона ${item.zoneId}`
-                    : typeLabels[item.type])}
+              {item.slotLabel ||
+                item.setName ||
+                (item.type === "ornament" && item.zoneId
+                  ? `Зона ${item.zoneId}`
+                  : typeLabels[item.type])}
             </CardDescription>
           )}
-          {!room && durabilityKnown && (
-            <div className="inventory-item-condition">
-              <ProgressBar
-                value={item.durability}
-                max={item.durabilityMax}
-                label="Остаток прочности оружия"
-                valueText={`${item.durability} из ${item.durabilityMax}`}
-              />
-            </div>
-          )}
+          {!room && <InventoryStats values={inventoryDisplayStats(item)} />}
         </div>
         {room && status}
       </div>
       {!room && !locked && status}
-      <div className="inventory-item-details">
-        <InventoryStats values={inventoryDisplayStats(item)} />
-        {item.installedMutagen && (
-          <div className="inventory-item-mutagen">
-            <MutagenLabel
-              mutagen={item.installedMutagen}
-              active={
-                item.type === "clothing_item" ||
-                (item.mutagenActive ??
-                  (item.equipped === true && !item.isBroken))
-              }
-              inactiveReason={
-                item.isBroken
-                  ? "Почините оружие, чтобы установленный мутаген снова работал."
-                  : item.type === "pet"
-                    ? "Выберите питомца, чтобы мутаген добавлял бонусы к общим характеристикам."
-                    : undefined
-              }
-            />
-          </div>
-        )}
-      </div>
-      {item.status === "buyable" && price && onAction && (
-        <ApprovableButton
-          confirmationKey={`${item.type}:${item.id}:${price.currency}:${price.amount}`}
-          variant="primary"
-          confirmationLabel={
-            <>
-              Точно? · {fmt(price.amount)} {currencies[price.currency]}
-            </>
-          }
-          disabled={equipmentBusy}
-          icon={
-            price.currency === "gold"
-              ? "coin"
-              : price.currency === "pills"
-                ? "pill"
-                : price.currency === "stars"
-                  ? "star"
-                  : "banknote"
-          }
-          onClick={() => onAction(item, "buy")}
-        >
-          Купить · {fmt(price.amount)} {currencies[price.currency]}
-        </ApprovableButton>
+      {room && (
+        <div className="inventory-item-details">
+          <InventoryStats values={inventoryDisplayStats(item)} />
+        </div>
       )}
-      {item.status === "owned" &&
-        (onAction || (item.type === "weapon" && onEquip)) && (
-          <div className="inventory-item-actions">
-            {item.type === "weapon" && item.isBroken && (
-              <ApprovableButton
-                confirmationKey={`${item.id}:${item.repairCost}`}
-                className="inventory-item-action"
-                disabled={equipmentBusy || item.repairCost == null || !onAction}
-                icon="pill"
-                onClick={() => onAction(item, "repair")}
-              >
-                Починить
-                {item.repairCost != null
-                  ? ` (${fmt(item.repairCost)})`
-                  : " — цена неизвестна"}
-              </ApprovableButton>
-            )}
-            <Button
-              className="inventory-item-action"
-              disabled={
-                equipmentBusy ||
-                (room && item.equipped) ||
-                (item.type === "weapon" && item.isBroken && !item.equipped)
-              }
-              icon={
-                item.equipped
-                  ? room
-                    ? "check"
-                    : "close"
-                  : item.type === "weapon"
-                    ? "hand-stop"
-                    : "check"
-              }
-              onClick={() =>
-                onAction
-                  ? onAction(item, item.equipped && !room ? "unequip" : "equip")
-                  : onEquip(item)
-              }
-            >
-              {room
-                ? item.equipped
-                  ? "Выбрана"
-                  : "Выбрать"
-                : item.type === "pet"
-                  ? item.equipped
-                    ? "Убрать"
-                    : "Выбрать"
-                  : item.equipped
-                    ? "Снять"
-                    : "Надеть"}
-            </Button>
-          </div>
-        )}
     </BaseCard>
+  );
+  return (
+    <>
+      {card}
+      {hasActions && menuAnchor && (
+        <CardActionMenu
+          anchor={menuAnchor}
+          label={`Действия: ${item.name}`}
+          onClose={closeMenu}
+          closing={menuClosing}
+          onClosed={finishCloseMenu}
+        >
+          <InventoryMenuDetails item={item} />
+          {durabilityKnown && <InventoryDurability item={item} />}
+          {(durabilityKnown || levelKnown || item.installedMutagen) &&
+            (purchaseAction || repairAction || equipAction) && <Divider />}
+          {purchaseAction}
+          {repairAction}
+          {equipAction}
+        </CardActionMenu>
+      )}
+    </>
   );
 }

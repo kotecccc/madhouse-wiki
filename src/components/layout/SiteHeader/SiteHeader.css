@@ -9,7 +9,8 @@
   gap: var(--space-24);
 }
 
-.topbar::after {
+.topbar::after,
+.header-summary-surface::after {
   position: absolute;
   z-index: -1;
   top: 0;
@@ -47,4 +48,11 @@
 
 .topbar--without-divider::after {
   border-bottom: 0;
+}
+
+.header-summary-surface {
+  position: relative;
+  z-index: 40;
+  isolation: isolate;
+  padding-block: var(--space-4);
 }

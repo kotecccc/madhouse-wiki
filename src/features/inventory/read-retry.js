@@ -50,3 +50,18 @@ export async function runInventoryReadAttempts({
   }
   return { status: "error", data, attempts: maxAttempts };
 }
+
+// Show the saved snapshot first, then refresh it once when it is stale.
+export async function readInventorySnapshot({ read, isFresh, onSnapshot }) {
+  const snapshot = await read(false);
+  if (isFresh()) return snapshot;
+  onSnapshot(snapshot);
+  return read(true);
+}
+
+// A fresh in-memory zone needs no request; otherwise let the server resolve its
+// snapshot or refresh in one paced request instead of reading a stale snapshot first.
+export function readTattooZone({ peekFresh, read }) {
+  const cached = peekFresh();
+  return cached != null ? Promise.resolve(cached) : read();
+}

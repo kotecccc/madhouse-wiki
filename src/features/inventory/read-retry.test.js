@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   INVENTORY_READ_RETRY_INTERVAL_MS,
   runInventoryReadAttempts,
+  readInventorySnapshot,
+  readTattooZone,
 } from "./read-retry.js";
 
 test("inventory retries a failed or stale health response at 15-second intervals, up to success", async () => {
@@ -86,4 +88,45 @@ test("permanent request failures and late cancelled replies never trigger anothe
   });
   assert.equal(result.status, "cancelled");
   assert.equal(published, false);
+});
+
+test("stale inventory snapshot is displayed before one explicit refresh", async () => {
+  const calls = [];
+  const shown = [];
+  const result = await readInventorySnapshot({
+    read: async (fresh) => {
+      calls.push(fresh);
+      return fresh ? "updated" : "saved";
+    },
+    isFresh: () => false,
+    onSnapshot: (value) => shown.push(value),
+  });
+  assert.deepEqual(calls, [false, true]);
+  assert.deepEqual(shown, ["saved"]);
+  assert.equal(result, "updated");
+});
+
+test("fresh inventory snapshot does not trigger a live refresh", async () => {
+  const calls = [];
+  await readInventorySnapshot({
+    read: async (fresh) => calls.push(fresh),
+    isFresh: () => true,
+    onSnapshot: () => assert.fail("fresh snapshot is returned directly"),
+  });
+  assert.deepEqual(calls, [false]);
+});
+
+test("tattoo zones reuse fresh memory and request a stale or missing zone only once", async () => {
+  const calls = [];
+  const read = async () => {
+    calls.push("server");
+    return { items: [1] };
+  };
+  const cached = { items: [2] };
+  assert.equal(await readTattooZone({ peekFresh: () => cached, read }), cached);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await readTattooZone({ peekFresh: () => null, read }), {
+    items: [1],
+  });
+  assert.deepEqual(calls, ["server"]);
 });

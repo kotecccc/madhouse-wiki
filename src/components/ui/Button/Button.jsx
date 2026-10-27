@@ -9,6 +9,7 @@ const variants = new Set([
   "locked",
   "warning",
   "card-action",
+  "menu-item",
   "toggle",
   "nav-tab",
   "icon-copy",
@@ -50,7 +51,9 @@ export function Button({
     safeVariant === "icon-copy-inline" && "button-icon-copy",
     safeVariant === "icon-ghost" && "button-icon-ghost",
     safeVariant === "warning-icon" && "button-warning-icon",
-    safeVariant === "warning" && "button-warning",
+    (safeVariant === "warning" ||
+      (safeVariant === "menu-item" && tone === "warning")) &&
+      "button-warning",
     `button-${safeVariant}`,
     accent === "gold" && "button--accent-gold",
     tone === "inherit" && "button--inherit-color",

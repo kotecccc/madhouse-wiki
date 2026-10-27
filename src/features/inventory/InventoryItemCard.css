@@ -7,7 +7,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: var(--space-4);
+  gap: 0;
   flex: 1;
 }
 .inventory-item-heading {
@@ -43,7 +43,8 @@
   position: relative;
   grid-template-columns: minmax(0, 1fr);
 }
-.inventory-item-status {
+.inventory-item-status,
+.inventory-item-lock {
   position: absolute;
   top: var(--space-12);
   right: var(--space-12);
@@ -52,29 +53,10 @@
   gap: var(--space-4);
   z-index: 1;
 }
-.inventory-item-condition {
-  margin-top: auto;
-  display: grid;
-  gap: var(--space-4);
-}
 
 .inventory-item-details {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-8) var(--space-12);
-}
-.inventory-item-mutagen {
-  margin-inline-start: auto;
-  min-width: 0;
-}
-
-.inventory-item-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-8);
-}
-.inventory-item-action {
-  flex: 1;
-  min-width: 0;
 }

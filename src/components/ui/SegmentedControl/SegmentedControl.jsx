@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Pill } from "../Pill/Pill.jsx";
+import { Icon } from "../Icon/Icon.jsx";
 import { Button } from "../Button/Button.jsx";
 import "./SegmentedControl.css";
 
@@ -24,6 +25,7 @@ export function SegmentedControl({
   label,
   size = "md",
   className = "",
+  compactIcons = false,
 }) {
   const refs = useRef(new Map());
   const firstEnabledValue = options.find((option) => !option.disabled)?.value;
@@ -49,7 +51,7 @@ export function SegmentedControl({
 
   return (
     <div
-      className={`segmented-control ${className}`.trim()}
+      className={`segmented-control ${compactIcons ? "segmented-control--compact-icons" : ""} ${className}`.trim()}
       role="radiogroup"
       aria-label={label}
       aria-busy={options.some((option) => option.loading) || undefined}
@@ -67,15 +69,25 @@ export function SegmentedControl({
           liftOnHover={false}
           role="radio"
           aria-checked={value === option.value}
-          aria-label={option.ariaLabel}
+          aria-label={option.ariaLabel || option.label}
           disabled={option.disabled}
           tabIndex={tabValue === option.value ? 0 : -1}
           onClick={() => select(option)}
           onKeyDown={handleKeyDown}
         >
-          {option.label}
+          {compactIcons && option.icon && (
+            <span className="segmented-control-option-icon" aria-hidden="true">
+              <Icon type={option.icon} size="medium" />
+            </span>
+          )}
+          <span className="segmented-control-option-label">{option.label}</span>
           {Number.isSafeInteger(option.count) && option.count > 0 && (
-            <Pill size="2xs" dot={false} aria-hidden="true">
+            <Pill
+              className="segmented-control-option-count"
+              size="2xs"
+              dot={false}
+              aria-hidden="true"
+            >
               {option.count}
             </Pill>
           )}

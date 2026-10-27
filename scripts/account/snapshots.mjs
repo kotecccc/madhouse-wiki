@@ -168,6 +168,7 @@ export function createAccountSnapshots({
     );
     return {
       status: record?.health?.status || "unknown",
+      profileRevision: record?.profileRevision ?? 0,
       lastSuccessAt: record?.lastSuccessAt ?? null,
       failedFeatures,
       successfulFeatures,
@@ -700,6 +701,7 @@ export function createAccountSnapshots({
       const current = accounts.get(playerId);
       persist({
         ...current,
+        profileRevision: (current.profileRevision ?? 0) + 1,
         sections: Object.fromEntries(
           Object.entries(current.sections).map(([sectionPath, section]) => [
             sectionPath,

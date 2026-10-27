@@ -1,0 +1,29 @@
+.account-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.account-summary-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  flex-shrink: 0;
+}
+
+@media (max-width: 505px) {
+  .account-summary,
+  .account-summary-group {
+    gap: var(--space-12);
+  }
+}
+
+@media (max-width: 455px) {
+  .account-summary,
+  .account-summary-group {
+    gap: var(--space-8);
+  }
+}

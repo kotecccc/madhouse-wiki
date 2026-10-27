@@ -4,6 +4,7 @@ import { Icon } from "../Icon/Icon.jsx";
 import { Popover } from "../Popover/Popover.jsx";
 import { CardTitle } from "../CardTitle/CardTitle.jsx";
 import { CardDescription } from "../CardDescription/CardDescription.jsx";
+import "./StatTag.css";
 
 export function StatTag({
   icon,
@@ -12,6 +13,8 @@ export function StatTag({
   details = [],
   mutagenType,
   inactive = false,
+  size = "default",
+  statTarget,
 }) {
   const [anchor, setAnchor] = useState(null);
   const hint = [description, ...details].filter(Boolean).join("\n");
@@ -19,6 +22,13 @@ export function StatTag({
     <>
       <Button
         variant="text-tag"
+        data-stat-target={statTarget}
+        className={[
+          size === "compact" && "stat-tag--compact",
+          size === "responsive-compact" && "stat-tag--responsive-compact",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         liftOnHover={false}
         title={hint}
         aria-label={description}

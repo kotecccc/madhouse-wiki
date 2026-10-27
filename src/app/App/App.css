@@ -28,10 +28,11 @@
     overflow: hidden;
   }
 
-  .site-shell > .topbar {
+  .site-shell > .site-header-group {
     grid-row: 1;
     grid-column: 1;
     margin-inline: var(--page-gutter);
+    min-width: 0;
   }
 
   .app-scroll-region {

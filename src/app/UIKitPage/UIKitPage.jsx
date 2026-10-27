@@ -27,8 +27,10 @@ import "./UIKitPage.css";
 
 const cardVariants = [
   { name: "Base" },
+  { name: "Selected", state: "selected" },
   { name: "Image", variant: "image" },
   { name: "Popover", variant: "popover" },
+  { name: "Glass menu", variant: "glass-menu" },
   { name: "Token help", variant: "token-help" },
 ];
 
@@ -37,6 +39,7 @@ const buttonVariants = [
   { name: "Secondary", variant: "secondary" },
   { name: "Locked", variant: "locked", icon: "lock" },
   { name: "Card action", variant: "card-action", icon: "external-link" },
+  { name: "Menu item", variant: "menu-item", icon: "check" },
   { name: "Toggle", variant: "toggle", state: "toggle" },
   { name: "Tab", variant: "nav-tab", state: "selected" },
   { name: "Icon only", variant: "icon-copy", icon: "copy" },
@@ -283,14 +286,15 @@ export function UIKitPage() {
               <ComponentSection id="surfaces" title="Surfaces">
                 <ExamplePanel>
                   <div className="ui-kit-variant-grid">
-                    {cardVariants.map(({ name, variant }) => (
+                    {cardVariants.map(({ name, variant, state }) => (
                       <div
                         className="ui-kit-variant-item"
-                        key={variant || "default"}
+                        key={state || variant || "default"}
                       >
                         <MonoLabel>{name}</MonoLabel>
                         <BaseCard
                           variant={variant}
+                          state={state}
                           className="ui-kit-variant-card"
                         >
                           <div

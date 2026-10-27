@@ -33,6 +33,21 @@ test("segmented control exposes a single selected radio and wraps keyboard navig
     assert.match(html, /role="radiogroup" aria-label="Категория этажа"/);
     assert.equal((html.match(/aria-checked="true"/g) || []).length, 1);
     assert.match(html, /aria-checked="true"[^>]*tabindex="0"/);
+    const compact = renderToStaticMarkup(
+      React.createElement(SegmentedControl, {
+        options: [
+          { value: "weapon", label: "Оружие", icon: "sword", count: 2 },
+        ],
+        value: "weapon",
+        onChange() {},
+        label: "Категории",
+        compactIcons: true,
+      }),
+    );
+    assert.match(compact, /segmented-control--compact-icons/);
+    assert.match(compact, /aria-label="Оружие"/);
+    assert.match(compact, /segmented-control-option-icon/);
+    assert.match(compact, /segmented-control-option-label/);
     assert.equal(nextSegmentedValue(options, "work", "ArrowLeft"), "bosses");
     assert.equal(nextSegmentedValue(options, "bosses", "ArrowRight"), "work");
     assert.equal(nextSegmentedValue(options, "work", "End"), "bosses");

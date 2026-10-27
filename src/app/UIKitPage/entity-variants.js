@@ -18,6 +18,7 @@ export const BUTTON_VARIANTS = [
   "secondary",
   "locked",
   "card-action",
+  "menu-item",
   "toggle",
   "nav-tab",
   "icon-copy",

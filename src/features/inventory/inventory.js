@@ -1,10 +1,10 @@
 import { itemFacts } from "../../../scripts/catalogue/item-facts.mjs";
 export const inventoryCategories = [
-  { id: "clothing_item", label: "Одежда" },
-  { id: "weapon", label: "Оружие" },
-  { id: "pet", label: "Питомцы" },
-  { id: "ornament", label: "Тату" },
-  { id: "room", label: "Комнаты" },
+  { id: "clothing_item", label: "Одежда", icon: "clothing" },
+  { id: "weapon", label: "Оружие", icon: "sword" },
+  { id: "pet", label: "Питомцы", icon: "pet" },
+  { id: "ornament", label: "Тату", icon: "tattoo" },
+  { id: "room", label: "Комнаты", icon: "room" },
 ];
 export function inventoryPaths(type, references) {
   if (type === "room") return ["/api/rooms"];
@@ -218,7 +218,7 @@ export function filterInventory(
 }
 
 export function inventoryCategoryOptions(responses, references) {
-  return inventoryCategories.map(({ id, label }) => {
+  return inventoryCategories.map(({ id, label, icon }) => {
     const paths = inventoryPaths(id, references);
     const complete = paths.length > 0 && paths.every((path) => responses[path]);
     const count = complete
@@ -229,6 +229,7 @@ export function inventoryCategoryOptions(responses, references) {
     return {
       value: id,
       label,
+      icon,
       count: count > 0 ? count : undefined,
       ariaLabel: count > 0 ? `${label}: доступно для покупки ${count}` : label,
     };

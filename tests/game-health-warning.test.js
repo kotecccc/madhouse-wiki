@@ -88,6 +88,13 @@ test("game health warning keeps error details unmounted until requested", async 
     assert.match(toast, /role="status" aria-live="polite"/);
     assert.match(toast, /Недоступно/);
     assert.match(toast, /Закрыть уведомление/);
+    const successToast = renderToStaticMarkup(
+      createElement(Toast, { success: true, children: "Готово" }),
+    );
+    assert.match(successToast, /base-card--toast-success/);
+    assert.match(successToast, /ui-toast--success/);
+    const titleOnly = renderToStaticMarkup(createElement(Toast, {}));
+    assert.doesNotMatch(titleOnly, /ui-toast-message/);
     const details = (status) =>
       renderToStaticMarkup(
         createElement(GameHealthDetails, {

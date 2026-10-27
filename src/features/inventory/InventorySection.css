@@ -12,9 +12,6 @@
   min-width: 0;
   overflow-x: auto;
 }
-.inventory-category-control {
-  min-width: max-content;
-}
 .inventory-summary {
   min-width: 0;
   display: flex;
@@ -28,6 +25,15 @@
   align-items: end;
   gap: var(--space-16);
 }
+.inventory-virtual-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.inventory-virtual-card:has(.card-action-menu) {
+  z-index: 2;
+}
+
 .inventory-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -38,6 +44,10 @@
     gap: var(--page-gutter);
   }
   .inventory-filters,
+  .inventory-virtual-card:has(.card-action-menu) {
+    z-index: 2;
+  }
+
   .inventory-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -58,12 +68,15 @@
   justify-content: space-between;
   gap: var(--space-8);
 }
-.inventory-tattoo-loading {
-  display: grid;
-  gap: var(--space-8);
-}
-.inventory-tattoo-loading-label {
-  text-align: center;
+
+@media (min-width: 651px) {
+  .inventory-virtual-card:nth-child(odd) .card-action-menu {
+    top: 0;
+    inset-inline-start: 100%;
+    inset-inline-end: auto;
+    margin-top: 0;
+    margin-inline-start: var(--space-8);
+  }
 }
 
 .inventory-next-dialog {

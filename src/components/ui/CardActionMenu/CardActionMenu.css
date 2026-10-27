@@ -1,0 +1,12 @@
+.card-action-menu {
+  position: absolute;
+  top: 100%;
+  inset-inline-end: 0;
+  z-index: 2;
+  width: max-content;
+  max-width: 100%;
+  display: grid;
+  gap: 0;
+  margin-top: var(--space-8);
+  scroll-margin-bottom: var(--space-64);
+}

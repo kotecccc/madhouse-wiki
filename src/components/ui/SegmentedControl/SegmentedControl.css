@@ -49,3 +49,33 @@
     animation: none;
   }
 }
+
+.segmented-control-option-icon {
+  display: none;
+}
+
+@media (max-width: 440px) {
+  .segmented-control--compact-icons
+    .segmented-control-option
+    .segmented-control-option-icon {
+    display: inline-flex;
+  }
+
+  .segmented-control--compact-icons
+    .segmented-control-option:has(.segmented-control-option-icon)
+    .segmented-control-option-label {
+    display: none;
+  }
+
+  .segmented-control--compact-icons .segmented-control-option {
+    position: relative;
+  }
+
+  .segmented-control--compact-icons
+    .segmented-control-option
+    .segmented-control-option-count {
+    position: absolute;
+    top: 0;
+    right: var(--space-4);
+  }
+}

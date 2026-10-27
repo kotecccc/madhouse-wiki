@@ -66,6 +66,43 @@ export function usePlayerProfile() {
     };
     let identity = sessionIdentity();
     let workStatus = workFarm.getSnapshot().run?.status;
+    let profileRevision = null;
+    let profileRefreshTimer = null;
+    let profileRefreshRunning = false;
+    let profileRefreshQueued = false;
+    const refreshChangedProfile = async () => {
+      profileRefreshTimer = null;
+      if (profileRefreshRunning) {
+        profileRefreshQueued = true;
+        return;
+      }
+      if (sessionIdentity() !== identity || !identity) return;
+      profileRefreshRunning = true;
+      try {
+        await getSessionJson("/api/me", { fresh: true });
+      } catch {
+        // Keep the last confirmed profile when the game is unavailable.
+      } finally {
+        profileRefreshRunning = false;
+        if (profileRefreshQueued) {
+          profileRefreshQueued = false;
+          scheduleProfileRefresh();
+        }
+      }
+    };
+    const scheduleProfileRefresh = () => {
+      if (!profileRefreshTimer)
+        profileRefreshTimer = setTimeout(refreshChangedProfile, 2000);
+    };
+    const onProfileRevision = (event) => {
+      if (sessionIdentity() !== identity || !identity) return;
+      const revision = event.detail;
+      if (!Number.isSafeInteger(revision) || revision < 0) return;
+      if (profileRevision !== null && revision > profileRevision)
+        scheduleProfileRefresh();
+      profileRevision = revision;
+    };
+    window.addEventListener("madhouse:profile-revision", onProfileRevision);
     const load = async () => {
       controller?.abort();
       controller = new AbortController();
@@ -79,7 +116,13 @@ export function usePlayerProfile() {
         return;
       }
       // Clear only for an account change; revalidation keeps the current view.
-      if (changed) setState(cachedState());
+      if (changed) {
+        profileRevision = null;
+        clearTimeout(profileRefreshTimer);
+        profileRefreshTimer = null;
+        profileRefreshQueued = false;
+        setState(cachedState());
+      }
       try {
         // The public account snapshot can be old even when it is returned with
         // a successful HTTP response. Revalidate it on mount and keep the
@@ -168,6 +211,11 @@ export function usePlayerProfile() {
     const unsubscribe = subscribeSession(load);
     return () => {
       controller?.abort();
+      clearTimeout(profileRefreshTimer);
+      window.removeEventListener(
+        "madhouse:profile-revision",
+        onProfileRevision,
+      );
       unsubscribe();
       unsubscribeData();
       unsubscribeWork();

@@ -162,6 +162,30 @@
   height: 1em;
 }
 
+.button-menu-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--space-16);
+  border-radius: 0;
+  text-align: start;
+}
+
+.button-menu-item:not(.button-warning) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.button-menu-item:not(.button-warning):hover:not(:disabled) {
+  background: var(--navigation-selected);
+}
+
+.button-menu-item--informational,
+.button-menu-item.button-menu-item--informational:hover:not(:disabled) {
+  cursor: default;
+  background: transparent;
+  transform: none;
+}
+
 .button-icon-copy {
   width: var(--control-height-md);
   min-width: var(--control-height-md);
@@ -328,6 +352,7 @@
 }
 
 .button-text-tag {
+  gap: var(--space-4);
   min-height: var(--space-24);
   padding: 0;
   border: 0;

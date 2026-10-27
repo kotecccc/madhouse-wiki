@@ -32,19 +32,67 @@
   background: var(--surface-page);
 }
 
-.base-card--glass-nav {
+.base-card--glass-nav,
+.base-card--glass-menu {
   --card-background: var(--navigation-glass-fallback);
   --card-border: var(--navigation-glass-border);
-  --card-padding: var(--navigation-glass-padding);
-  --card-radius: var(--space-32);
   border-color: var(--navigation-glass-border);
   background: var(--navigation-glass-fallback);
   box-shadow:
     var(--navigation-glass-shadow), var(--navigation-glass-inset-highlight);
 }
 
+.base-card--glass-nav {
+  --card-padding: var(--navigation-glass-padding);
+  --card-radius: var(--space-32);
+}
+
+.base-card--glass-menu {
+  --card-padding: 0;
+  --card-radius: var(--radius-card);
+}
+
+.base-card--glass-menu[data-motion="opening"] {
+  animation: glass-menu-enter var(--control-transition-duration)
+    var(--control-transition-easing) both;
+}
+
+.base-card--glass-menu[data-motion="closing"] {
+  animation: glass-menu-exit var(--control-transition-duration)
+    var(--control-transition-easing) both;
+}
+
+@keyframes glass-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-4));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glass-menu-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(var(--space-4));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .base-card--glass-menu[data-motion] {
+    animation: none;
+  }
+}
+
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .base-card--glass-nav {
+  .base-card--glass-nav,
+  .base-card--glass-menu {
     background: var(--navigation-glass-fallback);
     -webkit-backdrop-filter: blur(var(--navigation-glass-blur))
       saturate(var(--navigation-glass-saturation));
@@ -62,6 +110,12 @@
   color: var(--status-business);
   background: var(--control-warning-background);
   border-color: var(--status-business);
+}
+
+.base-card--toast-success {
+  --card-background: var(--toast-success-background);
+  --card-border: var(--status-completed);
+  box-shadow: var(--navigation-glass-shadow);
 }
 
 .base-card--toast-error {
@@ -151,6 +205,10 @@
 
 .base-card--target {
   border-color: var(--status-business);
+}
+
+.base-card--selected {
+  border-color: var(--status-active);
 }
 
 .base-card[role="button"] {

@@ -14,7 +14,9 @@
 }
 
 .ui-pill--2xs {
+  min-width: var(--space-16);
   min-height: var(--space-16);
+  justify-content: center;
   gap: var(--space-4);
   padding-inline: var(--space-4);
   font-size: var(--font-size-2xs);

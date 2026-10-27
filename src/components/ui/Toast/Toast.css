@@ -58,6 +58,10 @@
   animation: ui-toast-enter var(--control-transition-duration) ease-out both;
 }
 
+.ui-toast--closing {
+  animation: ui-toast-exit var(--control-transition-duration) ease-in both;
+}
+
 .ui-toast-content {
   display: flex;
   flex-direction: column;
@@ -73,6 +77,10 @@
   color: var(--status-business);
 }
 
+.ui-toast--success .ui-toast-icon {
+  color: var(--status-completed);
+}
+
 .ui-toast--error .ui-toast-icon {
   color: var(--red-bright);
 }
@@ -86,6 +94,13 @@
 }
 
 @media (max-width: 650px) {
+  .ui-toast-region:not(.ui-toast-region--anchored):not(
+      .ui-toast-region--floating
+    ) {
+    right: var(--page-gutter);
+    left: var(--page-gutter);
+  }
+
   .ui-toast {
     font-size: var(--font-size-xs);
   }
@@ -99,6 +114,17 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes ui-toast-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(var(--space-8));
   }
 }
 

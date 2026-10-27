@@ -21,7 +21,19 @@ async function automationRequest(method, path, body) {
     signal: AbortSignal.timeout(25000),
   });
   const value = await readAutomationResponse(response);
-  if (value.gameHealth) reportGameHealth(value.gameHealth);
+  if (value.gameHealth) {
+    reportGameHealth(value.gameHealth);
+    if (
+      typeof window !== "undefined" &&
+      Number.isSafeInteger(value.gameHealth.profileRevision)
+    )
+      window.dispatchEvent(
+        new CustomEvent("madhouse:profile-revision", {
+          detail: value.gameHealth.profileRevision,
+        }),
+      );
+  }
+
   if (!response.ok) {
     const error = new Error(
       value.error === "game_unavailable_actions_paused"

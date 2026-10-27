@@ -1,3 +1,5 @@
+import { AccountSummary } from "../../components/layout/SiteHeader/AccountSummary.jsx";
+import { Toast } from "../../components/ui/Toast/Toast.jsx";
 import { FriendsSection } from "../../features/friends/FriendsSection.jsx";
 import { ToastTargetContext } from "../../components/ui/Toast/ToastContext.jsx";
 import {
@@ -74,6 +76,8 @@ export function App() {
       : activeScreen;
   const [departmentState, setDepartmentState] = useState(null);
   const [floorContentLoading, setFloorContentLoading] = useState(false);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryNotice, setInventoryNotice] = useState(null);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
   const [inventoryRefresh, setInventoryRefresh] = useState(0);
@@ -258,15 +262,24 @@ export function App() {
   return (
     <ToastTargetContext.Provider value={toastTarget}>
       <div className="site-shell">
-        <SiteHeader
-          loading={
-            refreshing ||
-            profileState.status === "loading" ||
-            floorAvailability.status === "loading" ||
-            floorContentLoading ||
-            raidSchedule.status === "loading"
-          }
-        />
+        <div className="site-header-group">
+          <SiteHeader
+            loading={
+              refreshing ||
+              profileState.status === "loading" ||
+              floorAvailability.status === "loading" ||
+              floorContentLoading ||
+              inventoryLoading ||
+              raidSchedule.status === "loading"
+            }
+          />
+          {authenticated && (
+            <AccountSummary
+              key={profileState.profile?.playerId ?? "loading"}
+              profile={profileState.profile}
+            />
+          )}
+        </div>
         <div
           className="app-scroll-region"
           ref={scrollRegionRef}
@@ -366,6 +379,8 @@ export function App() {
                   dirtyPaths={inventoryDirty}
                   playerLevel={profileState.profile?.playerLevel}
                   refreshGeneration={inventoryRefresh}
+                  onNotice={setInventoryNotice}
+                  onLoadingChange={setInventoryLoading}
                 />
               </div>
             )}
@@ -375,7 +390,17 @@ export function App() {
           </SiteFooter>
         </div>
         <BottomDock toastRef={setToastTarget}>
-          <GameHealthWarningBanner />
+          {inventoryNotice ? (
+            <Toast
+              urgent
+              title="Ошибка"
+              onDismiss={() => setInventoryNotice(null)}
+            >
+              {inventoryNotice.message}
+            </Toast>
+          ) : (
+            <GameHealthWarningBanner />
+          )}
           <ActiveBattleControl>
             <MobileNavigation
               activeScreen={visibleScreen}

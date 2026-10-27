@@ -105,7 +105,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
   });
   try {
     const load = (path) => server.ssrLoadModule(`/src/${path}`);
-    const { RaidPost } = await load("features/raids/RaidPost/RaidPost.jsx");
+    const { RaidPost, RaidFriendAction } = await load(
+      "features/raids/RaidPost/RaidPost.jsx",
+    );
     const friendRaid = {
       raids: [{ boss: "Тестовый босс", leader: "@alice" }],
       raidDateLabel: "сегодня",
@@ -121,14 +123,47 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
           },
         }),
       );
-    assert.match(renderFriendRaid("none"), /Добавить ведущего в друзья/);
-    assert.match(renderFriendRaid("pending"), /Заявка отправлена/);
-    assert.match(renderFriendRaid("friend"), /В друзьях/);
+    assert.match(
+      renderFriendRaid("none"),
+      /aria-label="Действия: Тестовый босс"/,
+    );
+    const renderFriendAction = (friendStatus) =>
+      renderToStaticMarkup(
+        createElement(RaidFriendAction, {
+          authenticated: true,
+          friendStatus,
+          friendTarget: { username: "alice" },
+        }),
+      );
+    assert.match(renderFriendAction("none"), /Добавить ведущего в друзья/);
+    assert.match(renderFriendAction("pending"), /Заявка отправлена/);
+    assert.match(renderFriendAction("friend"), /В друзьях/);
     assert.doesNotMatch(
-      renderFriendRaid("friend"),
+      renderFriendAction("friend"),
       /Добавить ведущего в друзья/,
     );
-    assert.match(renderFriendRaid("uncertain"), /Проверить заявку в друзья/);
+    assert.match(renderFriendAction("uncertain"), /Проверить заявку в друзья/);
+    const { bossMenuRows } = await load(
+      "features/bosses/BossCard/BossCardView.jsx",
+    );
+    const { Button } = await load("components/ui/Button/Button.jsx");
+    const events = [];
+    const rows = bossMenuRows(
+      createElement(Button, {
+        icon: "user-plus",
+        "aria-label": "Добавить ведущего в друзья",
+        onClick: () => events.push("action"),
+      }),
+      () => events.push("close"),
+    );
+    assert.match(renderToStaticMarkup(rows[0]), /Добавить ведущего в друзья/);
+    rows[0].props.onClick({});
+    assert.deepEqual(events, ["close", "action"]);
+    const disabledRows = bossMenuRows(
+      createElement(Button, { disabled: true, "aria-label": "Ожидание" }),
+      () => {},
+    );
+    assert.equal(disabledRows[0].props.disabled, true);
     const { businessStatesFromFloorInfo } = await load(
       "features/floors/useDepartmentAvailability.js",
     );
@@ -447,7 +482,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!renderBossLevel(15).includes("<s>"));
     assert.ok(!renderBossLevel(null).includes("<s>"));
     assert.ok(!overlevelBossMarkup.includes("Предел награды"));
-    assert.ok(overlevelBossMarkup.includes('class="boss-card-actions"'));
+    assert.match(overlevelBossMarkup, /aria-label="Действия: [^"]+"/);
     assert.ok(renderBossLevel(6).includes("Нужен 7 уровень"));
     assert.ok(!renderBossLevel(15).includes("Переросли"));
     assert.ok(!renderBossLevel(null).includes("boss-level-status"));
@@ -546,9 +581,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       lockedBossMarkup.includes('class="lock-indicator lock-indicator--locked'),
     );
     assert.ok(!lockedBossMarkup.includes('aria-label="Бой: Тестовый босс"'));
-    // The battle button itself is client-authenticated; SSR verifies its action branch.
+    // Menu actions are only rendered after the card is activated.
     assert.ok(!lockedBossMarkup.includes('class="boss-card-actions"'));
-    assert.ok(floorBossMarkup.includes('class="boss-card-actions"'));
+    assert.match(floorBossMarkup, /aria-label="Действия: [^"]+"/);
 
     const { departmentById } = await load("model/knowledge-base.js");
     const { FloorDepartmentContent } = await load(

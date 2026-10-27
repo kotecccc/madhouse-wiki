@@ -13,7 +13,18 @@ import { BossBattleStatus } from "./BossBattleStatus.jsx";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { bossDisplayFields } from "../../../lib/card-display-fields.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
-import { useRef, useState, useSyncExternalStore } from "react";
+import {
+  Children,
+  Fragment,
+  isValidElement,
+  useContext,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { CardEditingContext } from "../../../components/ui/CardEditing/CardEditing.jsx";
+import { CardActionMenu } from "../../../components/ui/CardActionMenu/CardActionMenu.jsx";
+import { MenuItem } from "../../../components/ui/MenuItem/MenuItem.jsx";
 import { useBossRewardReference } from "../useBossRewardReference.js";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { ItemCard } from "../../items/ItemCard/ItemCard.jsx";
@@ -42,6 +53,36 @@ const spacingSizes = new Set([
 ]);
 const spacingValue = (size) =>
   spacingSizes.has(String(size)) ? `var(--space-${size})` : undefined;
+
+export function bossMenuRows(nodes, closeMenu) {
+  return Children.toArray(nodes).flatMap((child) => {
+    if (!isValidElement(child)) return [];
+    if (child.type === Fragment)
+      return bossMenuRows(child.props.children, closeMenu);
+    if (child.type !== Button) return [child];
+    const {
+      onClick,
+      disabled,
+      icon,
+      title,
+      children,
+      "aria-label": ariaLabel,
+    } = child.props;
+    return [
+      <MenuItem
+        key={child.key}
+        icon={icon}
+        disabled={disabled}
+        onClick={(event) => {
+          closeMenu();
+          onClick?.(event);
+        }}
+      >
+        {ariaLabel || title || children}
+      </MenuItem>,
+    ];
+  });
+}
 
 export function BossCardView({
   boss,
@@ -93,6 +134,23 @@ export function BossCardView({
   raid,
 }) {
   const cardRef = useRef(null);
+  const editing = useContext(CardEditingContext);
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuEnabled =
+    !onSelectPart &&
+    !editing &&
+    !action &&
+    (showBattleAction || Boolean(raid) || action === undefined);
+  function finishMenu() {
+    setMenuAnchor(null);
+    setMenuClosing(false);
+  }
+  function closeMenu() {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+      finishMenu();
+    else setMenuClosing(true);
+  }
   const referenceBoss = useBossRewardReference(boss, cardRef);
   const sessionReady = useSyncExternalStore(
     subscribeSession,
@@ -101,7 +159,11 @@ export function BossCardView({
   );
   const { mobile, cardProps: mobileActionProps } = useMobileCardAction({
     enabled:
-      mobileBattleAction && showBattleAction && !onSelectPart && sessionReady,
+      mobileBattleAction &&
+      showBattleAction &&
+      !onSelectPart &&
+      sessionReady &&
+      !menuEnabled,
     label: `Бой: ${boss.name}`,
     onActivate: () => {
       if (readSession().status === "ready")
@@ -213,7 +275,7 @@ export function BossCardView({
       editKey="card"
       as={as}
       variant={cardVariant}
-      state={cardState}
+      state={menuAnchor ? "selected" : cardState}
       padding={cardPadding}
       className={cardClass}
       tabIndex={onSelectPart ? 0 : undefined}
@@ -240,6 +302,33 @@ export function BossCardView({
       }
       {...editableTargetProps(Boolean(onSelectPart), cardClass)}
       {...mobileActionProps}
+      {...(menuEnabled
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-haspopup": "dialog",
+            "aria-expanded": Boolean(menuAnchor),
+            "aria-label": `Действия: ${boss.name}`,
+            onClick: (event) => {
+              const interactive = event.target.closest?.(
+                "button, a, input, select, textarea, summary, dialog, [role=button], [role=dialog]",
+              );
+              if (interactive && interactive !== event.currentTarget) return;
+              if (menuAnchor) closeMenu();
+              else setMenuAnchor(event.currentTarget);
+            },
+            onKeyDown: (event) => {
+              if (
+                event.target !== event.currentTarget ||
+                !["Enter", " "].includes(event.key)
+              )
+                return;
+              event.preventDefault();
+              if (menuAnchor) closeMenu();
+              else setMenuAnchor(event.currentTarget);
+            },
+          }
+        : {})}
       style={{
         "--boss-portrait-height": `${portraitHeight}px`,
         ...(outerGap ? { gap: outerGap } : {}),
@@ -364,24 +453,63 @@ export function BossCardView({
             </CardDescription>
           ))}
       </EditableLayout>
-      {mobileBattleAction &&
-      mobile &&
-      !onSelectPart ? null : (showBattleAction || goalAction) &&
-        !onSelectPart ? (
-        <div className="boss-card-actions">
-          {showBattleAction && (
-            <BossBattleButton
-              boss={referenceBoss}
-              size={actionSize}
-              openingRequirements={openingRequirements}
-            />
+      {menuEnabled && menuAnchor && (
+        <CardActionMenu
+          anchor={menuAnchor}
+          label={`Действия: ${boss.name}`}
+          onClose={closeMenu}
+          closing={menuClosing}
+          onClosed={finishMenu}
+        >
+          {showBattleAction && sessionReady && (
+            <MenuItem
+              icon="combat"
+              onClick={() => {
+                closeMenu();
+                openBossBattle(referenceBoss, openingRequirements);
+              }}
+            >
+              Бой
+            </MenuItem>
           )}
-          {dropAction}
-          {goalAction}
-        </div>
-      ) : (
-        dropAction
+          {(action !== false || raid) && (
+            <MenuItem
+              icon="loot"
+              onClick={() => {
+                closeMenu();
+                trackProductEvent("boss_details_open", {
+                  section: raid ? "raids" : "bosses",
+                  feature: "boss_drops",
+                  subject: boss.id,
+                });
+                setShowDrops(true);
+              }}
+            >
+              {actionText}
+            </MenuItem>
+          )}
+          {bossMenuRows(goalAction, closeMenu)}
+        </CardActionMenu>
       )}
+      {!menuEnabled &&
+        (mobileBattleAction &&
+        mobile &&
+        !onSelectPart ? null : (showBattleAction || goalAction) &&
+          !onSelectPart ? (
+          <div className="boss-card-actions">
+            {showBattleAction && (
+              <BossBattleButton
+                boss={referenceBoss}
+                size={actionSize}
+                openingRequirements={openingRequirements}
+              />
+            )}
+            {dropAction}
+            {goalAction}
+          </div>
+        ) : (
+          dropAction
+        ))}
       {showDrops && (
         <Modal
           title={`Дроп: ${boss.name}`}

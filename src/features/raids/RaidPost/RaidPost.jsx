@@ -5,6 +5,67 @@ import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { combineRaids, raidFriendKey, raidFriendTarget } from "../raid-list.js";
 import "./RaidPost.css";
 
+export function RaidFriendAction({
+  archive,
+  authenticated,
+  friendTarget,
+  friendStatus,
+  pending,
+  onRequestFriend,
+  onInspectFriend,
+  onRefreshFriend,
+}) {
+  return !archive &&
+    authenticated &&
+    friendTarget &&
+    friendStatus === "none" ? (
+    <Button
+      size="sm"
+      icon="user-plus"
+      iconOnly
+      title="Добавить ведущего в друзья"
+      aria-label="Добавить ведущего в друзья"
+      disabled={pending}
+      onClick={() => onRequestFriend?.(friendTarget)}
+    />
+  ) : !archive &&
+    authenticated &&
+    friendTarget &&
+    friendStatus === "unknown" ? (
+    <Button
+      size="sm"
+      icon="user-plus"
+      iconOnly
+      title="Проверить ведущего"
+      aria-label="Проверить ведущего"
+      disabled={pending}
+      onClick={() => onInspectFriend?.(friendTarget)}
+    />
+  ) : !archive && authenticated && friendStatus === "pending" ? (
+    <Pill variant="unknown" size="xs" dot={false}>
+      Заявка отправлена
+    </Pill>
+  ) : !archive && authenticated && friendStatus === "incoming" ? (
+    <Pill variant="unknown" size="xs" dot={false}>
+      Входящая заявка
+    </Pill>
+  ) : !archive && authenticated && friendStatus === "friend" ? (
+    <Pill variant="unknown" size="xs" dot={false}>
+      В друзьях
+    </Pill>
+  ) : !archive && authenticated && friendStatus === "uncertain" ? (
+    <Button
+      size="sm"
+      icon="refresh"
+      iconOnly
+      title="Проверить заявку в друзья"
+      aria-label="Проверить заявку в друзья"
+      disabled={pending}
+      onClick={() => onRefreshFriend?.()}
+    />
+  ) : null;
+}
+
 export function RaidPost({
   post,
   archive = false,
@@ -75,56 +136,16 @@ export function RaidPost({
           const friendTarget = raidFriendTarget(raid, candidate);
           const friendStatus =
             subscriptionState?.friend?.statuses?.[raidFriendKey(friendTarget)];
-          const friendAction =
-            !archive &&
-            authenticated &&
-            friendTarget &&
-            friendStatus === "none" ? (
-              <Button
-                size="sm"
-                icon="user-plus"
-                iconOnly
-                title="Добавить ведущего в друзья"
-                aria-label="Добавить ведущего в друзья"
-                disabled={subscriptionState?.pending}
-                onClick={() => onRequestFriend?.(friendTarget)}
-              />
-            ) : !archive &&
-              authenticated &&
-              friendTarget &&
-              friendStatus === "unknown" ? (
-              <Button
-                size="sm"
-                icon="user-plus"
-                iconOnly
-                title="Проверить ведущего"
-                aria-label="Проверить ведущего"
-                disabled={subscriptionState?.pending}
-                onClick={() => onInspectFriend?.(friendTarget)}
-              />
-            ) : !archive && authenticated && friendStatus === "pending" ? (
-              <Pill variant="unknown" size="xs" dot={false}>
-                Заявка отправлена
-              </Pill>
-            ) : !archive && authenticated && friendStatus === "incoming" ? (
-              <Pill variant="unknown" size="xs" dot={false}>
-                Входящая заявка
-              </Pill>
-            ) : !archive && authenticated && friendStatus === "friend" ? (
-              <Pill variant="unknown" size="xs" dot={false}>
-                В друзьях
-              </Pill>
-            ) : !archive && authenticated && friendStatus === "uncertain" ? (
-              <Button
-                size="sm"
-                icon="refresh"
-                iconOnly
-                title="Проверить заявку в друзья"
-                aria-label="Проверить заявку в друзья"
-                disabled={subscriptionState?.pending}
-                onClick={() => onRefreshFriend?.()}
-              />
-            ) : null;
+          const friendAction = RaidFriendAction({
+            archive,
+            authenticated,
+            friendTarget,
+            friendStatus,
+            pending: subscriptionState?.pending,
+            onRequestFriend,
+            onInspectFriend,
+            onRefreshFriend,
+          });
           const action =
             !archive && authenticated ? (
               <Button

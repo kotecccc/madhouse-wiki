@@ -63,3 +63,24 @@ test("reports whether reconciliation failed at the command or later read", async
     );
   }
 });
+
+test("checking an action error only unlocks controls when the server confirms no pending action", async () => {
+  const { inventoryNeedsCheck } = await import("./equipment.js");
+  assert.equal(
+    await inventoryNeedsCheck(async () => ({ equipment: { pending: null } })),
+    false,
+  );
+  assert.equal(
+    await inventoryNeedsCheck(async () => ({
+      equipment: { pending: { id: "pending" } },
+    })),
+    true,
+  );
+  assert.equal(await inventoryNeedsCheck(async () => ({})), true);
+  assert.equal(
+    await inventoryNeedsCheck(async () => {
+      throw new Error("offline");
+    }),
+    true,
+  );
+});

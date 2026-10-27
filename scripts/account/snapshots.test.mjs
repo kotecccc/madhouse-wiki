@@ -756,10 +756,12 @@ test("successful mutations invalidate cached sections and partial failures do no
     false,
   );
   await snapshots.read(`${origin}/api/weapons/1`, auth("a"));
+  assert.equal(snapshots.health("Bearer a").profileRevision, 0);
   await snapshots.liveFetch(`${origin}/api/shop/buy`, {
     ...auth("a"),
     method: "POST",
   });
+  assert.equal(snapshots.health("Bearer a").profileRevision, 1);
   assert.deepEqual(
     await payload(await snapshots.read(`${origin}/api/weapons/1`, auth("a"))),
     { owned: true },

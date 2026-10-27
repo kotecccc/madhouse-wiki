@@ -288,7 +288,7 @@ test("battle header contains countdown, hides automation manual controls and kee
     assert.ok(goalMarkup.includes("tabler-icon-infinity-2"));
     assert.ok(
       goalMarkup.indexOf("tabler-icon-infinity-2") <
-        goalMarkup.indexOf(">1 ч</button>"),
+        goalMarkup.indexOf(">1 ч</span>"),
     );
     assert.ok(!goalMarkup.includes("Остановить цель"));
     assert.ok(!progressMarkup.includes('aria-label="Прогресс цели"'));

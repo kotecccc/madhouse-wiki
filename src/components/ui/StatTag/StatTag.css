@@ -1,0 +1,15 @@
+.button.stat-tag--compact {
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 505px) {
+  .button.stat-tag--responsive-compact {
+    font-size: var(--font-size-xs);
+  }
+}
+
+@media (max-width: 455px) {
+  .button.stat-tag--responsive-compact {
+    font-size: var(--font-size-2xs);
+  }
+}

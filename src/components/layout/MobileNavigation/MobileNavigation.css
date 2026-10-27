@@ -26,12 +26,12 @@
   }
 }
 
-.mobile-navigation-tab {
-  position: relative;
-}
-
 .mobile-navigation-count {
   position: absolute;
-  inset-block-start: var(--space-4);
-  inset-inline-end: var(--space-8);
+  top: var(--space-8);
+  right: var(--space-12);
+}
+
+.mobile-navigation-tab {
+  position: relative;
 }

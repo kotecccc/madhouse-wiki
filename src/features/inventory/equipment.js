@@ -62,3 +62,16 @@ export function sendEquipmentCommand(options) {
     action: options.item?.equipped ? "unequip" : "equip",
   });
 }
+
+export async function inventoryNeedsCheck(get) {
+  try {
+    const state = await get("/api/automation/state", {
+      fresh: true,
+      revalidate: false,
+    });
+    if (!state.equipment || !("pending" in state.equipment)) return true;
+    return Boolean(state.equipment.pending);
+  } catch {
+    return true;
+  }
+}

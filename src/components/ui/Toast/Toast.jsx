@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../Icon/Icon.jsx";
 import { ToastTargetContext } from "./ToastContext.jsx";
@@ -11,9 +11,30 @@ export function Toast({
   onDismiss,
   floating = false,
   urgent = false,
+  success = false,
   action,
+  title,
+  icon,
 }) {
   const target = useContext(ToastTargetContext);
+  const dismissRef = useRef(onDismiss);
+  const [closing, setClosing] = useState(false);
+  const close = useCallback(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      dismissRef.current?.();
+      return;
+    }
+    setClosing(true);
+  }, []);
+  useEffect(() => {
+    dismissRef.current = onDismiss;
+  }, [onDismiss]);
+  useEffect(() => {
+    if (!success || urgent) return;
+    const timer = setTimeout(close, 2000);
+    return () => clearTimeout(timer);
+  }, [success, urgent, children, title, close]);
+  const tone = urgent ? "error" : success ? "success" : "warning";
   const content = (
     <div
       className={`ui-toast-region${floating ? (target ? " ui-toast-region--anchored" : " ui-toast-region--floating") : ""}`}
@@ -22,18 +43,30 @@ export function Toast({
       aria-atomic="true"
     >
       <BaseCard
-        className={`ui-toast ui-toast--${urgent ? "error" : "warning"}`}
-        variant={urgent ? "toast-error" : "warning"}
+        className={`ui-toast ui-toast--${tone}${closing ? " ui-toast--closing" : ""}`}
+        onAnimationEnd={(event) => {
+          if (
+            closing &&
+            event.target === event.currentTarget &&
+            event.animationName === "ui-toast-exit"
+          )
+            dismissRef.current?.();
+        }}
+        variant={tone === "warning" ? "warning" : `toast-${tone}`}
         padding="12"
       >
         <span className="ui-toast-icon">
-          <Icon type="warning" size="large" tone="inherit" />
+          <Icon
+            type={icon || (success ? "check" : "warning")}
+            size="large"
+            tone="inherit"
+          />
         </span>
         <div className="ui-toast-content">
           <strong className="ui-toast-title">
-            {urgent ? "Ошибка" : "Внимание"}
+            {title || (urgent ? "Ошибка" : "Внимание")}
           </strong>
-          <div className="ui-toast-message">{children}</div>
+          {children && <div className="ui-toast-message">{children}</div>}
           {action && <div className="ui-toast-action">{action}</div>}
         </div>
         <Button
@@ -43,7 +76,7 @@ export function Toast({
           icon="close"
           iconOnly
           aria-label="Закрыть уведомление"
-          onClick={onDismiss}
+          onClick={close}
         />
       </BaseCard>
     </div>

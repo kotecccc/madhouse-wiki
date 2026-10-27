@@ -1,5 +1,8 @@
-import { ErrorToast } from "../../components/ui/ErrorToast/ErrorToast.jsx";
-import { sendInventoryCommand } from "./equipment.js";
+import { inventoryNeedsCheck, sendInventoryCommand } from "./equipment.js";
+import { InventoryVirtualCard } from "./InventoryVirtualCard.jsx";
+import { InventoryLoadMore } from "./InventoryLoadMore.jsx";
+import { inventoryHeaderLoading } from "./loading-state.js";
+import { Skeleton } from "../../components/ui/Skeleton/Skeleton.jsx";
 import { Dialog } from "../../components/ui/Dialog/Dialog.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
@@ -29,7 +32,6 @@ import { Input } from "../../components/ui/Input/Input.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
-import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
 import { StatusMessage } from "../../components/ui/StatusMessage/StatusMessage.jsx";
 import "./InventorySection.css";
 
@@ -46,7 +48,7 @@ const initialFilters = {
   currency: "all",
   sort: "potential",
 };
-const PAGE_SIZE = 36;
+const PAGE_SIZE = 10;
 const SHOW_FILTERS = false;
 const SHOW_SUMMARY = false;
 
@@ -56,6 +58,8 @@ export function InventorySection({
   dirtyPaths = [],
   playerLevel,
   refreshGeneration = 0,
+  onNotice,
+  onLoadingChange,
 }) {
   const equipmentPending = useRef(false);
   const [equipmentState, setEquipmentState] = useState({
@@ -90,10 +94,11 @@ export function InventorySection({
         notice: refreshOnly ? "Экипировка проверена." : "Экипировка обновлена.",
       });
     } catch (error) {
-      setEquipmentState({
-        busy: false,
-        needsCheck: true,
-        notice: `Действие не подтверждено. Проверьте состояние перед новым действием.${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}${error.inventoryStage ? ` Этап: ${error.inventoryStage}.` : ""}`,
+      const needsCheck = await inventoryNeedsCheck(getSessionJson);
+      setEquipmentState({ busy: false, needsCheck, notice: null });
+      onNotice?.({
+        message: `${needsCheck ? "Действие не подтверждено. Проверьте состояние предмета перед новым действием." : "Не удалось выполнить действие. Если работает автоматизация, сначала остановите её."}${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}${error.inventoryStage ? ` Этап: ${error.inventoryStage}.` : ""}`,
+        success: false,
       });
     } finally {
       equipmentPending.current = false;
@@ -218,7 +223,12 @@ export function InventorySection({
   }, [active, pathKey, revision]);
   const items = inventoryItems(category, responses, references);
   const filtered = filterInventory(items, filters);
-  const loading = paths.some((path) => requestState[path] === "loading");
+  const loading =
+    paths.some((path) => ["pending", "loading"].includes(requestState[path])) ||
+    (active && paths.length > 0 && paths.some((path) => !requestState[path]));
+  useEffect(() => {
+    onLoadingChange?.(inventoryHeaderLoading(active, loading));
+  }, [active, loading, onLoadingChange]);
   const failed = paths.filter((path) => requestState[path] === "error").length;
   const loaded = paths.filter((path) => responses[path]).length;
   const categoryUpdatedAt =
@@ -278,6 +288,7 @@ export function InventorySection({
           <SegmentedControl
             label="Категория предметов"
             size="sm"
+            compactIcons
             className="inventory-category-control"
             options={inventoryCategoryOptions(responses, references)}
             value={category}
@@ -290,15 +301,6 @@ export function InventorySection({
           />
         </div>
       </div>
-      {equipmentState.needsCheck && (
-        <ErrorToast message={equipmentState.notice} />
-      )}
-      <Button
-        disabled={equipmentState.busy}
-        onClick={() => void equip(null, null, true)}
-      >
-        Проверить экипировку
-      </Button>
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">
           <Input
@@ -399,20 +401,20 @@ export function InventorySection({
         </div>
       )}
       {category === "ornament" && loading && (
+        <span className="sr-only" role="status" aria-live="polite">
+          Загрузка татуировок: обработано {processedTattooZones} из{" "}
+          {paths.length} зон.
+        </span>
+      )}
+      {loading && (category === "ornament" || !loaded) && (
         <div
-          className="inventory-tattoo-loading"
+          className="inventory-grid"
           role="status"
-          aria-live="polite"
+          aria-label="Загрузка инвентаря"
         >
-          <ProgressBar
-            value={processedTattooZones}
-            max={paths.length}
-            label="Загрузка татуировок"
-            valueText={`${processedTattooZones} из ${paths.length} зон`}
-          />
-          <CardDescription className="inventory-tattoo-loading-label">
-            Загружено {processedTattooZones} из {paths.length}
-          </CardDescription>
+          {Array.from({ length: 10 }, (_, id) => (
+            <Skeleton key={id} as="article" />
+          ))}
         </div>
       )}
       {!loading && !failed && !filtered.length && (
@@ -431,51 +433,57 @@ export function InventorySection({
           }
         />
       )}
-      <div className="inventory-groups" aria-busy={loading}>
-        {inventoryGroups.map((group) => {
-          const groupItems = filtered
-            .slice(0, limit)
-            .filter((item) => item.status === group.status);
-          if (!groupItems.length) return null;
-          return (
-            <section
-              className="inventory-group"
-              key={group.status}
-              aria-label={group.label}
-            >
-              <div className="inventory-group-heading">
-                <CardTitle as="h3">{group.label}</CardTitle>
-                <Pill
-                  size="2xs"
-                  dot={false}
-                  aria-label={`Всего в группе: ${filtered.filter((item) => item.status === group.status).length}`}
-                >
-                  {
-                    filtered.filter((item) => item.status === group.status)
-                      .length
-                  }
-                </Pill>
-              </div>
-              <div className="inventory-grid">
-                {groupItems.map((item) => (
-                  <InventoryItemCard
-                    key={`${item.type}:${item.id}`}
-                    item={item}
-                    onAction={equip}
-                    equipmentBusy={
-                      equipmentState.busy || equipmentState.needsCheck
+      {!(category === "ornament" && loading) && (
+        <div className="inventory-groups" aria-busy={loading}>
+          {inventoryGroups.map((group) => {
+            const groupItems = filtered
+              .slice(0, limit)
+              .filter((item) => item.status === group.status);
+            if (!groupItems.length) return null;
+            return (
+              <section
+                className="inventory-group"
+                key={group.status}
+                aria-label={group.label}
+              >
+                <div className="inventory-group-heading">
+                  <CardTitle as="h3">{group.label}</CardTitle>
+                  <Pill
+                    size="2xs"
+                    dot={false}
+                    aria-label={`Всего в группе: ${filtered.filter((item) => item.status === group.status).length}`}
+                  >
+                    {
+                      filtered.filter((item) => item.status === group.status)
+                        .length
                     }
-                  />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-      {filtered.length > limit && (
-        <Button onClick={() => setLimit((value) => value + PAGE_SIZE)}>
-          Показать ещё ({filtered.length - limit})
-        </Button>
+                  </Pill>
+                </div>
+                <div className="inventory-grid">
+                  {groupItems.map((item) => (
+                    <InventoryVirtualCard
+                      key={`${item.type}:${item.id}`}
+                      item={item}
+                      onAction={equip}
+                      equipmentBusy={
+                        equipmentState.busy || equipmentState.needsCheck
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+      {!(category === "ornament" && loading) && filtered.length > limit && (
+        <InventoryLoadMore
+          active={active}
+          remaining={filtered.length - limit}
+          onLoad={() =>
+            setLimit((value) => Math.min(value + PAGE_SIZE, filtered.length))
+          }
+        />
       )}
     </section>
   );

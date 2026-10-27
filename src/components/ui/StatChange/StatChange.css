@@ -1,0 +1,64 @@
+.stat-change {
+  position: fixed;
+  z-index: 1000;
+  transform: translateX(-50%);
+  color: var(--status-completed);
+  font-size: var(--font-size-sm);
+  font-family: var(--sans);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--card-line-height);
+  pointer-events: none;
+  animation: stat-change-increase var(--skeleton-animation-duration) ease-out
+    both;
+}
+
+.stat-change--negative {
+  color: var(--red-bright);
+  animation-name: stat-change-decrease;
+}
+
+@keyframes stat-change-increase {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, var(--space-16));
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -100%);
+  }
+}
+
+@keyframes stat-change-decrease {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -100%);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, var(--space-16));
+  }
+}
+
+@media (max-width: 505px) {
+  .stat-change--responsive-compact {
+    font-size: var(--font-size-xs);
+  }
+}
+
+@media (max-width: 455px) {
+  .stat-change--responsive-compact {
+    font-size: var(--font-size-2xs);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-change {
+    animation: none;
+  }
+}

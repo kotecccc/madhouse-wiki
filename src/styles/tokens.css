@@ -86,6 +86,11 @@
   --status-active: #80b8ed;
   --status-completed: #73c993;
   --status-business: #d2ad58;
+  --toast-success-background: color-mix(
+    in srgb,
+    var(--status-completed) 10%,
+    var(--surface-raised)
+  );
   --control-warning-background: color-mix(
     in srgb,
     var(--status-business) 10%,
