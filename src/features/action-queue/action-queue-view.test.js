@@ -166,7 +166,7 @@ test("paused work exposes resume and stopped uncertain work stays visible", () =
   assert.equal(stopped[0].command, null);
 });
 
-test("work progress uses confirmed cycles and does not guess an unresolved target", () => {
+test("work progress reflects the current run and does not guess an unresolved target", () => {
   const run = {
     workId: 1,
     status: "running",
@@ -174,13 +174,27 @@ test("work progress uses confirmed cycles and does not guess an unresolved targe
     targetCycles: 5,
     queuedCycles: null,
     phase: "queued",
+    energySpent: 12,
+    config: { mode: "wait" },
   };
-  let card = actionQueueCards({ workFarm: { run } })[0];
-  assert.deepEqual(card.progress, { value: 2, max: 5 });
+  const view = {
+    workId: 1,
+    completedCycles: 2,
+    tasks: [{ required: 2, progress: 1, energyCost: 10 }],
+  };
+  let card = actionQueueCards({ workFarm: { run, view } })[0];
+  assert.deepEqual(card.progress, { value: 12, max: 62 });
   assert.equal(card.status, "Ожидает другие действия");
   run.queuedCycles = 3;
+  card = actionQueueCards({ workFarm: { run, view } })[0];
+  assert.equal(card.progress, null);
+  run.queuedCycles = null;
   card = actionQueueCards({ workFarm: { run } })[0];
   assert.equal(card.progress, null);
+  assert.equal(
+    actionQueueCards({ workFarm: { run: { status: "running" } } })[0].progress,
+    null,
+  );
 });
 
 test("paused autobattle exposes resume while its goal remains visible", () => {

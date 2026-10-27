@@ -1,3 +1,5 @@
+import { workFarmProgress } from "../works/WorkFarm/work-farm-presentation.js";
+
 const visible = new Set([
   "queued",
   "waiting",
@@ -188,6 +190,13 @@ export function actionQueueCards(state, catalogue = {}) {
         (item) =>
           Number(item.workId ?? item.numericId ?? item.apiId) === work.workId,
       );
+      const view = state.workFarm?.view;
+      const progress =
+        work.queuedCycles == null &&
+        (work.config?.mode === "energy" ||
+          (view && view.workId === work.workId && Array.isArray(view.tasks)))
+          ? workFarmProgress(work, view)
+          : null;
       addActor(
         "work",
         ref?.title ||
@@ -205,11 +214,8 @@ export function actionQueueCards(state, catalogue = {}) {
               : work.phase === "queued"
                 ? "Ожидает другие действия"
                 : null,
-        work.queuedCycles == null &&
-          Number.isFinite(work.completedCycles) &&
-          Number.isFinite(work.targetCycles) &&
-          work.targetCycles > 0
-          ? { value: work.completedCycles, max: work.targetCycles }
+        progress?.max != null
+          ? { value: progress.value, max: progress.max }
           : null,
         ref?.image,
       );
