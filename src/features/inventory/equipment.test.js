@@ -30,17 +30,20 @@ test("equipment client sends one versioned command and reads confirmed inventory
   assert.ok(calls.includes("/api/clothing/by-category/1"));
   assert.equal(calls.at(-1), "/api/me");
 });
-test("uncertain state is never automatically resubmitted", async () => {
-  let posts = 0;
-  await assert.rejects(
-    sendEquipmentCommand({
-      get: async () => ({ equipment: { pending: {} } }),
-      post: async () => posts++,
-      item: { id: "1" },
-    }),
-    /inventory_pending/,
-  );
-  assert.equal(posts, 0);
+test("new user action reaches server even when a previous operation is pending", async () => {
+  const commands = [];
+  await sendEquipmentCommand({
+    get: async () => ({ version: 3, equipment: { pending: { id: "old" } } }),
+    post: async (_path, body) => {
+      commands.push(body);
+      return { equipment: { pending: null, paths: [] } };
+    },
+    item: { id: "1" },
+    makeId: () => "new-command",
+  });
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].id, "new-command");
+  assert.equal(commands[0].command, "inventory.action");
 });
 test("reports whether reconciliation failed at the command or later read", async () => {
   for (const stage of ["command", "inventory"]) {

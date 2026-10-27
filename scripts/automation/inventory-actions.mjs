@@ -159,7 +159,14 @@ export async function inventoryAction({
   if (refreshOnly) {
     entry.equipment = { pending: null, checked: true, paths: [current.path] };
     save(entry);
-    return;
+    return {
+      item:
+        current.items.find(
+          (item) =>
+            inventoryEntityId(type, item) ===
+            (pending?.entityId ?? pending?.weaponId),
+        ) ?? null,
+    };
   }
   const item = current.items.find(
     (item) => inventoryEntityId(type, item) === args.id,

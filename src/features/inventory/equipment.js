@@ -22,8 +22,6 @@ export async function sendInventoryCommand({
       revalidate: false,
     }),
   );
-  if (!refreshOnly && state.equipment?.pending)
-    throw new Error("inventory_pending");
   const price =
     action === "repair"
       ? { currency: "pills", amount: item?.repairCost }

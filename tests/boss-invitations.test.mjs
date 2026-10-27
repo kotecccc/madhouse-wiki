@@ -652,6 +652,63 @@ const raidSettings = {
   durationHours: 1,
 };
 
+test("combat starts reconcile a pending inventory action without replaying the purchase", async (t) => {
+  for (const command of ["auto.start", "raid.start"]) {
+    await t.test(command, async () => {
+      const directory = mkdtempSync(
+        join(tmpdir(), "combat-inventory-reconcile-"),
+      );
+      const ctx = setup(directory, {
+        extraRoute: (path, method) =>
+          path === "/api/clothing" && method === "GET"
+            ? Response.json({
+                catalog: { sets: [{ items: [{ id: 220, owned: true }] }] },
+              })
+            : null,
+      });
+      try {
+        const entry = await ctx.service.identify(token);
+        await entry.controller.open({ numericId: 7, name: "Boss 7" });
+        entry.equipment = {
+          pending: {
+            type: "clothing_item",
+            entityId: 220,
+            action: "buy",
+            id: "old-buy",
+          },
+          checked: false,
+        };
+        const result = await issue(
+          ctx.service,
+          entry,
+          `start-${command.replace(".", "-")}-test`,
+          command,
+          { settings: raidSettings },
+        );
+        assert.equal(result.equipment.pending, null);
+        assert.ok(
+          ctx.calls.some(
+            (call) => call.method === "GET" && call.path === "/api/clothing",
+          ),
+        );
+        assert.equal(
+          ctx.calls.filter(
+            (call) => call.method === "POST" && call.path.includes("/buy"),
+          ).length,
+          0,
+        );
+        assert.equal(
+          command === "auto.start" ? result.auto.enabled : result.raid.enabled,
+          true,
+        );
+      } finally {
+        ctx.close();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 test("floor mode accepts an invitation using the durable raid checkpoint", async () => {
   const directory = mkdtempSync(join(tmpdir(), "floor-raid-service-"));
   const ctx = setup(directory, {
@@ -952,7 +1009,13 @@ test("subscription persists and suspends an existing raid before an uncertain jo
       1,
     );
     ctx.close();
-    ctx = setup(directory, { invitations });
+    ctx = setup(directory, {
+      invitations,
+      extraRoute: (path, method) =>
+        path === "/api/clothing/by-category/1" && method === "GET"
+          ? Response.json({ items: [] })
+          : null,
+    });
     await ctx.service.boot();
     entry = await ctx.service.identify(token);
     await entry.raidSubscription.tick();
@@ -962,6 +1025,25 @@ test("subscription persists and suspends an existing raid before an uncertain jo
       issue(ctx.service, entry, "subscribe-block-01", "raid.stop"),
       /subscription_controls_automation/,
     );
+    await assert.rejects(
+      issue(ctx.service, entry, "inventory-buy-01", "inventory.action", {
+        type: "weapon",
+        id: 1,
+        action: "buy",
+        price: { currency: "gold", amount: 100 },
+      }),
+      /subscription_controls_automation/,
+    );
+    await issue(ctx.service, entry, "inventory-check-01", "inventory.refresh", {
+      type: "weapon",
+    });
+    assert.ok(
+      ctx.calls.some(
+        (call) =>
+          call.path === "/api/clothing/by-category/1" && call.method === "GET",
+      ),
+    );
+    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });

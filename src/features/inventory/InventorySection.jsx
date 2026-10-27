@@ -97,7 +97,7 @@ export function InventorySection({
       const needsCheck = await inventoryNeedsCheck(getSessionJson);
       setEquipmentState({ busy: false, needsCheck, notice: null });
       onNotice?.({
-        message: `${needsCheck ? "Действие не подтверждено. Проверьте состояние предмета перед новым действием." : "Не удалось выполнить действие. Если работает автоматизация, сначала остановите её."}${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}${error.inventoryStage ? ` Этап: ${error.inventoryStage}.` : ""}`,
+        message: `${needsCheck ? "Не удалось подтвердить действие. Попробуйте снова." : "Не удалось выполнить действие. Если работает автоматизация, сначала остановите её."}${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}${error.inventoryStage ? ` Этап: ${error.inventoryStage}.` : ""}`,
         success: false,
       });
     } finally {
@@ -465,9 +465,7 @@ export function InventorySection({
                       key={`${item.type}:${item.id}`}
                       item={item}
                       onAction={equip}
-                      equipmentBusy={
-                        equipmentState.busy || equipmentState.needsCheck
-                      }
+                      equipmentBusy={equipmentState.busy}
                     />
                   ))}
                 </div>

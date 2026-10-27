@@ -1798,6 +1798,7 @@ export function createAutomationService({
         "buddy.resolve",
         "invitations.refresh",
         "friends.reconcile",
+        "inventory.refresh",
         "character.upgrade",
         "character.start",
         "character.startAll",
@@ -1875,6 +1876,9 @@ export function createAutomationService({
       ![
         "equipment.refresh",
         "inventory.refresh",
+        "inventory.action",
+        "auto.start",
+        "raid.start",
         "character.upgrade",
         "character.start",
         "character.startAll",
@@ -1944,6 +1948,30 @@ export function createAutomationService({
     try {
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
+      let reconciledPurchase = false;
+      if (
+        entry.equipment?.pending &&
+        ["inventory.action", "auto.start", "raid.start"].includes(input.command)
+      ) {
+        const previous = entry.equipment.pending;
+        const reconciled = await inventoryAction({
+          entry,
+          args: {},
+          commandId: input.id,
+          refreshOnly: true,
+          fetcher,
+          save,
+          allowed: () => !closed && !entry.storageFailed,
+        });
+        reconciledPurchase =
+          input.command === "inventory.action" &&
+          args.action === "buy" &&
+          previous.action === "buy" &&
+          args.type === previous.type &&
+          args.id === previous.entityId &&
+          (args.zoneId ?? null) === (previous.zoneId ?? null) &&
+          reconciled.item?.owned === true;
+      }
       if (
         ["auto.stop", "goal.stop", "business.run.stop"].includes(
           input.command,
@@ -2432,6 +2460,7 @@ export function createAutomationService({
           break;
         case "inventory.action":
         case "inventory.refresh":
+          if (reconciledPurchase) break;
           await inventoryAction({
             entry,
             args,

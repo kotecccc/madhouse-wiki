@@ -165,6 +165,31 @@ test("explicit read-only reconciliation clears pending without a repeated mutati
   assert.deepEqual(ctx.entry.equipment.paths, ["/api/ornaments/zones/4"]);
   assert.equal(ctx.game.mutations().length, 1);
 });
+test("failed reconciliation keeps the pending purchase and never submits it again", async () => {
+  const ctx = context({ failMutation: true });
+  const args = {
+    type: "weapon",
+    id: 1,
+    action: "buy",
+    price: { amount: 100, currency: "gold" },
+  };
+  await assert.rejects(ctx.run(args));
+  const checkpoint = structuredClone(ctx.entry.equipment.pending);
+  await assert.rejects(
+    inventoryAction({
+      entry: ctx.entry,
+      args: { type: "weapon" },
+      commandId: "refresh123",
+      refreshOnly: true,
+      fetcher: async () => {
+        throw new Error("offline");
+      },
+      save: ctx.save,
+    }),
+  );
+  assert.deepEqual(ctx.entry.equipment.pending, checkpoint);
+  assert.equal(ctx.game.mutations().length, 1);
+});
 test("storage failures and stale snapshots cannot authorize inventory mutations", async () => {
   const stale = context({ stale: true });
   await assert.rejects(
@@ -191,4 +216,142 @@ test("storage failures and stale snapshots cannot authorize inventory mutations"
     /storage_unavailable/,
   );
   assert.equal(ctx.game.mutations().length, 0);
+});
+
+test("service reconciles an earlier purchase before a new inventory action without replaying it", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "inventory-auto-reconcile-"));
+  const game = inventoryGame({ owned: true });
+  const service = createAutomationService({
+    store: createAutomationStateStore({ directory }),
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 17 }),
+    getBoss: (id) => ({ numericId: id }),
+  });
+  try {
+    const entry = await service.identify("Bearer fake-token");
+    entry.equipment = {
+      pending: {
+        id: "old-purchase",
+        type: "weapon",
+        entityId: 1,
+        action: "buy",
+      },
+      checked: false,
+    };
+    const result = await service.command(entry, {
+      id: "new-equip-command",
+      expectedVersion: service.snapshot(entry).version,
+      command: "inventory.action",
+      args: { type: "weapon", id: 1, action: "equip" },
+    });
+    assert.equal(result.equipment.pending, null);
+    assert.deepEqual(
+      game.mutations().map((call) => [call.method, call.path]),
+      [["PUT", "/api/weapons/select"]],
+    );
+    assert.ok(
+      game.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path === "/api/clothing/by-category/1",
+      ).length >= 2,
+    );
+  } finally {
+    service.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a confirmed earlier purchase is not purchased again on the next click", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(
+    join(tmpdir(), "inventory-purchase-reconcile-"),
+  );
+  const game = inventoryGame({ owned: true });
+  const service = createAutomationService({
+    store: createAutomationStateStore({ directory }),
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 17 }),
+    getBoss: (id) => ({ numericId: id }),
+  });
+  try {
+    const entry = await service.identify("Bearer fake-token");
+    entry.equipment = {
+      pending: {
+        id: "old-command",
+        type: "weapon",
+        entityId: 1,
+        action: "buy",
+      },
+      checked: false,
+    };
+    const result = await service.command(entry, {
+      id: "new-buy-command",
+      expectedVersion: service.snapshot(entry).version,
+      command: "inventory.action",
+      args: {
+        type: "weapon",
+        id: 1,
+        action: "buy",
+        price: { currency: "gold", amount: 100 },
+      },
+    });
+    assert.equal(result.equipment.pending, null);
+    assert.equal(game.mutations().length, 0);
+  } finally {
+    service.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("new user action stops if the automatic fresh inventory read fails", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "inventory-offline-reconcile-"));
+  let mutations = 0;
+  const service = createAutomationService({
+    store: createAutomationStateStore({ directory }),
+    fetcher: async (_url, init = {}) => {
+      if (init.method && init.method !== "GET") mutations++;
+      throw new Error("offline");
+    },
+    identifyPlayer: async () => ({ playerId: 17 }),
+    getBoss: (id) => ({ numericId: id }),
+  });
+  try {
+    const entry = await service.identify("Bearer fake-token");
+    entry.equipment = {
+      pending: {
+        id: "old-command",
+        type: "weapon",
+        entityId: 1,
+        action: "buy",
+      },
+      checked: false,
+    };
+    await assert.rejects(
+      service.command(entry, {
+        id: "new-equip-command",
+        expectedVersion: service.snapshot(entry).version,
+        command: "inventory.action",
+        args: { type: "weapon", id: 1, action: "equip" },
+      }),
+    );
+    assert.equal(entry.equipment.pending.id, "old-command");
+    assert.equal(mutations, 0);
+  } finally {
+    service.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
