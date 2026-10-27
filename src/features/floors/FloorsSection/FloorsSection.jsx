@@ -44,6 +44,7 @@ export function FloorsSection({
     useState(null);
   const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
+  const [focusedEntityId, setFocusedEntityId] = useState(null);
   const [departmentFocusSequence, setDepartmentFocusSequence] = useState(0);
   const departmentRefs = useRef({});
   const floorGridRef = useRef(null);
@@ -77,6 +78,7 @@ export function FloorsSection({
     if (["work", "bosses", "businesses"].includes(queueFocus.category))
       setCategory(queueFocus.category);
     setFocusedDepartmentId(department?.id ?? null);
+    setFocusedEntityId(queueFocus.entityId ?? null);
     if (department) setDepartmentFocusSequence((sequence) => sequence + 1);
     onQueueFocusHandled?.("floor");
   }, [queueFocus, onQueueFocusHandled]);
@@ -216,17 +218,26 @@ export function FloorsSection({
 
   useEffect(() => {
     if (!focusedDepartmentId) return;
+    const entityNode = focusedEntityId
+      ? [
+          ...(floorGridRef.current?.querySelectorAll("[data-entity-id]") || []),
+        ].find((item) => item.dataset.entityId === String(focusedEntityId))
+      : null;
     const node =
+      entityNode ||
       departmentRefs.current[focusedDepartmentId] ||
       [
         ...(floorGridRef.current?.querySelectorAll("[data-department-id]") ||
           []),
       ].find((item) => item.dataset.departmentId === focusedDepartmentId);
     if (!node) return;
-    node.open = true;
+    if (node.tagName === "DETAILS") node.open = true;
     node.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFocusedDepartmentId(null);
+    setFocusedEntityId(null);
   }, [
     focusedDepartmentId,
+    focusedEntityId,
     departmentFocusSequence,
     selectedFloorId,
     category,

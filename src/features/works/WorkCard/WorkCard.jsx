@@ -68,6 +68,7 @@ export function WorkCard({
       <BaseCard
         as={as}
         data-department-id={department?.id}
+        data-entity-id={work?.id}
         state={locked ? "locked" : targeted ? "target" : undefined}
         editKey="card"
         className="work-card"

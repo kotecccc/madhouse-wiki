@@ -69,6 +69,7 @@ export function BusinessCard({
         editKey="card"
         variant="floor-data"
         data-department-id={department?.id}
+        data-entity-id={business.id}
         state={locked ? "locked" : targeted ? "target" : undefined}
         as="li"
         className={`floor-business-card${mobile && !locked && typeof onUpgradeSelect === "function" ? " floor-business-card--mobile-action" : ""}`}
