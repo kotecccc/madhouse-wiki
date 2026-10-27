@@ -39,13 +39,17 @@ export function MobileNavigation({
               aria-controls={`screen-${id}`}
               onClick={() => onScreenChange(id)}
             >
-              <Icon type={icon} size="large" />
+              <span className="mobile-navigation-icon">
+                <Icon type={icon} size="large" />
+                {id === "inventory" && inventoryCount > 0 && (
+                  <span className="mobile-navigation-count" aria-hidden="true">
+                    <Pill size="2xs" dot={false}>
+                      {inventoryCount}
+                    </Pill>
+                  </span>
+                )}
+              </span>
               <span className="mobile-navigation-label">{label}</span>
-              {id === "inventory" && inventoryCount > 0 && (
-                <Pill size="2xs" dot={false}>
-                  {inventoryCount}
-                </Pill>
-              )}
             </Button>
           ))}
       </nav>
