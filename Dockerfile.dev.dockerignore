@@ -1,5 +1,6 @@
 **
 !Dockerfile.dev
+!changelog.json
 !package.json
 !package-lock.json
 !scripts/
