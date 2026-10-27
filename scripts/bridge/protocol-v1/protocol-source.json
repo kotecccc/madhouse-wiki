@@ -1,7 +1,7 @@
 {
   "package": "@madhouse/bridge-protocol",
-  "version": "1.4.3",
-  "sourceTreeSha256": "bc579d74745f79d1d0a7181fc8d49f62727f55aac96e80d0c91b0cf4647aa4ed",
+  "version": "1.4.4",
+  "sourceTreeSha256": "5aa82af53e19138fbb92d8e4fe7b34cac1abebbfdaf684748380d85f9bb1cd2c",
   "files": [
     "challenge.mjs",
     "common.mjs",

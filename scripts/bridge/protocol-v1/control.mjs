@@ -20,6 +20,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   "cargo-byte-tunnel-v1",
   "official-game-launch-v1",
   "helper-pause-v1",
+  "device-update-drain-v1",
 ]);
 export const TRANSPORT_ERRORS = Object.freeze([
   "bridge_offline",
@@ -206,6 +207,11 @@ function checkDrain(message) {
   assertInteger(message.deadlineInMs, { min: 1, max: 35_000 });
 }
 
+function checkDeviceUpdateDrain(message) {
+  exactKeys(message, ["type", "requestId"]);
+  UUID(message.requestId);
+}
+
 function checkRevoked(message) {
   exactKeys(message, ["type", "deviceGeneration"]);
   assertInteger(message.deviceGeneration, { min: 1 });
@@ -245,6 +251,8 @@ const validators = Object.freeze({
   helper_state: checkHelperState,
   helper_control_result: checkHelperControlResult,
   drain: checkDrain,
+  device_update_drain: checkDeviceUpdateDrain,
+  device_update_drained: checkDeviceUpdateDrain,
   revoked: checkRevoked,
   update_required: checkUpdateRequired,
 });

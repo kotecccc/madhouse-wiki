@@ -16,6 +16,7 @@ const SERVER_CAPABILITIES = Object.freeze([
   "cargo-byte-tunnel-v1",
   "official-game-launch-v1",
   "helper-pause-v1",
+  "device-update-drain-v1",
 ]);
 const HELLO_TIMEOUT_MS = 5000;
 const STREAM_READY_TIMEOUT_MS = 15_000;
@@ -183,6 +184,21 @@ export function createBridgeControlGateway({
   }
 
   function resolveDrainWaitersIfIdle() {
+    for (const connection of connections.values()) {
+      if (
+        connection.updateDrainRequestId &&
+        !connection.updateDrainAcknowledged &&
+        !connection.activeStream &&
+        !connection.pendingLaunch &&
+        !connection.cleaned
+      ) {
+        connection.updateDrainAcknowledged = true;
+        sendJson(connection.socket, {
+          type: "device_update_drained",
+          requestId: connection.updateDrainRequestId,
+        });
+      }
+    }
     if (hasActiveWork()) return;
     for (const resolve of drainWaiters) resolve(true);
   }
@@ -369,6 +385,8 @@ export function createBridgeControlGateway({
       heartbeatTimer: null,
       negotiatedCapabilities: new Set(),
       pendingLaunch: null,
+      updateDrainRequestId: null,
+      updateDrainAcknowledged: false,
       ignoredLaunchRequestIds: new Set(),
     };
     connection.helloTimer = setTimeout(() => {
@@ -461,6 +479,18 @@ export function createBridgeControlGateway({
       }
       if (message.type === "ping") {
         sendJson(socket, { type: "pong", nonce: message.nonce });
+        return;
+      }
+      if (message.type === "device_update_drain") {
+        if (
+          !connection.negotiatedCapabilities.has("device-update-drain-v1") ||
+          connection.updateDrainRequestId
+        ) {
+          closeConnection(connection, 1008, "invalid_update_drain");
+          return;
+        }
+        connection.updateDrainRequestId = message.requestId;
+        resolveDrainWaitersIfIdle();
         return;
       }
       if (message.type === "helper_control") {
@@ -728,6 +758,7 @@ export function createBridgeControlGateway({
     if (
       !connection ||
       !connection.ready ||
+      connection.updateDrainRequestId ||
       connection.socket.readyState !== WebSocket.OPEN
     )
       throw gatewayError("bridge_offline");
@@ -741,6 +772,9 @@ export function createBridgeControlGateway({
       closeConnection(connection, 4004, "route_changed");
       throw gatewayError("route_stale");
     }
+    if (connection.updateDrainRequestId || connection.cleaned)
+      throw gatewayError("bridge_offline");
+    if (connection.activeStream) throw gatewayError("stream_limit");
     if (
       !validSession(currentSession, "control") ||
       !currentSession.scopes.includes("data") ||
@@ -793,7 +827,12 @@ export function createBridgeControlGateway({
         session: currentSession,
         streamId,
       });
-      if (draining || closed || connection.activeStream !== stream)
+      if (
+        draining ||
+        closed ||
+        connection.updateDrainRequestId ||
+        connection.activeStream !== stream
+      )
         throw gatewayError("bridge_offline");
       if (registry.getHelperPaused(ownerId))
         throw gatewayError("helper_paused");
@@ -849,6 +888,7 @@ export function createBridgeControlGateway({
     if (
       !connection ||
       !connection.ready ||
+      connection.updateDrainRequestId ||
       connection.socket.readyState !== WebSocket.OPEN ||
       connection.session.ownerId !== ownerId ||
       connection.session.routeEpoch !== routeEpoch ||
@@ -866,6 +906,9 @@ export function createBridgeControlGateway({
       closeConnection(connection, 4004, "route_changed");
       return { status: "unavailable" };
     }
+    if (connection.updateDrainRequestId || connection.cleaned)
+      return { status: "unavailable" };
+    if (connection.pendingLaunch) throw gatewayError("game_auth_busy");
     if (
       !validSession(currentSession, "control") ||
       draining ||

@@ -1181,3 +1181,140 @@ test("Wiki VPS source proxies only the bridge path as a WebSocket upgrade", () =
     /enabled: bridgeCompatibility\.routeSelection\.enabled/u,
   );
 });
+
+test("device update drain blocks new work and acknowledges only after its launch completes", async () => {
+  await withGateway(async ({ gateway, url }) => {
+    const control = new WebSocket(url, {
+      headers: { authorization: "Bearer signed.session.credential" },
+    });
+    await once(control, "open");
+    control.send(
+      JSON.stringify({
+        type: "hello",
+        protocolMajor: 1,
+        protocolMinor: 0,
+        clientVersion: "0.1.0",
+        capabilities: [
+          "cargo-byte-tunnel-v1",
+          "official-game-launch-v1",
+          "device-update-drain-v1",
+        ],
+      }),
+    );
+    const hello = await message(control);
+    assert.ok(hello.capabilities.includes("device-update-drain-v1"));
+    const operationId = "00000000-0000-4000-8000-000000000405";
+    const launch = gateway.requestGameLaunch({
+      ownerId: session.ownerId,
+      deviceId,
+      operationId,
+      consentGeneration: 7,
+      routeEpoch: session.routeEpoch,
+    });
+    const request = await message(control);
+    const drainId = "00000000-0000-4000-8000-000000000407";
+    const nonce = Buffer.alloc(32, 4).toString("base64url");
+    const next = message(control);
+    control.send(
+      JSON.stringify({ type: "device_update_drain", requestId: drainId }),
+    );
+    control.send(JSON.stringify({ type: "ping", nonce }));
+    assert.deepEqual(await next, { type: "pong", nonce });
+    await assert.rejects(
+      gateway.openStream({
+        ownerId: session.ownerId,
+        deviceId,
+        routeEpoch: session.routeEpoch,
+      }),
+      { code: "bridge_offline" },
+    );
+    assert.deepEqual(
+      await gateway.requestGameLaunch({
+        ownerId: session.ownerId,
+        deviceId,
+        operationId,
+        consentGeneration: 7,
+        routeEpoch: session.routeEpoch,
+      }),
+      { status: "unavailable" },
+    );
+    const drained = message(control);
+    control.send(
+      JSON.stringify({
+        type: "game_launch_result",
+        requestId: request.requestId,
+        operationId,
+        consentGeneration: 7,
+        status: "unavailable",
+      }),
+    );
+    assert.equal((await launch).status, "unavailable");
+    assert.deepEqual(await drained, {
+      type: "device_update_drained",
+      requestId: drainId,
+    });
+    control.close();
+    await once(control, "close");
+  });
+});
+
+test("device update drain keeps an existing stream open and waits for its close", async () => {
+  await withGateway(async ({ gateway, url, dataUrl }) => {
+    const options = {
+      headers: { authorization: "Bearer signed.session.credential" },
+    };
+    const control = new WebSocket(url, options);
+    await once(control, "open");
+    control.send(
+      JSON.stringify({
+        type: "hello",
+        protocolMajor: 1,
+        protocolMinor: 0,
+        clientVersion: "0.1.0",
+        capabilities: ["cargo-byte-tunnel-v1", "device-update-drain-v1"],
+      }),
+    );
+    await message(control);
+    const opening = gateway.openStream({
+      ownerId: session.ownerId,
+      deviceId,
+      routeEpoch: session.routeEpoch,
+    });
+    const openFrame = await message(control);
+    const data = new WebSocket(dataUrl, {
+      headers: {
+        ...options.headers,
+        "x-madhouse-stream-ticket": openFrame.streamTicket,
+      },
+    });
+    await once(data, "open");
+    control.send(
+      JSON.stringify({
+        type: "stream_ready",
+        requestId: openFrame.requestId,
+        streamId: openFrame.streamId,
+      }),
+    );
+    const tunnel = await opening;
+    const drainId = "00000000-0000-4000-8000-000000000407";
+    const nonce = Buffer.alloc(32, 3).toString("base64url");
+    const pong = message(control);
+    control.send(
+      JSON.stringify({ type: "device_update_drain", requestId: drainId }),
+    );
+    control.send(JSON.stringify({ type: "ping", nonce }));
+    assert.deepEqual(await pong, { type: "pong", nonce });
+    assert.equal(data.readyState, WebSocket.OPEN);
+    const incoming = once(tunnel, "data");
+    data.send(Buffer.from("still active"));
+    assert.equal((await incoming)[0].toString(), "still active");
+    const drained = message(control);
+    data.close();
+    assert.deepEqual(await drained, {
+      type: "device_update_drained",
+      requestId: drainId,
+    });
+    control.close();
+    await once(control, "close");
+  });
+});
