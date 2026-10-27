@@ -137,11 +137,15 @@ export function BossCardView({
   const editing = useContext(CardEditingContext);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuClosing, setMenuClosing] = useState(false);
+  const customMenuAction = isValidElement(action) && action.type === Button;
   const menuEnabled =
     !onSelectPart &&
     !editing &&
-    !action &&
-    (showBattleAction || Boolean(raid) || action === undefined);
+    (!action || customMenuAction) &&
+    (showBattleAction ||
+      Boolean(raid) ||
+      action === undefined ||
+      customMenuAction);
   function finishMenu() {
     setMenuAnchor(null);
     setMenuClosing(false);
@@ -472,7 +476,7 @@ export function BossCardView({
               Бой
             </MenuItem>
           )}
-          {(action !== false || raid) && (
+          {!customMenuAction && (action !== false || raid) && (
             <MenuItem
               icon="loot"
               onClick={() => {
@@ -488,6 +492,7 @@ export function BossCardView({
               {actionText}
             </MenuItem>
           )}
+          {customMenuAction && bossMenuRows(action, closeMenu)}
           {bossMenuRows(goalAction, closeMenu)}
         </CardActionMenu>
       )}

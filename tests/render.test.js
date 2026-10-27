@@ -1436,7 +1436,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(assistantHtml.includes("Трофей"));
     assert.ok(assistantHtml.includes("Не хватает: 5"));
     assert.ok(assistantHtml.includes("Ближайшее улучшение: 100 монет"));
-    assert.ok(assistantHtml.includes("Создать цель · 5 шт."));
+    assert.match(assistantHtml, /aria-label="Действия: Тестовый босс"/);
+    assert.ok(!assistantHtml.includes("Создать цель · 5 шт."));
     assert.ok(assistantHtml.includes("Тестовый босс"));
     assert.ok(assistantHtml.includes("Рассчитать и сохранить"));
     assert.ok(assistantHtml.includes("Собрать все материалы"));

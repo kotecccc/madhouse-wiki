@@ -20,7 +20,9 @@ export function CardActionMenu({
     (element.querySelector("button:not(:disabled)") || element).focus({
       preventScroll: true,
     });
-    const scrollContainer = anchor.closest("[data-page-scroll]");
+    const scrollContainer =
+      anchor.closest(".shared-modal-content") ||
+      anchor.closest("[data-page-scroll]");
     const scrollBounds = scrollContainer?.getBoundingClientRect();
     const viewport =
       scrollBounds?.width && scrollBounds?.height
@@ -36,9 +38,9 @@ export function CardActionMenu({
             bottom: window.innerHeight,
             right: window.innerWidth,
           };
-    const navigation = document.querySelector(
-      ".bottom-dock .mobile-navigation",
-    );
+    const navigation = anchor.closest("dialog[open]")
+      ? null
+      : document.querySelector(".bottom-dock .mobile-navigation");
     const distance = menuScrollDistance(
       anchor.getBoundingClientRect(),
       element.getBoundingClientRect(),
