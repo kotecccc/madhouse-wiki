@@ -16,6 +16,8 @@ export function RaidScheduleSection({
   onRetry,
   authenticated = false,
   active = false,
+  queueFocus = null,
+  onQueueFocusHandled,
 }) {
   const latest = state.posts[0];
   const [queueNotice, setQueueNotice] = useState(null);
@@ -128,6 +130,9 @@ export function RaidScheduleSection({
             post={displayed}
             floorAvailability={availability}
             authenticated={authenticated}
+            active={active}
+            focusTarget={queueFocus}
+            onQueueFocusHandled={onQueueFocusHandled}
             detectedRaids={subscriptionState.detectedRaids}
             subscriptionState={subscriptionState}
             onSubscribe={async (leader, boss, username) => {

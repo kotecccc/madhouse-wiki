@@ -33,6 +33,8 @@ export function FloorsSection({
   onDepartmentState,
   onLoadingChange,
   selectedFloorCode,
+  queueFocus,
+  onQueueFocusHandled,
   onVisibleFloorChange,
   isAuthenticated = false,
   playerLevel,
@@ -64,6 +66,17 @@ export function FloorsSection({
       setSelectedFloorId(floor.id);
     }
   }, [selectedFloorCode]);
+
+  useEffect(() => {
+    if (!queueFocus) return;
+    const department = departmentById[queueFocus.departmentId];
+    const floor = orderedFloors.find((item) => item.id === department?.floorId);
+    if (floor) setSelectedFloorId(floor.id);
+    if (["work", "bosses", "businesses"].includes(queueFocus.category))
+      setCategory(queueFocus.category);
+    if (department) setFocusedDepartmentId(department.id);
+    onQueueFocusHandled?.("floor");
+  }, [queueFocus, onQueueFocusHandled]);
 
   useEffect(() => {
     let previousStatus = readSession().status;

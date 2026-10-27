@@ -50,6 +50,8 @@ export function FriendsSection({
   refreshGeneration = 0,
   onRefreshState,
   onNotice,
+  queueFocus = null,
+  onQueueFocusHandled,
 }) {
   const [state, setState] = useState({ status: "loading", items: [] });
 
@@ -60,6 +62,9 @@ export function FriendsSection({
   const [reload, setReload] = useState(0);
   const touch = useRef(null);
   const actionLock = useRef(false);
+  const friendFocusRef = useRef(null);
+  const friendFocusPending = useRef(null);
+  const buddyFocusRef = useRef(null);
   const [reserve, setReserve] = useState("1");
   const [stashReserve, setStashReserve] = useState("1");
   const [settingsError, setSettingsError] = useState("");
@@ -343,6 +348,48 @@ export function FriendsSection({
     currentPage * PAGE_SIZE,
     (currentPage + 1) * PAGE_SIZE,
   );
+  useEffect(() => {
+    if (!active || state.status !== "ready" || !queueFocus) return;
+    if (queueFocus.kind === "friend" && queueFocus.playerId != null) {
+      const player = state.items.find(
+        (item) => item.playerId === queueFocus.playerId,
+      );
+      if (player) {
+        setSearch(
+          player.nickname || player.username || String(player.playerId),
+        );
+        setFilter("all");
+        setPage(0);
+        friendFocusPending.current = player.playerId;
+      } else {
+        onQueueFocusHandled?.("friend");
+      }
+    } else if (queueFocus.kind === "buddy") {
+      if (buddyFocusRef.current) {
+        buddyFocusRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        onQueueFocusHandled?.("buddy");
+      }
+    }
+  }, [active, state.status, state.items, queueFocus, onQueueFocusHandled]);
+  useEffect(() => {
+    const playerId = friendFocusPending.current;
+    if (
+      !active ||
+      state.status !== "ready" ||
+      playerId == null ||
+      !shown.some((item) => item.playerId === playerId)
+    )
+      return;
+    friendFocusRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    friendFocusPending.current = null;
+    onQueueFocusHandled?.("friend");
+  }, [active, state.status, shown, onQueueFocusHandled]);
   const onlineCount = state.items.filter(
     (friend) => friend.isOnline === true,
   ).length;
@@ -444,7 +491,7 @@ export function FriendsSection({
             )}
           {(buddyFriends.length > 0 || automation?.buddyHelp?.hasPending) && (
             <BaseCard>
-              <div className="friends-card-content">
+              <div className="friends-card-content" ref={buddyFocusRef}>
                 <CardTitle>Помощь Buddy</CardTitle>
                 <CardDescription>
                   Рейды включены для выбранных друзей. Предметы отправляются
@@ -690,7 +737,14 @@ export function FriendsSection({
                   touch.current = null;
                 }}
               >
-                <div className="friends-card-content">
+                <div
+                  className="friends-card-content"
+                  ref={
+                    player.playerId === queueFocus?.playerId
+                      ? friendFocusRef
+                      : null
+                  }
+                >
                   <div className="friends-card-heading">
                     <div className="friends-identity">
                       <div

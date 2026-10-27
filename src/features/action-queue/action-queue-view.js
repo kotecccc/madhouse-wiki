@@ -78,6 +78,12 @@ export function actionQueueCards(state, catalogue = {}) {
       subscription.enabled ? "subscription.stop" : null,
       subscription.enabled ? null : "Завершаем рейд",
     );
+  if (subscription?.enabled || subscription?.hasSuspendedGoal)
+    cards.at(-1).raidTarget = {
+      leaderPlayerId: subscription.leaderPlayerId ?? null,
+      leaderUsername: subscription.leaderUsername ?? "",
+      bossId: subscription.bossId ?? null,
+    };
   if (buddy?.enabled || buddy?.hasSuspendedGoal)
     addActor(
       "buddy",
@@ -85,6 +91,7 @@ export function actionQueueCards(state, catalogue = {}) {
       buddy.enabled ? "buddy.stop" : null,
       buddy.enabled ? null : "Завершаем рейд",
     );
+  if (buddy?.enabled || buddy?.hasSuspendedGoal) cards.at(-1).focusBuddy = true;
   if (subscription?.suspendedAuto || buddy?.suspendedAuto)
     addActor("auto", "Автобой", "auto.stop", "Ожидает рейд");
   if (subscription?.suspendedStandaloneGoal || buddy?.suspendedStandaloneGoal)
@@ -96,6 +103,8 @@ export function actionQueueCards(state, catalogue = {}) {
       "floor.stop",
       floor.status === "paused" ? "Приостановлено" : null,
     );
+  if (floor?.status === "running" || floor?.status === "paused")
+    cards.at(-1).floorTarget = floor.target ?? null;
   else {
     if (raid?.enabled || raid?.userPaused) {
       addActor(
@@ -436,6 +445,28 @@ export function actionQueueCards(state, catalogue = {}) {
       work: queuedWork,
       businessId: job.args?.businessId,
       bossId,
+      raidTarget:
+        job.type === "subscription.start"
+          ? {
+              leaderPlayerId: job.args?.leaderPlayerId ?? null,
+              leaderUsername: job.args?.leaderUsername ?? "",
+              bossId: job.args?.bossId ?? null,
+            }
+          : job.type === "friend.request"
+            ? {
+                leaderPlayerId: job.args?.playerId ?? null,
+                leaderUsername: job.args?.username ?? "",
+                bossId: null,
+              }
+            : null,
+      friendTarget: [
+        "friend.remove",
+        "friend.favorite",
+        "friend.buddy",
+      ].includes(job.type)
+        ? { playerId: job.args?.playerId ?? null }
+        : null,
+      floorTarget: job.type === "floor.start" ? (floor?.target ?? null) : null,
       command: job.cancelRequested ? null : "queue.cancel",
       position: ready(job) ? ++position : null,
       actor: false,

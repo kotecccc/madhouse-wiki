@@ -1,4 +1,7 @@
-import { reportGameHealth } from "../../../../shared/session-api.js";
+import {
+  publishSessionData,
+  reportGameHealth,
+} from "../../../../shared/session-api.js";
 import {
   authorizeRequest,
   readSession,
@@ -21,6 +24,8 @@ async function automationRequest(method, path, body) {
     signal: AbortSignal.timeout(25000),
   });
   const value = await readAutomationResponse(response);
+  if (["/api/automation/state", "/api/automation/commands"].includes(path))
+    publishSessionData(path, value, authorized.headers.Authorization);
   if (value.gameHealth) {
     reportGameHealth(value.gameHealth);
     if (
