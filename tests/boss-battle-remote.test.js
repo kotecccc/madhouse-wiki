@@ -423,6 +423,26 @@ test("subscription conflict shows feedback without replaying the command", async
   h.disconnect();
 });
 
+test("business start conflict shows feedback without replaying the command", async () => {
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      throw Object.assign(new Error("conflict"), {
+        status: 409,
+        snapshot: { ...initialState(), version: 10 },
+      });
+    },
+  });
+  await h.connect();
+  assert.equal(
+    await h.businessAssistant.startRun({ businessId: "business:58" }),
+    false,
+  );
+  assert.match(h.businessAssistant.getSnapshot().error, /Состояние изменилось/);
+  assert.equal(h.calls.filter(([method]) => method === "POST").length, 1);
+  h.disconnect();
+});
+
 test("work.refresh rebases once on a 409 snapshot, while mutations are never retried", async () => {
   const rebased = {
     ...initialState(),
