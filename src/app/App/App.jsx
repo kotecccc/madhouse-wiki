@@ -1,3 +1,8 @@
+import {
+  inventoryCategories,
+  inventoryCategoryOptions,
+  inventoryPaths,
+} from "../../features/inventory/inventory.js";
 import { InventorySection } from "../../features/inventory/InventorySection.jsx";
 import { BossBattleDialog } from "../../features/bosses/BossBattle/BossBattleDialog.jsx";
 import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/ActiveBattleDock.jsx";
@@ -66,6 +71,63 @@ export function App() {
   const [floorFocusCode, setFloorFocusCode] = useState(null);
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
   const [inventoryRefresh, setInventoryRefresh] = useState(0);
+  const [sessionGeneration, setSessionGeneration] = useState(0);
+  const [inventoryResponses, setInventoryResponses] = useState({});
+  const [inventoryDirty, setInventoryDirty] = useState([]);
+  const inventoryPathsSet = useRef(
+    new Set(
+      inventoryCategories.flatMap(({ id }) =>
+        inventoryPaths(id, kb.inventoryItems || []),
+      ),
+    ),
+  );
+  useEffect(() => {
+    if (!authenticated) {
+      setInventoryResponses({});
+      setInventoryDirty([]);
+      return;
+    }
+    let cancelled = false;
+    const updated = new Set();
+    const unsubscribe = subscribeSessionData((event) => {
+      if (event.cleared) setInventoryResponses({});
+      else if (inventoryPathsSet.current.has(event.path) && event.data) {
+        updated.add(event.path);
+        setInventoryDirty((current) =>
+          current.filter((path) => path !== event.path),
+        );
+        setInventoryResponses((current) => ({
+          ...current,
+          [event.path]: event.data,
+        }));
+      }
+    });
+    getSessionJson("/api/automation/inventory-snapshots", { fresh: true })
+      .then((saved) => {
+        if (!cancelled) {
+          setInventoryDirty(
+            (saved.dirty || []).filter((path) => !updated.has(path)),
+          );
+          setInventoryResponses((current) => ({
+            ...saved.sections,
+            ...Object.fromEntries(
+              [...updated]
+                .filter((path) => current[path])
+                .map((path) => [path, current[path]]),
+            ),
+          }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [authenticated, profileState.profile?.playerLevel, sessionGeneration]);
+  const inventoryCount = inventoryCategoryOptions(
+    inventoryResponses,
+    kb.inventoryItems || [],
+  ).reduce((sum, option) => sum + (option.count || 0), 0);
   const [pullReady, setPullReady] = useState(false);
   const pullStart = useRef(null);
 
@@ -128,7 +190,10 @@ export function App() {
 
   useEffect(() => {
     const syncSession = () => setSessionStatus(readSession().status);
-    const unsubscribe = subscribeSession(syncSession);
+    const unsubscribe = subscribeSession(() => {
+      syncSession();
+      setSessionGeneration((value) => value + 1);
+    });
     const timer = window.setInterval(syncSession, 1000);
     window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, syncSession);
     return () => {
@@ -202,6 +267,7 @@ export function App() {
         )}
         <MobileNavigation
           desktop
+          inventoryCount={inventoryCount}
           authenticated={authenticated}
           activeScreen={visibleScreen}
           onScreenChange={changeScreen}
@@ -256,6 +322,9 @@ export function App() {
             >
               <InventorySection
                 active={visibleScreen === "inventory"}
+                responses={inventoryResponses}
+                dirtyPaths={inventoryDirty}
+                playerLevel={profileState.profile?.playerLevel}
                 refreshGeneration={inventoryRefresh}
               />
             </div>
@@ -270,6 +339,7 @@ export function App() {
         <ActiveBattleControl>
           <MobileNavigation
             activeScreen={visibleScreen}
+            inventoryCount={inventoryCount}
             authenticated={authenticated}
             onScreenChange={changeScreen}
           />
