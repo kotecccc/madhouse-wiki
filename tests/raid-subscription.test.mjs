@@ -8,6 +8,7 @@ function harness(saved) {
   let battleStatus = "finished";
   let joinResult = "success";
   let reconciliation = "unknown";
+  let priority = false;
   const calls = [];
   const worker = createRaidSubscription({
     saved,
@@ -17,6 +18,7 @@ function harness(saved) {
     },
     lock: () => true,
     unlock: () => {},
+    priorityActive: () => priority,
     capture: () => ({ priorGoal: "saved" }),
     suspend: () => {
       calls.push(["suspend", stored.phase]);
@@ -53,6 +55,9 @@ function harness(saved) {
     setReconciliation: (result) => {
       reconciliation = result;
     },
+    setPriority: (active) => {
+      priority = active;
+    },
     invitation: (overrides = {}) => ({
       leaderPlayerId: 42,
       bossId: 7,
@@ -64,6 +69,27 @@ function harness(saved) {
     }),
   };
 }
+
+test("priority reconciles a lost join without joining or fighting until it ends", async () => {
+  const h = harness();
+  h.worker.start({ leaderPlayerId: 42, bossId: 7 });
+  h.setJoin("lost");
+  h.worker.observe([h.invitation()], true);
+  await h.worker.tick();
+  h.setPriority(true);
+  h.setReconciliation("joined");
+  h.setBattle("active");
+  await h.worker.tick();
+  await h.worker.tick();
+  assert.equal(h.getSaved().phase, "fighting");
+  assert.deepEqual(
+    h.calls.map((call) => call[0]),
+    ["suspend", "join"],
+  );
+  h.setPriority(false);
+  await h.worker.tick();
+  assert.equal(h.calls.at(-1)[0], "fight");
+});
 
 test("saves the suspended goal before joining only the selected leader and boss", async () => {
   const h = harness();
@@ -341,4 +367,34 @@ test("Buddy remembers attempted invitations and gives another friend a turn", as
     restored.calls.filter((call) => call[0] === "join").at(-1)[1],
     "two",
   );
+});
+
+test("stopping floor automation while Buddy is fighting clears the saved floor-owned work", async () => {
+  const saved = {
+    mode: "buddy",
+    enabled: true,
+    phase: "fighting",
+    friendIds: [42],
+    battleId: "battle",
+    bossId: 7,
+    lastReadAt: 1000000,
+    lastSeenAt: 1000000,
+    offlineAt: null,
+    checkpoint: {
+      floorOwned: true,
+      bossId: 7,
+      goal: { status: "active" },
+      auto: { enabled: true },
+      raidEnabled: true,
+      businessRunning: false,
+      workRunning: false,
+    },
+  };
+  const h = harness(saved);
+  h.worker.discardFloorCheckpoint();
+  assert.equal(h.getSaved().checkpoint.floorOwned, false);
+  assert.equal(h.getSaved().checkpoint.raidEnabled, false);
+  assert.equal(h.getSaved().checkpoint.goal, null);
+  assert.equal(h.getSaved().checkpoint.auto, null);
+  assert.equal(h.getSaved().phase, "fighting");
 });

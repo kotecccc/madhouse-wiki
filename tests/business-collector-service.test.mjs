@@ -29,12 +29,14 @@ const catalogue = {
   })),
 };
 
-for (const [cap, restart] of [
+for (const [cap, restart, autoUpgrade, viaFloor] of [
   [1, false],
   [5, false],
   [5, true],
+  [5, true, true],
+  [5, false, true, true],
 ])
-  test(`server business collection switches bosses and obeys global cap ${cap}, restart ${restart}`, async () => {
+  test(`server business collection switches bosses and obeys global cap ${cap}, restart ${restart}, upgrade ${Boolean(autoUpgrade)}, floor ${Boolean(viaFloor)}`, async () => {
     const directory = mkdtempSync(
       join(tmpdir(), "business-collector-service-"),
     );
@@ -43,7 +45,8 @@ for (const [cap, restart] of [
       calls = [],
       stock = new Map();
     let current = null,
-      starts = 0;
+      starts = 0,
+      level = 1;
     let now = 1_000_000;
     const battle = (id, bossId, status) => ({
       battleId: id,
@@ -80,8 +83,32 @@ for (const [cap, restart] of [
         method = init.method || "GET";
       calls.push({ path, method });
       if (path === "/api/me")
-        return Response.json({ playerId: 101, nickname: "Player" });
+        return Response.json({
+          playerId: 101,
+          nickname: "Player",
+          wallet: { gold: 1000 },
+        });
       if (path === "/api/combat") return Response.json({ activeBattle: null });
+      if (path === "/api/floors")
+        return Response.json([{ code: "A", isAvailable: true }]);
+      if (path === "/api/floors/A/info")
+        return Response.json({
+          departments: [
+            { blockCode: "A1", unlocked: true },
+            {
+              blockCode: "A2",
+              unlocked: false,
+              requirements: [
+                {
+                  type: "business_level",
+                  businessId: 7,
+                  current: 1,
+                  required: 2,
+                },
+              ],
+            },
+          ],
+        });
       if (path === "/api/me/bag")
         return Response.json({
           activityItems: [...stock].map(([itemId, quantity]) => ({
@@ -92,11 +119,21 @@ for (const [cap, restart] of [
       if (path === "/api/businesses/7")
         return Response.json({
           id: 7,
-          level: 1,
+          level,
           maxLevel: 2,
+          canUpgrade: true,
           nextUpgradePrice: 100,
           nextUpgradeCurrency: "gold",
+          requiredItems: materials.map((itemId) => ({
+            itemId,
+            requiredAmount: 1,
+            playerAmount: stock.get(itemId) || 0,
+          })),
         });
+      if (path === "/api/businesses/7/upgrade" && method === "POST") {
+        level++;
+        return Response.json({ success: true });
+      }
       const bossId = Number(path.match(/^\/api\/bosses\/(\d+)/)?.[1]);
       if (bossId && method === "GET")
         return Response.json({
@@ -127,7 +164,14 @@ for (const [cap, restart] of [
         store,
         fetcher,
         getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
-        getBusinessCatalogue: () => catalogue,
+        getBusinessCatalogue: () => ({
+          ...catalogue,
+          floors: [{ id: "a", code: "A" }],
+          departments: [
+            { id: "a1", floorId: "a", code: "A1" },
+            { id: "a2", floorId: "a", code: "A2" },
+          ],
+        }),
         now: () => now,
         schedule: (callback, delay) => {
           const timer = { callback, delay };
@@ -150,23 +194,30 @@ for (const [cap, restart] of [
           expectedVersion: service.snapshot(entry).version,
           args,
         });
-      await command("business.select", { businessId });
-      await command("business.save", {
-        businessId,
-        targetLevel: 2,
-        maxAttempts: cap,
-        durationHours: 1,
-      });
-      await command("business.refresh", { businessId });
-      const plan = service.snapshot(entry).businessAssistant.plans[0];
-      await command("business.run.start", {
-        businessId,
-        expectedPlan: plan.config,
-        expectedMissing: plan.materials.map((item) => ({
-          itemId: item.entityId,
-          amount: item.missingAmount,
-        })),
-      });
+      if (viaFloor) {
+        await command("floor.start", {});
+        await entry.floorRunner.tick();
+        assert.equal(service.snapshot(entry).floorRunner.phase, "executing");
+      } else {
+        await command("business.select", { businessId });
+        await command("business.save", {
+          businessId,
+          targetLevel: 2,
+          maxAttempts: cap,
+          durationHours: 1,
+          autoUpgrade: Boolean(autoUpgrade),
+        });
+        await command("business.refresh", { businessId });
+        const plan = service.snapshot(entry).businessAssistant.plans[0];
+        await command("business.run.start", {
+          businessId,
+          expectedPlan: plan.config,
+          expectedMissing: plan.materials.map((item) => ({
+            itemId: item.entityId,
+            amount: item.missingAmount,
+          })),
+        });
+      }
       if (restart) {
         for (let i = 0; i < 2; i++) {
           const timer = timers.find((timer) => !timer.canceled && !timer.done);
@@ -200,11 +251,20 @@ for (const [cap, restart] of [
       );
       assert.equal(run.battlesStarted, cap === 1 ? 1 : 2);
       assert.equal(run.battlesCompleted, run.battlesStarted);
+      assert.equal(level, autoUpgrade ? 2 : 1);
+      assert.equal(
+        calls.filter((call) => call.path === "/api/businesses/7/upgrade")
+          .length,
+        autoUpgrade ? 1 : 0,
+      );
       assert.equal(snap.auto.enabled, false);
       assert.deepEqual(
         calls
           .filter(
-            (call) => call.method === "POST" && !call.path.endsWith("/attack"),
+            (call) =>
+              call.method === "POST" &&
+              !call.path.endsWith("/attack") &&
+              !call.path.endsWith("/upgrade"),
           )
           .map((call) => call.path),
         cap === 1
@@ -213,7 +273,7 @@ for (const [cap, restart] of [
       );
       assert.equal(
         calls.filter((call) => call.path === "/api/me/bag").length,
-        cap === 1 ? 3 : 4,
+        cap === 1 ? 3 : autoUpgrade ? 5 : 4,
       );
     } finally {
       service.close();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   readSession,
   subscribeSession,
@@ -9,6 +9,16 @@ import {
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
 import { businessStatesFromFloorInfo } from "../../floors/useDepartmentAvailability.js";
+import { businessAssistant } from "../../bosses/BossBattle/boss-battle-session.js";
+
+export function completedUpgradeNeedsFloorRefresh(run, states) {
+  if (run?.status !== "completed" || run.config?.autoUpgrade !== true)
+    return false;
+  const match = /^business:(\d+)$/.exec(run.businessId ?? "");
+  if (!match || !Number.isSafeInteger(run.targetLevel)) return false;
+  const level = states?.[Number(match[1])]?.level;
+  return Number.isSafeInteger(level) && level < run.targetLevel;
+}
 
 export function useFloorBusinessStates(floorCode, enabled = true) {
   const path = floorCode
@@ -16,11 +26,18 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
     : null;
   const [state, setState] = useState(null);
   const [revision, setRevision] = useState(0);
+  const requestedUpgrade = useRef(null);
+  const assistant = useSyncExternalStore(
+    businessAssistant.subscribe,
+    businessAssistant.getSnapshot,
+    businessAssistant.getSnapshot,
+  );
 
   useEffect(
     () =>
       subscribeSession(() => {
         setState(null);
+        requestedUpgrade.current = null;
         setRevision((value) => value + 1);
       }),
     [],
@@ -49,6 +66,25 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
       .catch(() => {});
     return () => controller.abort();
   }, [path, enabled, revision]);
+
+  useEffect(() => {
+    if (!enabled || !path || readSession().status !== "ready") return;
+    const run = assistant.run;
+    const cached = peekSessionJson(path, { allowStale: true });
+    if (
+      !completedUpgradeNeedsFloorRefresh(
+        run,
+        businessStatesFromFloorInfo(cached),
+      )
+    )
+      return;
+    const key = `${path}:${run.id}`;
+    if (requestedUpgrade.current === key) return;
+    requestedUpgrade.current = key;
+    void getSessionJson(path, { fresh: true, serverRefresh: "live" }).catch(
+      () => {},
+    );
+  }, [assistant.run, enabled, path, state]);
 
   if (!enabled || !path || readSession().status !== "ready") return null;
   const cached = peekSessionJson(path, { allowStale: true });

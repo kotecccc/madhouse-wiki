@@ -13,6 +13,23 @@ export function isSnapshotPath(path) {
     path,
   );
 }
+const isInventoryPath = (path) =>
+  /^\/api\/(?:rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/\d+)$/.test(
+    path,
+  );
+const inventoryMutationAffects = (mutation, section, battleMayHaveFinished) => {
+  if (/^\/api\/bosses\/battles\/[^/]+\/attack$/.test(mutation))
+    return battleMayHaveFinished;
+  if (/^\/api\/weapons\//.test(mutation))
+    return section === "/api/clothing/by-category/1";
+  if (/^\/api\/pets\//.test(mutation))
+    return section === "/api/clothing/by-category/9";
+  if (/^\/api\/rooms\//.test(mutation)) return section === "/api/rooms";
+  if (/^\/api\/clothing\//.test(mutation)) return section === "/api/clothing";
+  if (/^\/api\/ornaments\//.test(mutation))
+    return section.startsWith("/api/ornaments/zones/");
+  return false;
+};
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const MAX_BYTES = 3 * 1024 * 1024;
 const MAX_SECTIONS = 128;
@@ -470,6 +487,18 @@ export function createAccountSnapshots({
             updatedAt: now(),
           },
         };
+        const oldLevel = record.sections["/api/me"]?.data?.exp?.level;
+        const newLevel = data?.exp?.level;
+        if (
+          path === "/api/me" &&
+          Number.isSafeInteger(oldLevel) &&
+          Number.isSafeInteger(newLevel) &&
+          oldLevel !== newLevel
+        ) {
+          for (const [key, section] of Object.entries(sections))
+            if (isInventoryPath(key))
+              sections[key] = { ...section, dirty: true, inventoryDirty: true };
+        }
         if (Object.keys(sections).length > MAX_SECTIONS) {
           const oldest = Object.keys(sections)
             .filter((key) => key !== "/api/me" && key !== path)
@@ -654,13 +683,39 @@ export function createAccountSnapshots({
       return execute(url, init, { fallback: false, cache: false });
     const response = await upstream(url, init);
     if (method !== "GET" && !workRead && record && response.ok) {
+      let battleMayHaveFinished = true;
+      if (/^\/api\/bosses\/battles\/[^/]+\/attack$/.test(path)) {
+        try {
+          const result = await response.clone().json();
+          battleMayHaveFinished = !(
+            result?.battle?.status === "active" &&
+            result?.battleFinished !== true
+          );
+        } catch {
+          // Unknown outcomes may contain rewards; retain the last snapshot but mark it stale.
+        }
+      }
       const current = accounts.get(playerId);
       persist({
         ...current,
         sections: Object.fromEntries(
-          Object.entries(current.sections).map(([path, section]) => [
-            path,
-            { ...section, dirty: true },
+          Object.entries(current.sections).map(([sectionPath, section]) => [
+            sectionPath,
+            {
+              ...section,
+              dirty: true,
+              ...(isInventoryPath(sectionPath)
+                ? {
+                    inventoryDirty:
+                      (section.inventoryDirty ?? section.dirty ?? false) ||
+                      inventoryMutationAffects(
+                        path,
+                        sectionPath,
+                        battleMayHaveFinished,
+                      ),
+                  }
+                : {}),
+            },
           ]),
         ),
       });
@@ -670,6 +725,23 @@ export function createAccountSnapshots({
     return response;
   }
   return {
+    inventory(authorization) {
+      const playerId = authorization && credentials.get(hash(authorization));
+      const record = accounts.get(playerId);
+      if (!record || record.revokedHashes?.includes(hash(authorization)))
+        return { sections: {}, dirty: [] };
+      const entries = Object.entries(record.sections || {}).filter(([path]) =>
+        isInventoryPath(path),
+      );
+      return {
+        sections: Object.fromEntries(
+          entries.map(([path, section]) => [path, section.data]),
+        ),
+        dirty: entries
+          .filter(([, section]) => section.inventoryDirty ?? section.dirty)
+          .map(([path]) => path),
+      };
+    },
     health(authorization) {
       const playerId = authorization && credentials.get(hash(authorization));
       return state(accounts.get(playerId));

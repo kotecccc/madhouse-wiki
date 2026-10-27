@@ -1,6 +1,7 @@
 import { StatTag } from "../../components/ui/StatTag/StatTag.jsx";
 import { MutagenLabel } from "../../components/ui/MutagenLabel/MutagenLabel.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
+import { ConfirmButton } from "../../components/ui/ConfirmButton/ConfirmButton.jsx";
 import { inventoryDisplayStats } from "./inventory.js";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
@@ -14,7 +15,6 @@ import "./InventoryItemCard.css";
 
 const states = {
   owned: "В гардеробе",
-  buyable: "Можно купить",
   locked: "Закрыто",
   unknown: "Статус неизвестен",
 };
@@ -107,7 +107,7 @@ export function InventoryItemCard({
     (item.equipped ||
       levelKnown ||
       item.isBroken ||
-      item.status !== "owned") && (
+      !["owned", "buyable"].includes(item.status)) && (
       <div className={room ? "inventory-room-status" : "inventory-item-status"}>
         {item.equipped && (
           <Pill size="xs" dot={false} variant="scheduled">
@@ -130,11 +130,13 @@ export function InventoryItemCard({
             Ур. {item.ownedLevel}
           </Pill>
         )}
-        {!levelKnown && !item.equipped && item.status !== "owned" && (
-          <Pill size="xs" dot={false}>
-            {states[item.status]}
-          </Pill>
-        )}
+        {!levelKnown &&
+          !item.equipped &&
+          !["owned", "buyable"].includes(item.status) && (
+            <Pill size="xs" dot={false}>
+              {states[item.status]}
+            </Pill>
+          )}
       </div>
     )
   );
@@ -210,7 +212,8 @@ export function InventoryItemCard({
         )}
       </div>
       {item.status === "buyable" && price && onAction && (
-        <Button
+        <ConfirmButton
+          confirmationKey={`${item.type}:${item.id}:${price.currency}:${price.amount}`}
           variant="primary"
           disabled={equipmentBusy}
           icon={
@@ -225,13 +228,14 @@ export function InventoryItemCard({
           onClick={() => onAction(item, "buy")}
         >
           Купить · {fmt(price.amount)} {currencies[price.currency]}
-        </Button>
+        </ConfirmButton>
       )}
       {item.status === "owned" &&
         (onAction || (item.type === "weapon" && onEquip)) && (
           <div className="inventory-item-actions">
             {item.type === "weapon" && item.isBroken && (
-              <Button
+              <ConfirmButton
+                confirmationKey={`${item.id}:${item.repairCost}`}
                 className="inventory-item-action"
                 disabled={equipmentBusy || item.repairCost == null || !onAction}
                 icon="pill"
@@ -241,7 +245,7 @@ export function InventoryItemCard({
                 {item.repairCost != null
                   ? ` (${fmt(item.repairCost)})`
                   : " — цена неизвестна"}
-              </Button>
+              </ConfirmButton>
             )}
             <Button
               className="inventory-item-action"

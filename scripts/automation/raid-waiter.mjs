@@ -10,6 +10,7 @@ export function createRaidWaiter({
   goal,
   auto,
   available,
+  priorityActive = () => false,
   lock,
   unlock,
   refresh,
@@ -29,7 +30,13 @@ export function createRaidWaiter({
     onChange();
   };
   const stop = (status = "stopped", notice = "Рейд остановлен.") => {
-    publish({ enabled: false, status, notice, nextCheckAt: null });
+    publish({
+      enabled: false,
+      stopAfterBattle: false,
+      status,
+      notice,
+      nextCheckAt: null,
+    });
     auto.stop();
   };
   const uncertain = () => {
@@ -63,6 +70,7 @@ export function createRaidWaiter({
       ready = true;
       publish({
         enabled: true,
+        stopAfterBattle: false,
         status: "waiting",
         bossId,
         nextCheckAt: now(),
@@ -72,6 +80,30 @@ export function createRaidWaiter({
       return true;
     },
     stop,
+    finishAfterCurrent() {
+      if (!value.enabled) return;
+      const current = state();
+      if (
+        current.battle?.status !== "active" &&
+        !current.pending &&
+        !current.pendingInvitation &&
+        !current.needsRefresh &&
+        !["starting", "joining", "waiting_confirmation"].includes(value.status)
+      ) {
+        stop();
+        goal.stop({ clearProgress: true });
+        return;
+      }
+      publish({
+        enabled: true,
+        stopAfterBattle: true,
+        status: "finishing",
+        nextCheckAt: now(),
+        notice: "Завершаем текущий бой; новые рейды начинаться не будут.",
+      });
+      goal.finishCurrentBattle?.();
+      auto.finishCurrent?.();
+    },
     canSuspend,
     suspend() {
       if (!canSuspend()) return false;
@@ -95,6 +127,31 @@ export function createRaidWaiter({
     },
     async tick() {
       if (!ready || !value.enabled || running) return;
+      if (value.stopAfterBattle) {
+        const current = state();
+        if (current.battle?.status === "active" && !uncertain()) {
+          if (auto.getSnapshot().enabled) auto.finishCurrent?.();
+          else auto.start({ singleBattle: true });
+          return;
+        }
+        if (!uncertain()) {
+          stop();
+          goal.stop({ clearProgress: true });
+          return;
+        }
+        if (now() < (value.nextCheckAt ?? 0) || !lock()) return;
+        running = true;
+        try {
+          publish({ nextCheckAt: now() + 30000 });
+          await refresh({ force: true });
+        } catch {
+          // Reconcile by reading; never replay an uncertain join or start.
+        } finally {
+          running = false;
+          unlock();
+        }
+        return;
+      }
       const currentGoal = goal.getSnapshot();
       if (!currentGoal || currentGoal.status !== "active") {
         stop(
@@ -127,11 +184,15 @@ export function createRaidWaiter({
         return;
       }
       if (!available()) {
+        const priority = priorityActive();
         publish({
           status: "waiting",
-          nextCheckAt: now() + 30000,
-          notice: "Ждём восстановления связи с игрой.",
+          nextCheckAt: now() + (priority ? 1000 : 30000),
+          notice: priority
+            ? "Ожидаем прокачку характеристик."
+            : "Ждём восстановления связи с игрой.",
         });
+        if (priority && !uncertain()) return;
         if (lock()) {
           running = true;
           try {
@@ -200,7 +261,7 @@ export function createRaidWaiter({
           if (!value.allowSolo || uncertain()) throw error;
           invitationReadFailed = true;
         }
-        if (!value.enabled) return;
+        if (!value.enabled || value.stopAfterBattle) return;
         // Failed invitation discovery cannot veto a fresh solo preflight, but
         // stale invitation rows must never trigger an accept after that failure.
         const invitation = (invitationReadFailed ? [] : invitations()).find(
@@ -217,9 +278,12 @@ export function createRaidWaiter({
                 "Приглашений нет. Открываем свой бой в рамках заданных лимитов.",
             });
             await startSolo(
-              () => value.enabled && goal.getSnapshot()?.status === "active",
+              () =>
+                value.enabled &&
+                !value.stopAfterBattle &&
+                goal.getSnapshot()?.status === "active",
             );
-            if (!value.enabled) return;
+            if (!value.enabled || value.stopAfterBattle) return;
             if (!auto.start({ singleBattle: true }))
               throw new Error("solo_start_unconfirmed");
             publish({
@@ -240,8 +304,11 @@ export function createRaidWaiter({
           status: "joining",
           notice: "Вступаем в рейд по приглашению…",
         });
-        await accept(invitation.invitationId, () => value.enabled);
-        if (!value.enabled) return;
+        await accept(
+          invitation.invitationId,
+          () => value.enabled && !value.stopAfterBattle,
+        );
+        if (!value.enabled || value.stopAfterBattle) return;
         const joined = state();
         if (
           uncertain() ||

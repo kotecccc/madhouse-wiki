@@ -1181,3 +1181,142 @@ test("live profile enriches current own level and cannot carry old-level experie
   assert.deepEqual(profile.exp, { level: 136 });
   assert.equal(profile.energy.current, 10);
 });
+
+test("inventory snapshots are private, survive restart, and level changes invalidate them without game reads", async () => {
+  const store = memoryStore();
+  const { fetcher, calls } = queueFetcher([
+    reply({ playerId: 44, exp: { level: 7 } }),
+    reply({ items: [{ id: 1, owned: false, unlocked: true }] }),
+    reply({ playerId: 44, exp: { level: 8 } }),
+    reply({ items: [{ id: 1, owned: true }] }),
+  ]);
+  let snapshots = createAccountSnapshots({ store, fetcher });
+  await snapshots.read(`${origin}/api/me`, auth("inventory-a"));
+  await snapshots.read(
+    `${origin}/api/clothing/by-category/1`,
+    auth("inventory-a"),
+  );
+  snapshots = createAccountSnapshots({ store, fetcher });
+  assert.equal(
+    snapshots.inventory("Bearer other").sections["/api/clothing/by-category/1"],
+    undefined,
+  );
+  assert.equal(
+    snapshots.inventory("Bearer inventory-a").sections[
+      "/api/clothing/by-category/1"
+    ].items[0].owned,
+    false,
+  );
+  assert.equal(calls.length, 2);
+  await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer inventory-a",
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  assert.deepEqual(snapshots.inventory("Bearer inventory-a").dirty, [
+    "/api/clothing/by-category/1",
+  ]);
+  assert.equal(
+    snapshots.inventory("Bearer inventory-a").sections[
+      "/api/clothing/by-category/1"
+    ].items[0].owned,
+    false,
+  );
+  await snapshots.read(`${origin}/api/clothing/by-category/1`, {
+    headers: {
+      Authorization: "Bearer inventory-a",
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  assert.deepEqual(snapshots.inventory("Bearer inventory-a").dirty, []);
+  assert.equal(
+    snapshots.inventory("Bearer inventory-a").sections[
+      "/api/clothing/by-category/1"
+    ].items[0].owned,
+    true,
+  );
+});
+
+test("unrelated work actions preserve inventory counters while purchases invalidate the affected category", async () => {
+  const store = memoryStore();
+  const { fetcher } = queueFetcher([
+    reply({ playerId: 45, exp: { level: 7 } }),
+    reply({ items: [{ id: 1, owned: false }] }),
+    reply({ items: [{ id: 2, owned: false }] }),
+    reply({ success: true }),
+    reply({ success: true }),
+  ]);
+  const snapshots = createAccountSnapshots({ store, fetcher });
+  await snapshots.read(`${origin}/api/me`, auth("inventory-b"));
+  await snapshots.read(
+    `${origin}/api/clothing/by-category/1`,
+    auth("inventory-b"),
+  );
+  await snapshots.read(
+    `${origin}/api/clothing/by-category/9`,
+    auth("inventory-b"),
+  );
+  await snapshots.liveFetch(`${origin}/api/works/tasks/perform`, {
+    ...auth("inventory-b"),
+    method: "POST",
+  });
+  assert.equal(
+    Object.keys(snapshots.inventory("Bearer inventory-b").sections).length,
+    2,
+  );
+  await snapshots.liveFetch(`${origin}/api/weapons/buy`, {
+    ...auth("inventory-b"),
+    method: "POST",
+  });
+  assert.deepEqual(snapshots.inventory("Bearer inventory-b").dirty, [
+    "/api/clothing/by-category/1",
+  ]);
+  assert.ok(
+    snapshots.inventory("Bearer inventory-b").sections[
+      "/api/clothing/by-category/9"
+    ],
+  );
+});
+
+test("active battle strikes preserve inventory snapshots across restart; terminal or uncertain strikes mark them stale without hiding them", async () => {
+  const store = memoryStore();
+  const { fetcher, calls } = queueFetcher([
+    reply({ playerId: 46, exp: { level: 7 } }),
+    reply({ catalog: { rooms: [{ id: 1, owned: false, unlocked: true }] } }),
+    reply({ battleFinished: false, battle: { status: "active" } }),
+    reply({ battleFinished: true, battle: { status: "won" } }),
+    reply({ success: true }),
+  ]);
+  let snapshots = createAccountSnapshots({ store, fetcher });
+  const authorization = "Bearer inventory-c";
+  await snapshots.read(`${origin}/api/me`, auth("inventory-c"));
+  await snapshots.read(`${origin}/api/rooms`, auth("inventory-c"));
+  await snapshots.liveFetch(`${origin}/api/bosses/battles/1/attack`, {
+    ...auth("inventory-c"),
+    method: "POST",
+  });
+  snapshots = createAccountSnapshots({ store, fetcher });
+  assert.deepEqual(snapshots.inventory(authorization).dirty, []);
+  assert.equal(
+    snapshots.inventory(authorization).sections["/api/rooms"].catalog.rooms
+      .length,
+    1,
+  );
+  assert.equal(calls.length, 3);
+  await snapshots.liveFetch(`${origin}/api/bosses/battles/1/attack`, {
+    ...auth("inventory-c"),
+    method: "POST",
+  });
+  assert.deepEqual(snapshots.inventory(authorization).dirty, ["/api/rooms"]);
+  assert.equal(
+    snapshots.inventory(authorization).sections["/api/rooms"].catalog.rooms
+      .length,
+    1,
+  );
+  await snapshots.liveFetch(`${origin}/api/bosses/battles/1/attack`, {
+    ...auth("inventory-c"),
+    method: "POST",
+  });
+  assert.deepEqual(snapshots.inventory(authorization).dirty, ["/api/rooms"]);
+});

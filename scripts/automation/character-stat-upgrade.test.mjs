@@ -1,0 +1,164 @@
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { upgradeCharacterPoint } from "./character-stat-upgrade.mjs";
+import { characterUpgradeQuote } from "../../src/lib/character-stat-upgrades.js";
+
+const profile = () => ({
+  playerId: 1,
+  wallet: { gold: 1000 },
+  characterStats: { madness: { base: 12 } },
+  characterStatsUpgrade: {
+    resetAtUtc: "2026-10-27T21:00:00Z",
+    madness: {
+      currency: "gold",
+      dailyLimit: 18,
+      dailyUsed: 0,
+      dailyRemaining: 18,
+      nextCost: 500,
+      costPerPoint: 500,
+      maxCost: 5000,
+    },
+  },
+});
+const uuid = "12345678-1234-4234-8234-123456789abc";
+
+test("persists before a single point is submitted and verifies the result", async () => {
+  const state = {};
+  const before = profile();
+  let saves = 0;
+  const result = await upgradeCharacterPoint({
+    state,
+    stat: "madness",
+    expected: characterUpgradeQuote(before, "madness", 1),
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => {
+      saves++;
+      return true;
+    },
+    post: async (body) => {
+      assert.equal(saves, 1);
+      assert.equal(state.pending.id, uuid);
+      assert.deepEqual(body, { stat: "madness", amount: 1, operationId: uuid });
+      return {
+        success: true,
+        balance: { gold: 500 },
+        characterStats: { madness: { base: 13 } },
+        characterStatsUpgrade: {
+          resetAtUtc: before.characterStatsUpgrade.resetAtUtc,
+          madness: { dailyUsed: 1 },
+        },
+      };
+    },
+  });
+  assert.equal(result.status, "confirmed");
+  assert.equal(state.pending, null);
+  assert.equal(saves, 2);
+});
+
+test("lost response leaves a durable pending operation and forbids replay", async () => {
+  const state = {};
+  const before = profile();
+  let posts = 0;
+  const args = {
+    state,
+    stat: "madness",
+    expected: characterUpgradeQuote(before, "madness", 1),
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => true,
+    post: async () => {
+      posts++;
+      throw new Error("timeout");
+    },
+  };
+  assert.equal((await upgradeCharacterPoint(args)).status, "uncertain");
+  assert.equal(state.pending.id, uuid);
+  await assert.rejects(
+    upgradeCharacterPoint(args),
+    /character_upgrade_uncertain/,
+  );
+  assert.equal(posts, 1);
+});
+
+test("a cancelled queued action clears its checkpoint without sending", async () => {
+  const state = {};
+  const before = profile();
+  let saves = 0;
+  await assert.rejects(
+    upgradeCharacterPoint({
+      state,
+      stat: "madness",
+      expected: characterUpgradeQuote(before, "madness", 1),
+      getProfile: async () => before,
+      operationId: () => uuid,
+      persist: () => {
+        saves++;
+        return true;
+      },
+      post: async () => {
+        throw Object.assign(new Error("cancelled"), { notDispatched: true });
+      },
+    }),
+    /character_upgrade_cancelled/,
+  );
+  assert.equal(state.pending, null);
+  assert.equal(saves, 2);
+});
+
+test("a known game rejection clears the checkpoint; an unexpected charge stays uncertain", async () => {
+  const before = profile();
+  const state = {};
+  const args = {
+    state,
+    stat: "madness",
+    expected: characterUpgradeQuote(before, "madness", 1),
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => true,
+    post: async () => ({
+      _explicitRejection: true,
+      error: "rage_effect_cap_reached",
+    }),
+  };
+  assert.equal((await upgradeCharacterPoint(args)).status, "rejected");
+  assert.equal(state.pending, null);
+  args.post = async () => ({
+    success: true,
+    balance: { gold: 400 },
+    characterStats: { madness: { base: 13 } },
+    characterStatsUpgrade: {
+      resetAtUtc: before.characterStatsUpgrade.resetAtUtc,
+      madness: { dailyUsed: 1 },
+    },
+  });
+  assert.equal((await upgradeCharacterPoint(args)).status, "uncertain");
+  assert.equal(state.pending.price, 500);
+});
+
+test("a changed quote or a failed durable save never dispatches", async () => {
+  const before = profile();
+  let posts = 0;
+  const args = {
+    state: {},
+    stat: "madness",
+    expected: { ...characterUpgradeQuote(before, "madness", 1), nextCost: 1 },
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => true,
+    post: async () => {
+      posts++;
+    },
+  };
+  await assert.rejects(
+    upgradeCharacterPoint(args),
+    /character_upgrade_quote_changed/,
+  );
+  args.expected = characterUpgradeQuote(before, "madness", 1);
+  args.persist = () => false;
+  await assert.rejects(
+    upgradeCharacterPoint(args),
+    /character_upgrade_storage_unavailable/,
+  );
+  assert.equal(posts, 0);
+});

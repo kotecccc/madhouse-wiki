@@ -1,4 +1,6 @@
+import { ErrorToast } from "../../components/ui/ErrorToast/ErrorToast.jsx";
 import { sendInventoryCommand } from "./equipment.js";
+import { Dialog } from "../../components/ui/Dialog/Dialog.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
 import { useEffect, useRef, useState } from "react";
@@ -6,7 +8,6 @@ import { knowledgeBase } from "virtual:madhouse-catalogue";
 import {
   getSessionJson,
   postSessionJson,
-  peekSessionJson,
   peekSessionUpdatedAt,
   subscribeSessionData,
   readGameHealth,
@@ -49,7 +50,13 @@ const PAGE_SIZE = 36;
 const SHOW_FILTERS = false;
 const SHOW_SUMMARY = false;
 
-export function InventorySection({ active, refreshGeneration = 0 }) {
+export function InventorySection({
+  active,
+  responses,
+  dirtyPaths = [],
+  playerLevel,
+  refreshGeneration = 0,
+}) {
   const equipmentPending = useRef(false);
   const [equipmentState, setEquipmentState] = useState({
     busy: false,
@@ -95,20 +102,23 @@ export function InventorySection({ active, refreshGeneration = 0 }) {
   }
   const [category, setCategory] = useState("clothing_item");
   const [filters, setFilters] = useState(initialFilters);
-  const [responses, setResponses] = useState(() =>
-    Object.fromEntries(
-      [...inventoryRequestPaths].flatMap((path) => {
-        const cached = peekSessionJson(path, { allowStale: true });
-        return cached ? [[path, cached]] : [];
-      }),
-    ),
-  );
   const [updatedAt, setUpdatedAt] = useState({});
   const [requestState, setRequestState] = useState({});
   const loadController = useRef(null);
+  const dirtyRef = useRef(dirtyPaths);
+  useEffect(() => {
+    dirtyRef.current = dirtyPaths;
+  }, [dirtyPaths]);
   const refreshRequested = useRef(false);
   const [revision, setRevision] = useState(0);
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const [nextOpen, setNextOpen] = useState(false);
+  const nextItems =
+    Number.isSafeInteger(playerLevel) && playerLevel > 0
+      ? (knowledgeBase.wardrobeItems || []).filter(
+          (item) => item.requiredLevel === playerLevel + 1,
+        )
+      : [];
   const lastRefreshGeneration = useRef(refreshGeneration);
   useEffect(() => {
     if (!active || lastRefreshGeneration.current === refreshGeneration) return;
@@ -118,17 +128,27 @@ export function InventorySection({ active, refreshGeneration = 0 }) {
   }, [active, refreshGeneration]);
   const paths = inventoryPaths(category, references);
   const pathKey = paths.join("|");
+  const previousDirty = useRef(new Set());
+  useEffect(() => {
+    const previous = previousDirty.current;
+    previousDirty.current = new Set(dirtyPaths);
+    if (
+      active &&
+      dirtyPaths.some(
+        (path) => pathKey.split("|").includes(path) && !previous.has(path),
+      )
+    )
+      setRevision((value) => value + 1);
+  }, [active, dirtyPaths, pathKey]);
   useEffect(
     () =>
       subscribeSessionData((event) => {
         if (event.cleared) {
           loadController.current?.abort();
           setRevision((value) => value + 1);
-          setResponses({});
           setUpdatedAt({});
           setRequestState({});
         } else if (inventoryRequestPaths.has(event.path) && event.data) {
-          setResponses((current) => ({ ...current, [event.path]: event.data }));
           setUpdatedAt((current) => ({
             ...current,
             [event.path]: event.updatedAt ?? null,
@@ -156,12 +176,10 @@ export function InventorySection({ active, refreshGeneration = 0 }) {
     // revalidate:false prevents timer/focus refreshes of inventory sections.
     function load() {
       for (const path of pathKey.split("|").filter(Boolean)) {
-        const cached = peekSessionJson(path, { allowStale: true });
         setUpdatedAt((current) => ({
           ...current,
           [path]: peekSessionUpdatedAt(path),
         }));
-        if (cached) setResponses((current) => ({ ...current, [path]: cached }));
         setRequestState((current) => ({ ...current, [path]: "loading" }));
         void runInventoryReadAttempts({
           signal: controller.signal,
@@ -169,14 +187,16 @@ export function InventorySection({ active, refreshGeneration = 0 }) {
             getSessionJson(path, {
               signal,
               revalidate: false,
-              fresh: attempt > 1 || fresh,
-              serverRefresh: attempt > 1 || fresh ? "live" : false,
+              fresh: attempt > 1 || fresh || dirtyRef.current.includes(path),
+              serverRefresh:
+                attempt > 1 || fresh || dirtyRef.current.includes(path)
+                  ? "live"
+                  : false,
             }),
           isFailedResponse: () =>
             readGameHealth().failedFeatures.includes(featureForGamePath(path)),
-          onData: (data) => {
+          onData: () => {
             if (controller.signal.aborted) return;
-            setResponses((current) => ({ ...current, [path]: data }));
             setUpdatedAt((current) => ({
               ...current,
               [path]: peekSessionUpdatedAt(path),
@@ -228,6 +248,32 @@ export function InventorySection({ active, refreshGeneration = 0 }) {
 
   return (
     <section className="inventory-section" aria-label="Инвентарь">
+      {nextItems.length > 0 && (
+        <Button icon="loot" onClick={() => setNextOpen(true)}>
+          Уровень {playerLevel + 1} · {nextItems.length}
+        </Button>
+      )}
+      {nextOpen && nextItems.length > 0 && (
+        <Dialog
+          modal
+          surface="floor-data"
+          onClose={() => setNextOpen(false)}
+          aria-label={`Предметы уровня ${playerLevel + 1}`}
+        >
+          <div className="inventory-next-dialog">
+            <CardTitle as="h2">Уровень {playerLevel + 1}</CardTitle>
+            <div className="inventory-grid">
+              {nextItems.map((item) => (
+                <InventoryItemCard
+                  key={`${item.type}:${item.id}`}
+                  item={{ ...item, status: "locked" }}
+                />
+              ))}
+            </div>
+            <Button onClick={() => setNextOpen(false)}>Закрыть</Button>
+          </div>
+        </Dialog>
+      )}
       <div className="inventory-toolbar">
         <div className="inventory-category-scroll">
           <SegmentedControl
@@ -246,18 +292,15 @@ export function InventorySection({ active, refreshGeneration = 0 }) {
         </div>
       </div>
       {equipmentState.needsCheck && (
-        <StatusMessage
-          compact
-          title="Проверьте экипировку"
-          description={equipmentState.notice}
-        >
+        <>
+          <ErrorToast message={equipmentState.notice} />
           <Button
             disabled={equipmentState.busy}
             onClick={() => void equip(null, null, true)}
           >
             Проверить экипировку
           </Button>
-        </StatusMessage>
+        </>
       )}
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">

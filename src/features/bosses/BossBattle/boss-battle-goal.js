@@ -14,6 +14,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
   const excluded = new Set();
   let settings = null,
     stopped = false,
+    finishCurrentBattle = false,
     disposed = false,
     startedAt = null,
     deadlineAt = null,
@@ -60,7 +61,8 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
         startedAt == null
           ? 0
           : Math.max(0, Math.floor((now() - startedAt) / 1000));
-    const deadlineReached = deadlineAt != null && now() >= deadlineAt;
+    const deadlineReached =
+      !finishCurrentBattle && deadlineAt != null && now() >= deadlineAt;
     const complete =
       settings.kind === "time" ? deadlineReached : progress >= target;
     const expired = settings.kind !== "time" && deadlineReached && !complete;
@@ -135,6 +137,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
   function clear() {
     settings = null;
     stopped = false;
+    finishCurrentBattle = false;
     startedAt = deadlineAt = null;
     attempts.clear();
     results.clear();
@@ -272,6 +275,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
         ? {
             settings,
             stopped,
+            finishCurrentBattle,
             startedAt,
             deadlineAt,
             attempts: [...attempts],
@@ -299,6 +303,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       clear();
       settings = { ...valid, ...(legacy ? { legacyMigration: true } : {}) };
       stopped = legacy || Boolean(saved.stopped);
+      finishCurrentBattle = Boolean(saved.finishCurrentBattle);
       startedAt =
         stopped && saved.startedAt == null ? null : (saved.startedAt ?? now());
       deadlineAt =
@@ -320,6 +325,11 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       return (
         !settings || Boolean(makeSnapshot(controller.getSnapshot())?.canStart)
       );
+    },
+    finishCurrentBattle() {
+      if (!settings || stopped || finishCurrentBattle) return;
+      finishCurrentBattle = true;
+      publish();
     },
     configure(config) {
       const valid = validate(config);
@@ -345,6 +355,7 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
     },
     stop({ clearProgress = false } = {}) {
       if (settings && (!stopped || clearProgress)) {
+        finishCurrentBattle = false;
         if (clearProgress) {
           startedAt = deadlineAt = null;
           attempts.clear();

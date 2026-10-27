@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { memo } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
@@ -328,11 +329,7 @@ export function BossBattlePanel({
           </Button>
         </div>
       ) : null}
-      {state.notice && !state.medicineOpen && (
-        <CardDescription role="status" title={state.notice}>
-          {state.notice}
-        </CardDescription>
-      )}
+      {!state.medicineOpen && <ErrorToast message={state.notice} />}
       {expired && !battle.outcome && (
         <CardDescription>
           Время боя истекло. Обновите результат.

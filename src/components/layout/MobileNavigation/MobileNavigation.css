@@ -25,3 +25,13 @@
     display: none;
   }
 }
+
+.mobile-navigation-tab {
+  position: relative;
+}
+
+.mobile-navigation-count {
+  position: absolute;
+  inset-block-start: var(--space-4);
+  inset-inline-end: var(--space-8);
+}

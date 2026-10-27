@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { projectLevelProgress } from "../../../../shared/profile-progress.js";
 import {
   useCallback,
@@ -298,13 +299,7 @@ export function TelegramConnection({
           )}px`,
         }}
       />
-      {error && (
-        <div className="telegram-connection-retry">
-          <p className="login-connection-error" role="alert">
-            {error}
-          </p>
-        </div>
-      )}
+      <ErrorToast message={error} />
       {actions}
     </Modal>
   );

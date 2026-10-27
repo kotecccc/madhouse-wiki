@@ -1,7 +1,4 @@
-import "./BossBattleErrorBanner.css";
-import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
-import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
-import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 
 function errorMessage(status, error) {
   if (status === 401) return "Сессия игры истекла. Войдите заново.";
@@ -24,19 +21,6 @@ export function BossBattleErrorBanner({ state }) {
   const status = state.errorStatus;
   const message = errorMessage(status, state.error);
   return (
-    <BaseCard
-      className="boss-battle-error-banner"
-      role="alert"
-      aria-live="assertive"
-    >
-      <CardTitle as="h3">Не удалось выполнить запрос боя</CardTitle>
-      {status ? (
-        <CardDescription>
-          {message} HTTP {status}
-        </CardDescription>
-      ) : (
-        <CardDescription title={message}>{message}</CardDescription>
-      )}
-    </BaseCard>
+    <ErrorToast message={status ? `${message} HTTP ${status}` : message} />
   );
 }

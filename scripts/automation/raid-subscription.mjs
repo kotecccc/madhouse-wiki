@@ -23,6 +23,7 @@ export function createRaidSubscription({
   battle,
   fight,
   restore,
+  priorityActive = () => false,
 }) {
   let value = saved
     ? structuredClone(saved)
@@ -162,6 +163,21 @@ export function createRaidSubscription({
       } else commit({ enabled: true, friendIds: [...friendIds] });
       return true;
     },
+    discardFloorCheckpoint() {
+      if (!value.checkpoint?.floorOwned) return;
+      commit({
+        checkpoint: {
+          ...value.checkpoint,
+          floorOwned: false,
+          bossId: null,
+          goal: null,
+          auto: null,
+          raidEnabled: false,
+          businessRunning: false,
+          workRunning: false,
+        },
+      });
+    },
     stop() {
       if (!value.enabled && !value.checkpoint) return;
       candidate = null;
@@ -226,6 +242,16 @@ export function createRaidSubscription({
       if (running || (!value.enabled && !value.checkpoint) || !lock()) return;
       running = true;
       try {
+        if (priorityActive()) {
+          if (value.phase === "joining") commit({ phase: "confirming" });
+          if (value.phase === "confirming") {
+            const result = await reconcile(value);
+            if (result === "joined") commit({ phase: "fighting" });
+            else if (result === "absent")
+              commit({ phase: value.enabled ? "waiting" : "restoring" });
+          } else if (value.phase === "fighting") await battle(value);
+          return;
+        }
         if (value.phase === "monitoring") {
           if (!value.enabled || !nextCandidate()) return;
           const checkpoint = capture();

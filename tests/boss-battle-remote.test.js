@@ -89,6 +89,25 @@ test("raid subscription stays unavailable until server state has loaded", async 
   assert.equal(h.raidSubscriptions.getSnapshot().loaded, false);
 });
 
+test("character upgrades can be queued while battle state is unresolved", async () => {
+  for (const extra of [
+    {},
+    { needsRefresh: true },
+    { error: "offline" },
+    { pending: "attack" },
+    { purchaseUncertain: true },
+    { healing: { uncertain: true } },
+  ]) {
+    const state = initialState();
+    state.battle = { ...state.battle, ...extra };
+    state.characterUpgrade = { profile: null, pending: null };
+    const h = harness({ state });
+    await h.connect();
+    assert.equal(h.characterUpgrade.getSnapshot().blocked, false);
+    h.disconnect();
+  }
+});
+
 test("app launch passes the auth battle reference once per connection; polls stay local", async () => {
   const ref = { battleId: "manual-fight", bossId: 7 };
   const h = harness({ launchBattle: () => ref });
@@ -255,6 +274,13 @@ test("battle, medicine, purchase, auto, goal, and pvp actions map to command env
       { businessId: "business:1" },
     ],
     [h.businessAssistant.stopRun, "business.run.stop", {}],
+    [h.characterUpgrade.refresh, "character.refresh", {}],
+    [
+      () => h.characterUpgrade.start({ stat: "rage", amount: 2 }),
+      "character.start",
+      { stat: "rage", amount: 2 },
+    ],
+    [h.characterUpgrade.stop, "character.stop", {}],
     [() => h.workFarm.refresh(7), "work.refresh", { workId: 7 }],
     [
       () => h.workFarm.plan({ workId: 7, targetCycles: 25 }),
@@ -336,6 +362,38 @@ test("business run stop is urgent while a run start command is pending", async (
   assert.equal(await start, true);
   deferred[1]({ ...initialState(), version: 10 });
   assert.equal(await stop, true);
+});
+
+test("floor automation is server-owned and stop can interrupt a pending read", async () => {
+  const deferred = [];
+  const state = {
+    ...initialState(),
+    floorRunner: { status: "running", phase: "planning" },
+  };
+  const h = harness({
+    request: (method) =>
+      method === "GET"
+        ? state
+        : new Promise((resolve) => deferred.push(resolve)),
+  });
+  await h.connect();
+  assert.equal(h.floorAutomation.getSnapshot().loaded, true);
+  assert.equal(h.floorAutomation.getSnapshot().status, "running");
+  assert.equal([...h.tasks.values()][0].delay, 2000);
+  const refresh = h.bossBattle.refresh();
+  const stop = h.floorAutomation.stop();
+  assert.equal(h.calls.at(-1)[2].command, "floor.stop");
+  deferred[0]({ ...state, version: 8 });
+  deferred[1]({
+    ...state,
+    version: 9,
+    floorRunner: { status: "stopped", phase: "idle" },
+  });
+  assert.equal(await refresh, true);
+  assert.equal(await stop, true);
+  assert.equal(h.floorAutomation.getSnapshot().status, "stopped");
+  h.disconnect();
+  assert.equal(h.floorAutomation.getSnapshot().loaded, false);
 });
 
 test("an older in-flight poll response cannot overwrite a newer command snapshot", async () => {

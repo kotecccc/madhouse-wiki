@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { getWorkById } from "../../../model/knowledge-base.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
@@ -391,13 +392,11 @@ export function ActiveBattleControl({ children }) {
                 </CardDescription>
               </BaseCard>
             </>
+          ) : pvp.error ? (
+            <ErrorToast message="Не удалось загрузить бой." />
           ) : (
             <CardDescription>
-              {pvp.pending
-                ? "Обновляем бой…"
-                : pvp.error
-                  ? "Не удалось загрузить бой."
-                  : "Активный бой PvP не найден."}
+              {pvp.pending ? "Обновляем бой…" : "Активный бой PvP не найден."}
             </CardDescription>
           )}
         </Modal>

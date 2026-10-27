@@ -22,8 +22,13 @@ import {
 import { createBossBattleGoal } from "../../src/features/bosses/BossBattle/boss-battle-goal.js";
 import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
 import { createWorkFarm } from "./work-farm.mjs";
+import { createFloorRunner } from "./floor-runner.mjs";
+import { createFloorActions } from "./floor-actions.mjs";
 import { createBusinessCollector } from "./business-collector.mjs";
 import { advanceBusinessUpgrade } from "./business-upgrade.mjs";
+import { upgradeCharacterPoint } from "./character-stat-upgrade.mjs";
+import { createCharacterStatBatch } from "./character-stat-batch.mjs";
+import { characterUpgradeQuote } from "../../src/lib/character-stat-upgrades.js";
 import { createBattleSeries } from "./battle-series.mjs";
 import { createBossBattleRequest } from "../../src/features/bosses/BossBattle/boss-battle-request.js";
 import { normalizePvpBattle } from "../../src/features/combat/ActiveBattleDock/active-battle-state.js";
@@ -49,9 +54,21 @@ import {
 
 const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
+export const characterBattleUncertain = (state, assistant) =>
+  Boolean(
+    state?.pending ||
+    state?.needsRefresh ||
+    state?.error ||
+    state?.pendingInvitation ||
+    state?.purchaseUncertain ||
+    assistant?.uncertain,
+  );
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
   "friends.reconcile",
+  "floor.stop",
+  "character.refresh",
+  "character.stop",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.refresh",
@@ -76,6 +93,13 @@ const commands = new Set([
   "friends.remove",
   "friends.reconcile",
   "friends.favorite",
+  "floor.start",
+  "floor.stop",
+  "character.refresh",
+  "character.upgrade",
+  "character.start",
+  "character.startAll",
+  "character.stop",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.request",
@@ -156,6 +180,7 @@ export function createAutomationService({
     now,
   });
   let closed = false;
+  let booting = false;
   let heartbeat = null;
   const owner = randomUUID();
   function ensureLease() {
@@ -182,6 +207,72 @@ export function createAutomationService({
       throw failure(502, "game_response_too_large");
     return JSON.parse(text);
   };
+  const readCharacterProfile = async (entry, credential) => {
+    const character = entry.characterUpgrade;
+    const response = await fetcher("https://cargohustle.online/api/me", {
+      headers: {
+        Authorization: credential,
+        Accept: "application/json",
+        "X-Madhouse-Snapshot-Refresh": "live",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok || response.headers.get("X-Madhouse-Snapshot") === "stale")
+      throw failure(503, "character_profile_unavailable");
+    const raw = await response.json();
+    if (
+      entry.credential !== credential ||
+      String(raw?.playerId) !== entry.playerId ||
+      raw?.partial ||
+      raw?.error
+    )
+      throw failure(503, "character_profile_unavailable");
+    const keys = ["madness", "aggression", "rage"];
+    const fields = [
+      "costPerPoint",
+      "currency",
+      "dailyLimit",
+      "dailyUsed",
+      "dailyRemaining",
+      "nextCost",
+      "startCost",
+      "maxCost",
+    ];
+    const projection = {
+      characterStats: Object.fromEntries(
+        keys.map((key) => [
+          key,
+          {
+            base: raw.characterStats?.[key]?.base,
+            total: raw.characterStats?.[key]?.total,
+          },
+        ]),
+      ),
+      characterStatsUpgrade: {
+        resetAtUtc: raw.characterStatsUpgrade?.resetAtUtc,
+        ...Object.fromEntries(
+          keys.map((key) => [
+            key,
+            Object.fromEntries(
+              fields.map((field) => [
+                field,
+                raw.characterStatsUpgrade?.[key]?.[field],
+              ]),
+            ),
+          ]),
+        ),
+      },
+      wallet: {
+        gold: raw.wallet?.gold,
+        pills: raw.wallet?.pills,
+        dollar: raw.wallet?.dollar,
+      },
+    };
+    character.profile = projection;
+    return projection;
+  };
   function persisted(entry) {
     return {
       version: entry.version,
@@ -190,7 +281,9 @@ export function createAutomationService({
       battle: entry.controller.getSnapshot(),
       goalRecord: entry.goal.exportState(),
       businessHelper: entry.businessHelper,
+      characterUpgrade: entry.characterUpgrade,
       workFarm: entry.workFarm.exportState(),
+      floorRunner: entry.floorRunner?.getSnapshot() ?? null,
       auto: entry.auto.exportState(),
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
@@ -220,6 +313,61 @@ export function createAutomationService({
       entry.storageFailed = true;
     }
   }
+  async function submitCharacterPoint(entry, expected, allowed, onConfirmed) {
+    const credential = entry.credential;
+    const permitted = () =>
+      allowed() &&
+      !closed &&
+      !entry.storageFailed &&
+      entry.credential === credential;
+    return upgradeCharacterPoint({
+      state: entry.characterUpgrade,
+      stat: expected.stat,
+      expected,
+      getProfile: () => readCharacterProfile(entry, credential),
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      allowed: permitted,
+      onConfirmed,
+      post: async (body) => {
+        const response = await fetcher(
+          "https://cargohustle.online/api/character-stats/upgrade",
+          {
+            method: "POST",
+            headers: {
+              Authorization: credential,
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            redirect: "error",
+            cache: "no-store",
+            signal: AbortSignal.timeout(20000),
+            canDispatch: () => {
+              ensureLease();
+              return permitted();
+            },
+          },
+        );
+        const result = await response.json();
+        if (
+          !response.ok &&
+          (response.status < 400 ||
+            response.status >= 500 ||
+            response.status === 429)
+        )
+          throw failure(response.status, "character_upgrade_failed");
+        return {
+          ...result,
+          _explicitRejection:
+            (!response.ok && response.status >= 400 && response.status < 500) ||
+            result?.success === false,
+        };
+      },
+    });
+  }
   function updateGoal(entry) {
     entry.goal.tick();
     const goal = entry.goal.getSnapshot();
@@ -227,7 +375,13 @@ export function createAutomationService({
       entry.auto.stop();
     return goal;
   }
+  function characterPriorityActive(entry) {
+    return Boolean(
+      entry.characterUpgrade?.pending || entry.characterBatch?.running(),
+    );
+  }
   function canAct(entry) {
+    if (characterPriorityActive(entry)) return false;
     if (entry.workFarm?.getSnapshot().manualPending) return false;
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
@@ -241,6 +395,7 @@ export function createAutomationService({
     return !(
       goal?.deadlineAt != null &&
       now() >= goal.deadlineAt &&
+      !entry.raidWorker?.getSnapshot().stopAfterBattle &&
       goal.status !== "stopped"
     );
   }
@@ -402,7 +557,9 @@ export function createAutomationService({
         },
       },
       preferences: entry.preferences,
+      characterUpgrade: entry.characterUpgrade,
       workFarm: entry.workFarm.getSnapshot(),
+      floorRunner: entry.floorRunner.getSnapshot(),
       businessAssistant: businessProjection(
         entry.businessHelper,
         Object.keys(entry.businessHelper.configs).length
@@ -415,6 +572,11 @@ export function createAutomationService({
     const entry = {
       playerId,
       businessHelper: saved?.businessHelper ?? emptyBusinessHelper(),
+      characterUpgrade: saved?.characterUpgrade ?? {
+        pending: null,
+        profile: null,
+        notice: null,
+      },
       credential: saved?.credential ?? null,
       player: saved?.player ?? null,
       equipment: saved?.equipment ?? { pending: null, checked: false },
@@ -565,6 +727,7 @@ export function createAutomationService({
     entry.goal = createBossBattleGoal({ controller: entry.controller, now });
     const restoredGoal = restoredShopDropGoal(saved?.goalRecord);
     if (restoredGoal) entry.goal.restoreState(restoredGoal);
+    if (saved?.raid?.stopAfterBattle) entry.goal.finishCurrentBattle();
     const refreshAvailability = async () => {
       if (
         ["unavailable", "credentials_invalid"].includes(
@@ -579,6 +742,7 @@ export function createAutomationService({
       now,
       random,
       available: () => !closed && !entry.storageFailed && canAct(entry),
+      priorityActive: () => characterPriorityActive(entry),
       readAvailable: () =>
         !closed && !entry.storageFailed && Boolean(entry.credential),
       refreshAvailability,
@@ -620,6 +784,7 @@ export function createAutomationService({
       auto: entry.auto,
       getCatalogue: getBusinessCatalogue,
       getBoss,
+      priorityActive: () => characterPriorityActive(entry),
       get: (path) => gameJson(entry.credential, path),
       upgrade: (run, valid) => {
         const business = getBusinessCatalogue().businesses.find(
@@ -679,6 +844,9 @@ export function createAutomationService({
         Boolean(entry.credential) &&
         !entry.inventoryBusy &&
         !entry.equipment?.pending &&
+        !entry.characterUpgrade.pending &&
+        (!entry.characterBatch?.running() ||
+          Boolean(entry.workFarm?.getSnapshot().run?.pending)) &&
         !entry.businessHelper.run?.pendingUpgrade &&
         !entry.controller.getSnapshot().pending &&
         (mode === "energy" ||
@@ -739,13 +907,22 @@ export function createAutomationService({
       state: entry.controller.getSnapshot,
       goal: entry.goal,
       auto: entry.auto,
+      priorityActive: () => characterPriorityActive(entry),
       available: () =>
         !closed &&
         !entry.storageFailed &&
         Boolean(entry.credential) &&
         canAct(entry),
       lock: () => {
-        if (entry.busy) return false;
+        if (
+          entry.busy ||
+          (characterPriorityActive(entry) &&
+            !characterBattleUncertain(
+              entry.controller.getSnapshot(),
+              entry.assistant.projection(),
+            ))
+        )
+          return false;
         entry.busy = true;
         return true;
       },
@@ -787,6 +964,7 @@ export function createAutomationService({
     entry.raidSubscription = createRaidSubscription({
       saved: saved?.raidSubscription,
       now,
+      priorityActive: () => characterPriorityActive(entry),
       persist: () => {
         save(entry);
         return !entry.storageFailed;
@@ -796,6 +974,18 @@ export function createAutomationService({
           entry.busy ||
           entry.inventoryBusy ||
           entry.storageFailed ||
+          entry.characterUpgrade.pending ||
+          (entry.characterBatch?.running() &&
+            !["joining", "confirming"].includes(
+              entry.raidSubscription.getSnapshot().phase,
+            ) &&
+            !(
+              entry.raidSubscription.getSnapshot().phase === "fighting" &&
+              characterBattleUncertain(
+                entry.controller.getSnapshot(),
+                entry.assistant.projection(),
+              )
+            )) ||
           !entry.credential
         )
           return false;
@@ -805,10 +995,20 @@ export function createAutomationService({
       unlock: () => {
         entry.busy = false;
       },
-      capture: () =>
-        entry.equipment?.pending || entry.workFarm.getSnapshot().manualPending
-          ? null
-          : priority.capture(),
+      capture: () => {
+        if (
+          entry.equipment?.pending ||
+          entry.workFarm.getSnapshot().manualPending
+        )
+          return null;
+        const checkpoint = priority.capture();
+        return checkpoint
+          ? {
+              ...checkpoint,
+              floorOwned: entry.floorRunner?.getSnapshot().status === "running",
+            }
+          : null;
+      },
       suspend: async (checkpoint) => {
         const state = entry.controller.getSnapshot();
         if (
@@ -926,6 +1126,63 @@ export function createAutomationService({
         return !entry.storageFailed;
       },
     });
+    entry.floorActions = createFloorActions({
+      entry,
+      get: (path) => gameJson(entry.credential, path),
+      getCatalogue: getBusinessCatalogue,
+      getBoss,
+      refreshAutoDamageLimit: () => refreshAutoDamageLimit(entry),
+      configureAutoGoal,
+      now,
+    });
+    entry.floorRunner = createFloorRunner({
+      saved: saved?.floorRunner,
+      ...entry.floorActions,
+      priorityActive: () => characterPriorityActive(entry),
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      now,
+    });
+    entry.characterBatch = createCharacterStatBatch({
+      state: entry.characterUpgrade,
+      read: () => readCharacterProfile(entry, entry.credential),
+      step: (quote, allowed, confirmed) =>
+        submitCharacterPoint(entry, quote, allowed, confirmed),
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      lock: () => {
+        if (
+          entry.busy ||
+          entry.inventoryBusy ||
+          entry.storageFailed ||
+          !entry.credential ||
+          !entry.collector.idleForPriority() ||
+          !entry.workFarm.canSuspend() ||
+          entry.workFarm.getSnapshot().manualPending ||
+          entry.equipment?.pending ||
+          ["joining", "confirming"].includes(
+            entry.raidSubscription.getSnapshot().phase,
+          ) ||
+          characterBattleUncertain(
+            entry.controller.getSnapshot(),
+            entry.assistant.projection(),
+          )
+        )
+          return false;
+        entry.busy = true;
+        return true;
+      },
+      unlock: () => {
+        entry.busy = false;
+      },
+      schedule,
+      cancel,
+      now,
+    });
     let savedGoal = JSON.stringify(entry.goal.exportState());
     entry.unsubscribers = [entry.controller, entry.auto].map((source) =>
       source.subscribe(() => save(entry)),
@@ -941,6 +1198,8 @@ export function createAutomationService({
     );
     entry.restoring = false;
     actors.set(playerId, entry);
+    if (entry.credential && entry.characterBatch.running())
+      entry.characterBatch.resume();
     return entry;
   }
   async function actor(playerId) {
@@ -1404,10 +1663,26 @@ export function createAutomationService({
     if (entry.raidFriendRefreshing && input.command.startsWith("raid.friend."))
       throw failure(409, "friend_status_pending");
     if (
+      entry.characterUpgrade.pending &&
+      input.command !== "character.refresh" &&
+      !safeCommands.has(input.command)
+    )
+      throw failure(409, "character_upgrade_uncertain");
+    if (entry.characterBatch.running() && !safeCommands.has(input.command))
+      throw failure(409, "character_batch_running");
+    if (entry.raidFriendRefreshing && input.command.startsWith("raid.friend."))
+      throw failure(409, "friend_status_pending");
+    if (
       entry.businessHelper.run?.pendingUpgrade &&
       ![
+        "floor.stop",
         "business.run.stop",
         "friends.reconcile",
+        "character.refresh",
+        "character.stop",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "business.select",
         "business.refresh",
         "invitations.refresh",
@@ -1436,16 +1711,45 @@ export function createAutomationService({
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");
+    // Read-only refresh may coexist with another actor's in-flight action;
+    // it must not reconcile an active or uncertain character operation.
+    if (
+      input.command === "character.refresh" &&
+      (entry.busy || entry.inventoryBusy) &&
+      !entry.characterUpgrade.pending &&
+      !entry.characterBatch.running()
+    ) {
+      if (
+        input.args != null &&
+        (typeof input.args !== "object" || Array.isArray(input.args))
+      )
+        throw failure(400, "invalid_command_arguments");
+      entry.receipts = [...entry.receipts.slice(-127), input.id];
+      save(entry);
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
+      const credential = entry.credential;
+      await readCharacterProfile(entry, credential);
+      if (entry.credential !== credential)
+        throw failure(409, "character_account_changed");
+      save(entry);
+      return snapshot(entry);
+    }
     if (
       (entry.busy || entry.inventoryBusy) &&
       !(input.command === "buddy.set" && input.args?.enabled === false) &&
       !safetyBuddySettings &&
       ![
+        "floor.stop",
         "raid.stop",
         "subscription.stop",
         "auto.stop",
         "goal.stop",
         "business.run.stop",
+        "character.stop",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "work.stop",
         "work.start",
       ].includes(input.command)
@@ -1453,6 +1757,9 @@ export function createAutomationService({
       throw failure(409, "automation_command_pending");
     const durableIntent =
       input.command === "work.start" ||
+      ["character.upgrade", "character.start", "character.startAll"].includes(
+        input.command,
+      ) ||
       (["auto.start", "raid.start"].includes(input.command) &&
         positive(input.args?.settings?.bossId)) ||
       (input.command === "business.run.start" &&
@@ -1468,6 +1775,7 @@ export function createAutomationService({
     if (
       entry.raidSubscription.getSnapshot().checkpoint &&
       ![
+        "floor.stop",
         "subscription.stop",
         "buddy.set",
         "buddy.order",
@@ -1475,6 +1783,9 @@ export function createAutomationService({
         "buddy.resolve",
         "invitations.refresh",
         "friends.reconcile",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "raid.friend.check",
         "raid.friend.inspect",
         "raid.friend.refresh",
@@ -1546,12 +1857,21 @@ export function createAutomationService({
       throw failure(409, "automation_controls_equipment");
     if (
       entry.equipment?.pending &&
-      !["equipment.refresh", "inventory.refresh"].includes(input.command) &&
+      ![
+        "equipment.refresh",
+        "inventory.refresh",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
+      ].includes(input.command) &&
       !safeCommands.has(input.command)
     )
       throw failure(409, "weapon_equipment_uncertain");
     if (
       entry.workFarm.getSnapshot().manualPending &&
+      !["character.upgrade", "character.start", "character.startAll"].includes(
+        input.command,
+      ) &&
       !safeCommands.has(input.command)
     )
       throw failure(409, "work_booster_uncertain");
@@ -1569,7 +1889,26 @@ export function createAutomationService({
     const args = input.args ?? {};
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw failure(400, "invalid_command_arguments");
-    updateGoal(entry);
+    if (
+      (entry.floorRunner.getSnapshot().status === "running" ||
+        entry.floorRunner.getSnapshot().phase === "launching") &&
+      !safeCommands.has(input.command) &&
+      ![
+        "floor.stop",
+        "buddy.set",
+        "buddy.order",
+        "buddy.configure",
+        "buddy.resolve",
+        "refresh",
+        "hydrate",
+        "invitations.refresh",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
+      ].includes(input.command)
+    )
+      throw failure(409, "floor_automation_controls_resources");
+    if (input.command !== "raid.stop") updateGoal(entry);
     let state = entry.controller.getSnapshot();
     if (
       [
@@ -1591,9 +1930,10 @@ export function createAutomationService({
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
       if (
-        ["auto.stop", "raid.stop", "goal.stop", "business.run.stop"].includes(
+        ["auto.stop", "goal.stop", "business.run.stop"].includes(
           input.command,
-        )
+        ) ||
+        (input.command === "raid.stop" && state.battle?.status !== "active")
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
@@ -1802,6 +2142,149 @@ export function createAutomationService({
         case "friends.reconcile":
           await reconcileFriendRemoval({ entry, fetcher, save });
           break;
+        case "floor.start":
+          if (entry.floorActions.hasOtherWork())
+            throw failure(409, "floor_resources_busy");
+          entry.floorRunner.start();
+          break;
+        case "floor.stop":
+          entry.floorRunner.stop();
+          entry.raidSubscription.discardFloorCheckpoint();
+          break;
+        case "character.stop":
+          entry.characterBatch.stop();
+          break;
+        case "character.startAll": {
+          if (
+            !Array.isArray(args.quotes) ||
+            !args.quotes.length ||
+            args.quotes.length > 3 ||
+            new Set(args.quotes.map((q) => q?.stat)).size !== args.quotes.length
+          )
+            throw failure(400, "invalid_character_upgrade");
+          const profile = entry.characterUpgrade.profile;
+          const quotes = args.quotes.map((expected) => {
+            const quote = characterUpgradeQuote(
+              profile,
+              expected.stat,
+              expected.amount,
+            );
+            if (
+              !quote ||
+              quote.amount !== quote.dailyRemaining ||
+              [
+                "stat",
+                "base",
+                "dailyUsed",
+                "resetAt",
+                "currency",
+                "nextCost",
+                "maxCost",
+                "maxPrice",
+                "amount",
+              ].some((key) => quote[key] !== expected[key])
+            )
+              throw failure(409, "character_upgrade_quote_changed");
+            return quote;
+          });
+          for (const currency of ["gold", "pills"]) {
+            const total = quotes
+              .filter((q) => q.currency === currency)
+              .reduce((sum, q) => sum + q.maxPrice, 0);
+            if (
+              !Number.isSafeInteger(total) ||
+              (total &&
+                (!Number.isSafeInteger(profile.wallet[currency]) ||
+                  profile.wallet[currency] < total))
+            )
+              throw failure(409, "character_upgrade_insufficient_funds");
+          }
+          entry.characterBatch.startAll(quotes);
+          break;
+        }
+        case "character.start": {
+          const profile = entry.characterUpgrade.profile;
+          const quote = characterUpgradeQuote(profile, args.stat, args.amount);
+          const expected = args.expected;
+          if (
+            !quote ||
+            !expected ||
+            expected.stat !== args.stat ||
+            quote.base !== expected.base ||
+            quote.dailyUsed !== expected.dailyUsed ||
+            quote.resetAt !== expected.resetAt ||
+            quote.currency !== expected.currency ||
+            quote.nextCost !== expected.nextCost ||
+            quote.maxCost !== expected.maxCost ||
+            quote.maxPrice !== expected.maxPrice ||
+            quote.amount !== expected.amount
+          )
+            throw failure(409, "character_upgrade_quote_changed");
+          entry.characterBatch.start({
+            stat: args.stat,
+            amount: args.amount,
+            quote,
+            budget: expected.maxPrice,
+          });
+          break;
+        }
+        case "character.upgrade": {
+          const expected = args.expected;
+          const quote = characterUpgradeQuote(
+            entry.characterUpgrade.profile,
+            args.stat,
+            1,
+          );
+          if (
+            !quote ||
+            !expected ||
+            [
+              "stat",
+              "base",
+              "dailyUsed",
+              "dailyRemaining",
+              "dailyLimit",
+              "resetAt",
+              "currency",
+              "nextCost",
+              "maxCost",
+              "maxPrice",
+              "amount",
+            ].some((key) => quote[key] !== expected[key])
+          )
+            throw failure(409, "character_upgrade_quote_changed");
+          if (quote.balance < quote.nextCost)
+            throw failure(409, "character_upgrade_insufficient_funds");
+          entry.characterBatch.start({
+            stat: args.stat,
+            amount: 1,
+            quote,
+            budget: quote.maxPrice,
+          });
+          break;
+        }
+        case "character.refresh": {
+          const character = entry.characterUpgrade;
+          const profile = await readCharacterProfile(entry, entry.credential);
+          const pending = character.pending;
+          if (
+            pending &&
+            profile.characterStatsUpgrade.resetAtUtc === pending.resetAt &&
+            profile.characterStatsUpgrade[pending.stat]?.dailyUsed ===
+              pending.dailyUsed + 1 &&
+            profile.characterStats[pending.stat]?.base === pending.base + 1 &&
+            profile.wallet[pending.currency] === pending.balance - pending.price
+          ) {
+            character.pending = null;
+            character.notice =
+              "Игра показывает повышение характеристики на один пункт. Проверьте результат перед следующей операцией.";
+          } else {
+            character.notice = pending
+              ? "Результат предыдущей операции не подтверждён; повторная отправка заблокирована."
+              : null;
+          }
+          break;
+        }
         case "raid.friend.inspect": {
           const result = await inspectRaidFriend({ entry, args, fetcher });
           const status =
@@ -1986,8 +2469,7 @@ export function createAutomationService({
           break;
         }
         case "raid.stop":
-          entry.raidWorker.stop();
-          entry.goal.stop({ clearProgress: true });
+          entry.raidWorker.finishAfterCurrent();
           break;
         case "invitations.refresh":
           await refreshInvitations(entry);
@@ -2282,6 +2764,7 @@ export function createAutomationService({
     command,
     async boot() {
       ensureLease();
+      booting = true;
       heartbeat = setInterval(() => {
         try {
           ensureLease();
@@ -2301,6 +2784,7 @@ export function createAutomationService({
           if (
             !entry.busy &&
             !entry.inventoryBusy &&
+            !characterPriorityActive(entry) &&
             entry.workFarm.canSuspend() &&
             !entry.workFarm.getSnapshot().manualPending &&
             !entry.storageFailed &&
@@ -2358,6 +2842,24 @@ export function createAutomationService({
                 entry.busy = false;
               });
           }
+          if (
+            !booting &&
+            entry.floorRunner.getSnapshot().status === "running" &&
+            !entry.raidSubscription.getSnapshot().checkpoint &&
+            now() >= (entry.floorRunner.getSnapshot().nextCheckAt ?? 0) &&
+            !entry.busy &&
+            !entry.inventoryBusy &&
+            !entry.storageFailed &&
+            !characterPriorityActive(entry)
+          ) {
+            entry.busy = true;
+            void entry.floorRunner
+              .tick()
+              .catch(() => {})
+              .finally(() => {
+                entry.busy = false;
+              });
+          }
           if (now() < (entry.workerRetryAt ?? 0)) continue;
           try {
             updateGoal(entry);
@@ -2380,6 +2882,16 @@ export function createAutomationService({
       for (const { playerId, value } of store.list()) {
         // Discovery is server-owned and continues even when no browser is open.
         if (value?.credential) await actor(playerId);
+        if (
+          value?.credential &&
+          value?.floorRunner?.status === "running" &&
+          value.floorRunner.phase === "launching"
+        ) {
+          const entry = await actor(playerId);
+          entry.floorActions.stopOwned(value.floorRunner.target);
+          save(entry);
+          continue;
+        }
         if (value?.raidSubscription?.checkpoint) continue;
         if (
           !value?.raid?.enabled &&
@@ -2417,7 +2929,13 @@ export function createAutomationService({
             entry.controller.getSnapshot().battle?.status === "active"
           ) {
             entry.auto.start({
-              checkpoint: value.auto,
+              checkpoint: value.raid.stopAfterBattle
+                ? {
+                    ...value.auto,
+                    singleBattle: true,
+                    singleBattleId: entry.controller.getSnapshot().battle.id,
+                  }
+                : value.auto,
               resumeAt: value.auto?.nextAttackAt,
             });
           }
@@ -2465,12 +2983,15 @@ export function createAutomationService({
           });
         save(entry);
       }
+      booting = false;
     },
     close() {
       closed = true;
       for (const entry of actors.values()) {
+        entry.floorRunner.dispose();
         for (const unsub of entry.unsubscribers) unsub();
         entry.workFarm.dispose();
+        entry.characterBatch.dispose();
         entry.collector.dispose();
         entry.auto.dispose();
         entry.goal.dispose();

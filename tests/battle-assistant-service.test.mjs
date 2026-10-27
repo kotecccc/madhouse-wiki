@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { characterUpgradeQuote } from "../src/lib/character-stat-upgrades.js";
 
 const token = "Bearer battle-assistant-service.payload.sig";
 const start = 1_000_000;
@@ -38,6 +39,7 @@ function createHarness({
   unknownAttack = false,
   attackApplied = true,
   bagUnavailable = false,
+  characterTest = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "battle-assistant-service-"));
   let now = nowStart;
@@ -57,6 +59,21 @@ function createHarness({
   let holdNextBossRead = false;
   let releaseBossRead;
   let bagFailure = bagUnavailable;
+  let holdAttack = false;
+  let releaseAttack;
+  const charStats = { madness: { base: 20, total: 20 } };
+  const charUpgrade = {
+    resetAtUtc: "2099-01-01T00:00:00Z",
+    madness: {
+      currency: "gold",
+      costPerPoint: 10,
+      nextCost: 10,
+      maxCost: 10,
+      dailyLimit: 3,
+      dailyUsed: 0,
+      dailyRemaining: 3,
+    },
+  };
   const calls = [];
   const timers = [];
   let openSequence = 0;
@@ -109,7 +126,9 @@ function createHarness({
     calls.push({ method, path, body });
     if (method === "POST") {
       const record = store.read("101");
-      if (path.endsWith("/attack")) {
+      if (path === "/api/character-stats/upgrade") {
+        assert.ok(record?.characterUpgrade?.pending);
+      } else if (path.endsWith("/attack")) {
         assert.equal(record?.battle?.pending, "attack");
         assert.equal(record?.assistant?.pending?.kind, "attack");
       } else
@@ -123,7 +142,23 @@ function createHarness({
         playerId: 101,
         nickname: "Player",
         wallet: balance,
+        ...(characterTest
+          ? { characterStats: charStats, characterStatsUpgrade: charUpgrade }
+          : {}),
       });
+    if (path === "/api/character-stats/upgrade" && characterTest) {
+      balance.gold -= 10;
+      charStats.madness.base++;
+      charStats.madness.total++;
+      charUpgrade.madness.dailyUsed++;
+      charUpgrade.madness.dailyRemaining--;
+      return Response.json({
+        success: true,
+        balance,
+        characterStats: charStats,
+        characterStatsUpgrade: charUpgrade,
+      });
+    }
     if (path === "/api/combat") return Response.json({ activeBattle: null });
     if (path === "/api/bosses/7" && method === "GET") {
       const response = () =>
@@ -183,6 +218,12 @@ function createHarness({
       path === `/api/bosses/battles/${currentId}/attack` &&
       method === "POST"
     ) {
+      if (holdAttack) {
+        holdAttack = false;
+        await new Promise((resolve) => {
+          releaseAttack = resolve;
+        });
+      }
       if (attackApplied) currentDamage += 50;
       if (unknownAttack) throw new Error("simulated lost attack reply");
       currentReadyAt = now + 60_000;
@@ -300,6 +341,12 @@ function createHarness({
     },
     setBagUnavailable(value) {
       bagFailure = value;
+    },
+    holdAttack() {
+      holdAttack = true;
+    },
+    releaseAttack() {
+      releaseAttack?.();
     },
     holdBossRead() {
       holdNextBossRead = true;
@@ -755,6 +802,67 @@ test("explicit stop during API damageMax preflight cancels the pending start int
       false,
     );
   } finally {
+    ctx.cleanup();
+  }
+});
+
+test("character priority waits for the in-flight strike and auto battle resumes afterwards", async () => {
+  const ctx = createHarness({
+    health: 100,
+    wallet: { gold: 1000, dollar: 100, pills: 100 },
+    characterTest: true,
+  });
+  try {
+    const entry = await ctx.open();
+    const initial = await ctx.command(
+      entry,
+      "character-read-1",
+      "character.refresh",
+    );
+    const quote = characterUpgradeQuote(
+      initial.characterUpgrade.profile,
+      "madness",
+      1,
+    );
+    ctx.holdAttack();
+    await ctx.command(entry, "priority-auto-start", "auto.start");
+    await ctx.advance(5000);
+    assert.ok(
+      ctx.calls.some((c) => c.path.endsWith("/attack") && c.method === "POST"),
+    );
+    assert.equal(entry.controller.getSnapshot().pending, "attack");
+    const queued = await ctx.command(
+      entry,
+      "priority-character",
+      "character.upgrade",
+      { stat: "madness", expected: quote },
+    );
+    assert.equal(queued.characterUpgrade.run.status, "running");
+    await ctx.advance(2000);
+    assert.equal(
+      ctx.calls.filter((c) => c.path === "/api/character-stats/upgrade").length,
+      0,
+    );
+    ctx.releaseAttack();
+    await ctx.flush();
+    await ctx.advance(1000);
+    await ctx.flush();
+    assert.equal(
+      ctx.calls.filter((c) => c.path === "/api/character-stats/upgrade").length,
+      1,
+    );
+    assert.equal(
+      ctx.service.snapshot(entry).characterUpgrade.run.status,
+      "completed",
+    );
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    await ctx.advance(65000);
+    assert.ok(
+      ctx.calls.filter((c) => c.path.endsWith("/attack") && c.method === "POST")
+        .length >= 2,
+    );
+  } finally {
+    ctx.releaseAttack();
     ctx.cleanup();
   }
 });

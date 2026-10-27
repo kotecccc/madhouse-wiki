@@ -74,7 +74,9 @@ export function createRemoteBattleSession({
   const pvpListeners = new Set();
   const preferencesListeners = new Set();
   const businessListeners = new Set();
+  const characterListeners = new Set();
   const workFarmListeners = new Set();
+  const floorListeners = new Set();
   const invitationListeners = new Set();
   const subscriptionListeners = new Set();
   let connected = false;
@@ -82,6 +84,8 @@ export function createRemoteBattleSession({
   let transportError = null;
   let workCommandError = null;
   let businessCommandError = null;
+  let floorCommandError = null;
+  let characterCommandError = null;
   let invitationCommandError = null;
   let friendCommandError = null;
   let epoch = 0;
@@ -102,7 +106,17 @@ export function createRemoteBattleSession({
   let goalSnapshot = null;
   let pvpSnapshot = EMPTY_PVP;
   let businessSnapshot = EMPTY_BUSINESS;
+  let characterSnapshot = Object.freeze({
+    profile: null,
+    pending: false,
+    loaded: false,
+  });
   let workFarmSnapshot = EMPTY_WORK_FARM;
+  let floorSnapshot = Object.freeze({
+    status: "stopped",
+    loaded: false,
+    pending: false,
+  });
   let invitationSnapshot = EMPTY_INVITATIONS;
   let subscriptionSnapshot = Object.freeze({
     detectedRaids: [],
@@ -161,6 +175,14 @@ export function createRemoteBattleSession({
     });
     notify(preferencesListeners, preferencesSnapshot);
     notify(businessListeners, businessSnapshot);
+    characterSnapshot = Object.freeze({
+      ...(server?.characterUpgrade ?? {}),
+      loaded: Boolean(server?.characterUpgrade),
+      busy: pendingCommands > 0,
+      blocked: false,
+      error: transportError || characterCommandError,
+    });
+    notify(characterListeners, characterSnapshot);
     workFarmSnapshot = Object.freeze({
       ...EMPTY_WORK_FARM,
       ...(server?.workFarm ?? {}),
@@ -169,6 +191,13 @@ export function createRemoteBattleSession({
       error: transportError || workCommandError,
     });
     notify(workFarmListeners, workFarmSnapshot);
+    floorSnapshot = Object.freeze({
+      ...(server?.floorRunner ?? { status: "stopped" }),
+      loaded: Boolean(server),
+      pending: pendingCommands > 0,
+      error: transportError || floorCommandError,
+    });
+    notify(floorListeners, floorSnapshot);
     invitationSnapshot = Object.freeze({
       ...EMPTY_INVITATIONS,
       ...(server?.invitations ?? {}),
@@ -199,6 +228,8 @@ export function createRemoteBattleSession({
     transportError = null;
     workCommandError = null;
     businessCommandError = null;
+    floorCommandError = null;
+    characterCommandError = null;
     invitationCommandError = null;
     const incomingVersion = value?.version;
     const currentVersion = server?.version;
@@ -236,7 +267,9 @@ export function createRemoteBattleSession({
       server?.goal?.status === "running" ||
       server?.goal?.status === "active" ||
       server?.businessAssistant?.run?.status === "running" ||
-      server?.workFarm?.run?.status === "running"
+      server?.workFarm?.run?.status === "running" ||
+      server?.floorRunner?.status === "running" ||
+      server?.characterUpgrade?.run?.status === "running"
     );
   }
   const pollInterval = () =>
@@ -362,6 +395,7 @@ export function createRemoteBattleSession({
     transportError = null;
     workCommandError = null;
     businessCommandError = null;
+    characterCommandError = null;
     invitationCommandError = null;
     friendCommandError = null;
     epoch++;
@@ -385,8 +419,12 @@ export function createRemoteBattleSession({
       command === "subscription.stop" ||
       command === "goal.stop" ||
       command === "business.run.stop" ||
+      command === "character.stop" ||
       command === "work.stop";
-    if (!connected || (!urgent && pendingCommands > 0)) return false;
+    const floorStop = command === "floor.stop";
+    if (!connected || (!urgent && !floorStop && pendingCommands > 0))
+      return false;
+    if (command.startsWith("floor.")) floorCommandError = null;
     if (command.startsWith("raid.friend.")) friendCommandError = null;
     pendingCommands++;
     publish();
@@ -408,7 +446,11 @@ export function createRemoteBattleSession({
             setServerState(error.snapshot);
             // Refresh is read-only, so it can safely rebase once on the
             // conflict snapshot. Never replay a command that can mutate state.
-            if (command === "work.refresh" && attempt === 0) continue;
+            if (
+              ["work.refresh", "character.refresh"].includes(command) &&
+              attempt === 0
+            )
+              continue;
           }
           throw error;
         }
@@ -418,6 +460,11 @@ export function createRemoteBattleSession({
       return true;
     } catch (error) {
       if (!connected || run !== epoch) return false;
+      if (command.startsWith("floor.")) {
+        floorCommandError =
+          "Не удалось изменить авторежим. Проверьте активные цели и повторите попытку.";
+        publish();
+      }
       if (
         error?.status === 409 &&
         error.snapshot &&
@@ -441,9 +488,17 @@ export function createRemoteBattleSession({
           "Состояние изменилось. Проверьте план и попробуйте снова.";
         publish();
       }
+      if (command.startsWith("character.")) {
+        characterCommandError =
+          error?.status === 409
+            ? "Состояние изменилось. Обновите данные и проверьте прокачку."
+            : "Не удалось выполнить запрос. Проверьте состояние перед повтором.";
+        publish();
+      }
       if (
         !(error?.status === 409 && error.snapshot) &&
-        !command.startsWith("raid.friend.")
+        !command.startsWith("raid.friend.") &&
+        !command.startsWith("character.")
       ) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (
@@ -628,6 +683,18 @@ export function createRemoteBattleSession({
     startRun: (args) => send("business.run.start", args),
     stopRun: () => send("business.run.stop"),
   };
+  const characterUpgrade = {
+    subscribe(listener) {
+      characterListeners.add(listener);
+      return () => characterListeners.delete(listener);
+    },
+    getSnapshot: () => characterSnapshot,
+    refresh: () => send("character.refresh"),
+    upgrade: (args) => send("character.upgrade", args),
+    start: (args) => send("character.start", args),
+    startAll: (args) => send("character.startAll", args),
+    stop: () => send("character.stop"),
+  };
   const workFarm = {
     subscribe(listener) {
       workFarmListeners.add(listener);
@@ -698,10 +765,21 @@ export function createRemoteBattleSession({
       send("raid.friend.request", { playerId, username }),
     refreshFriend: () => send("raid.friend.refresh"),
   };
+  const floorAutomation = {
+    subscribe(listener) {
+      floorListeners.add(listener);
+      return () => floorListeners.delete(listener);
+    },
+    getSnapshot: () => floorSnapshot,
+    start: () => send("floor.start"),
+    stop: () => send("floor.stop"),
+  };
   return Object.freeze({
+    floorAutomation,
     bossInvitations,
     raidSubscriptions,
     businessAssistant,
+    characterUpgrade,
     workFarm,
     bossBattle: battle,
     bossBattleAuto: auto,

@@ -222,3 +222,160 @@ test("account-owned work runner persists before POST, resumes without browser an
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("character upgrade waits for in-flight work and work resumes without repeating it", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "work-character-priority-"));
+  const store = createAutomationStateStore({ directory });
+  const events = [];
+  let progress = 0;
+  let energy = 10;
+  let gold = 1000;
+  let releaseWork;
+  let releaseCharacter;
+  const characterStats = { madness: { base: 10, total: 10 } };
+  const characterStatsUpgrade = {
+    resetAtUtc: "2099-01-01T00:00:00Z",
+    madness: {
+      currency: "gold",
+      dailyLimit: 2,
+      dailyUsed: 0,
+      dailyRemaining: 2,
+      costPerPoint: 10,
+      nextCost: 10,
+      maxCost: 10,
+    },
+  };
+  const work = () => ({
+    workId: 7,
+    title: "Work",
+    completedCycles: progress === 3 ? 1 : 0,
+    tasks: [
+      {
+        id: 1,
+        title: "Task",
+        required: 3,
+        progress: progress === 3 ? 0 : progress,
+        energyCost: 1,
+        canPerform: true,
+      },
+    ],
+    energy: {
+      current: energy,
+      max: 10,
+      regenIntervalSeconds: 120,
+      secondsToNext: 100,
+    },
+  });
+  const fetcher = async (url) => {
+    const path = new URL(url).pathname;
+    if (path === "/api/me")
+      return Response.json({
+        playerId: 101,
+        wallet: { gold, pills: 0, dollar: 0 },
+        energy: work().energy,
+        characterStats,
+        characterStatsUpgrade,
+      });
+    if (path === "/api/combat") return Response.json({ activeBattle: null });
+    if (path === "/api/works/open") return Response.json(work());
+    if (path === "/api/works/tasks/perform") {
+      events.push("work");
+      if (events.filter((event) => event === "work").length === 1)
+        await new Promise((resolve) => {
+          releaseWork = resolve;
+        });
+      progress++;
+      energy--;
+      return Response.json(work());
+    }
+    if (path === "/api/character-stats/upgrade") {
+      events.push("character");
+      await new Promise((resolve) => {
+        releaseCharacter = resolve;
+      });
+      gold -= 10;
+      characterStats.madness.base++;
+      characterStats.madness.total++;
+      characterStatsUpgrade.madness.dailyUsed++;
+      characterStatsUpgrade.madness.dailyRemaining--;
+      return Response.json({
+        success: true,
+        balance: { gold },
+        characterStats,
+        characterStatsUpgrade,
+      });
+    }
+    return Response.json({ items: [] });
+  };
+  const service = createAutomationService({
+    store,
+    fetcher,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    getBoss: () => null,
+    getBusinessCatalogue: () => ({
+      businesses: [],
+      works: [{ workId: 7 }],
+      businessUpgrades: [],
+      bosses: [],
+    }),
+    schedule: (fn) => setTimeout(fn, 2),
+    cancel: clearTimeout,
+    random: () => 0,
+  });
+  const waitUntil = async (predicate) => {
+    for (let i = 0; i < 200; i++) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error("Timed out waiting for fake operation");
+  };
+  try {
+    const entry = await service.identify("Bearer work-priority.payload.sig");
+    let id = 0;
+    const command = (name, args = {}) =>
+      service.command(entry, {
+        id: `prioritywork${++id}`,
+        command: name,
+        expectedVersion: service.snapshot(entry).version,
+        args,
+      });
+    const initial = await command("character.refresh");
+    const expected = (
+      await import("../src/lib/character-stat-upgrades.js")
+    ).characterUpgradeQuote(initial.characterUpgrade.profile, "madness", 1);
+    await command("work.start", {
+      workId: 7,
+      targetCycles: 1,
+      mode: "energy",
+      energyBudget: 3,
+      maxActions: 10,
+      durationHours: 1,
+      maxBoosters: 0,
+      allowPurchase: false,
+      maxDollar: 0,
+    });
+    await waitUntil(() => Boolean(releaseWork));
+    await command("character.upgrade", { stat: "madness", expected });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(events, ["work"]);
+    releaseWork();
+    await waitUntil(() => Boolean(releaseCharacter));
+    assert.deepEqual(events, ["work", "character"]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(events, ["work", "character"]);
+    releaseCharacter();
+    await waitUntil(
+      () => service.snapshot(entry).characterUpgrade.run.status === "completed",
+    );
+    await waitUntil(
+      () => events.filter((event) => event === "work").length >= 2,
+    );
+    assert.deepEqual(events.slice(0, 3), ["work", "character", "work"]);
+  } finally {
+    releaseWork?.();
+    releaseCharacter?.();
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

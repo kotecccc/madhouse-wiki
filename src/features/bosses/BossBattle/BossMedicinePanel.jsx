@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useId, useState } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
@@ -129,19 +130,15 @@ export function BossMedicinePanel({ state, now }) {
           : "выберите доступную цену и количество"}
       </CardDescription>
       {state.purchaseUncertain && (
-        <BaseCard className="boss-medicine-panel" role="alert">
-          <CardTitle>Результат покупки неизвестен</CardTitle>
-          <CardDescription>Обновите и проверьте запас аптечек.</CardDescription>
-          <CardDescription>
-            Покупка автоматически не повторяется.
-          </CardDescription>
+        <>
+          <ErrorToast message="Результат покупки неизвестен. Обновите и проверьте запас аптечек; покупка автоматически не повторяется." />
           <Button
             disabled={busy || state.needsRefresh || !state.medicines}
             onClick={bossBattle.acknowledgePurchase}
           >
             Запас проверен
           </Button>
-        </BaseCard>
+        </>
       )}
       {confirming ? (
         <BaseCard

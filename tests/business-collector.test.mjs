@@ -19,6 +19,7 @@ function harness({
   run,
   goalStatus = null,
   failOpenOnce = false,
+  priorityActive = () => false,
 } = {}) {
   const helper = {
     configs: { [businessId]: structuredClone(config) },
@@ -192,6 +193,7 @@ function harness({
     getCatalogue: () => catalogue,
     getBoss: async (id) => bossRecords.get(id),
     get,
+    priorityActive,
     now: () => now,
     schedule(fn, delay) {
       const timer = { fn, delay, canceled: false };
@@ -494,4 +496,21 @@ test("suspension waits for the current battle or unresolved action", async () =>
   h.state.pending = "attack";
   assert.equal(h.collector.suspend(), false);
   assert.equal(h.helper.run.status, "running");
+});
+
+test("business collection waits for character priority and resumes its saved plan", async () => {
+  let priority = true;
+  const h = harness({ priorityActive: () => priority });
+  h.start();
+  const stopsBefore = h.auto.stops;
+  await h.next();
+  assert.equal(h.helper.run.status, "running");
+  assert.deepEqual(h.gets, []);
+  assert.equal(h.auto.stops, stopsBefore);
+  assert.ok(h.timers.some((timer) => !timer.canceled && timer.delay === 1000));
+  priority = false;
+  await h.drain();
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.helper.run.phase, "farming");
+  assert.equal(h.controller.opens.length, 1);
 });

@@ -94,24 +94,21 @@
   font-size: var(--font-size-2xs);
 }
 
-.overview-stats,
-.overview-wallet {
+.overview-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-8);
   margin: 0;
 }
 
-.overview-stats > div,
-.overview-wallet > div {
+.overview-stats > div {
   display: grid;
   align-content: start;
   gap: var(--space-4);
   min-width: 0;
 }
 
-.overview-stats dt,
-.overview-wallet dt {
+.overview-stats dt {
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -119,8 +116,7 @@
   font-size: var(--font-size-xs);
 }
 
-.overview-stats dd,
-.overview-wallet dd {
+.overview-stats dd {
   margin: 0;
   color: var(--paper-bright);
   font-size: var(--font-size-sm);
