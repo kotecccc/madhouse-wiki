@@ -116,7 +116,7 @@ test("floor mode owns a persisted work goal and stops it without a browser", asy
   }
 });
 
-test("floor boss goal starts the existing raid worker and allows a solo fight", async () => {
+test("floor stop leaves the current boss fight running to completion", async () => {
   const directory = mkdtempSync(join(tmpdir(), "floor-boss-service-"));
   const store = createAutomationStateStore({ directory });
   const calls = [];
@@ -239,6 +239,15 @@ test("floor boss goal starts the existing raid worker and allows a solo fight", 
       true,
       JSON.stringify({ calls, raid: snapshot.raid, battle: snapshot.battle }),
     );
+    await service.command(entry, {
+      id: "floor-stop-boss",
+      command: "floor.stop",
+      expectedVersion: service.snapshot(entry).version,
+      args: {},
+    });
+    assert.equal(service.snapshot(entry).floorRunner.status, "stopped");
+    assert.equal(service.snapshot(entry).raid.stopAfterBattle, true);
+    assert.equal(service.snapshot(entry).auto.enabled, true);
     for (
       let i = 0;
       i < 10 && !calls.some(({ path }) => path.endsWith("/attack"));
