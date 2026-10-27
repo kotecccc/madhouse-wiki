@@ -181,6 +181,7 @@ export function createRemoteBattleSession({
         server?.battle?.pending ||
         server?.battle?.needsRefresh ||
         server?.battle?.error ||
+        server?.battle?.healing?.uncertain ||
         server?.battle?.pendingInvitation ||
         server?.battle?.purchaseUncertain,
       ),
