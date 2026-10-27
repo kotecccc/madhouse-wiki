@@ -1,5 +1,6 @@
 import { BaseCard } from "../../ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../ui/Button/Button.jsx";
+import { Pill } from "../../ui/Pill/Pill.jsx";
 import { Icon } from "../../ui/Icon/Icon.jsx";
 import "./MobileNavigation.css";
 
@@ -14,6 +15,7 @@ export function MobileNavigation({
   onScreenChange,
   authenticated = false,
   desktop = false,
+  inventoryCount = 0,
 }) {
   return (
     <BaseCard
@@ -27,7 +29,11 @@ export function MobileNavigation({
             <Button
               key={id}
               variant="nav-tab"
-              aria-label={label}
+              aria-label={
+                id === "inventory" && inventoryCount > 0
+                  ? `${label}: доступно для покупки ${inventoryCount}`
+                  : label
+              }
               title={label}
               aria-pressed={activeScreen === id}
               aria-controls={`screen-${id}`}
@@ -35,6 +41,11 @@ export function MobileNavigation({
             >
               <Icon type={icon} size="large" />
               <span className="mobile-navigation-label">{label}</span>
+              {id === "inventory" && inventoryCount > 0 && (
+                <Pill size="2xs" dot={false}>
+                  {inventoryCount}
+                </Pill>
+              )}
             </Button>
           ))}
       </nav>
