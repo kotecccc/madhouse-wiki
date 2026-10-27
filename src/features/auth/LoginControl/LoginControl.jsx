@@ -320,42 +320,11 @@ export function LoginControl() {
             role="region"
             aria-label="Сеанс пользователя"
           >
-            {profile && (
-              <>
-                <dl className="profile-attributes">
-                  {(profile.stats || []).map(([name, value, derived, unit]) => (
-                    <div key={name}>
-                      <dt>{name}</dt>
-                      <dd>
-                        {value.toLocaleString("ru-RU")}
-                        {Number.isFinite(derived) && (
-                          <small>
-                            {" "}
-                            ({derived.toLocaleString("ru-RU")} {unit})
-                          </small>
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                <dl className="profile-stats">
-                  {(profile.wallet || []).map(([name, value, icon]) => (
-                    <div key={name}>
-                      <dt>
-                        <Icon type={icon} />
-                        {name}
-                      </dt>
-                      <dd>{value.toLocaleString("ru-RU")}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            )}
-            <p className="profile-session-expiry">
+            <CardDescription className="profile-session-expiry">
               {label.split(" • ").map((line) => (
                 <span key={line}>{line}</span>
               ))}
-            </p>
+            </CardDescription>
             {error && <p role="alert">{error}</p>}
             <Button variant="secondary" onClick={logout}>
               Выйти
