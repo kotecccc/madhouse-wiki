@@ -26,6 +26,27 @@ test("floor automation opens its destination department and category", () => {
   );
 });
 
+test("floor unlock targets open the requested floor without a department", () => {
+  assert.deepEqual(
+    queueNavigation(
+      {
+        destination: "floor.start",
+        floorTarget: { kind: "floor", destination: "D" },
+      },
+      { floors: [{ id: "floor-d", code: "D" }], departments: [] },
+    ),
+    {
+      screen: "overview",
+      floorCode: "D",
+      focus: {
+        kind: "floor",
+        category: "work",
+        departmentId: null,
+      },
+    },
+  );
+});
+
 test("subscription and friend request cards open the matching raid context", () => {
   const target = {
     leaderPlayerId: 42,

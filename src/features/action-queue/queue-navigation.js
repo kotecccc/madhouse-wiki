@@ -5,11 +5,12 @@ export function queueNavigation(card, catalogue = {}) {
   const type = card?.destination;
   if (typeof type !== "string") return null;
   if (type === "floor" || type === "floor.start") {
+    const destination = card.floorTarget?.destination;
     const department = catalogue.departments?.find(
-      (item) => item.code === card.floorTarget?.destination,
+      (item) => item.code === destination,
     );
     const floor = catalogue.floors?.find(
-      (item) => item.id === department?.floorId,
+      (item) => item.id === department?.floorId || item.code === destination,
     );
     return {
       screen: "overview",

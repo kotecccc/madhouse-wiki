@@ -44,7 +44,9 @@ export function FloorsSection({
     useState(null);
   const [selectedFloorId, setSelectedFloorId] = useState(null);
   const [focusedDepartmentId, setFocusedDepartmentId] = useState(null);
+  const [departmentFocusSequence, setDepartmentFocusSequence] = useState(0);
   const departmentRefs = useRef({});
+  const floorGridRef = useRef(null);
   const lastAvailableFloorCode = [...orderedFloors]
     .reverse()
     .find((floor) => availability[floor.code] === true)?.code;
@@ -74,7 +76,8 @@ export function FloorsSection({
     if (floor) setSelectedFloorId(floor.id);
     if (["work", "bosses", "businesses"].includes(queueFocus.category))
       setCategory(queueFocus.category);
-    if (department) setFocusedDepartmentId(department.id);
+    setFocusedDepartmentId(department?.id ?? null);
+    if (department) setDepartmentFocusSequence((sequence) => sequence + 1);
     onQueueFocusHandled?.("floor");
   }, [queueFocus, onQueueFocusHandled]);
 
@@ -213,11 +216,23 @@ export function FloorsSection({
 
   useEffect(() => {
     if (!focusedDepartmentId) return;
-    const node = departmentRefs.current[focusedDepartmentId];
+    const node =
+      departmentRefs.current[focusedDepartmentId] ||
+      [
+        ...(floorGridRef.current?.querySelectorAll("[data-department-id]") ||
+          []),
+      ].find((item) => item.dataset.departmentId === focusedDepartmentId);
     if (!node) return;
     node.open = true;
     node.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusedDepartmentId, selectedFloorId]);
+  }, [
+    focusedDepartmentId,
+    departmentFocusSequence,
+    selectedFloorId,
+    category,
+    departmentsLoading,
+    collectionState.status,
+  ]);
 
   return (
     <ContentSection
@@ -347,6 +362,7 @@ export function FloorsSection({
         <ErrorToast message="Доступность отделений не удалось проверить." />
       )}
       <div
+        ref={floorGridRef}
         className="floor-grid"
         aria-live="polite"
         aria-busy={departmentsLoading || collectionState.status === "loading"}

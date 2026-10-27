@@ -279,6 +279,7 @@ export function BossCardView({
       editKey="card"
       as={as}
       variant={cardVariant}
+      data-department-id={boss.departmentId}
       state={menuAnchor ? "selected" : cardState}
       padding={cardPadding}
       className={cardClass}
