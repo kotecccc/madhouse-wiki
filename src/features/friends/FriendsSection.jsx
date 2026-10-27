@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { Skeleton } from "../../components/ui/Skeleton/Skeleton.jsx";
+import { ErrorToast } from "../../components/ui/ErrorToast/ErrorToast.jsx";
 import { NumberField } from "../../components/ui/NumberField/NumberField.jsx";
 import { Input } from "../../components/ui/Input/Input.jsx";
 import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
@@ -69,6 +70,8 @@ export function FriendsSection({
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
+    let retryTimer;
+    let attempts = 0;
     onRefreshState?.(true);
     void getSessionJson("/api/automation/state", {
       fresh: true,
@@ -81,24 +84,30 @@ export function FriendsSection({
         }
       })
       .catch(() => {});
-    loadFriends(getSessionJson, controller.signal).then(
-      (items) => {
-        setState({ status: "ready", items });
-        onRefreshState?.(false);
-      },
-      () => {
-        if (!controller.signal.aborted) {
-          setState((previous) =>
-            previous.status === "ready"
-              ? previous
-              : { status: "error", items: [] },
-          );
+    const load = () => {
+      attempts++;
+      void loadFriends(getSessionJson, controller.signal).then(
+        (items) => {
+          setState({ status: "ready", items });
           onRefreshState?.(false);
-        }
-      },
-    );
+        },
+        () => {
+          if (!controller.signal.aborted) {
+            setState((previous) =>
+              previous.status === "ready"
+                ? previous
+                : { status: "error", items: [] },
+            );
+            onRefreshState?.(false);
+            if (attempts < 3) retryTimer = window.setTimeout(load, 15000);
+          }
+        },
+      );
+    };
+    load();
     return () => {
       controller.abort();
+      window.clearTimeout(retryTimer);
       onRefreshState?.(false);
     };
   }, [active, refreshGeneration, reload, onRefreshState]);
@@ -320,6 +329,9 @@ export function FriendsSection({
   ).length;
   return (
     <section className="friends-section" aria-label="Друзья">
+      {state.status === "error" && (
+        <ErrorToast message="Не удалось загрузить друзей. Проверьте подключение к игре." />
+      )}
       {state.status === "loading" && (
         <div className="friends-list" aria-busy="true" role="status">
           <span className="sr-only">Загружаем список друзей</span>
