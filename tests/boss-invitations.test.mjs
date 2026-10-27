@@ -1625,6 +1625,16 @@ test("Buddy follows a verified friend who is not the leader and survives restart
       1,
     );
     assert.ok(ctx.pendingBeforePost[0]);
+    await issue(ctx.service, entry, "stop-buddy-fighting", "buddy.stop");
+    assert.equal(ctx.service.snapshot(entry).buddy.enabled, false);
+    assert.equal(ctx.service.snapshot(entry).buddy.phase, "fighting");
+    assert.equal(ctx.service.snapshot(entry).buddy.hasSuspendedGoal, true);
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });

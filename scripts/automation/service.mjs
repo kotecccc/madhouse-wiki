@@ -82,6 +82,7 @@ export const characterBattleUncertain = (state, assistant) =>
   );
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
+  "buddy.stop",
   "friends.reconcile",
   "floor.stop",
   "character.refresh",
@@ -114,6 +115,7 @@ const commands = new Set([
   "queue.enqueue",
   "queue.cancel",
   "buddy.set",
+  "buddy.stop",
   "buddy.order",
   "buddy.configure",
   "buddy.resolve",
@@ -2495,6 +2497,7 @@ export function createAutomationService({
         "business.refresh",
         "invitations.refresh",
         "subscription.stop",
+        "buddy.stop",
         "work.stop",
         "work.pause",
         "work.resume",
@@ -2559,6 +2562,7 @@ export function createAutomationService({
         "raid.pause",
         "raid.resume",
         "subscription.stop",
+        "buddy.stop",
         "auto.stop",
         "auto.pause",
         "auto.resume",
@@ -2612,6 +2616,7 @@ export function createAutomationService({
       ![
         "floor.stop",
         "subscription.stop",
+        "buddy.stop",
         "buddy.set",
         "buddy.order",
         "buddy.configure",
@@ -2905,6 +2910,27 @@ export function createAutomationService({
             stashEnabled: args.stashEnabled,
             stashReserve: args.stashReserve,
           });
+          break;
+        }
+        case "buddy.stop": {
+          for (const job of entry.actionQueue.snapshot())
+            if (
+              job.type === "friend.buddy" &&
+              job.args.enabled &&
+              [
+                "queued",
+                "waiting",
+                "running",
+                "reconciling",
+                "paused",
+              ].includes(job.status)
+            )
+              entry.actionQueue.stop(job.id);
+          if (
+            entry.raidSubscription.getSnapshot().mode === "buddy" &&
+            !entry.raidSubscription.setBuddyFriends([])
+          )
+            throw failure(409, "buddy_unavailable");
           break;
         }
         case "buddy.order": {

@@ -52,7 +52,7 @@ export function ActionQueueSection({
                       onCommand({ ...card, command: card.pauseCommand })
                     }
                   >
-                    {card.pauseCommand === "work.resume"
+                    {card.pauseCommand.endsWith(".resume")
                       ? "Продолжить"
                       : "Пауза"}
                   </Button>

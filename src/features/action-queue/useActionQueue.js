@@ -120,12 +120,7 @@ export function useActionQueue(
     setPending(true);
     setError(null);
     try {
-      const args =
-        card.command === "queue.cancel"
-          ? { id: card.id }
-          : card.command === "buddy.set"
-            ? { enabled: false }
-            : {};
+      const args = card.command === "queue.cancel" ? { id: card.id } : {};
       const next = await postSessionJson("/api/automation/commands", {
         id: crypto.randomUUID(),
         expectedVersion: state.version,

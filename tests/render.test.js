@@ -105,6 +105,25 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
   });
   try {
     const load = (path) => server.ssrLoadModule(`/src/${path}`);
+    const { ActionQueueSection } = await load(
+      "features/action-queue/ActionQueueSection.jsx",
+    );
+    for (const state of [
+      { auto: { userPaused: true } },
+      { raid: { userPaused: true } },
+      { businessAssistant: { run: { status: "paused" } } },
+      { workFarm: { run: { status: "paused" } } },
+    ]) {
+      const markup = renderToStaticMarkup(
+        createElement(ActionQueueSection, {
+          authenticated: true,
+          state,
+          catalogue: {},
+          onCommand() {},
+        }),
+      );
+      assert.match(markup, />Продолжить<\/button>/);
+    }
     const { RaidPost, RaidFriendAction } = await load(
       "features/raids/RaidPost/RaidPost.jsx",
     );

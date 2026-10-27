@@ -67,6 +67,20 @@ export function actionQueueCards(state, catalogue = {}) {
   const raid = state.raid;
   const subscription = state.subscription;
   const buddy = state.buddy;
+  if (subscription?.enabled || subscription?.hasSuspendedGoal)
+    addActor(
+      "subscription",
+      "Подписка на рейды",
+      subscription.enabled ? "subscription.stop" : null,
+      subscription.enabled ? null : "Завершаем рейд",
+    );
+  if (buddy?.enabled || buddy?.hasSuspendedGoal)
+    addActor(
+      "buddy",
+      "Помощь Buddy",
+      buddy.enabled ? "buddy.stop" : null,
+      buddy.enabled ? null : "Завершаем рейд",
+    );
   if (floor?.status === "running" || floor?.status === "paused")
     addActor(
       "floor",
@@ -75,9 +89,6 @@ export function actionQueueCards(state, catalogue = {}) {
       floor.status === "paused" ? "Приостановлено" : null,
     );
   else {
-    if (subscription?.enabled)
-      addActor("subscription", "Подписка на рейды", "subscription.stop", null);
-    if (buddy?.enabled) addActor("buddy", "Помощь Buddy", "buddy.set", null);
     if (raid?.enabled || raid?.userPaused) {
       addActor(
         "raid",

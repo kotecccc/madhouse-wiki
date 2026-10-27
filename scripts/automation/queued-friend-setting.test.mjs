@@ -108,3 +108,40 @@ test("a cached old session cannot use a replacement credential", async () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("stopping Buddy cancels pending additions and disables existing friends", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-stop-"));
+  const store = createAutomationStateStore({ directory });
+  const service = createAutomationService({
+    store,
+    fetcher: async () => {
+      throw new Error("offline");
+    },
+    identifyPlayer: async () => ({ playerId: 17 }),
+    getBoss: (id) => ({ numericId: id }),
+  });
+  try {
+    const entry = await service.identify("Bearer fake-token");
+    entry.raidSubscription.setBuddyFriends([7, 8]);
+    await service.command(entry, {
+      id: "buddy-queue-01",
+      command: "queue.enqueue",
+      expectedVersion: 0,
+      args: { type: "friend.buddy", action: { playerId: 9, enabled: true } },
+    });
+    await service.command(entry, {
+      id: "buddy-stop-01",
+      command: "buddy.stop",
+      expectedVersion: 0,
+      args: {},
+    });
+    const snapshot = service.snapshot(entry);
+    assert.equal(snapshot.buddy.enabled, false);
+    assert.deepEqual(snapshot.buddy.friendIds, []);
+    assert.equal(snapshot.queuedActions[0].status, "cancelled");
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -62,6 +62,34 @@ test("shows floor and character progress using authoritative actor state", () =>
   assert.deepEqual(cards[1].progress, { value: 2, max: 5 });
 });
 
+test("Buddy remains separately stoppable while floor automation is active", () => {
+  const cards = actionQueueCards({
+    floorRunner: { status: "running" },
+    buddy: { enabled: true, hasSuspendedGoal: true },
+  });
+  assert.deepEqual(
+    cards.map((card) => card.id),
+    ["buddy", "floor"],
+  );
+  assert.equal(cards[0].command, "buddy.stop");
+});
+
+test("a stopped Buddy remains visible until its suspended action is reconciled", () => {
+  const cards = actionQueueCards({
+    buddy: { enabled: false, hasSuspendedGoal: true },
+  });
+  assert.equal(cards[0].status, "Завершаем рейд");
+  assert.equal(cards[0].command, null);
+});
+
+test("a stopped subscription stays visible while its raid finishes", () => {
+  const cards = actionQueueCards({
+    subscription: { enabled: false, hasSuspendedGoal: true },
+  });
+  assert.equal(cards[0].status, "Завершаем рейд");
+  assert.equal(cards[0].command, null);
+});
+
 test("paused work exposes resume and stopped uncertain work stays visible", () => {
   const paused = actionQueueCards({
     workFarm: { run: { workId: 1, status: "paused" } },
