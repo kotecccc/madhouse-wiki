@@ -266,6 +266,57 @@ async function issue(service, entry, id, name, args = {}) {
   });
 }
 
+test("friend request checkpoint survives restart and is reconciled without replay", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-friend-restart-"));
+  let posted = 0;
+  let accepted = false;
+  const extraRoute = async (path, method) => {
+    if (path === "/api/friends/search")
+      return Response.json({
+        player: { playerId: 42, username: "bob" },
+        relationship: "none",
+      });
+    if (path === "/api/friends")
+      return Response.json({
+        items: accepted ? [{ player: { playerId: 42, username: "bob" } }] : [],
+        nextCursor: null,
+      });
+    if (
+      path === "/api/friends/requests/outgoing" ||
+      path === "/api/friends/requests/incoming"
+    )
+      return Response.json({ items: [], nextCursor: null });
+    if (path === "/api/friends/requests" && method === "POST") {
+      posted++;
+      throw new Error("lost reply");
+    }
+    return null;
+  };
+  let ctx = setup(directory, { extraRoute });
+  try {
+    let entry = await ctx.service.identify(token);
+    await assert.rejects(
+      issue(ctx.service, entry, "friend-request-01", "raid.friend.request", {
+        username: "bob",
+      }),
+      /lost reply/,
+    );
+    assert.equal(ctx.store.read("101").raidFriend.pending.playerId, 42);
+    ctx.close();
+    ctx = setup(directory, { extraRoute });
+    entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "friend-refresh-01", "raid.friend.refresh");
+    assert.equal(ctx.service.snapshot(entry).raidFriend.status, "uncertain");
+    accepted = true;
+    await issue(ctx.service, entry, "friend-refresh-02", "raid.friend.refresh");
+    assert.equal(ctx.service.snapshot(entry).raidFriend.status, "friend");
+    assert.equal(posted, 1);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("accept persists invitation checkpoint before POST and confirms exact battle with own participant", async () => {
   const directory = mkdtempSync(join(tmpdir(), "boss-invitations-test-"));
   const ctx = setup(directory);

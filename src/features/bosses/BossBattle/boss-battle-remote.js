@@ -83,6 +83,7 @@ export function createRemoteBattleSession({
   let workCommandError = null;
   let businessCommandError = null;
   let invitationCommandError = null;
+  let friendCommandError = null;
   let epoch = 0;
   let timer = null;
   let pendingCommands = 0;
@@ -107,6 +108,7 @@ export function createRemoteBattleSession({
     detectedRaids: [],
     subscription: null,
     loaded: false,
+    friend: { statuses: {} },
     pending: false,
   });
   let preferencesSnapshot = Object.freeze({ favoriteBossIds: [] });
@@ -185,6 +187,8 @@ export function createRemoteBattleSession({
       detectedRaids: server?.detectedRaids ?? [],
       subscription: server?.subscription ?? null,
       loaded: connected && serverReady,
+      friend: server?.raidFriend ?? { statuses: {} },
+      friendError: friendCommandError,
       pending: pendingCommands > 0,
       error: transportError || invitationCommandError,
     });
@@ -357,6 +361,7 @@ export function createRemoteBattleSession({
     workCommandError = null;
     businessCommandError = null;
     invitationCommandError = null;
+    friendCommandError = null;
     epoch++;
     clearTimer();
     pendingCommands = 0;
@@ -380,6 +385,7 @@ export function createRemoteBattleSession({
       command === "business.run.stop" ||
       command === "work.stop";
     if (!connected || (!urgent && pendingCommands > 0)) return false;
+    if (command.startsWith("raid.friend.")) friendCommandError = null;
     pendingCommands++;
     publish();
     const run = epoch;
@@ -419,6 +425,11 @@ export function createRemoteBattleSession({
           "Состояние изменилось. Проверьте рейд и попробуйте снова.";
         publish();
       }
+      if (command.startsWith("raid.friend.")) {
+        friendCommandError =
+          "Не удалось проверить или изменить заявку. Проверьте состояние и попробуйте снова.";
+        publish();
+      }
       if (
         error?.status === 409 &&
         error.snapshot &&
@@ -428,7 +439,10 @@ export function createRemoteBattleSession({
           "Состояние изменилось. Проверьте план и попробуйте снова.";
         publish();
       }
-      if (!(error?.status === 409 && error.snapshot)) {
+      if (
+        !(error?.status === 409 && error.snapshot) &&
+        !command.startsWith("raid.friend.")
+      ) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (
           command.startsWith("invitations.") ||
@@ -675,6 +689,12 @@ export function createRemoteBattleSession({
     start: (leaderPlayerId, bossId, leaderUsername) =>
       send("subscription.start", { leaderPlayerId, bossId, leaderUsername }),
     stop: () => send("subscription.stop"),
+    checkFriends: (targets) => send("raid.friend.check", { targets }),
+    inspectFriend: (playerId, username) =>
+      send("raid.friend.inspect", { playerId, username }),
+    requestFriend: (playerId, username) =>
+      send("raid.friend.request", { playerId, username }),
+    refreshFriend: () => send("raid.friend.refresh"),
   };
   return Object.freeze({
     bossInvitations,

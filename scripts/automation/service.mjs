@@ -35,11 +35,21 @@ import {
 import { detectedRaids, observeRaids } from "./raid-observations.mjs";
 import { createRaidPriority } from "./raid-priority.mjs";
 import { createRaidSubscription } from "./raid-subscription.mjs";
+import {
+  checkRaidFriends,
+  inspectRaidFriend,
+  reconcileRaidFriend,
+  refreshWatchedRaidFriends,
+  requestRaidFriend,
+} from "./raid-friends.mjs";
 
 const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
+  "raid.friend.check",
+  "raid.friend.inspect",
+  "raid.friend.refresh",
   "inventory.refresh",
   "raid.stop",
   "invitations.refresh",
@@ -54,6 +64,10 @@ const safeCommands = new Set([
   "business.refresh",
 ]);
 const commands = new Set([
+  "raid.friend.check",
+  "raid.friend.inspect",
+  "raid.friend.request",
+  "raid.friend.refresh",
   "inventory.action",
   "inventory.refresh",
   "equipment.weapon",
@@ -169,6 +183,9 @@ export function createAutomationService({
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
       equipment: entry.equipment,
+      raidFriend: entry.raidFriend,
+      raidFriendStatuses: entry.raidFriendStatuses,
+      raidFriendWatch: entry.raidFriendWatch,
       preferences: entry.preferences,
       invitations: entry.invitations,
       raidObservations: observeRaids(entry.raidObservations, [], now()),
@@ -313,6 +330,25 @@ export function createAutomationService({
       },
       pvp: entry.pvp,
       equipment: entry.equipment,
+      raidFriend: {
+        playerId:
+          entry.raidFriend.pending?.playerId ??
+          entry.raidFriend.playerId ??
+          null,
+        status: entry.raidFriend.status ?? null,
+        username: entry.raidFriend.username ?? null,
+        statuses: {
+          ...entry.raidFriendStatuses,
+          ...(entry.raidFriend.pending
+            ? {
+                [`id:${entry.raidFriend.pending.playerId}`]: "uncertain",
+                ...(entry.raidFriend.username
+                  ? { [`name:${entry.raidFriend.username}`]: "uncertain" }
+                  : {}),
+              }
+            : {}),
+        },
+      },
       preferences: entry.preferences,
       workFarm: entry.workFarm.getSnapshot(),
       businessAssistant: businessProjection(
@@ -330,6 +366,11 @@ export function createAutomationService({
       credential: saved?.credential ?? null,
       player: saved?.player ?? null,
       equipment: saved?.equipment ?? { pending: null, checked: false },
+      raidFriend: saved?.raidFriend ?? { pending: null, status: null },
+      raidFriendStatuses: saved?.raidFriendStatuses ?? {},
+      raidFriendWatch: saved?.raidFriendWatch ?? {},
+      raidFriendRefreshAt: 0,
+      raidFriendRefreshing: false,
       preferences: saved?.preferences ?? { favoriteBossIds: [] },
       invitations: saved?.invitations ?? {
         items: [],
@@ -1018,6 +1059,29 @@ export function createAutomationService({
       throw failure(error.status || 502, "invitations_unavailable");
     }
   }
+  async function refreshPendingFriend(entry) {
+    if (
+      closed ||
+      entry.storageFailed ||
+      !entry.credential ||
+      entry.busy ||
+      entry.inventoryBusy ||
+      entry.raidFriendRefreshing ||
+      now() < entry.raidFriendRefreshAt ||
+      (!["pending", "uncertain"].includes(entry.raidFriend.status) &&
+        Object.keys(entry.raidFriendWatch).length === 0)
+    )
+      return;
+    entry.raidFriendRefreshAt = now() + 60000;
+    entry.raidFriendRefreshing = true;
+    try {
+      await refreshWatchedRaidFriends({ entry, fetcher, save });
+    } catch {
+      // Keep the durable checkpoint and retry reads only.
+    } finally {
+      entry.raidFriendRefreshing = false;
+    }
+  }
   function discoverInvitations(entry) {
     const state = entry.controller.getSnapshot();
     if (
@@ -1259,6 +1323,8 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
+    if (entry.raidFriendRefreshing && input.command.startsWith("raid.friend."))
+      throw failure(409, "friend_status_pending");
     if (
       entry.businessHelper.run?.pendingUpgrade &&
       ![
@@ -1311,6 +1377,10 @@ export function createAutomationService({
       ![
         "subscription.stop",
         "invitations.refresh",
+        "raid.friend.check",
+        "raid.friend.inspect",
+        "raid.friend.refresh",
+        "raid.friend.request",
         "refresh",
         "pvp.refresh",
       ].includes(input.command)
@@ -1429,6 +1499,91 @@ export function createAutomationService({
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
+        case "raid.friend.inspect": {
+          const result = await inspectRaidFriend({ entry, args, fetcher });
+          const status =
+            entry.raidFriend.pending?.playerId === result.playerId
+              ? "uncertain"
+              : Object.hasOwn(entry.raidFriendWatch, String(result.playerId)) &&
+                  result.status === "none"
+                ? "pending"
+                : result.status;
+          entry.raidFriendStatuses[`id:${result.playerId}`] = status;
+          if (result.username)
+            entry.raidFriendStatuses[`name:${result.username}`] = status;
+          break;
+        }
+        case "raid.friend.check": {
+          entry.raidFriendStatuses = await checkRaidFriends({
+            fetcher,
+            credential: entry.credential,
+            targets: args.targets,
+          });
+          const watched = { ...entry.raidFriendWatch };
+          if (
+            entry.raidFriend.status === "pending" &&
+            entry.raidFriend.playerId
+          )
+            watched[entry.raidFriend.playerId] = entry.raidFriend.username;
+          for (const [id, username] of Object.entries(watched)) {
+            for (const key of [
+              `id:${id}`,
+              ...(username ? [`name:${username}`] : []),
+            ])
+              if (["none", "unknown"].includes(entry.raidFriendStatuses[key]))
+                entry.raidFriendStatuses[key] = "pending";
+          }
+          if (entry.raidFriend.pending) {
+            entry.raidFriendStatuses[
+              `id:${entry.raidFriend.pending.playerId}`
+            ] = "uncertain";
+            if (entry.raidFriend.username)
+              entry.raidFriendStatuses[`name:${entry.raidFriend.username}`] =
+                "uncertain";
+          }
+          break;
+        }
+        case "raid.friend.request":
+          if (
+            Object.keys(entry.raidFriendWatch).length +
+              (entry.raidFriend.status === "pending" &&
+              entry.raidFriend.playerId &&
+              !Object.hasOwn(
+                entry.raidFriendWatch,
+                String(entry.raidFriend.playerId),
+              )
+                ? 1
+                : 0) >=
+            100
+          )
+            throw failure(409, "too_many_friend_requests");
+          await requestRaidFriend({
+            entry,
+            args,
+            commandId: input.id,
+            fetcher,
+            save,
+            allowed: () => !closed && !entry.storageFailed,
+          });
+          if (entry.raidFriend.status === "pending")
+            entry.raidFriendWatch[entry.raidFriend.playerId] =
+              entry.raidFriend.username;
+          if (entry.raidFriend.playerId)
+            entry.raidFriendStatuses[`id:${entry.raidFriend.playerId}`] =
+              entry.raidFriend.status;
+          if (entry.raidFriend.username)
+            entry.raidFriendStatuses[`name:${entry.raidFriend.username}`] =
+              entry.raidFriend.status;
+          break;
+        case "raid.friend.refresh":
+          await reconcileRaidFriend({ entry, fetcher, save });
+          if (entry.raidFriend.playerId)
+            entry.raidFriendStatuses[`id:${entry.raidFriend.playerId}`] =
+              entry.raidFriend.status;
+          if (entry.raidFriend.username)
+            entry.raidFriendStatuses[`name:${entry.raidFriend.username}`] =
+              entry.raidFriend.status;
+          break;
         case "subscription.start": {
           if (!positive(args.bossId))
             throw failure(400, "invalid_subscription");
@@ -1837,6 +1992,7 @@ export function createAutomationService({
         }
         for (const entry of actors.values()) {
           discoverInvitations(entry);
+          void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});
           if (now() < (entry.workerRetryAt ?? 0)) continue;
           try {
