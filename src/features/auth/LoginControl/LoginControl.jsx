@@ -67,6 +67,7 @@ export function LoginControl() {
   );
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
+  const [buddyCount, setBuddyCount] = useState(0);
   const [loginMethod, setLoginMethod] = useState("choose");
   const [token, setToken] = useState("");
   const [tokenHelpDevice, setTokenHelpDevice] = useState("computer");
@@ -87,6 +88,55 @@ export function LoginControl() {
   const refreshProfileRef = useRef(() => {});
   const progressAttempts = useRef(new Set());
   const authenticated = session.status === "ready";
+  useEffect(() => {
+    let cancelled = false;
+    let generation = 0;
+    const loadBuddy = async () => {
+      const current = ++generation;
+      if (readSession().status !== "ready") {
+        setBuddyCount(0);
+        return;
+      }
+      try {
+        const value = await getSessionJson("/api/automation/state", {
+          fresh: true,
+          revalidate: false,
+        });
+        if (!cancelled && current === generation)
+          setBuddyCount(
+            value.buddy?.mode === "buddy" && value.buddy.enabled
+              ? (value.buddy.friendIds?.length ?? 0)
+              : 0,
+          );
+      } catch {
+        if (!cancelled && current === generation) setBuddyCount(0);
+      }
+    };
+    const unsubscribe = subscribeSession(() => {
+      setBuddyCount(0);
+      void loadBuddy();
+    });
+    const unsubscribeData = subscribeSessionData((event) => {
+      if (event.cleared) setBuddyCount(0);
+      else if (event.path === "/api/automation/state") {
+        const buddy = event.data?.buddy;
+        setBuddyCount(
+          buddy?.mode === "buddy" && buddy.enabled
+            ? (buddy.friendIds?.length ?? 0)
+            : 0,
+        );
+      }
+    });
+    void loadBuddy();
+    const timer = window.setInterval(loadBuddy, 10000);
+    return () => {
+      cancelled = true;
+      generation++;
+      window.clearInterval(timer);
+      unsubscribe();
+      unsubscribeData();
+    };
+  }, []);
   useEffect(() => {
     const changed = (event) => {
       if (
@@ -327,6 +377,20 @@ export function LoginControl() {
             role="region"
             aria-label="Сеанс пользователя"
           >
+            {buddyCount > 0 && (
+              <>
+                <CardTitle size="xs">Buddy активен · {buddyCount}</CardTitle>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    window.location.hash = "friends";
+                    setOpen(false);
+                  }}
+                >
+                  Открыть друзей
+                </Button>
+              </>
+            )}
             <CardTitle size="xs">Автопрокачка</CardTitle>
             <CardDescription size="xs">
               {floor.status === "running"

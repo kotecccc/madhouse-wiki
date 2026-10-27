@@ -335,6 +335,65 @@ export function FriendsSection({
       )}
       {state.status === "ready" && (
         <>
+          {buddyFriends.length > 0 && (
+            <BaseCard>
+              <div className="friends-card-content">
+                <CardTitle>Buddy · {buddyFriends.length}</CardTitle>
+                {buddyFriends.map((playerId, index) => {
+                  const player = state.items.find(
+                    (item) => item.playerId === playerId,
+                  );
+                  return (
+                    <div className="friends-card-heading" key={playerId}>
+                      <CardDescription>
+                        {index + 1}.{" "}
+                        {player?.nickname ||
+                          (player?.username && `@${player.username}`) ||
+                          `Игрок №${playerId}`}
+                        {buddy?.activeFriendId === playerId &&
+                        buddy?.phase === "fighting"
+                          ? " · в рейде"
+                          : ""}
+                      </CardDescription>
+                      <div className="friends-identity">
+                        {[-1, 1].map((direction) => (
+                          <Button
+                            key={direction}
+                            size="sm"
+                            variant="secondary"
+                            disabled={
+                              actionBusy ||
+                              index + direction < 0 ||
+                              index + direction >= buddyFriends.length
+                            }
+                            aria-label={
+                              direction < 0
+                                ? "Повысить приоритет"
+                                : "Понизить приоритет"
+                            }
+                            onClick={() => {
+                              const ids = [...buddyFriends];
+                              [ids[index], ids[index + direction]] = [
+                                ids[index + direction],
+                                ids[index],
+                              ];
+                              void executeAction({
+                                kind: "order",
+                                player: { playerId },
+                                friendIds: ids,
+                              });
+                            }}
+                          >
+                            {direction < 0 ? "↑" : "↓"}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </BaseCard>
+          )}
           {automation?.friendRemoval?.pending &&
             !state.items.some(
               (player) =>
