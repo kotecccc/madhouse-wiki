@@ -103,6 +103,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
       return;
     }
     setArmed(null);
+    const previousRunId = characterUpgrade.getSnapshot().run?.id;
     const ok = selection.quotes
       ? await characterUpgrade.startAll({ quotes: selection.quotes })
       : selection.amount === 1
@@ -115,8 +116,17 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
             amount: selection.amount,
             expected: selection,
           });
-    if (ok && key.startsWith("single:") && !running && !pending)
-      setSubmittedSingle({ key, id: characterUpgrade.getSnapshot().run?.id });
+    const runId = characterUpgrade.getSnapshot().run?.id;
+    if (
+      ok &&
+      key.startsWith("single:") &&
+      !running &&
+      !pending &&
+      !characterUpgrade.getSnapshot().queued &&
+      runId &&
+      runId !== previousRunId
+    )
+      setSubmittedSingle({ key, id: runId });
     if (ok)
       void getSessionJson("/api/me", {
         fresh: true,

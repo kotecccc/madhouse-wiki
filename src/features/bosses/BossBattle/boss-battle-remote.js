@@ -201,6 +201,11 @@ export function createRemoteBattleSession({
     notify(businessListeners, businessSnapshot);
     characterSnapshot = Object.freeze({
       ...(server?.characterUpgrade ?? {}),
+      queued: (server?.queuedActions ?? []).some(
+        (job) =>
+          job.type === "character.start" &&
+          ["queued", "waiting", "running", "reconciling"].includes(job.status),
+      ),
       loaded: Boolean(server?.characterUpgrade),
       busy: pendingCommands > 0,
       blocked: false,

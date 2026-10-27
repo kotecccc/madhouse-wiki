@@ -2545,6 +2545,33 @@ export function createAutomationService({
         entry.raidSubscription.stop();
       return snapshot(entry);
     }
+    // The client may have observed an idle batch just before another request
+    // started one. Preserve its confirmed intent instead of rejecting the race.
+    if (
+      (entry.characterBatch.running() || entry.characterUpgrade.pending) &&
+      ["character.upgrade", "character.start", "character.startAll"].includes(
+        input.command,
+      )
+    ) {
+      const args = input.args ?? {};
+      const quotes =
+        input.command === "character.startAll" ? args.quotes : [args.expected];
+      if (
+        !Array.isArray(quotes) ||
+        !quotes.length ||
+        (input.command === "character.startAll"
+          ? quotes.some((quote) => quote?.amount !== quote?.dailyRemaining)
+          : args.expected?.stat !== args.stat ||
+            args.expected?.amount !==
+              (input.command === "character.upgrade" ? 1 : args.amount))
+      )
+        throw failure(400, "invalid_character_upgrade");
+      return command(entry, {
+        ...input,
+        command: "queue.enqueue",
+        args: { type: "character.start", action: { quotes } },
+      });
+    }
     if (
       entry.manualBattle.pending &&
       [

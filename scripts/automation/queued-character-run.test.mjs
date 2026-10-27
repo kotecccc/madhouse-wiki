@@ -104,12 +104,22 @@ test("a second character goal waits for the current batch and can be cancelled",
       quote,
       budget: quote.maxPrice,
     });
+    await assert.rejects(
+      service.command(entry, {
+        id: "character-invalid",
+        command: "character.start",
+        expectedVersion: 0,
+        args: { stat: "madness", amount: 2, expected: quote },
+      }),
+      /invalid_character_upgrade/,
+    );
     await service.command(entry, {
       id: "character-01",
-      command: "queue.enqueue",
+      command: "character.upgrade",
       expectedVersion: 0,
-      args: { type: "character.start", action: { quotes: [quote] } },
+      args: { stat: "madness", expected: quote },
     });
+    assert.equal(entry.actionQueue.snapshot()[0].type, "character.start");
     assert.equal(entry.actionQueue.hasDue(), false);
     entry.characterBatch.stop();
     assert.equal(entry.actionQueue.hasDue(), true);
