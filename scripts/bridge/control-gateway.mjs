@@ -17,6 +17,7 @@ const SERVER_CAPABILITIES = Object.freeze([
   "official-game-launch-v1",
   "helper-pause-v1",
   "device-update-drain-v1",
+  "game-status-v1",
 ]);
 const HELLO_TIMEOUT_MS = 5000;
 const STREAM_READY_TIMEOUT_MS = 15_000;
@@ -106,9 +107,12 @@ export function createBridgeControlGateway({
   maxControlConnections = MAX_CONTROL_CONNECTIONS,
   maxPendingUpgrades = MAX_PENDING_UPGRADES,
   upgradeTimeoutMs = UPGRADE_TIMEOUT_MS,
+  getDeviceGameStatus = null,
 } = {}) {
   if (typeof registry?.authorizeDeviceSession !== "function")
     throw new TypeError("bridge_session_authorizer_required");
+  if (getDeviceGameStatus !== null && typeof getDeviceGameStatus !== "function")
+    throw new TypeError("bridge_game_status_reader_invalid");
   if (
     typeof registry?.getHelperPaused !== "function" ||
     typeof registry?.setHelperPaused !== "function"
@@ -179,7 +183,12 @@ export function createBridgeControlGateway({
 
   function hasActiveWork() {
     for (const connection of connections.values())
-      if (connection.activeStream || connection.pendingLaunch) return true;
+      if (
+        connection.activeStream ||
+        connection.pendingLaunch ||
+        connection.pendingStatus
+      )
+        return true;
     return false;
   }
 
@@ -190,6 +199,7 @@ export function createBridgeControlGateway({
         !connection.updateDrainAcknowledged &&
         !connection.activeStream &&
         !connection.pendingLaunch &&
+        !connection.pendingStatus &&
         !connection.cleaned
       ) {
         connection.updateDrainAcknowledged = true;
@@ -385,6 +395,8 @@ export function createBridgeControlGateway({
       heartbeatTimer: null,
       negotiatedCapabilities: new Set(),
       pendingLaunch: null,
+      pendingStatus: false,
+      lastStatusAtMs: null,
       updateDrainRequestId: null,
       updateDrainAcknowledged: false,
       ignoredLaunchRequestIds: new Set(),
@@ -415,8 +427,10 @@ export function createBridgeControlGateway({
           closeConnection(connection, 1008, "capability_required");
           return;
         }
-        const negotiated = SERVER_CAPABILITIES.filter((capability) =>
-          message.capabilities.includes(capability),
+        const negotiated = SERVER_CAPABILITIES.filter(
+          (capability) =>
+            message.capabilities.includes(capability) &&
+            (capability !== "game-status-v1" || getDeviceGameStatus !== null),
         );
         if (!negotiated.length) {
           closeConnection(connection, 1008, "capability_required");
@@ -491,6 +505,80 @@ export function createBridgeControlGateway({
         }
         connection.updateDrainRequestId = message.requestId;
         resolveDrainWaitersIfIdle();
+        return;
+      }
+      if (message.type === "game_status_check") {
+        if (!connection.negotiatedCapabilities.has("game-status-v1")) {
+          closeConnection(connection, 1008, "capability_not_negotiated");
+          return;
+        }
+        const timestamp = monotonicTime(monotonicNow);
+        if (
+          connection.updateDrainRequestId ||
+          connection.pendingStatus ||
+          timestamp === null ||
+          (connection.lastStatusAtMs !== null &&
+            timestamp - connection.lastStatusAtMs < 15_000)
+        ) {
+          sendJson(socket, {
+            type: "game_status_result",
+            requestId: message.requestId,
+            status: "unknown",
+          });
+          return;
+        }
+        connection.pendingStatus = true;
+        connection.lastStatusAtMs = timestamp;
+        void (async () => {
+          let status = "unknown";
+          try {
+            const current = await registry.authorizeDeviceSession(
+              connection.credential,
+            );
+            if (
+              validSession(current, "control") &&
+              sameSession(connection.session, current) &&
+              !connection.cleaned &&
+              !connection.updateDrainRequestId
+            ) {
+              const paused = registry.getHelperPaused(current.ownerId);
+              if (typeof paused !== "boolean")
+                throw gatewayError("helper_state_unavailable");
+              const result = paused
+                ? "paused"
+                : await getDeviceGameStatus({
+                    ownerId: current.ownerId,
+                    deviceId: current.deviceId,
+                    routeEpoch: current.routeEpoch,
+                  });
+              const after = await registry.authorizeDeviceSession(
+                connection.credential,
+              );
+              const pausedAfter = registry.getHelperPaused(current.ownerId);
+              if (
+                validSession(after, "control") &&
+                sameSession(current, after) &&
+                !connection.cleaned &&
+                !connection.updateDrainRequestId &&
+                ["ready", "auth_required", "paused", "unknown"].includes(
+                  result,
+                ) &&
+                typeof pausedAfter === "boolean"
+              )
+                status = pausedAfter ? "paused" : result;
+            }
+          } catch {
+            /* A failed read never proves readiness. */
+          }
+          if (!connection.cleaned)
+            sendJson(socket, {
+              type: "game_status_result",
+              requestId: message.requestId,
+              status,
+            });
+          connection.pendingStatus = false;
+          resolveDrainWaitersIfIdle();
+        })();
         return;
       }
       if (message.type === "helper_control") {

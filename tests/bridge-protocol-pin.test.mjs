@@ -8,7 +8,7 @@ import { verifyProtocolPin } from "../scripts/bridge/check-protocol-pin.mjs";
 test("generated Wiki protocol modules match their canonical source-tree pin", () => {
   const pin = verifyProtocolPin();
   assert.equal(pin.package, "@madhouse/bridge-protocol");
-  assert.equal(pin.version, "1.4.7");
+  assert.equal(pin.version, "1.4.8");
   assert.equal(pin.files.length, 11);
   assert.match(pin.sourceTreeSha256, /^[a-f0-9]{64}$/u);
 

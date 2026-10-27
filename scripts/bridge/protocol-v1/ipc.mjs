@@ -58,6 +58,7 @@ const REQUEST_TYPES = Object.freeze([
   "startup.settings.set",
   "update.check",
   "update.install",
+  "game.status.check",
   "device.pause",
   "device.resume",
   "device.disconnect",
@@ -79,6 +80,7 @@ export function parseIpcRequest(request) {
     case "startup.settings.get":
     case "update.check":
     case "update.install":
+    case "game.status.check":
     case "device.pause":
     case "device.resume":
     case "device.disconnect":
@@ -361,6 +363,15 @@ export function parseIpcResponse(response) {
     case "update.install.result":
       exactKeys(response, ["type", "requestId", "status"]);
       assertEnum(response.status, ["handed_off", "unavailable"]);
+      break;
+    case "game.status.result":
+      exactKeys(response, ["type", "requestId", "status"]);
+      assertEnum(response.status, [
+        "ready",
+        "auth_required",
+        "paused",
+        "unknown",
+      ]);
       break;
     case "wiki.open.result":
       exactKeys(response, ["type", "requestId", "status"]);

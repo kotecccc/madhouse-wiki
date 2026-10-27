@@ -7,7 +7,11 @@ import {
 } from "../account/game-credential-store.mjs";
 import { createAuthCoordinator } from "../account/auth-coordinator.mjs";
 import { createBootstrapAuthCoordinator } from "../account/bootstrap-auth-coordinator.mjs";
-import { createOwnerGameSessionResolver } from "../account/owner-session.mjs";
+import {
+  createOwnerGameSessionResolver,
+  createVerifiedOwnerGameSessionResolver,
+} from "../account/owner-session.mjs";
+import { createDeviceGameStatusReader } from "../bridge/game-status.mjs";
 import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { createAutomationStateStore } from "./state-store.mjs";
 import { createAutomationService } from "./service.mjs";
@@ -126,6 +130,9 @@ export async function createAutomationRuntime({
         credentialStore,
         botToken: env.TELEGRAM_BOT_TOKEN,
       })
+    : null;
+  const resolveVerifiedOwnerSession = credentialStore
+    ? createVerifiedOwnerGameSessionResolver({ store, credentialStore })
     : null;
   let bridgeControlGateway;
   let authCoordinator;
@@ -261,6 +268,13 @@ export async function createAutomationRuntime({
     origin: env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.ru",
     // Use the same protected release, rollback and host gate as route selection.
     enabled: bridgeCompatibility.routeSelection.enabled,
+    getDeviceGameStatus: resolveVerifiedOwnerSession
+      ? createDeviceGameStatusReader({
+          store,
+          resolveVerifiedOwnerSession,
+          snapshots,
+        })
+      : null,
   });
   authCoordinator = credentialStore
     ? createAuthCoordinator({

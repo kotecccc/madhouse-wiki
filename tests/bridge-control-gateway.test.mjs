@@ -1318,3 +1318,139 @@ test("device update drain keeps an existing stream open and waits for its close"
     await once(control, "close");
   });
 });
+
+test("device game status is owner-scoped, bounded and drains before update acknowledgement", async () => {
+  let release;
+  const barrier = new Promise((resolve) => {
+    release = resolve;
+  });
+  const seen = [];
+  await withGateway(
+    async ({ url }) => {
+      const control = new WebSocket(url, {
+        headers: { authorization: "Bearer signed.session.credential" },
+      });
+      await once(control, "open");
+      control.send(
+        JSON.stringify({
+          type: "hello",
+          protocolMajor: 1,
+          protocolMinor: 0,
+          clientVersion: "0.1.0",
+          capabilities: [
+            "cargo-byte-tunnel-v1",
+            "device-update-drain-v1",
+            "game-status-v1",
+          ],
+        }),
+      );
+      assert.ok(
+        (await message(control)).capabilities.includes("game-status-v1"),
+      );
+      const checkId = "00000000-0000-4000-8000-000000000407";
+      control.send(
+        JSON.stringify({ type: "game_status_check", requestId: checkId }),
+      );
+      await waitFor(() => seen.length === 1);
+      assert.deepEqual(seen[0], {
+        ownerId: session.ownerId,
+        deviceId,
+        routeEpoch: session.routeEpoch,
+      });
+      const drainId = "00000000-0000-4000-8000-000000000408";
+      const nonce = Buffer.alloc(32, 8).toString("base64url");
+      const pong = message(control);
+      control.send(
+        JSON.stringify({ type: "device_update_drain", requestId: drainId }),
+      );
+      control.send(JSON.stringify({ type: "ping", nonce }));
+      assert.deepEqual(await pong, { type: "pong", nonce });
+      const responses = [];
+      control.on("message", (data) =>
+        responses.push(JSON.parse(data.toString("utf8"))),
+      );
+      release();
+      await waitFor(() => responses.length === 2);
+      assert.deepEqual(responses[0], {
+        type: "game_status_result",
+        requestId: checkId,
+        status: "unknown",
+      });
+      assert.deepEqual(responses[1], {
+        type: "device_update_drained",
+        requestId: drainId,
+      });
+      control.close();
+      await once(control, "close");
+    },
+    {
+      gatewayOptions: {
+        getDeviceGameStatus: async (input) => {
+          seen.push(input);
+          await barrier;
+          return "ready";
+        },
+      },
+    },
+  );
+});
+
+test("device game status cannot report ready after session revocation during verification", async () => {
+  let release;
+  let started;
+  const barrier = new Promise((resolve) => {
+    release = resolve;
+  });
+  const invoked = new Promise((resolve) => {
+    started = resolve;
+  });
+  let authorized = true;
+  await withGateway(
+    async ({ url }) => {
+      const control = new WebSocket(url, {
+        headers: { authorization: "Bearer signed.session.credential" },
+      });
+      await once(control, "open");
+      control.send(
+        JSON.stringify({
+          type: "hello",
+          protocolMajor: 1,
+          protocolMinor: 0,
+          clientVersion: "0.1.0",
+          capabilities: ["cargo-byte-tunnel-v1", "game-status-v1"],
+        }),
+      );
+      await message(control);
+      const result = message(control);
+      control.send(
+        JSON.stringify({
+          type: "game_status_check",
+          requestId: "00000000-0000-4000-8000-000000000407",
+        }),
+      );
+      await invoked;
+      authorized = false;
+      release();
+      assert.deepEqual(await result, {
+        type: "game_status_result",
+        requestId: "00000000-0000-4000-8000-000000000407",
+        status: "unknown",
+      });
+      control.close();
+      await once(control, "close");
+    },
+    {
+      authorize: async () => {
+        if (!authorized) throw new Error("revoked");
+        return session;
+      },
+      gatewayOptions: {
+        getDeviceGameStatus: async () => {
+          started();
+          await barrier;
+          return "ready";
+        },
+      },
+    },
+  );
+});
