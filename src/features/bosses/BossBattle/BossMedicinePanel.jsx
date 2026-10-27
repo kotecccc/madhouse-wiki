@@ -2,6 +2,7 @@ import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useId, useState } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { ApprovableButton } from "../../../components/ui/ConfirmButton/ConfirmButton.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { NumberField } from "../../../components/ui/NumberField/NumberField.jsx";
@@ -140,51 +141,34 @@ export function BossMedicinePanel({ state, now }) {
           </Button>
         </>
       )}
-      {confirming ? (
-        <BaseCard
-          className="boss-medicine-panel"
-          aria-label="Подтверждение покупки"
-        >
-          <CardTitle>Подтвердите покупку</CardTitle>
-          <CardDescription>
-            {medicineNames[confirming.type]}: {fmt(confirming.quantity)} шт.
-          </CardDescription>
-          <CardDescription>
-            Цена за штуку: {fmt(confirming.unitPrice)}
-          </CardDescription>
-          <CardDescription>
-            Валюта: {currencyNames[confirming.currency]}
-          </CardDescription>
-          <CardTitle>Итого: {fmt(confirming.total)}</CardTitle>
-          <CardDescription>
-            После покупки аптечку нужно применить отдельно.
-          </CardDescription>
-          <div className="boss-battle-actions">
-            <Button disabled={busy} onClick={bossBattle.cancelPurchase}>
-              Отменить покупку
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!canShopMedicines(state, now)}
-              onClick={() => void bossBattle.buyMedicine()}
-            >
-              Подтвердить покупку
-            </Button>
-          </div>
-        </BaseCard>
-      ) : (
-        <div className="boss-battle-actions">
-          <Button
-            icon="banknote"
-            disabled={!quote || !canShopMedicines(state, now)}
-            onClick={() =>
-              bossBattle.preparePurchase(type, currency, Number(quantity))
-            }
-          >
-            Купить…
-          </Button>
-        </div>
+      {confirming && (
+        <CardDescription>
+          {medicineNames[confirming.type]}: {fmt(confirming.quantity)} шт.
+        </CardDescription>
       )}
+      <div className="boss-battle-actions">
+        {confirming && (
+          <Button disabled={busy} onClick={bossBattle.cancelPurchase}>
+            Отменить покупку
+          </Button>
+        )}
+        <ApprovableButton
+          confirmationKey={`${type}:${currency}:${quantity}:${quote?.total}`}
+          approved={Boolean(confirming)}
+          confirmationLabel={`Точно? · ${fmt(confirming?.total ?? quote?.total)} ${currencyNames[confirming?.currency ?? currency] ?? ""}`}
+          icon="banknote"
+          disabled={(!confirming && !quote) || !canShopMedicines(state, now)}
+          onArm={() =>
+            bossBattle.preparePurchase(type, currency, Number(quantity))
+          }
+          onClick={() => void bossBattle.buyMedicine()}
+        >
+          Купить ·{" "}
+          {quote
+            ? `${fmt(quote.total)} ${currencyNames[quote.currency]}`
+            : "цена неизвестна"}
+        </ApprovableButton>
+      </div>
     </BaseCard>
   );
 }

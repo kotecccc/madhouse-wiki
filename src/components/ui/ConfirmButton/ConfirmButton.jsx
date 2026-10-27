@@ -2,29 +2,38 @@ import { useEffect, useState } from "react";
 import { Button } from "../Button/Button.jsx";
 
 // A changed quote or disabled action requires a new confirmation.
-export function ConfirmButton({
+export function ApprovableButton({
   confirmationKey,
   onClick,
   disabled,
   children,
+  confirmationLabel,
+  approved,
+  onArm,
   ...props
 }) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => setArmed(false), [confirmationKey, disabled]);
+  const [armedKey, setArmedKey] = useState(null);
+  useEffect(() => {
+    if (disabled) setArmedKey(null);
+  }, [disabled]);
+  const confirming =
+    approved ?? (armedKey !== null && armedKey === confirmationKey);
   return (
     <Button
       {...props}
       disabled={disabled}
+      variant={confirming ? "warning" : (props.variant ?? "primary")}
       onClick={(event) => {
-        if (!armed) {
-          setArmed(true);
+        if (!confirming) {
+          if (onArm) onArm(event);
+          else setArmedKey(confirmationKey);
           return;
         }
-        setArmed(false);
+        setArmedKey(null);
         onClick(event);
       }}
     >
-      {armed ? <>Подтвердить · {children}</> : children}
+      {confirming ? (confirmationLabel ?? <>Точно? · {children}</>) : children}
     </Button>
   );
 }
