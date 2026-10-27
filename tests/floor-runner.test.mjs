@@ -122,3 +122,28 @@ test("does not launch when durable intent cannot be saved", async () => {
   assert.equal(h.launches(), 0);
   assert.equal(h.runner.getSnapshot().status, "paused");
 });
+
+test("a game outage keeps the goal active and retries only the read", async () => {
+  let reads = 0;
+  const h = setup({
+    plan: async () => {
+      reads++;
+      if (reads === 1) throw new Error("game unavailable");
+      return {
+        status: "ready",
+        kind: "boss",
+        apiId: 4,
+        current: 0,
+        required: 1,
+      };
+    },
+  });
+  h.runner.start();
+  await h.runner.tick();
+  assert.equal(h.runner.getSnapshot().status, "running");
+  assert.equal(h.launches(), 0);
+  for (let i = 0; i < 4; i++) h.advance();
+  await h.runner.tick();
+  assert.equal(reads, 2);
+  assert.equal(h.launches(), 1);
+});
