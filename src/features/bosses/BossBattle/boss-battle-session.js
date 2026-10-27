@@ -55,6 +55,7 @@ export const {
 } = remote;
 export const automationPreferences = remote.preferences;
 export const businessAssistant = remote.businessAssistant;
+export const characterUpgrade = remote.characterUpgrade;
 export const connectBattleSession = remote.connect;
 export const disconnectBattleSession = remote.disconnect;
 if (import.meta.hot) {

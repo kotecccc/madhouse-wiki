@@ -21,6 +21,7 @@ import {
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
 import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
+import { CharacterUpgrade } from "../CharacterUpgrade/CharacterUpgrade.jsx";
 import { getProfileStatDisplay } from "../../auth/profile.js";
 import "./OverviewSection.css";
 
@@ -183,6 +184,7 @@ function PlayerAvatar({ profile }) {
 
 function ProfileSummary({ state }) {
   const [now, setNow] = useState(() => Date.now());
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const profile = state.profile;
   const energy = profile?.energy;
   const energyKnown =
@@ -371,6 +373,12 @@ function ProfileSummary({ state }) {
           );
         })}
       </dl>
+      <Button onClick={() => setUpgradeOpen(true)}>
+        Прокачать характеристики
+      </Button>
+      {upgradeOpen && (
+        <CharacterUpgrade onClose={() => setUpgradeOpen(false)} />
+      )}
       <dl className="overview-wallet" aria-label="Валюта">
         {profile.wallet.map(([name, value, icon]) => (
           <div key={name}>
