@@ -336,3 +336,8 @@
   font-size: var(--font-size-sm);
   line-height: var(--card-line-height);
 }
+
+.button.button--inherit-color,
+.button.button--inherit-color:hover:not(:disabled) {
+  color: inherit;
+}

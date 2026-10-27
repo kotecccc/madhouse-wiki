@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../components/ui/ErrorToast/ErrorToast.jsx";
 import { sendInventoryCommand } from "./equipment.js";
 import { Dialog } from "../../components/ui/Dialog/Dialog.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
@@ -291,18 +292,15 @@ export function InventorySection({
         </div>
       </div>
       {equipmentState.needsCheck && (
-        <StatusMessage
-          compact
-          title="Проверьте экипировку"
-          description={equipmentState.notice}
-        >
+        <>
+          <ErrorToast message={equipmentState.notice} />
           <Button
             disabled={equipmentState.busy}
             onClick={() => void equip(null, null, true)}
           >
             Проверить экипировку
           </Button>
-        </StatusMessage>
+        </>
       )}
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">

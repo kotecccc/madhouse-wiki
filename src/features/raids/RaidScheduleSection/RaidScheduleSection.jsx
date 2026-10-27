@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
@@ -83,12 +84,11 @@ export function RaidScheduleSection({
         Рейды
       </h2>
       {state.status === "error" && (
-        <div className="raid-feed-state" role="status">
-          <p>Расписание временно недоступно.</p>
-          <Button variant="secondary" onClick={onRetry}>
+        <ErrorToast message="Расписание временно недоступно.">
+          <Button variant="secondary" size="sm" onClick={onRetry}>
             Повторить
           </Button>
-        </div>
+        </ErrorToast>
       )}
       {state.status === "ready" && !displayed && (
         <p className="raid-feed-state" role="status">
@@ -96,11 +96,11 @@ export function RaidScheduleSection({
           синхронизации канала.
         </p>
       )}
-      {subscriptionState.error && <p role="alert">{subscriptionState.error}</p>}
+      <ErrorToast message={subscriptionState.error} />
       {subscriptionState.friendError && (
-        <div role="alert">
-          <p>{subscriptionState.friendError}</p>
+        <ErrorToast message={subscriptionState.friendError}>
           <Button
+            size="sm"
             disabled={subscriptionState.pending}
             onClick={() =>
               void raidSubscriptions.checkFriends(JSON.parse(targetKey))
@@ -108,7 +108,7 @@ export function RaidScheduleSection({
           >
             Проверить друзей
           </Button>
-        </div>
+        </ErrorToast>
       )}
       {displayed && (
         <div className="raid-post-list">

@@ -20,7 +20,7 @@
   display: grid;
   gap: var(--space-16);
   min-height: 0;
-  padding: 0 var(--modal-content-padding) var(--modal-content-padding);
+  padding: var(--modal-content-padding);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -49,12 +49,19 @@
 }
 
 .shared-modal-content--inset {
-  padding-top: var(--modal-content-padding);
   background: var(--surface-page);
 }
 
 .shared-modal--no-footer.shared-modal--inset {
   background: var(--surface-page);
+}
+
+.shared-modal-toast-anchor {
+  position: relative;
+  min-width: 0;
+  height: 0;
+  flex: 0 0 auto;
+  z-index: 2;
 }
 
 .shared-modal-footer {
@@ -173,6 +180,22 @@
       var(--tg-safe-area-inset-left, 0px),
       var(--tg-content-safe-area-inset-left, 0px)
     );
+  }
+
+  .shared-modal-toast-anchor {
+    grid-row: 3;
+    grid-column: 1;
+    align-self: start;
+  }
+
+  .shared-modal--no-footer .shared-modal-toast-anchor {
+    grid-row: 2;
+    align-self: end;
+  }
+
+  .shared-modal-footer {
+    grid-row: 3;
+    grid-column: 1;
   }
 
   .shared-modal-mobile-footer {

@@ -1,3 +1,4 @@
+import { ToastTargetContext } from "../../components/ui/Toast/ToastContext.jsx";
 import {
   inventoryCategories,
   inventoryCategoryOptions,
@@ -44,6 +45,7 @@ import { screenFromHash } from "./app-screen.js";
 import { isPullReady } from "./pull-refresh.js";
 
 export function App() {
+  const [toastTarget, setToastTarget] = useState(null);
   const refreshing = useSyncExternalStore(
     subscribeSessionData,
     readSessionRefreshState,
@@ -238,125 +240,133 @@ export function App() {
   }, [authenticated, floorAvailability.status]);
 
   return (
-    <div className="site-shell">
-      <SiteHeader
-        loading={
-          refreshing ||
-          profileState.status === "loading" ||
-          floorAvailability.status === "loading" ||
-          floorContentLoading ||
-          raidSchedule.status === "loading"
-        }
-      />
-      <div
-        className="app-scroll-region"
-        ref={scrollRegionRef}
-        data-page-scroll
-        onTouchStart={startPull}
-        onTouchMove={movePull}
-        onTouchEnd={endPull}
-        onTouchCancel={() => {
-          pullStart.current = null;
-          setPullReady(false);
-        }}
-      >
-        {pullReady && (
-          <CardDescription role="status">
-            Отпустите, чтобы обновить
-          </CardDescription>
-        )}
-        <MobileNavigation
-          desktop
-          inventoryCount={inventoryCount}
-          authenticated={authenticated}
-          activeScreen={visibleScreen}
-          onScreenChange={changeScreen}
+    <ToastTargetContext.Provider value={toastTarget}>
+      <div className="site-shell">
+        <SiteHeader
+          loading={
+            refreshing ||
+            profileState.status === "loading" ||
+            floorAvailability.status === "loading" ||
+            floorContentLoading ||
+            raidSchedule.status === "loading"
+          }
         />
-        <main id="top" className={`app-content app-content--${visibleScreen}`}>
-          <div id="screen-overview" className="app-screen app-screen--overview">
-            {authenticated && (
-              <OverviewSection
-                profileState={profileState}
-                floorAvailability={floorAvailability}
-                departmentState={departmentState}
-                schedule={raidSchedule}
-                onOpenFloors={onOpenFloors}
-                onOpenRaids={onOpenRaids}
-                onRetryFloors={floorAvailability.retry}
-              />
-            )}
-            <div className="app-floor-catalogue">
-              {kb.floors.length === 0 && (
-                <p role="status">Справочник ещё не заполнен.</p>
-              )}
-              <FloorsSection
-                {...floorAvailability}
-                isAuthenticated={authenticated}
-                playerLevel={
-                  authenticated && profileState.status === "ready"
-                    ? profileState.profile.playerLevel
-                    : null
-                }
-                onCalculator={setConditionDialog}
-                onUpgradeSelect={setUpgradeDialog}
-                onDepartmentState={onDepartmentState}
-                onLoadingChange={setFloorContentLoading}
-                selectedFloorCode={floorFocusCode}
-                onVisibleFloorChange={setVisibleFloorCode}
-              />
-            </div>
-          </div>
-          <div id="screen-raids" className="app-screen app-screen--raids">
-            <RaidScheduleSection
-              authenticated={authenticated}
-              active={visibleScreen === "raids"}
-              availability={floorAvailability.availability}
-              state={raidSchedule}
-              onRetry={raidSchedule.retry}
-            />
-          </div>
-          {authenticated && (
-            <div
-              id="screen-inventory"
-              className="app-screen app-screen--inventory"
-            >
-              <InventorySection
-                active={visibleScreen === "inventory"}
-                responses={inventoryResponses}
-                dirtyPaths={inventoryDirty}
-                playerLevel={profileState.profile?.playerLevel}
-                refreshGeneration={inventoryRefresh}
-              />
-            </div>
+        <div
+          className="app-scroll-region"
+          ref={scrollRegionRef}
+          data-page-scroll
+          onTouchStart={startPull}
+          onTouchMove={movePull}
+          onTouchEnd={endPull}
+          onTouchCancel={() => {
+            pullStart.current = null;
+            setPullReady(false);
+          }}
+        >
+          {pullReady && (
+            <CardDescription role="status">
+              Отпустите, чтобы обновить
+            </CardDescription>
           )}
-        </main>
-        <SiteFooter>
-          <FeedbackWidget screen={activeScreen} />
-        </SiteFooter>
-      </div>
-      <BottomDock>
-        <GameHealthWarningBanner />
-        <ActiveBattleControl>
           <MobileNavigation
-            activeScreen={visibleScreen}
+            desktop
             inventoryCount={inventoryCount}
             authenticated={authenticated}
+            activeScreen={visibleScreen}
             onScreenChange={changeScreen}
           />
-        </ActiveBattleControl>
-      </BottomDock>
-      <RequirementCalculatorDialog
-        conditionDialog={conditionDialog}
-        onClose={() => setConditionDialog(null)}
-      />
-      {upgradeDialog && (
-        <UpgradeDialog
-          data={upgradeDialog}
-          onClose={() => setUpgradeDialog(null)}
+          <main
+            id="top"
+            className={`app-content app-content--${visibleScreen}`}
+          >
+            <div
+              id="screen-overview"
+              className="app-screen app-screen--overview"
+            >
+              {authenticated && (
+                <OverviewSection
+                  profileState={profileState}
+                  floorAvailability={floorAvailability}
+                  departmentState={departmentState}
+                  schedule={raidSchedule}
+                  onOpenFloors={onOpenFloors}
+                  onOpenRaids={onOpenRaids}
+                  onRetryFloors={floorAvailability.retry}
+                />
+              )}
+              <div className="app-floor-catalogue">
+                {kb.floors.length === 0 && (
+                  <p role="status">Справочник ещё не заполнен.</p>
+                )}
+                <FloorsSection
+                  {...floorAvailability}
+                  isAuthenticated={authenticated}
+                  playerLevel={
+                    authenticated && profileState.status === "ready"
+                      ? profileState.profile.playerLevel
+                      : null
+                  }
+                  onCalculator={setConditionDialog}
+                  onUpgradeSelect={setUpgradeDialog}
+                  onDepartmentState={onDepartmentState}
+                  onLoadingChange={setFloorContentLoading}
+                  selectedFloorCode={floorFocusCode}
+                  onVisibleFloorChange={setVisibleFloorCode}
+                />
+              </div>
+            </div>
+            <div id="screen-raids" className="app-screen app-screen--raids">
+              <RaidScheduleSection
+                authenticated={authenticated}
+                active={visibleScreen === "raids"}
+                availability={floorAvailability.availability}
+                state={raidSchedule}
+                onRetry={raidSchedule.retry}
+              />
+            </div>
+            {authenticated && (
+              <div
+                id="screen-inventory"
+                className="app-screen app-screen--inventory"
+              >
+                <InventorySection
+                  active={visibleScreen === "inventory"}
+                  responses={inventoryResponses}
+                  dirtyPaths={inventoryDirty}
+                  playerLevel={profileState.profile?.playerLevel}
+                  refreshGeneration={inventoryRefresh}
+                />
+              </div>
+            )}
+          </main>
+          <SiteFooter>
+            <FeedbackWidget screen={activeScreen} />
+          </SiteFooter>
+        </div>
+        <BottomDock toastRef={setToastTarget}>
+          <GameHealthWarningBanner />
+          <ActiveBattleControl>
+            <MobileNavigation
+              activeScreen={visibleScreen}
+              inventoryCount={inventoryCount}
+              authenticated={authenticated}
+              onScreenChange={changeScreen}
+            />
+          </ActiveBattleControl>
+        </BottomDock>
+        <RequirementCalculatorDialog
+          conditionDialog={conditionDialog}
+          onClose={() => setConditionDialog(null)}
         />
-      )}
-      <BossBattleDialog />
-      <TelegramLaunchScreen />
-    </div>
+        {upgradeDialog && (
+          <UpgradeDialog
+            data={upgradeDialog}
+            onClose={() => setUpgradeDialog(null)}
+          />
+        )}
+        <BossBattleDialog />
+        <TelegramLaunchScreen />
+      </div>
+    </ToastTargetContext.Provider>
   );
 }

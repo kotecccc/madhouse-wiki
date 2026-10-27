@@ -137,6 +137,7 @@ export function createBattleAssistant({
   random = Math.random,
   onChange = () => {},
   available = () => true,
+  priorityActive = () => false,
   readAvailable = available,
   refreshAvailability = async () => {},
 }) {
@@ -214,9 +215,9 @@ export function createBattleAssistant({
     publish();
     return { kind: "stop", notice };
   }
-  function wait(message) {
+  function wait(message, delay = 30000) {
     notice = message;
-    record.waiting = { notice: message, retryAt: now() + 30000 };
+    record.waiting = { notice: message, retryAt: now() + delay };
     publish();
     return { kind: "wait", retryAt: record.waiting.retryAt };
   }
@@ -453,6 +454,8 @@ export function createBattleAssistant({
         notice ||
           "Действия приостановлены: предыдущее действие не подтверждено.",
       );
+    if (!available() && priorityActive())
+      return wait("Ожидаем прокачку характеристик.", 1000);
     if (!available()) {
       try {
         await recover();

@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   readSession,
@@ -203,11 +204,7 @@ export function BossBattleDialog() {
         )}
         <div className="boss-battle-column boss-battle-settings-column">
           {goalPanel}
-          {state.healing?.notice && (
-            <CardDescription role="status" title={state.healing.notice}>
-              {state.healing.notice}
-            </CardDescription>
-          )}
+          <ErrorToast message={state.healing?.notice} />
           <BossHealingSettings
             key={`healing-${state.boss.id}`}
             state={state}

@@ -54,7 +54,8 @@ test("game health warning keeps error details unmounted until requested", async 
       } else reportGameHealth({ status });
       const html = renderToStaticMarkup(createElement(GameHealthWarningBanner));
       assert.match(html, /Закрыть уведомление/);
-      assert.match(html, /base-card--warning/);
+      assert.match(html, /base-card--glass-nav/);
+      assert.match(html, /button--inherit-color/);
       assert.match(html, /ui-toast-region/);
       if (status === "unavailable") {
         assert.match(html, /Могут быть недоступны функции игры: Боссы/);

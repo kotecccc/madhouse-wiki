@@ -24,10 +24,7 @@ import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-
 import { createWorkFarm } from "./work-farm.mjs";
 import { createBusinessCollector } from "./business-collector.mjs";
 import { advanceBusinessUpgrade } from "./business-upgrade.mjs";
-import {
-  characterUpgradeRejection,
-  upgradeCharacterPoint,
-} from "./character-stat-upgrade.mjs";
+import { upgradeCharacterPoint } from "./character-stat-upgrade.mjs";
 import { createCharacterStatBatch } from "./character-stat-batch.mjs";
 import { characterUpgradeQuote } from "../../src/lib/character-stat-upgrades.js";
 import { createBattleSeries } from "./battle-series.mjs";
@@ -84,6 +81,7 @@ const commands = new Set([
   "character.refresh",
   "character.upgrade",
   "character.start",
+  "character.startAll",
   "character.stop",
   "raid.friend.check",
   "raid.friend.inspect",
@@ -206,7 +204,12 @@ export function createAutomationService({
     if (!response.ok || response.headers.get("X-Madhouse-Snapshot") === "stale")
       throw failure(503, "character_profile_unavailable");
     const raw = await response.json();
-    if (String(raw?.playerId) !== entry.playerId || raw?.partial || raw?.error)
+    if (
+      entry.credential !== credential ||
+      String(raw?.playerId) !== entry.playerId ||
+      raw?.partial ||
+      raw?.error
+    )
       throw failure(503, "character_profile_unavailable");
     const keys = ["madness", "aggression", "rage"];
     const fields = [
@@ -243,7 +246,11 @@ export function createAutomationService({
           ]),
         ),
       },
-      wallet: { gold: raw.wallet?.gold, pills: raw.wallet?.pills },
+      wallet: {
+        gold: raw.wallet?.gold,
+        pills: raw.wallet?.pills,
+        dollar: raw.wallet?.dollar,
+      },
     };
     character.profile = projection;
     return projection;
@@ -347,9 +354,13 @@ export function createAutomationService({
       entry.auto.stop();
     return goal;
   }
+  function characterPriorityActive(entry) {
+    return Boolean(
+      entry.characterUpgrade?.pending || entry.characterBatch?.running(),
+    );
+  }
   function canAct(entry) {
-    if (entry.characterUpgrade?.pending) return false;
-    if (entry.characterBatch?.running()) return false;
+    if (characterPriorityActive(entry)) return false;
     if (entry.workFarm?.getSnapshot().manualPending) return false;
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
@@ -656,6 +667,7 @@ export function createAutomationService({
       now,
       random,
       available: () => !closed && !entry.storageFailed && canAct(entry),
+      priorityActive: () => characterPriorityActive(entry),
       readAvailable: () =>
         !closed && !entry.storageFailed && Boolean(entry.credential),
       refreshAvailability,
@@ -697,6 +709,7 @@ export function createAutomationService({
       auto: entry.auto,
       getCatalogue: getBusinessCatalogue,
       getBoss,
+      priorityActive: () => characterPriorityActive(entry),
       get: (path) => gameJson(entry.credential, path),
       upgrade: (run, valid) => {
         const business = getBusinessCatalogue().businesses.find(
@@ -757,7 +770,8 @@ export function createAutomationService({
         !entry.inventoryBusy &&
         !entry.equipment?.pending &&
         !entry.characterUpgrade.pending &&
-        !entry.characterBatch?.running() &&
+        (!entry.characterBatch?.running() ||
+          Boolean(entry.workFarm?.getSnapshot().run?.pending)) &&
         !entry.businessHelper.run?.pendingUpgrade &&
         !entry.controller.getSnapshot().pending &&
         (mode === "energy" ||
@@ -818,13 +832,22 @@ export function createAutomationService({
       state: entry.controller.getSnapshot,
       goal: entry.goal,
       auto: entry.auto,
+      priorityActive: () => characterPriorityActive(entry),
       available: () =>
         !closed &&
         !entry.storageFailed &&
         Boolean(entry.credential) &&
         canAct(entry),
       lock: () => {
-        if (entry.busy) return false;
+        if (
+          entry.busy ||
+          (characterPriorityActive(entry) &&
+            !characterBattleUncertain(
+              entry.controller.getSnapshot(),
+              entry.assistant.projection(),
+            ))
+        )
+          return false;
         entry.busy = true;
         return true;
       },
@@ -866,6 +889,7 @@ export function createAutomationService({
     entry.raidSubscription = createRaidSubscription({
       saved: saved?.raidSubscription,
       now,
+      priorityActive: () => characterPriorityActive(entry),
       persist: () => {
         save(entry);
         return !entry.storageFailed;
@@ -876,7 +900,17 @@ export function createAutomationService({
           entry.inventoryBusy ||
           entry.storageFailed ||
           entry.characterUpgrade.pending ||
-          entry.characterBatch?.running() ||
+          (entry.characterBatch?.running() &&
+            !["joining", "confirming"].includes(
+              entry.raidSubscription.getSnapshot().phase,
+            ) &&
+            !(
+              entry.raidSubscription.getSnapshot().phase === "fighting" &&
+              characterBattleUncertain(
+                entry.controller.getSnapshot(),
+                entry.assistant.projection(),
+              )
+            )) ||
           !entry.credential
         )
           return false;
@@ -1021,11 +1055,13 @@ export function createAutomationService({
           entry.inventoryBusy ||
           entry.storageFailed ||
           !entry.credential ||
-          entry.auto.getSnapshot().enabled ||
-          entry.collector.running() ||
-          entry.workFarm.running() ||
-          entry.raidWorker.getSnapshot().enabled ||
-          entry.raidSubscription.getSnapshot().enabled ||
+          !entry.collector.idleForPriority() ||
+          !entry.workFarm.canSuspend() ||
+          entry.workFarm.getSnapshot().manualPending ||
+          entry.equipment?.pending ||
+          ["joining", "confirming"].includes(
+            entry.raidSubscription.getSnapshot().phase,
+          ) ||
           characterBattleUncertain(
             entry.controller.getSnapshot(),
             entry.assistant.projection(),
@@ -1521,7 +1557,11 @@ export function createAutomationService({
       entry.businessHelper.run?.pendingUpgrade &&
       ![
         "business.run.stop",
+        "character.refresh",
         "character.stop",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "business.select",
         "business.refresh",
         "invitations.refresh",
@@ -1540,6 +1580,30 @@ export function createAutomationService({
     // A command receipt is committed BEFORE action dispatch. Never replay it after a restart.
     if (entry.receipts.includes(input.id))
       throw failure(409, "automation_command_already_received");
+    // Read-only refresh may coexist with another actor's in-flight action;
+    // it must not reconcile an active or uncertain character operation.
+    if (
+      input.command === "character.refresh" &&
+      (entry.busy || entry.inventoryBusy) &&
+      !entry.characterUpgrade.pending &&
+      !entry.characterBatch.running()
+    ) {
+      if (
+        input.args != null &&
+        (typeof input.args !== "object" || Array.isArray(input.args))
+      )
+        throw failure(400, "invalid_command_arguments");
+      entry.receipts = [...entry.receipts.slice(-127), input.id];
+      save(entry);
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
+      const credential = entry.credential;
+      await readCharacterProfile(entry, credential);
+      if (entry.credential !== credential)
+        throw failure(409, "character_account_changed");
+      save(entry);
+      return snapshot(entry);
+    }
     if (
       (entry.busy || entry.inventoryBusy) &&
       ![
@@ -1549,6 +1613,9 @@ export function createAutomationService({
         "goal.stop",
         "business.run.stop",
         "character.stop",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "work.stop",
         "work.start",
       ].includes(input.command)
@@ -1556,6 +1623,9 @@ export function createAutomationService({
       throw failure(409, "automation_command_pending");
     const durableIntent =
       input.command === "work.start" ||
+      ["character.upgrade", "character.start", "character.startAll"].includes(
+        input.command,
+      ) ||
       (["auto.start", "raid.start"].includes(input.command) &&
         positive(input.args?.settings?.bossId)) ||
       (input.command === "business.run.start" &&
@@ -1570,6 +1640,9 @@ export function createAutomationService({
       entry.raidSubscription.getSnapshot().checkpoint &&
       ![
         "subscription.stop",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "invitations.refresh",
         "raid.friend.check",
         "raid.friend.inspect",
@@ -1642,12 +1715,21 @@ export function createAutomationService({
       throw failure(409, "automation_controls_equipment");
     if (
       entry.equipment?.pending &&
-      !["equipment.refresh", "inventory.refresh"].includes(input.command) &&
+      ![
+        "equipment.refresh",
+        "inventory.refresh",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
+      ].includes(input.command) &&
       !safeCommands.has(input.command)
     )
       throw failure(409, "weapon_equipment_uncertain");
     if (
       entry.workFarm.getSnapshot().manualPending &&
+      !["character.upgrade", "character.start", "character.startAll"].includes(
+        input.command,
+      ) &&
       !safeCommands.has(input.command)
     )
       throw failure(409, "work_booster_uncertain");
@@ -1660,19 +1742,6 @@ export function createAutomationService({
         entry.controller.getSnapshot().pendingInvitation ||
         entry.controller.getSnapshot().purchaseUncertain ||
         entry.controller.getSnapshot().pending)
-    )
-      throw failure(409, "automation_controls_resources");
-    if (
-      ["character.upgrade", "character.start"].includes(input.command) &&
-      (entry.auto.getSnapshot().enabled ||
-        entry.collector.running() ||
-        entry.workFarm.running() ||
-        entry.raidWorker.getSnapshot().enabled ||
-        entry.raidSubscription.getSnapshot().enabled ||
-        characterBattleUncertain(
-          entry.controller.getSnapshot(),
-          entry.assistant.projection(),
-        ))
     )
       throw failure(409, "automation_controls_resources");
     const args = input.args ?? {};
@@ -1709,8 +1778,56 @@ export function createAutomationService({
         case "character.stop":
           entry.characterBatch.stop();
           break;
+        case "character.startAll": {
+          if (
+            !Array.isArray(args.quotes) ||
+            !args.quotes.length ||
+            args.quotes.length > 3 ||
+            new Set(args.quotes.map((q) => q?.stat)).size !== args.quotes.length
+          )
+            throw failure(400, "invalid_character_upgrade");
+          const profile = entry.characterUpgrade.profile;
+          const quotes = args.quotes.map((expected) => {
+            const quote = characterUpgradeQuote(
+              profile,
+              expected.stat,
+              expected.amount,
+            );
+            if (
+              !quote ||
+              quote.amount !== quote.dailyRemaining ||
+              [
+                "stat",
+                "base",
+                "dailyUsed",
+                "resetAt",
+                "currency",
+                "nextCost",
+                "maxCost",
+                "maxPrice",
+                "amount",
+              ].some((key) => quote[key] !== expected[key])
+            )
+              throw failure(409, "character_upgrade_quote_changed");
+            return quote;
+          });
+          for (const currency of ["gold", "pills"]) {
+            const total = quotes
+              .filter((q) => q.currency === currency)
+              .reduce((sum, q) => sum + q.maxPrice, 0);
+            if (
+              !Number.isSafeInteger(total) ||
+              (total &&
+                (!Number.isSafeInteger(profile.wallet[currency]) ||
+                  profile.wallet[currency] < total))
+            )
+              throw failure(409, "character_upgrade_insufficient_funds");
+          }
+          entry.characterBatch.startAll(quotes);
+          break;
+        }
         case "character.start": {
-          const profile = await readCharacterProfile(entry, entry.credential);
+          const profile = entry.characterUpgrade.profile;
           const quote = characterUpgradeQuote(profile, args.stat, args.amount);
           const expected = args.expected;
           if (
@@ -1735,47 +1852,60 @@ export function createAutomationService({
           });
           break;
         }
-        case "character.refresh":
         case "character.upgrade": {
+          const expected = args.expected;
+          const quote = characterUpgradeQuote(
+            entry.characterUpgrade.profile,
+            args.stat,
+            1,
+          );
+          if (
+            !quote ||
+            !expected ||
+            [
+              "stat",
+              "base",
+              "dailyUsed",
+              "dailyRemaining",
+              "dailyLimit",
+              "resetAt",
+              "currency",
+              "nextCost",
+              "maxCost",
+              "maxPrice",
+              "amount",
+            ].some((key) => quote[key] !== expected[key])
+          )
+            throw failure(409, "character_upgrade_quote_changed");
+          if (quote.balance < quote.nextCost)
+            throw failure(409, "character_upgrade_insufficient_funds");
+          entry.characterBatch.start({
+            stat: args.stat,
+            amount: 1,
+            quote,
+            budget: quote.maxPrice,
+          });
+          break;
+        }
+        case "character.refresh": {
           const character = entry.characterUpgrade;
-          const credential = entry.credential;
-          const readProfile = () => readCharacterProfile(entry, credential);
-          if (input.command === "character.refresh") {
-            const profile = await readProfile();
-            const pending = character.pending;
-            if (
-              pending &&
-              profile.characterStatsUpgrade.resetAtUtc === pending.resetAt &&
-              profile.characterStatsUpgrade[pending.stat]?.dailyUsed ===
-                pending.dailyUsed + 1 &&
-              profile.characterStats[pending.stat]?.base === pending.base + 1 &&
-              profile.wallet[pending.currency] ===
-                pending.balance - pending.price
-            ) {
-              character.pending = null;
-              character.notice =
-                "Игра показывает повышение характеристики на один пункт. Проверьте результат перед следующей операцией.";
-            } else {
-              character.notice = pending
-                ? "Результат предыдущей операции не подтверждён; повторная отправка заблокирована."
-                : null;
-            }
-          } else {
-            if (args.stat !== args.expected?.stat)
-              throw failure(400, "invalid_character_upgrade");
-            const result = await submitCharacterPoint(
-              entry,
-              args.expected,
-              () => true,
-            );
+          const profile = await readCharacterProfile(entry, entry.credential);
+          const pending = character.pending;
+          if (
+            pending &&
+            profile.characterStatsUpgrade.resetAtUtc === pending.resetAt &&
+            profile.characterStatsUpgrade[pending.stat]?.dailyUsed ===
+              pending.dailyUsed + 1 &&
+            profile.characterStats[pending.stat]?.base === pending.base + 1 &&
+            profile.wallet[pending.currency] === pending.balance - pending.price
+          ) {
+            character.pending = null;
             character.notice =
-              result.status === "confirmed"
-                ? "Характеристика улучшена."
-                : result.status === "rejected"
-                  ? characterUpgradeRejection(result.reason)
-                  : "Результат не подтверждён; повторная отправка заблокирована.";
-            if (result.status === "confirmed")
-              await readProfile().catch(() => {});
+              "Игра показывает повышение характеристики на один пункт. Проверьте результат перед следующей операцией.";
+          } else {
+            character.notice = pending
+              ? "Результат предыдущей операции не подтверждён; повторная отправка заблокирована."
+              : null;
           }
           break;
         }

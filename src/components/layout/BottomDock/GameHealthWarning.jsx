@@ -272,6 +272,7 @@ export function GameHealthWarningBanner() {
   if (!message) return null;
   return (
     <Toast
+      floating
       onDismiss={() =>
         setDismissedFeatures((current) =>
           pruneDismissedFeatures(

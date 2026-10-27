@@ -1,6 +1,7 @@
 import "./Dialog.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BaseCard } from "../BaseCard/BaseCard.jsx";
+import { ToastTargetContext } from "../Toast/ToastContext.jsx";
 
 const modalScrollLocks = new Set();
 let restorePageScroll;
@@ -64,6 +65,7 @@ export function Dialog({
   ...props
 }) {
   const ref = useRef(null);
+  const [toastTarget, setToastTarget] = useState(null);
   useEffect(() => {
     const previous = document.activeElement;
     const restoreKeyboardFocus = previous?.matches(":focus-visible");
@@ -106,7 +108,10 @@ export function Dialog({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      {children}
+      <ToastTargetContext.Provider value={toastTarget}>
+        {children}
+        <div className="ui-toast-stack" ref={setToastTarget} />
+      </ToastTargetContext.Provider>
     </Surface>
   );
 }

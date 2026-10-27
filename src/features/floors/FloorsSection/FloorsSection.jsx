@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useBossCollection } from "../../bosses/collection/useBossCollection.js";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
@@ -330,9 +331,7 @@ export function FloorsSection({
         </p>
       )}
       {departmentState.status === "error" && (
-        <p className="department-access-status" role="status">
-          Доступность отделений не удалось проверить.
-        </p>
+        <ErrorToast message="Доступность отделений не удалось проверить." />
       )}
       <div
         className="floor-grid"

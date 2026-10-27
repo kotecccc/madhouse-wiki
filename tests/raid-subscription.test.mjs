@@ -8,6 +8,7 @@ function harness(saved) {
   let battleStatus = "finished";
   let joinResult = "success";
   let reconciliation = "unknown";
+  let priority = false;
   const calls = [];
   const worker = createRaidSubscription({
     saved,
@@ -17,6 +18,7 @@ function harness(saved) {
     },
     lock: () => true,
     unlock: () => {},
+    priorityActive: () => priority,
     capture: () => ({ priorGoal: "saved" }),
     suspend: () => {
       calls.push(["suspend", stored.phase]);
@@ -53,6 +55,9 @@ function harness(saved) {
     setReconciliation: (result) => {
       reconciliation = result;
     },
+    setPriority: (active) => {
+      priority = active;
+    },
     invitation: (overrides = {}) => ({
       leaderPlayerId: 42,
       bossId: 7,
@@ -64,6 +69,27 @@ function harness(saved) {
     }),
   };
 }
+
+test("priority reconciles a lost join without joining or fighting until it ends", async () => {
+  const h = harness();
+  h.worker.start({ leaderPlayerId: 42, bossId: 7 });
+  h.setJoin("lost");
+  h.worker.observe([h.invitation()], true);
+  await h.worker.tick();
+  h.setPriority(true);
+  h.setReconciliation("joined");
+  h.setBattle("active");
+  await h.worker.tick();
+  await h.worker.tick();
+  assert.equal(h.getSaved().phase, "fighting");
+  assert.deepEqual(
+    h.calls.map((call) => call[0]),
+    ["suspend", "join"],
+  );
+  h.setPriority(false);
+  await h.worker.tick();
+  assert.equal(h.calls.at(-1)[0], "fight");
+});
 
 test("saves the suspended goal before joining only the selected leader and boss", async () => {
   const h = harness();

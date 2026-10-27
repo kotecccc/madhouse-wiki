@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { refreshRetainedProfileProgress } from "../../../../shared/profile-progress.js";
 import {
   telegramContext,
@@ -356,18 +357,14 @@ export function LoginControl() {
                 <span key={line}>{line}</span>
               ))}
             </p>
-            {error && <p role="alert">{error}</p>}
+            <ErrorToast message={error} />
             <Button variant="secondary" onClick={logout}>
               Выйти
             </Button>
           </BaseCard>
         )}
       </div>
-      {!authenticated && error && !connectionOpen && (
-        <p className="login-connection-error" role="alert">
-          {error}
-        </p>
-      )}
+      {!authenticated && !connectionOpen && <ErrorToast message={error} />}
       {TELEGRAM_CONNECTOR_ORIGIN && (
         <TelegramConnection
           ref={telegramRef}
@@ -659,7 +656,7 @@ export function LoginControl() {
               placeholder="Вставьте JWT AccessToken"
               aria-label="Игровой JWT AccessToken"
             />
-            {error && <p role="alert">{error}</p>}
+            <ErrorToast message={error} />
             <div
               className={`login-modal-actions${
                 TELEGRAM_CONNECTOR_ORIGIN ? "" : " login-modal-actions--single"

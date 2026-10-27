@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRaidWaiter } from "../scripts/automation/raid-waiter.mjs";
 
-function setup({ saved, refresh, startSolo } = {}) {
+function setup({
+  saved,
+  refresh,
+  startSolo,
+  priorityActive = () => false,
+} = {}) {
   let clock = 1000,
     locked = false,
     enabled = false;
@@ -27,7 +32,8 @@ function setup({ saved, refresh, startSolo } = {}) {
         enabled = false;
       },
     },
-    available: () => true,
+    available: () => !priorityActive(),
+    priorityActive,
     lock() {
       if (locked) return false;
       locked = true;
@@ -308,4 +314,17 @@ test("an invitation discovery outage falls back to a solo preflight without acce
   ctx.setItems([invitation]);
   await ctx.worker.tick();
   assert.deepEqual(ctx.calls, ["refresh", "solo.start", "auto.start"]);
+});
+
+test("raid waits through character priority and resumes its checks", async () => {
+  let priority = true;
+  const ctx = setup({ priorityActive: () => priority });
+  ctx.worker.start(7);
+  await ctx.worker.tick();
+  assert.deepEqual(ctx.calls, []);
+  assert.equal(ctx.worker.getSnapshot().enabled, true);
+  priority = false;
+  ctx.advance(1000);
+  await ctx.worker.tick();
+  assert.deepEqual(ctx.calls, ["refresh"]);
 });

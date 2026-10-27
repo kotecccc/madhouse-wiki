@@ -172,19 +172,7 @@ export function createRemoteBattleSession({
       ...(server?.characterUpgrade ?? {}),
       loaded: Boolean(server?.characterUpgrade),
       busy: pendingCommands > 0,
-      blocked: Boolean(
-        server?.auto?.enabled ||
-        server?.businessAssistant?.run?.status === "running" ||
-        server?.workFarm?.run?.status === "running" ||
-        server?.raid?.enabled ||
-        server?.subscription?.enabled ||
-        server?.battle?.pending ||
-        server?.battle?.needsRefresh ||
-        server?.battle?.error ||
-        server?.battle?.healing?.uncertain ||
-        server?.battle?.pendingInvitation ||
-        server?.battle?.purchaseUncertain,
-      ),
+      blocked: false,
       error: transportError || characterCommandError,
     });
     notify(characterListeners, characterSnapshot);
@@ -437,7 +425,11 @@ export function createRemoteBattleSession({
             setServerState(error.snapshot);
             // Refresh is read-only, so it can safely rebase once on the
             // conflict snapshot. Never replay a command that can mutate state.
-            if (command === "work.refresh" && attempt === 0) continue;
+            if (
+              ["work.refresh", "character.refresh"].includes(command) &&
+              attempt === 0
+            )
+              continue;
           }
           throw error;
         }
@@ -674,6 +666,7 @@ export function createRemoteBattleSession({
     refresh: () => send("character.refresh"),
     upgrade: (args) => send("character.upgrade", args),
     start: (args) => send("character.start", args),
+    startAll: (args) => send("character.startAll", args),
     stop: () => send("character.stop"),
   };
   const workFarm = {

@@ -1,5 +1,6 @@
 import { BorderLoader } from "../BorderLoader/BorderLoader.jsx";
-import { useId } from "react";
+import { useId, useState } from "react";
+import { ToastTargetContext } from "../Toast/ToastContext.jsx";
 import { Dialog } from "../Dialog/Dialog.jsx";
 import { Title } from "../Title/Title.jsx";
 import { Button } from "../Button/Button.jsx";
@@ -25,6 +26,7 @@ export function Modal({
   visible = true,
   loading = false,
 }) {
+  const [toastTarget, setToastTarget] = useState(null);
   const generatedId = useId();
   const id = titleId || generatedId;
   return (
@@ -45,62 +47,67 @@ export function Modal({
           : undefined
       }
     >
-      <header className="shared-modal-heading">
-        <div className="shared-modal-heading-copy">
-          <Title as="h2" id={id} className="shared-modal-title">
-            {title}
-          </Title>
-          {description && (
-            <p className="shared-modal-description">{description}</p>
+      <ToastTargetContext.Provider value={toastTarget}>
+        <header className="shared-modal-heading">
+          <div className="shared-modal-heading-copy">
+            <Title as="h2" id={id} className="shared-modal-title">
+              {title}
+            </Title>
+            {description && (
+              <p className="shared-modal-description">{description}</p>
+            )}
+          </div>
+          {showCloseButton && <DialogCloseButton onClick={onClose} />}
+          {loading && (
+            <span className="shared-modal-heading-loader">
+              <BorderLoader />
+            </span>
+          )}
+        </header>
+        <div
+          className={`shared-modal-content${
+            contentVariant === "default"
+              ? ""
+              : ` shared-modal-content--${contentVariant}`
+          }${contentAlignment === "center" ? " shared-modal-content--center" : ""}${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
+        >
+          {contentAlignment === "center" ? (
+            <div className="shared-modal-content-inner">{children}</div>
+          ) : (
+            children
+          )}
+          {contentBottom != null && (
+            <div className="shared-modal-content-bottom">{contentBottom}</div>
           )}
         </div>
-        {showCloseButton && <DialogCloseButton onClick={onClose} />}
-        {loading && (
-          <span className="shared-modal-heading-loader">
-            <BorderLoader />
-          </span>
-        )}
-      </header>
-      <div
-        className={`shared-modal-content${
-          contentVariant === "default"
-            ? ""
-            : ` shared-modal-content--${contentVariant}`
-        }${contentAlignment === "center" ? " shared-modal-content--center" : ""}${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
-      >
-        {contentAlignment === "center" ? (
-          <div className="shared-modal-content-inner">{children}</div>
-        ) : (
-          children
-        )}
-        {contentBottom != null && (
-          <div className="shared-modal-content-bottom">{contentBottom}</div>
-        )}
-      </div>
-      {footer === false ? null : footerNote != null ? (
-        <footer
-          className={`shared-modal-footer shared-modal-footer--with-note${footerStart ? " shared-modal-footer--split" : ""}`}
-        >
-          {footerStart}
-          <p
-            className={`shared-modal-footer-note${footerStart ? " shared-modal-footer-note--center" : ""}`}
+        <div className="shared-modal-toast-anchor">
+          <div className="ui-toast-stack" ref={setToastTarget} />
+        </div>
+        {footer === false ? null : footerNote != null ? (
+          <footer
+            className={`shared-modal-footer shared-modal-footer--with-note${footerStart ? " shared-modal-footer--split" : ""}`}
           >
-            {footerNote}
-          </p>
-          {footer || <Button onClick={onClose}>Закрыть</Button>}
-        </footer>
-      ) : footer ? (
-        <footer
-          className={`shared-modal-footer${footerStart ? " shared-modal-footer--spread" : ""}`}
-        >
-          {footerStart}
-          {footer}
-        </footer>
-      ) : (
-        <footer className="shared-modal-footer shared-modal-mobile-footer">
-          <Button onClick={onClose}>Закрыть</Button>
-        </footer>
-      )}
+            {footerStart}
+            <p
+              className={`shared-modal-footer-note${footerStart ? " shared-modal-footer-note--center" : ""}`}
+            >
+              {footerNote}
+            </p>
+            {footer || <Button onClick={onClose}>Закрыть</Button>}
+          </footer>
+        ) : footer ? (
+          <footer
+            className={`shared-modal-footer${footerStart ? " shared-modal-footer--spread" : ""}`}
+          >
+            {footerStart}
+            {footer}
+          </footer>
+        ) : (
+          <footer className="shared-modal-footer shared-modal-mobile-footer">
+            <Button onClick={onClose}>Закрыть</Button>
+          </footer>
+        )}
+      </ToastTargetContext.Provider>
     </Dialog>
   );
 }

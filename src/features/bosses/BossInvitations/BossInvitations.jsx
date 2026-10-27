@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useState, useSyncExternalStore } from "react";
 import {
   readSession,
@@ -31,19 +32,14 @@ export function BossInvitationsContent({
       {state.notice && (
         <CardDescription role="status">{state.notice}</CardDescription>
       )}
-      {state.error && (
-        <CardDescription role="alert">{state.error}</CardDescription>
-      )}
+      <ErrorToast message={state.error} />
       {state.unresolved && (
-        <BaseCard>
-          <CardDescription>
-            Результат вступления пока не подтверждён. Проверка только обновит
-            состояние боя и не отправит принятие повторно.
-          </CardDescription>
+        <>
+          <ErrorToast message="Результат вступления пока не подтверждён. Проверка обновит состояние и не отправит принятие повторно." />
           <Button disabled={state.pending} onClick={onReconcile}>
             Проверить вступление
           </Button>
-        </BaseCard>
+        </>
       )}
       {state.blocked && (
         <CardDescription>

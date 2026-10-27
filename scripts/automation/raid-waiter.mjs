@@ -10,6 +10,7 @@ export function createRaidWaiter({
   goal,
   auto,
   available,
+  priorityActive = () => false,
   lock,
   unlock,
   refresh,
@@ -127,11 +128,15 @@ export function createRaidWaiter({
         return;
       }
       if (!available()) {
+        const priority = priorityActive();
         publish({
           status: "waiting",
-          nextCheckAt: now() + 30000,
-          notice: "Ждём восстановления связи с игрой.",
+          nextCheckAt: now() + (priority ? 1000 : 30000),
+          notice: priority
+            ? "Ожидаем прокачку характеристик."
+            : "Ждём восстановления связи с игрой.",
         });
+        if (priority && !uncertain()) return;
         if (lock()) {
           running = true;
           try {

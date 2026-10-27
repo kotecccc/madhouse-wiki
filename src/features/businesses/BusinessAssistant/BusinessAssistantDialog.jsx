@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
@@ -220,17 +221,8 @@ export function BusinessAssistantDialog({
         </>
       }
     >
-      {state.error && (
-        <BaseCard role="alert">
-          <CardTitle>Помощник временно недоступен</CardTitle>
-          <CardDescription title={state.error}>{state.error}</CardDescription>
-        </BaseCard>
-      )}
-      {state.notice && (
-        <CardDescription role="status" title={state.notice}>
-          {state.notice}
-        </CardDescription>
-      )}
+      <ErrorToast message={state.error} />
+      <ErrorToast message={state.notice} />
       <div className="business-assistant-layout">
         <div className="business-assistant-column">
           <BaseCard
@@ -313,11 +305,7 @@ export function BusinessAssistantDialog({
                 Нажмите «Рассчитать и сохранить», чтобы обновить расчёт.
               </CardDescription>
             )}
-            {!valid && (
-              <CardDescription role="alert">
-                Проверьте уровни и лимит боёв.
-              </CardDescription>
-            )}
+            {!valid && <ErrorToast message="Проверьте уровни и лимит боёв." />}
             <Button
               type="submit"
               variant="primary"
@@ -540,7 +528,10 @@ export function BusinessAssistantDialog({
           </Button>
         </BaseCard>
       )}
-      {run && run.status !== "running" && (
+      {run && run.status !== "running" && run.status !== "completed" && (
+        <ErrorToast message={run.reason || "Выполнение остановлено."} />
+      )}
+      {run && run.status === "completed" && (
         <BaseCard role="status" className="business-assistant-column">
           <CardTitle as="h3">
             {run.status === "completed"

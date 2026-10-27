@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useRef, useState } from "react";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { LoadingStatus } from "../../../components/ui/LoadingStatus/LoadingStatus.jsx";
@@ -210,7 +211,10 @@ export function FeedbackWidget({ screen = "floors" }) {
           {status.message && status.state === "loading" && (
             <LoadingStatus>{status.message}</LoadingStatus>
           )}
-          {status.message && status.state !== "loading" && (
+          <ErrorToast
+            message={status.state === "error" ? status.message : null}
+          />
+          {status.message && !["loading", "error"].includes(status.state) && (
             <p
               className={`feedback-status feedback-status--${status.state}`}
               role="status"
