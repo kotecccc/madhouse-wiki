@@ -1053,6 +1053,23 @@ test("friends failures are scoped and clear only on a valid friends response", a
   assert.equal(snapshots.health("Bearer friends-health").status, "available");
 });
 
+test("upstream reads respect caller cancellation", async () => {
+  const controller = new AbortController();
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async (_url, options) => {
+      controller.abort();
+      assert.equal(options.signal.aborted, true);
+      throw new DOMException("Aborted", "AbortError");
+    },
+  });
+  const response = await snapshots.read(`${origin}/api/me`, {
+    ...auth("cancelled-read"),
+    signal: controller.signal,
+  });
+  assert.equal(response.status, 503);
+});
+
 test("successful features require fresh clean sections and exclude failed functions", async () => {
   let clock = 1000;
   const fake = queueFetcher([

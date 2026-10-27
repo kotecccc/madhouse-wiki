@@ -219,10 +219,12 @@ export function createAccountSnapshots({
   }
   async function upstream(url, init) {
     try {
+      const read = (init.method || "GET").toUpperCase() === "GET";
+      const timeout = AbortSignal.timeout(read ? 15000 : 8000);
       return await fetcher(url, {
         ...init,
         redirect: "error",
-        signal: AbortSignal.timeout(8000),
+        signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
       });
     } catch {
       return json({ error: "game_unavailable" }, 503);
