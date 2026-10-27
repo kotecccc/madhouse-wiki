@@ -57,6 +57,7 @@ export function InventorySection({
   responses,
   dirtyPaths = [],
   playerLevel,
+  target,
   refreshGeneration = 0,
   onNotice,
   onLoadingChange,
@@ -110,6 +111,18 @@ export function InventorySection({
   }
   const [category, setCategory] = useState("clothing_item");
   const [filters, setFilters] = useState(initialFilters);
+  const [targetId, setTargetId] = useState(null);
+  useEffect(() => {
+    if (
+      !target ||
+      target.id == null ||
+      !inventoryCategories.some(({ id }) => id === target.type)
+    )
+      return;
+    setCategory(target.type);
+    setFilters(initialFilters);
+    setTargetId(String(target.id));
+  }, [target]);
   const [updatedAt, setUpdatedAt] = useState({});
   const [requestState, setRequestState] = useState({});
   const loadController = useRef(null);
@@ -226,7 +239,9 @@ export function InventorySection({
     };
   }, [active, pathKey, revision]);
   const items = inventoryItems(category, responses, references);
-  const filtered = filterInventory(items, filters);
+  const filtered = filterInventory(items, filters).filter(
+    (item) => targetId === null || String(item.id) === targetId,
+  );
   const loading =
     paths.some((path) => ["pending", "loading"].includes(requestState[path])) ||
     (active && paths.length > 0 && paths.some((path) => !requestState[path]));
@@ -298,6 +313,7 @@ export function InventorySection({
             value={category}
             onChange={(id) => {
               setCategory(id);
+              setTargetId(null);
               setRevision(0);
               setFilters(initialFilters);
               setLimit(PAGE_SIZE);
@@ -305,6 +321,9 @@ export function InventorySection({
           />
         </div>
       </div>
+      {targetId !== null && (
+        <Button onClick={() => setTargetId(null)}>Показать все предметы</Button>
+      )}
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">
           <Input

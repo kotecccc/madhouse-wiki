@@ -4,6 +4,7 @@ import {
   postSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
+import { syncBattleSession } from "../bosses/BossBattle/boss-battle-session.js";
 
 const pendingStatus = new Set(["queued", "waiting", "running", "reconciling"]);
 const inventoryPath = (args) =>
@@ -78,6 +79,7 @@ export function useActionQueue(
         next.queuedActions.map((job) => [job.id, job.status]),
       );
       setState(next);
+      syncBattleSession(next);
     };
     const unsubscribe = subscribeSessionData((event) => {
       if (event.cleared) {
@@ -128,6 +130,7 @@ export function useActionQueue(
         args,
       });
       setState(next);
+      syncBattleSession(next);
     } catch {
       setError("Не удалось остановить действие. Попробуйте ещё раз.");
     } finally {

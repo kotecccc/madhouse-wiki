@@ -11,6 +11,7 @@ import {
 } from "../../features/inventory/inventory.js";
 import { InventorySection } from "../../features/inventory/InventorySection.jsx";
 import { BossBattleDialog } from "../../features/bosses/BossBattle/BossBattleDialog.jsx";
+import { BossInvitationsDialog } from "../../features/bosses/BossInvitations/BossInvitations.jsx";
 import { bossBattle } from "../../features/bosses/BossBattle/boss-battle-session.js";
 import { CharacterUpgrade } from "../../features/overview/CharacterUpgrade/CharacterUpgrade.jsx";
 import { WorkFarmDialog } from "../../features/works/WorkCard/WorkFarmDialog.jsx";
@@ -84,6 +85,7 @@ export function App() {
   const [floorContentLoading, setFloorContentLoading] = useState(false);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryNotice, setInventoryNotice] = useState(null);
+  const [inventoryTarget, setInventoryTarget] = useState(null);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
   const [inventoryRefresh, setInventoryRefresh] = useState(0);
@@ -300,11 +302,13 @@ export function App() {
     } else if (type.startsWith("friend.") || type === "buddy") {
       changeScreen("friends");
     } else if (type === "inventory") {
+      setInventoryTarget(
+        card.inventoryTarget ? { ...card.inventoryTarget } : null,
+      );
       changeScreen("inventory");
-    } else if (
-      type.startsWith("subscription") ||
-      type === "invitation.accept"
-    ) {
+    } else if (type === "invitation.accept") {
+      setQueueDialog({ type: "invitations" });
+    } else if (type.startsWith("subscription")) {
       changeScreen("raids");
     } else {
       changeScreen("overview");
@@ -458,6 +462,7 @@ export function App() {
                   responses={inventoryResponses}
                   dirtyPaths={inventoryDirty}
                   playerLevel={profileState.profile?.playerLevel}
+                  target={inventoryTarget}
                   refreshGeneration={inventoryRefresh}
                   onNotice={setInventoryNotice}
                   onLoadingChange={setInventoryLoading}
@@ -504,6 +509,9 @@ export function App() {
         <BossBattleDialog />
         {queueDialog?.type === "character" && (
           <CharacterUpgrade onClose={() => setQueueDialog(null)} />
+        )}
+        {queueDialog?.type === "invitations" && (
+          <BossInvitationsDialog onClose={() => setQueueDialog(null)} />
         )}
         {queueDialog?.type === "work" && (
           <WorkFarmDialog

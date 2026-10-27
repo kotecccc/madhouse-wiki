@@ -44,6 +44,7 @@ test("projects server actors and prioritized queued intentions without duplicate
   );
   assert.equal(cards[1].status, "Ожидает энергию");
   assert.equal(cards[2].title, "Клинок");
+  assert.deepEqual(cards[2].inventoryTarget, { type: "weapon", id: 2 });
   assert.equal(cards[2].position, 1);
   assert.equal(cards[3].position, 2);
 });

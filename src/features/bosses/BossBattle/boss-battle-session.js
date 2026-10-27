@@ -72,6 +72,7 @@ export const floorAutomation = remote.floorAutomation;
 export const characterUpgrade = remote.characterUpgrade;
 export const connectBattleSession = remote.connect;
 export const disconnectBattleSession = remote.disconnect;
+export const syncBattleSession = remote.syncState;
 if (import.meta.hot) {
   import.meta.hot.dispose((data) => {
     data.remote = remote;

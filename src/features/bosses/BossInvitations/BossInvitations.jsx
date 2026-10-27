@@ -1,5 +1,5 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   readSession,
   subscribeSession,
@@ -9,6 +9,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { bossInvitations } from "../BossBattle/boss-battle-session.js";
 import "./BossInvitations.css";
 
@@ -41,12 +42,6 @@ export function BossInvitationsContent({
           </Button>
         </>
       )}
-      {state.blocked && (
-        <CardDescription>
-          Вступление дождётся завершения текущего боя и работающей
-          автоматизации.
-        </CardDescription>
-      )}
       {!state.loaded && (
         <CardDescription>
           {state.pending
@@ -73,13 +68,57 @@ export function BossInvitationsContent({
             }
             onClick={() => onAccept(item.invitationId)}
           >
-            {state.queuedIds?.includes(item.invitationId)
-              ? "В очереди"
-              : "Принять и открыть бой"}
+            Принять и открыть бой
           </Button>
         </BaseCard>
       ))}
     </div>
+  );
+}
+
+export function BossInvitationsDialog({ preferredBossId, onClose }) {
+  const [queueNotice, setQueueNotice] = useState(false);
+  const state = useSyncExternalStore(
+    bossInvitations.subscribe,
+    bossInvitations.getSnapshot,
+    bossInvitations.getSnapshot,
+  );
+  useEffect(() => {
+    void bossInvitations.refresh();
+  }, []);
+  const accept = async (id) => {
+    if (await bossInvitations.accept(id)) setQueueNotice(true);
+  };
+  const reconcile = async () => {
+    if (await bossInvitations.reconcile()) onClose();
+  };
+  return (
+    <Modal
+      title="Приглашения на босса"
+      loading={Boolean(state.pending)}
+      contentVariant="inset"
+      onClose={onClose}
+      onRefresh={() => bossInvitations.refresh()}
+      refreshKey="boss-invitations"
+      footer={<Button onClick={onClose}>Закрыть</Button>}
+    >
+      <BossInvitationsContent
+        state={state}
+        preferredBossId={preferredBossId}
+        onAccept={(id) => void accept(id)}
+        onReconcile={() => void reconcile()}
+      />
+      {queueNotice && (
+        <Toast
+          floating
+          success
+          title="В очереди"
+          onDismiss={() => setQueueNotice(false)}
+        >
+          Приглашение добавлено в очередь.
+        </Toast>
+      )}
+    </Modal>
   );
 }
 
@@ -90,48 +129,21 @@ export function BossInvitationsButton({ preferredBossId }) {
     () => readSession().status,
     () => "empty",
   );
-  const state = useSyncExternalStore(
-    bossInvitations.subscribe,
-    bossInvitations.getSnapshot,
-    bossInvitations.getSnapshot,
-  );
   if (sessionStatus !== "ready") return null;
-  const close = () => setOpen(false);
-  const accept = async (id) => {
-    if (await bossInvitations.accept(id)) close();
-  };
-  const reconcile = async () => {
-    if (await bossInvitations.reconcile()) close();
-  };
   return (
     <>
       <Button
         variant="secondary"
         aria-haspopup="dialog"
-        onClick={() => {
-          setOpen(true);
-          void bossInvitations.refresh();
-        }}
+        onClick={() => setOpen(true)}
       >
         Приглашения на босса
       </Button>
       {open && (
-        <Modal
-          title="Приглашения на босса"
-          loading={Boolean(state.pending)}
-          contentVariant="inset"
-          onClose={close}
-          onRefresh={() => bossInvitations.refresh()}
-          refreshKey="boss-invitations"
-          footer={<Button onClick={close}>Закрыть</Button>}
-        >
-          <BossInvitationsContent
-            state={state}
-            preferredBossId={preferredBossId}
-            onAccept={(id) => void accept(id)}
-            onReconcile={() => void reconcile()}
-          />
-        </Modal>
+        <BossInvitationsDialog
+          preferredBossId={preferredBossId}
+          onClose={() => setOpen(false)}
+        />
       )}
     </>
   );

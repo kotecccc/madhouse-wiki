@@ -6,6 +6,7 @@ import {
 } from "../../../../shared/auth-session.js";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { BossBattleReceivedDrops } from "./BossBattleReference.jsx";
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
 import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
@@ -71,6 +72,7 @@ export function BossBattleDialog() {
   );
   const [now, setNow] = useState(Date.now);
   const [actionsTarget, setActionsTarget] = useState(null);
+  const [queueNotice, setQueueNotice] = useState(null);
   useEffect(() => {
     const unsubscribe = subscribeSession(() => bossBattle.close());
     const timer = window.setInterval(() => {
@@ -161,7 +163,9 @@ export function BossBattleDialog() {
             auto={auto}
             onAttack={() => {
               if (!bossBattleAuto.getSnapshot().enabled)
-                void bossBattle.attack();
+                void bossBattle.attack().then((accepted) => {
+                  if (accepted) setQueueNotice("Удар добавлен в очередь.");
+                });
             }}
           />
           {showNext && !automationRunning && (
@@ -172,15 +176,17 @@ export function BossBattleDialog() {
                   icon="combat"
                   disabled={auto.enabled || state.raid?.enabled || queuedStart}
                   title={actionHint || state.notice}
-                  onClick={() => void bossBattle.startNextBattle()}
+                  onClick={() =>
+                    void bossBattle.startNextBattle().then((accepted) => {
+                      if (accepted) setQueueNotice("Бой добавлен в очередь.");
+                    })
+                  }
                 >
-                  {queuedStart
-                    ? "В очереди"
-                    : state.pending === "restart"
-                      ? "Запуск…"
-                      : goal
-                        ? "Следующий бой"
-                        : "Напасть"}
+                  {state.pending === "restart"
+                    ? "Запуск…"
+                    : goal
+                      ? "Следующий бой"
+                      : "Напасть"}
                 </Button>
               )}
             </div>
@@ -219,6 +225,16 @@ export function BossBattleDialog() {
           />
         </div>
       </div>
+      {queueNotice && (
+        <Toast
+          floating
+          success
+          title="В очереди"
+          onDismiss={() => setQueueNotice(null)}
+        >
+          {queueNotice}
+        </Toast>
+      )}
     </Modal>
   );
 }

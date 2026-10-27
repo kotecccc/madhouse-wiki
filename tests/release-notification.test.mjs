@@ -86,3 +86,26 @@ test("missing admin fails before requests and lost Telegram response is never re
   );
   assert.equal(calls, 3);
 });
+
+test("Telegram rejection exposes only the HTTP status and is never retried", async () => {
+  let calls = 0;
+  await assert.rejects(
+    notifyHealthyRelease({
+      env,
+      fetcher: async () => {
+        calls++;
+        if (calls < 3)
+          return Response.json({
+            service: calls === 1 ? "wiki" : "connector",
+            sourceCommit: sha,
+          });
+        return Response.json(
+          { description: "private response" },
+          { status: 403 },
+        );
+      },
+    }),
+    { message: "release_notification_http_403" },
+  );
+  assert.equal(calls, 3);
+});

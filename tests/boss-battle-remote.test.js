@@ -74,6 +74,29 @@ test("connect reads server state once, publishes stable snapshots, and polls loc
   assert.equal(h.calls.length, 1);
 });
 
+test("queue state updates wake a paused farm and reject older snapshots", async () => {
+  const h = harness({
+    state: {
+      ...initialState(),
+      workFarm: { run: { status: "paused", workId: 7 } },
+    },
+  });
+  await h.connect();
+  h.syncState({
+    ...initialState(),
+    version: 8,
+    workFarm: { run: { status: "running", workId: 7 } },
+  });
+  assert.equal(h.workFarm.getSnapshot().run.status, "running");
+  assert.equal([...h.tasks.values()][0].delay, 2000);
+  h.syncState({
+    ...initialState(),
+    version: 7,
+    workFarm: { run: { status: "paused", workId: 7 } },
+  });
+  assert.equal(h.workFarm.getSnapshot().run.status, "running");
+});
+
 test("raid subscription stays unavailable until server state has loaded", async () => {
   let resolveState;
   const h = harness({

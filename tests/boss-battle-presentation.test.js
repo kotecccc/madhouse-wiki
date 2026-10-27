@@ -100,7 +100,8 @@ test("battle header contains countdown, hides automation manual controls and kee
         now: 1000,
       }),
     );
-    assert.match(queuedAttack, /disabled=""[^>]*>.*?В очереди/s);
+    assert.match(queuedAttack, /disabled=""[^>]*>.*?Ударить/s);
+    assert.doesNotMatch(queuedAttack, /В очереди/);
     const finishedExample = {
       boss: { id: 7, name: "Boss" },
       battle: {

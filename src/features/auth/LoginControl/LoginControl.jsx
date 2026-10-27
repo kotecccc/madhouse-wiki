@@ -22,6 +22,7 @@ import {
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -67,6 +68,7 @@ export function LoginControl() {
   );
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
+  const [queueNotice, setQueueNotice] = useState(false);
   const [buddyCount, setBuddyCount] = useState(0);
   const [loginMethod, setLoginMethod] = useState("choose");
   const [token, setToken] = useState("");
@@ -398,7 +400,7 @@ export function LoginControl() {
                   ? `Цель: ${floor.target.destination} · ${floor.target.kind === "work" ? "работа" : floor.target.kind === "boss" ? "босс" : "бизнес"}`
                   : "Ищем следующую цель"
                 : floor.queuedId
-                  ? "В очереди"
+                  ? "Запускается"
                   : floor.status === "paused"
                     ? "Приостановлена"
                     : "Остановлена"}
@@ -419,13 +421,19 @@ export function LoginControl() {
               disabled={
                 !floor.loaded || (floor.pending && floor.status !== "running")
               }
-              onClick={() =>
-                void (floor.queuedId ||
-                floor.status === "running" ||
-                floor.phase === "launching"
-                  ? floorAutomation.stop()
-                  : floorAutomation.start())
-              }
+              onClick={() => {
+                if (
+                  floor.queuedId ||
+                  floor.status === "running" ||
+                  floor.phase === "launching"
+                ) {
+                  void floorAutomation.stop();
+                } else {
+                  void floorAutomation.start().then((ok) => {
+                    if (ok) setQueueNotice(true);
+                  });
+                }
+              }}
             >
               {floor.queuedId ||
               floor.status === "running" ||
@@ -439,6 +447,16 @@ export function LoginControl() {
               ))}
             </CardDescription>
             <ErrorToast message={error} />
+            {queueNotice && (
+              <Toast
+                floating
+                success
+                title="В очереди"
+                onDismiss={() => setQueueNotice(false)}
+              >
+                Автопрокачка добавлена в очередь.
+              </Toast>
+            )}
             <Button variant="secondary" onClick={logout}>
               Выйти
             </Button>

@@ -1,6 +1,7 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -48,6 +49,7 @@ export function BusinessAssistantDialog({
   const [draft, setDraft] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [runConfirmation, setRunConfirmation] = useState(false);
+  const [queueNotice, setQueueNotice] = useState(false);
   const selected = useRef(null);
   useEffect(() => {
     if (!state.loaded) {
@@ -180,7 +182,10 @@ export function BusinessAssistantDialog({
         amount: item.missingAmount,
       })),
     });
-    if (mounted.current && ok) setRunConfirmation(false);
+    if (mounted.current && ok) {
+      setRunConfirmation(false);
+      setQueueNotice(true);
+    }
   };
   const confirmGoal = async () => {
     if (!confirmation || busy) return;
@@ -515,11 +520,9 @@ export function BusinessAssistantDialog({
             disabled={busy || running || queued || !state.loaded || !runReady}
             onClick={() => setRunConfirmation(true)}
           >
-            {queued
-              ? "В очереди"
-              : plan.config.autoUpgrade
-                ? "Улучшить бизнес"
-                : "Собрать все материалы"}
+            {plan.config.autoUpgrade
+              ? "Улучшить бизнес"
+              : "Собрать все материалы"}
           </Button>
         </BaseCard>
       )}
@@ -634,6 +637,16 @@ export function BusinessAssistantDialog({
             </Button>
           </div>
         </BaseCard>
+      )}
+      {queueNotice && (
+        <Toast
+          floating
+          success
+          title="В очереди"
+          onDismiss={() => setQueueNotice(false)}
+        >
+          Действие добавлено в очередь.
+        </Toast>
       )}
     </Modal>
   );

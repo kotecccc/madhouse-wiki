@@ -41,8 +41,10 @@ export async function notifyHealthyRelease({
       signal: AbortSignal.timeout(10000),
     },
   );
-  if (!response.ok || (await response.json()).ok !== true)
-    throw new Error("release_notification_failed");
+  if (!response.ok)
+    throw new Error(`release_notification_http_${response.status}`);
+  if ((await response.json()).ok !== true)
+    throw new Error("release_notification_rejected");
 }
 
 if (
@@ -52,10 +54,16 @@ if (
   try {
     await notifyHealthyRelease();
     console.log("Release notification delivered to configured administrator");
-  } catch {
+  } catch (error) {
     // Do not print fetch errors, Bot API URLs, responses or environment values.
+    const reason =
+      /^release_(?:notification_http_\d{3}|notification_rejected|notification_not_configured|health_not_confirmed)$/.test(
+        error?.message,
+      )
+        ? error.message
+        : "release_notification_transport_or_response_error";
     console.error(
-      "Release notification could not be delivered or health was not confirmed",
+      `Release notification could not be delivered or health was not confirmed: ${reason}`,
     );
     process.exitCode = 1;
   }

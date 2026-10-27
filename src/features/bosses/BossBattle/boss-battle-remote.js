@@ -999,6 +999,11 @@ export function createRemoteBattleSession({
     bossBattleGoal: goal,
     pvpBattle: pvp,
     preferences,
+    syncState(value) {
+      if (!connected || !value) return;
+      setServerState(value);
+      schedulePoll();
+    },
     connect,
     disconnect,
     reset,

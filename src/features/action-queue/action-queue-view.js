@@ -423,6 +423,10 @@ export function actionQueueCards(state, catalogue = {}) {
                           : null,
       image: queuedWork?.image || queuedBoss?.image || item?.image,
       destination: job.type,
+      inventoryTarget:
+        job.type === "inventory"
+          ? { type: job.args?.type, id: job.args?.id }
+          : null,
       work: queuedWork,
       businessId: job.args?.businessId,
       bossId,

@@ -326,26 +326,21 @@ export function BossBattlePanel({
             icon="combat"
             disabled={auto.enabled || !canQueueAttack || queuedAttack}
             title={
-              queuedAttack
-                ? "Удар в очереди"
-                : auto.enabled
-                  ? "Ручной удар недоступен в авторежиме"
-                  : state.needsRefresh &&
-                      ![401, 403].includes(state.errorStatus)
-                    ? "Удар дождётся проверки состояния игры"
-                    : hint
+              auto.enabled
+                ? "Ручной удар недоступен в авторежиме"
+                : state.needsRefresh && ![401, 403].includes(state.errorStatus)
+                  ? "Удар дождётся проверки состояния игры"
+                  : hint
             }
             onClick={onAttack}
           >
-            {queuedAttack
-              ? "В очереди"
-              : auto.enabled
-                ? "Ударить"
-                : state.pending === "attack"
-                  ? "Удар…"
-                  : waiting > 0
-                    ? `Ударить · ${waiting} с`
-                    : "Ударить"}
+            {auto.enabled
+              ? "Ударить"
+              : state.pending === "attack"
+                ? "Удар…"
+                : waiting > 0
+                  ? `Ударить · ${waiting} с`
+                  : "Ударить"}
           </Button>
         </div>
       ) : null}
