@@ -454,6 +454,9 @@ export function createSessionApi({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    publishResponse(path, data) {
+      publish({ path, data, updatedAt: null });
+    },
     isRefreshing: () => refreshing > 0,
     refreshExpired,
     clear,
@@ -540,11 +543,25 @@ export function postSessionJson(path, body, { signal } = {}) {
   });
 }
 
-// Subscribers receive {path, data} after successful GET responses,
+// Subscribers receive {path, data} after successful session API responses,
 // {refreshing} when background revalidation activity changes, and {cleared:true}
 // when the authenticated account changes or the session is cleared.
 export function subscribeSessionData(listener) {
   return ensureSessionApi().subscribe(listener);
+}
+export function publishSessionData(path, data, expectedAuthorization) {
+  if (typeof path !== "string" || !path.startsWith("/api/")) return;
+  try {
+    if (
+      !expectedAuthorization ||
+      authorizeRequest({ url: path }).headers.Authorization !==
+        expectedAuthorization
+    )
+      return;
+  } catch {
+    return;
+  }
+  ensureSessionApi().publishResponse(path, data);
 }
 export function readSessionRefreshState() {
   return sessionApi?.isRefreshing() ?? false;

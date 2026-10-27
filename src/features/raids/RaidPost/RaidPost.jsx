@@ -1,4 +1,5 @@
 import { RaidEventCard } from "../RaidEventCard/RaidEventCard.jsx";
+import { useEffect, useRef } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
@@ -78,6 +79,9 @@ export function RaidPost({
   onInspectFriend,
   onRefreshFriend,
   authenticated = false,
+  active = false,
+  focusTarget = null,
+  onQueueFocusHandled,
 }) {
   const subscription = subscriptionState?.subscription;
   const rows = combineRaids(
@@ -86,6 +90,32 @@ export function RaidPost({
     subscription,
     knowledgeBase.bosses,
   );
+  const focusedRowRef = useRef(null);
+  const target = focusTarget?.target ?? focusTarget;
+  const matchesFocus = (candidate) =>
+    Boolean(
+      candidate &&
+      (target?.bossId == null || candidate.bossId === target.bossId) &&
+      (target?.leaderPlayerId != null
+        ? candidate.leaderPlayerId === target.leaderPlayerId
+        : target?.leaderUsername &&
+          String(candidate.leaderUsername || "")
+            .replace(/^@/, "")
+            .toLowerCase() ===
+            String(target.leaderUsername).replace(/^@/, "").toLowerCase()),
+    );
+  const focusedRowKey = rows.find((row) => matchesFocus(row.candidate))?.key;
+  const focusKey = target
+    ? `${target.leaderPlayerId ?? ""}:${target.leaderUsername ?? ""}:${target.bossId ?? ""}`
+    : "";
+  useEffect(() => {
+    if (!active || !focusKey || !focusedRowKey) return;
+    focusedRowRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    onQueueFocusHandled?.("raid");
+  }, [active, focusKey, focusedRowKey, onQueueFocusHandled]);
   return (
     <section
       className="raid-post"
@@ -192,7 +222,7 @@ export function RaidPost({
               />
             ) : null;
           return (
-            <li key={key}>
+            <li key={key} ref={matchesFocus(candidate) ? focusedRowRef : null}>
               <RaidEventCard
                 raid={raid}
                 bossOverride={boss}

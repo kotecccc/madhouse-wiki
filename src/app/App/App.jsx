@@ -39,6 +39,7 @@ import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection
 import { RequirementCalculatorDialog } from "../../features/calculator/RequirementCalculatorDialog/RequirementCalculatorDialog.jsx";
 import { UpgradeDialog } from "../../features/businesses/UpgradeDialog/UpgradeDialog.jsx";
 import { RaidScheduleSection } from "../../features/raids/RaidScheduleSection/RaidScheduleSection.jsx";
+import { queueNavigation } from "../../features/action-queue/queue-navigation.js";
 import { TelegramLaunchScreen } from "../../features/telegram/TelegramLaunchScreen/TelegramLaunchScreen.jsx";
 import { MobileNavigation } from "../../components/layout/MobileNavigation/MobileNavigation.jsx";
 import { GameHealthWarningBanner } from "../../components/layout/BottomDock/GameHealthWarning.jsx";
@@ -88,6 +89,7 @@ export function App() {
   const [inventoryTarget, setInventoryTarget] = useState(null);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
+  const [queueFocus, setQueueFocus] = useState(null);
   const [inventoryRefresh, setInventoryRefresh] = useState(0);
   const [friendsRefresh, setFriendsRefresh] = useState(0);
   const [friendsLoading, setFriendsLoading] = useState(false);
@@ -266,8 +268,19 @@ export function App() {
     changeScreen("overview");
   };
   const onOpenRaids = () => changeScreen("raids");
+  const onQueueFocusHandled = useCallback((kind) => {
+    setQueueFocus((current) => (current?.kind === kind ? null : current));
+  }, []);
   const openQueueAction = (card) => {
     const type = card.destination;
+    const navigation = queueNavigation(card, kb);
+    if (navigation) {
+      if (navigation.screen === "overview")
+        setFloorFocusCode(navigation.floorCode);
+      setQueueFocus(navigation.focus);
+      changeScreen(navigation.screen);
+      return;
+    }
     if (["work", "work.start", "work.booster"].includes(type) && card.work) {
       setQueueDialog({ type: "work", work: card.work });
     } else if (type === "character" || type === "character.start") {
@@ -299,8 +312,6 @@ export function App() {
         : actionQueue.state?.battle?.boss;
       if (boss) void bossBattle.open(boss);
       else changeScreen("overview");
-    } else if (type.startsWith("friend.") || type === "buddy") {
-      changeScreen("friends");
     } else if (type === "inventory") {
       setInventoryTarget(
         card.inventoryTarget ? { ...card.inventoryTarget } : null,
@@ -308,8 +319,6 @@ export function App() {
       changeScreen("inventory");
     } else if (type === "invitation.accept") {
       setQueueDialog({ type: "invitations" });
-    } else if (type.startsWith("subscription")) {
-      changeScreen("raids");
     } else {
       changeScreen("overview");
     }
@@ -408,6 +417,8 @@ export function App() {
                   onDepartmentState={onDepartmentState}
                   onLoadingChange={setFloorContentLoading}
                   selectedFloorCode={floorFocusCode}
+                  queueFocus={queueFocus?.kind === "floor" ? queueFocus : null}
+                  onQueueFocusHandled={onQueueFocusHandled}
                   onVisibleFloorChange={setVisibleFloorCode}
                 />
               </div>
@@ -416,6 +427,8 @@ export function App() {
               <RaidScheduleSection
                 authenticated={authenticated}
                 active={visibleScreen === "raids"}
+                queueFocus={queueFocus?.kind === "raid" ? queueFocus : null}
+                onQueueFocusHandled={onQueueFocusHandled}
                 availability={floorAvailability.availability}
                 state={raidSchedule}
                 onRetry={raidSchedule.retry}
@@ -449,6 +462,12 @@ export function App() {
                   refreshGeneration={friendsRefresh}
                   onRefreshState={setFriendsLoading}
                   onNotice={setInventoryNotice}
+                  queueFocus={
+                    ["friend", "buddy"].includes(queueFocus?.kind)
+                      ? queueFocus
+                      : null
+                  }
+                  onQueueFocusHandled={onQueueFocusHandled}
                 />
               </div>
             )}

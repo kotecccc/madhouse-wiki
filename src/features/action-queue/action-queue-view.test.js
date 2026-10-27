@@ -73,6 +73,33 @@ test("Buddy remains separately stoppable while floor automation is active", () =
     ["buddy", "floor"],
   );
   assert.equal(cards[0].command, "buddy.stop");
+  assert.equal(cards[0].focusBuddy, true);
+  assert.equal(cards[1].floorTarget, null);
+});
+
+test("active floor and subscription cards retain their destination context", () => {
+  const cards = actionQueueCards({
+    floorRunner: {
+      status: "running",
+      target: { kind: "business", destination: "C2", entityId: "shop" },
+    },
+    subscription: {
+      enabled: true,
+      leaderPlayerId: 42,
+      leaderUsername: "leader",
+      bossId: 7,
+    },
+  });
+  assert.deepEqual(cards[0].raidTarget, {
+    leaderPlayerId: 42,
+    leaderUsername: "leader",
+    bossId: 7,
+  });
+  assert.deepEqual(cards[1].floorTarget, {
+    kind: "business",
+    destination: "C2",
+    entityId: "shop",
+  });
 });
 
 test("a stopped Buddy remains visible until its suspended action is reconciled", () => {
@@ -384,4 +411,38 @@ test("subscription waiting for identity confirmation has a clear queue status", 
   assert.equal(cards[0].title, "Подписка на рейды");
   assert.equal(cards[0].status, "Ожидает приглашение");
   assert.equal(cards[0].detail, "@leader");
+  assert.deepEqual(cards[0].raidTarget, {
+    leaderPlayerId: null,
+    leaderUsername: "leader",
+    bossId: null,
+  });
+});
+
+test("friend and Buddy queue cards preserve the account target for navigation", () => {
+  const cards = actionQueueCards({
+    queuedActions: [
+      {
+        id: "buddy-01",
+        type: "friend.buddy",
+        status: "queued",
+        priority: 1,
+        createdAt: 0,
+        args: { playerId: 42, name: "Игрок" },
+      },
+      {
+        id: "request-01",
+        type: "friend.request",
+        status: "queued",
+        priority: 1,
+        createdAt: 1,
+        args: { playerId: 7, username: "leader" },
+      },
+    ],
+  });
+  assert.deepEqual(cards[0].friendTarget, { playerId: 42 });
+  assert.deepEqual(cards[1].raidTarget, {
+    leaderPlayerId: 7,
+    leaderUsername: "leader",
+    bossId: null,
+  });
 });

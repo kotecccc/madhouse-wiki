@@ -554,6 +554,22 @@ test("section update dates use server timestamps, survive cache hits and remain 
   assert.equal(api.updatedAt("/api/rooms"), null);
 });
 
+test("remote automation responses can publish account-scoped session updates", () => {
+  const events = [];
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: {} }),
+  });
+  api.subscribe((event) => events.push(event));
+  api.publishResponse("/api/automation/commands", { queuedActions: [] });
+  assert.deepEqual(events, [
+    {
+      path: "/api/automation/commands",
+      data: { queuedActions: [] },
+      updatedAt: null,
+    },
+  ]);
+});
+
 test("explicit retry refresh headers apply to snapshot GETs without leaking to mutations", async () => {
   const calls = [];
   const api = createSessionApi({
