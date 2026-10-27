@@ -2,8 +2,10 @@ import { ContentSection } from "../../../components/ui/ContentSection/ContentSec
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import { RaidArchive } from "../RaidArchive/RaidArchive.jsx";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { raidSubscriptions } from "../../bosses/BossBattle/boss-battle-session.js";
+import { knowledgeBase } from "virtual:madhouse-catalogue";
+import { combineRaids, raidFriendKey, raidFriendTarget } from "../raid-list.js";
 import "./RaidScheduleSection.css";
 
 export function RaidScheduleSection({
@@ -19,6 +21,44 @@ export function RaidScheduleSection({
     raidSubscriptions.getSnapshot,
     raidSubscriptions.getSnapshot,
   );
+  const checkedTargets = useRef("");
+  const targets = combineRaids(
+    latest?.raids ?? [],
+    subscriptionState.detectedRaids,
+    subscriptionState.subscription,
+    knowledgeBase.bosses,
+  )
+    .map(({ raid, candidate }) => raidFriendTarget(raid, candidate))
+    .filter(Boolean);
+  const targetKey = JSON.stringify(
+    [
+      ...new Map(
+        targets.map((target) => [raidFriendKey(target), target]),
+      ).values(),
+    ].slice(0, 100),
+  );
+  useEffect(() => {
+    if (
+      !authenticated ||
+      !active ||
+      !subscriptionState.loaded ||
+      subscriptionState.pending ||
+      targetKey === "[]" ||
+      checkedTargets.current === targetKey
+    )
+      return;
+    checkedTargets.current = targetKey;
+    void raidSubscriptions.checkFriends(JSON.parse(targetKey));
+  }, [
+    authenticated,
+    active,
+    subscriptionState.loaded,
+    subscriptionState.pending,
+    targetKey,
+  ]);
+  useEffect(() => {
+    if (!authenticated || !active) checkedTargets.current = "";
+  }, [authenticated, active]);
   useEffect(() => {
     raidSubscriptions.watch(authenticated && active);
     return () => raidSubscriptions.watch(false);
@@ -57,6 +97,19 @@ export function RaidScheduleSection({
         </p>
       )}
       {subscriptionState.error && <p role="alert">{subscriptionState.error}</p>}
+      {subscriptionState.friendError && (
+        <div role="alert">
+          <p>{subscriptionState.friendError}</p>
+          <Button
+            disabled={subscriptionState.pending}
+            onClick={() =>
+              void raidSubscriptions.checkFriends(JSON.parse(targetKey))
+            }
+          >
+            Проверить друзей
+          </Button>
+        </div>
+      )}
       {displayed && (
         <div className="raid-post-list">
           <RaidPost
@@ -69,6 +122,19 @@ export function RaidScheduleSection({
               void raidSubscriptions.start(leader, boss, username)
             }
             onUnsubscribe={() => void raidSubscriptions.stop()}
+            onRequestFriend={(target) =>
+              void raidSubscriptions.requestFriend(
+                target.playerId ?? null,
+                target.username ?? "",
+              )
+            }
+            onInspectFriend={(target) =>
+              void raidSubscriptions.inspectFriend(
+                target.playerId ?? null,
+                target.username ?? "",
+              )
+            }
+            onRefreshFriend={() => void raidSubscriptions.refreshFriend()}
           />
           {state.nextCursor && (
             <RaidArchive

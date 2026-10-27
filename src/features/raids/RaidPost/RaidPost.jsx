@@ -1,7 +1,8 @@
 import { RaidEventCard } from "../RaidEventCard/RaidEventCard.jsx";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { Button } from "../../../components/ui/Button/Button.jsx";
-import { combineRaids } from "../raid-list.js";
+import { Pill } from "../../../components/ui/Pill/Pill.jsx";
+import { combineRaids, raidFriendKey, raidFriendTarget } from "../raid-list.js";
 import "./RaidPost.css";
 
 export function RaidPost({
@@ -12,6 +13,9 @@ export function RaidPost({
   subscriptionState,
   onSubscribe,
   onUnsubscribe,
+  onRequestFriend,
+  onInspectFriend,
+  onRefreshFriend,
   authenticated = false,
 }) {
   const subscription = subscriptionState?.subscription;
@@ -68,6 +72,59 @@ export function RaidPost({
             : candidate
               ? "Подписаться"
               : "Ведущий не подтверждён";
+          const friendTarget = raidFriendTarget(raid, candidate);
+          const friendStatus =
+            subscriptionState?.friend?.statuses?.[raidFriendKey(friendTarget)];
+          const friendAction =
+            !archive &&
+            authenticated &&
+            friendTarget &&
+            friendStatus === "none" ? (
+              <Button
+                size="sm"
+                icon="user-plus"
+                iconOnly
+                title="Добавить ведущего в друзья"
+                aria-label="Добавить ведущего в друзья"
+                disabled={subscriptionState?.pending}
+                onClick={() => onRequestFriend?.(friendTarget)}
+              />
+            ) : !archive &&
+              authenticated &&
+              friendTarget &&
+              friendStatus === "unknown" ? (
+              <Button
+                size="sm"
+                icon="user-plus"
+                iconOnly
+                title="Проверить ведущего"
+                aria-label="Проверить ведущего"
+                disabled={subscriptionState?.pending}
+                onClick={() => onInspectFriend?.(friendTarget)}
+              />
+            ) : !archive && authenticated && friendStatus === "pending" ? (
+              <Pill variant="unknown" size="xs" dot={false}>
+                Заявка отправлена
+              </Pill>
+            ) : !archive && authenticated && friendStatus === "incoming" ? (
+              <Pill variant="unknown" size="xs" dot={false}>
+                Входящая заявка
+              </Pill>
+            ) : !archive && authenticated && friendStatus === "friend" ? (
+              <Pill variant="unknown" size="xs" dot={false}>
+                В друзьях
+              </Pill>
+            ) : !archive && authenticated && friendStatus === "uncertain" ? (
+              <Button
+                size="sm"
+                icon="refresh"
+                iconOnly
+                title="Проверить заявку в друзья"
+                aria-label="Проверить заявку в друзья"
+                disabled={subscriptionState?.pending}
+                onClick={() => onRefreshFriend?.()}
+              />
+            ) : null;
           const action =
             !archive && authenticated ? (
               <Button
@@ -103,7 +160,14 @@ export function RaidPost({
                 bossOverride={boss}
                 status={detected && candidate.count ? "active" : undefined}
                 floorAvailability={floorAvailability}
-                goalAction={action}
+                goalAction={
+                  action || friendAction ? (
+                    <>
+                      {action}
+                      {friendAction}
+                    </>
+                  ) : null
+                }
               />
             </li>
           );

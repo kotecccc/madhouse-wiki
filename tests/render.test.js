@@ -105,6 +105,30 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
   });
   try {
     const load = (path) => server.ssrLoadModule(`/src/${path}`);
+    const { RaidPost } = await load("features/raids/RaidPost/RaidPost.jsx");
+    const friendRaid = {
+      raids: [{ boss: "Тестовый босс", leader: "@alice" }],
+      raidDateLabel: "сегодня",
+    };
+    const renderFriendRaid = (status) =>
+      renderToStaticMarkup(
+        createElement(RaidPost, {
+          post: friendRaid,
+          authenticated: true,
+          subscriptionState: {
+            loaded: true,
+            friend: { statuses: { "name:alice": status } },
+          },
+        }),
+      );
+    assert.match(renderFriendRaid("none"), /Добавить ведущего в друзья/);
+    assert.match(renderFriendRaid("pending"), /Заявка отправлена/);
+    assert.match(renderFriendRaid("friend"), /В друзьях/);
+    assert.doesNotMatch(
+      renderFriendRaid("friend"),
+      /Добавить ведущего в друзья/,
+    );
+    assert.match(renderFriendRaid("uncertain"), /Проверить заявку в друзья/);
     const { businessStatesFromFloorInfo } = await load(
       "features/floors/useDepartmentAvailability.js",
     );

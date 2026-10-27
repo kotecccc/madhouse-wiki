@@ -6,6 +6,32 @@ const normalize = (value) =>
     .replace(/^@/, "")
     .toLocaleLowerCase("ru-RU");
 
+export function raidFriendTarget(raid, candidate) {
+  const playerId = candidate?.leaderPlayerId;
+  const rawLeader = String(raid?.leader ?? "").trim();
+  const username = String(
+    candidate?.leaderUsername ?? (rawLeader.startsWith("@") ? rawLeader : ""),
+  )
+    .trim()
+    .replace(/^@/, "");
+  if (Number.isSafeInteger(playerId) && playerId > 0)
+    return {
+      playerId,
+      username: /^[A-Za-z0-9_]{1,64}$/.test(username) ? username : "",
+    };
+  if (rawLeader.startsWith("@") && /^[A-Za-z0-9_]{1,64}$/.test(username))
+    return { username };
+  return null;
+}
+
+export function raidFriendKey(target) {
+  return target?.playerId
+    ? `id:${target.playerId}`
+    : target?.username
+      ? `name:${normalize(target.username)}`
+      : null;
+}
+
 // Public handles are used only to find an unambiguous display match. The
 // server validates the leader's numeric game ID again before subscribing.
 export function combineRaids(

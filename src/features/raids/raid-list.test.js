@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { combineRaids } from "./raid-list.js";
+import { combineRaids, raidFriendKey, raidFriendTarget } from "./raid-list.js";
+
+test("friend actions only target verified ids or explicit Telegram handles", () => {
+  assert.deepEqual(raidFriendTarget({ leader: "@Alice" }, null), {
+    username: "Alice",
+  });
+  assert.equal(raidFriendKey({ username: "Alice" }), "name:alice");
+  assert.equal(raidFriendTarget({ leader: "Nickname" }, null), null);
+  assert.deepEqual(
+    raidFriendTarget({ leader: "Nickname" }, { leaderPlayerId: 42 }),
+    { playerId: 42, username: "" },
+  );
+});
 
 test("combines verified game invitations with the matching public raid", () => {
   const feed = [{ boss: "Белорогая", leader: "@alice", time: "12:00" }];

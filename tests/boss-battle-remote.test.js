@@ -443,6 +443,26 @@ test("business start conflict shows feedback without replaying the command", asy
   h.disconnect();
 });
 
+test("friend errors stay visible after polling without marking the battle unavailable", async () => {
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      throw new Error("offline");
+    },
+  });
+  await h.connect();
+  assert.equal(
+    await h.raidSubscriptions.checkFriends([{ username: "alice" }]),
+    false,
+  );
+  assert.match(h.raidSubscriptions.getSnapshot().friendError, /Не удалось/);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(h.raidSubscriptions.getSnapshot().friendError, /Не удалось/);
+  assert.equal(h.bossBattle.getSnapshot().needsRefresh, false);
+  h.disconnect();
+});
+
 test("work.refresh rebases once on a 409 snapshot, while mutations are never retried", async () => {
   const rebased = {
     ...initialState(),
