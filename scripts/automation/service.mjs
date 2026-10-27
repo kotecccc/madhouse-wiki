@@ -1006,6 +1006,7 @@ export function createAutomationService({
           ? {
               ...checkpoint,
               floorOwned: entry.floorRunner?.getSnapshot().status === "running",
+              floorTarget: entry.floorRunner?.getSnapshot().target ?? null,
             }
           : null;
       },
@@ -1197,6 +1198,20 @@ export function createAutomationService({
       }),
     );
     entry.restoring = false;
+    // A crash after floor.stop was persisted but before its suspended workers
+    // were discarded must not revive that floor-owned work after Buddy exits.
+    const savedCheckpoint = entry.raidSubscription.getSnapshot().checkpoint;
+    if (
+      savedCheckpoint?.floorOwned &&
+      entry.floorRunner.getSnapshot().status !== "running"
+    ) {
+      try {
+        entry.floorActions.stopOwned(savedCheckpoint.floorTarget);
+        entry.raidSubscription.discardFloorCheckpoint();
+      } catch {
+        entry.storageFailed = true;
+      }
+    }
     actors.set(playerId, entry);
     if (entry.credential && entry.characterBatch.running())
       entry.characterBatch.resume();

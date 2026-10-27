@@ -1759,3 +1759,158 @@ test("manual Buddy resolution reads game state and records no-replay markers", a
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("stopping floor mode during a Buddy raid does not resume the floor-owned raid", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-floor-stop-"));
+  let invited = false;
+  let status = "active";
+  const ctx = setup(directory, {
+    omitActiveBossBattle: true,
+    battleStatus: () => status,
+    invitations: () =>
+      invited
+        ? [
+            {
+              invitationId: "invite-9",
+              battleId: "battle-9",
+              bossId: 7,
+              leaderPlayerId: 9,
+              inviterPlayerId: 42,
+              peerPlayerId: 42,
+              status: "pending",
+              battleStatus: "active",
+              expiresAtUtc: future,
+              battleExpiresAtUtc: future,
+            },
+          ]
+        : [],
+    catalogue: {
+      floors: [{ id: "a", code: "A" }],
+      departments: [
+        { id: "a1", floorId: "a", code: "A1" },
+        { id: "a2", floorId: "a", code: "A2" },
+      ],
+      works: [],
+      businesses: [],
+      businessUpgrades: [],
+      bosses: [{ id: "boss-7", apiId: "7", numericId: 7 }],
+    },
+    extraRoute: (path) => {
+      if (path === "/api/friends")
+        return Response.json({
+          items: [{ player: { playerId: 42 } }],
+          nextCursor: null,
+        });
+      if (path === "/api/floors")
+        return Response.json([{ code: "A", isAvailable: true }]);
+      if (path === "/api/floors/A/info")
+        return Response.json({
+          departments: [
+            { blockCode: "A1", unlocked: true },
+            {
+              blockCode: "A2",
+              unlocked: false,
+              requirements: [
+                { type: "boss_kills", bossId: 7, current: 0, required: 2 },
+              ],
+            },
+          ],
+        });
+      return null;
+    },
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "buddy-before-floor", "buddy.set", {
+      playerId: 42,
+      enabled: true,
+    });
+    await issue(ctx.service, entry, "floor-before-buddy", "floor.start");
+    await entry.floorRunner.tick();
+    assert.equal(ctx.service.snapshot(entry).floorRunner.phase, "executing");
+    invited = true;
+    await issue(ctx.service, entry, "read-buddy-invite", "invitations.refresh");
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).buddy.phase, "fighting");
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.floorOwned,
+      true,
+    );
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    await issue(ctx.service, entry, "floor-stop-buddy", "floor.stop");
+    assert.equal(ctx.service.snapshot(entry).floorRunner.status, "stopped");
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.raidEnabled,
+      false,
+    );
+    status = "won";
+    invited = false;
+    await entry.controller.refresh();
+    await entry.raidSubscription.tick();
+    ctx.setNow(now + 601000);
+    await issue(
+      ctx.service,
+      entry,
+      "buddy-after-floor-stop",
+      "invitations.refresh",
+    );
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).buddy.phase, "monitoring");
+    assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("restart finishes discarding floor-owned work after a stop interrupted during Buddy", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-floor-crash-"));
+  let ctx = setup(directory, { invitations: () => [] });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "floor-crash-seed-1", "buddy.configure", {
+      boostersEnabled: false,
+      fullBoosterReserve: 1,
+      stashEnabled: false,
+      stashReserve: 1,
+    });
+    const saved = ctx.store.read("101");
+    saved.floorRunner = { status: "stopped", phase: "idle", target: null };
+    saved.raid = { enabled: true, status: "waiting", bossId: 7 };
+    saved.raidSubscription = {
+      mode: "buddy",
+      enabled: true,
+      phase: "fighting",
+      friendIds: [42],
+      bossId: 7,
+      battleId: "battle-9",
+      lastReadAt: now,
+      lastSeenAt: now,
+      checkpoint: {
+        floorOwned: true,
+        floorTarget: { kind: "boss", apiId: 7 },
+        bossId: 7,
+        goal: null,
+        auto: null,
+        raidEnabled: true,
+        businessRunning: false,
+        workRunning: false,
+      },
+    };
+    ctx.store.write("101", saved);
+    ctx.close();
+    ctx = setup(directory, { invitations: () => [] });
+    const recovered = await ctx.service.identify(token);
+    assert.equal(ctx.service.snapshot(recovered).raid.enabled, false);
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.raidEnabled,
+      false,
+    );
+    assert.equal(ctx.store.read("101").raidSubscription.phase, "fighting");
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

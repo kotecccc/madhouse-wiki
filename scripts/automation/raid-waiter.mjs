@@ -105,6 +105,17 @@ export function createRaidWaiter({
       auto.finishCurrent?.();
     },
     canSuspend,
+    discardSuspended() {
+      if (ready || running) return false;
+      publish({
+        enabled: false,
+        stopAfterBattle: false,
+        status: "stopped",
+        notice: "Рейд остановлен.",
+        nextCheckAt: null,
+      });
+      return true;
+    },
     suspend() {
       if (!canSuspend()) return false;
       ready = false;
