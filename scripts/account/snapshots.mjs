@@ -17,8 +17,9 @@ const isInventoryPath = (path) =>
   /^\/api\/(?:rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/\d+)$/.test(
     path,
   );
-const inventoryMutationAffects = (mutation, section) => {
-  if (/^\/api\/bosses\/battles\//.test(mutation)) return true;
+const inventoryMutationAffects = (mutation, section, battleMayHaveFinished) => {
+  if (/^\/api\/bosses\/battles\/[^/]+\/attack$/.test(mutation))
+    return battleMayHaveFinished;
   if (/^\/api\/weapons\//.test(mutation))
     return section === "/api/clothing/by-category/1";
   if (/^\/api\/pets\//.test(mutation))
@@ -682,6 +683,18 @@ export function createAccountSnapshots({
       return execute(url, init, { fallback: false, cache: false });
     const response = await upstream(url, init);
     if (method !== "GET" && !workRead && record && response.ok) {
+      let battleMayHaveFinished = true;
+      if (/^\/api\/bosses\/battles\/[^/]+\/attack$/.test(path)) {
+        try {
+          const result = await response.clone().json();
+          battleMayHaveFinished = !(
+            result?.battle?.status === "active" &&
+            result?.battleFinished !== true
+          );
+        } catch {
+          // Unknown outcomes may contain rewards; retain the last snapshot but mark it stale.
+        }
+      }
       const current = accounts.get(playerId);
       persist({
         ...current,
@@ -695,7 +708,11 @@ export function createAccountSnapshots({
                 ? {
                     inventoryDirty:
                       (section.inventoryDirty ?? section.dirty ?? false) ||
-                      inventoryMutationAffects(path, sectionPath),
+                      inventoryMutationAffects(
+                        path,
+                        sectionPath,
+                        battleMayHaveFinished,
+                      ),
                   }
                 : {}),
             },
@@ -718,9 +735,7 @@ export function createAccountSnapshots({
       );
       return {
         sections: Object.fromEntries(
-          entries
-            .filter(([, section]) => !(section.inventoryDirty ?? section.dirty))
-            .map(([path, section]) => [path, section.data]),
+          entries.map(([path, section]) => [path, section.data]),
         ),
         dirty: entries
           .filter(([, section]) => section.inventoryDirty ?? section.dirty)
