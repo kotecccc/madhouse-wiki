@@ -345,6 +345,38 @@ test("business run stop is urgent while a run start command is pending", async (
   assert.equal(await stop, true);
 });
 
+test("floor automation is server-owned and stop can interrupt a pending read", async () => {
+  const deferred = [];
+  const state = {
+    ...initialState(),
+    floorRunner: { status: "running", phase: "planning" },
+  };
+  const h = harness({
+    request: (method) =>
+      method === "GET"
+        ? state
+        : new Promise((resolve) => deferred.push(resolve)),
+  });
+  await h.connect();
+  assert.equal(h.floorAutomation.getSnapshot().loaded, true);
+  assert.equal(h.floorAutomation.getSnapshot().status, "running");
+  assert.equal([...h.tasks.values()][0].delay, 2000);
+  const refresh = h.bossBattle.refresh();
+  const stop = h.floorAutomation.stop();
+  assert.equal(h.calls.at(-1)[2].command, "floor.stop");
+  deferred[0]({ ...state, version: 8 });
+  deferred[1]({
+    ...state,
+    version: 9,
+    floorRunner: { status: "stopped", phase: "idle" },
+  });
+  assert.equal(await refresh, true);
+  assert.equal(await stop, true);
+  assert.equal(h.floorAutomation.getSnapshot().status, "stopped");
+  h.disconnect();
+  assert.equal(h.floorAutomation.getSnapshot().loaded, false);
+});
+
 test("an older in-flight poll response cannot overwrite a newer command snapshot", async () => {
   let finishPoll;
   let pollStarted = false;
