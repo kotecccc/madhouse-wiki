@@ -336,7 +336,9 @@ export function battleActionHint(state) {
   if (state.needsRefresh)
     return "Не удалось проверить состояние боя. Потяните содержимое вниз, чтобы повторить проверку.";
   if (!state.battle && !state.canStart)
-    return "Игровой сервер пока не разрешил начать бой.";
+    return (
+      state.unavailableReason || "Игровой сервер пока не разрешил начать бой."
+    );
   return undefined;
 }
 
@@ -370,6 +372,7 @@ const emptyState = () => ({
   errorStatus: null,
   needsRefresh: false,
   canStart: false,
+  unavailableReason: null,
   medicineOpen: false,
   medicines: null,
   businessInventory: null,
@@ -509,6 +512,7 @@ export function createBossBattleController({
   async function readCurrent(call, boss, battleId, withMedicines) {
     let battle;
     let canStart = false;
+    let unavailableReason = null;
     let readSummary = !battleId;
     let damageLimit = state.damageLimit;
     if (battleId) {
@@ -540,6 +544,13 @@ export function createBossBattleController({
       if (String(detail?.id) !== String(boss.id))
         throw new Error("Другой босс в ответе");
       damageLimit = projectDamageLimit(detail, boss.id);
+      if (
+        detail.state?.isAvailable === false &&
+        Number.isFinite(detail.state?.playerLevel) &&
+        Number.isFinite(detail.requiredLevel) &&
+        detail.state.playerLevel < detail.requiredLevel
+      )
+        unavailableReason = `Босс доступен с ${detail.requiredLevel} уровня. Ваш уровень: ${detail.state.playerLevel}.`;
       if (!Object.hasOwn(detail, "activeBattle"))
         throw new Error("Неполное состояние босса");
       if (detail.activeBattle) {
@@ -575,6 +586,7 @@ export function createBossBattleController({
           }
         : null,
       canStart,
+      unavailableReason,
       medicines,
       businessInventory,
       damageLimit,

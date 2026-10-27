@@ -83,6 +83,8 @@ export function bossExecutionStatus(state, auto = {}) {
         : "Ждём приглашений",
       variant: "scheduled",
     };
+  if (auto.enabled && !state.battle && state.unavailableReason)
+    return { label: "Босс недоступен", variant: "locked" };
   if (auto.enabled) return { label: "Ждём боя", variant: "scheduled" };
   if (state.battle?.status === "won")
     return { label: "Победа", variant: "completed" };
