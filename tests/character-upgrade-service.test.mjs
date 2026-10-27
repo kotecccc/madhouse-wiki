@@ -3,9 +3,29 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAutomationService } from "../scripts/automation/service.mjs";
+import {
+  characterBattleUncertain,
+  createAutomationService,
+} from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 import { characterUpgradeQuote } from "../src/lib/character-stat-upgrades.js";
+
+test("an unresolved assistant operation blocks stat spending even after battle reads recover", () => {
+  assert.equal(
+    characterBattleUncertain(
+      { battle: { status: "active" } },
+      { uncertain: false },
+    ),
+    false,
+  );
+  assert.equal(
+    characterBattleUncertain(
+      { battle: { status: "active" } },
+      { uncertain: true },
+    ),
+    true,
+  );
+});
 
 test("character action is account scoped, checkpointed, and never replayed after a lost reply", async () => {
   const directory = mkdtempSync(join(tmpdir(), "character-upgrade-"));

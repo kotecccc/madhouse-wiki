@@ -96,6 +96,7 @@ test("character upgrades allow an idle battle but block unresolved battle state"
     [{ error: "offline" }, true],
     [{ pending: "attack" }, true],
     [{ purchaseUncertain: true }, true],
+    [{ healing: { uncertain: true } }, true],
   ]) {
     const state = initialState();
     state.battle = { ...state.battle, ...extra };
