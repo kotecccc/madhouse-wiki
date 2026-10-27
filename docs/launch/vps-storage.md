@@ -59,6 +59,21 @@ It is deployed separately from Wiki images. Confirm the installed storage server
 supports this namespace before enabling Bridge or migrating Wiki authentication;
 the source change alone does not establish the installed host state.
 
+On 2026-10-27 a read-only comparison found that the installed server lacked
+this namespace. Its SHA-256 was
+`21c4b532e11e362183732a301417fdd7154fdbd00d345081345d747052e31fac`,
+matching `scripts/storage/server.mjs` at Wiki commit `055cb2e`. Its source
+differed from the prepared server only in the new path allowlist and its 32 KiB
+limit. An isolated exercise with synthetic data
+switched old → new → old → new against the same temporary storage directory:
+an existing account object and its ETag survived, stale conditional writes were
+rejected, and a new credential became accessible again after the new server
+was restored. The old server returned 404 for the new credential. Therefore,
+after Wiki begins using this namespace, rolling back only storage to the old
+server will break credential access. This local exercise does not validate
+the installed service's actual data, deployment procedure, or a coordinated
+production rollback. Recheck the installed source and state before migration.
+
 Backups live under `/opt/madhouse-storage/backups`; `scripts/storage/backup.sh`
 runs daily with seven rotating slots. Keys and environment files are excluded.
 Keep a separate protected
