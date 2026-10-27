@@ -38,6 +38,7 @@ const failureMessages = {
   business_missing_unknown: "Проверьте план бизнеса",
   business_run_limit_required: "Не указан лимит сбора",
   invalid_automation_goal: "Проверьте цель боя",
+  character_upgrade_quote_changed: "Стоимость или лимит изменились",
 };
 const actions = {
   buy: "Покупка",
@@ -254,6 +255,7 @@ export function actionQueueCards(state, catalogue = {}) {
         !(job.type === "business.start" && business?.queueId === job.id) &&
         !(job.type === "floor.start" && floor?.queueId === job.id) &&
         !(job.type === "work.start" && work?.queueId === job.id) &&
+        !(job.type === "character.start" && character?.queueId === job.id) &&
         !(
           job.type === "subscription.start" && subscription?.queueId === job.id
         ),
@@ -286,43 +288,45 @@ export function actionQueueCards(state, catalogue = {}) {
     cards.push({
       id: job.id,
       title:
-        job.type === "subscription.start"
-          ? "Подписка на рейды"
-          : job.type === "work.start"
-            ? queuedWork?.nameRu || queuedWork?.name || "Фарм работёнки"
-            : job.type === "floor.start"
-              ? "Открытие этажа"
-              : job.type === "auto.start"
-                ? "Автобой"
-                : job.type === "raid.start"
-                  ? "Рейды"
-                  : job.type === "business.start"
-                    ? "Прокачка бизнеса"
-                    : job.type === "invitation.accept"
-                      ? "Принять приглашение"
-                      : job.type === "battle.buy"
-                        ? "Покупка аптечек"
-                        : job.type === "battle.heal"
-                          ? "Лечение"
-                          : job.type === "battle.attack"
-                            ? "Удар по боссу"
-                            : job.type === "battle.start"
-                              ? "Нападение на босса"
-                              : job.type === "friend.request"
-                                ? job.args.username
-                                  ? `@${job.args.username}`
-                                  : "Ведущий рейда"
-                                : [
-                                      "friend.remove",
-                                      "friend.favorite",
-                                      "friend.buddy",
-                                    ].includes(job.type)
-                                  ? job.args.name || "Друг"
-                                  : job.type === "work.booster"
-                                    ? "Дефибриллятор"
-                                    : item?.name ||
-                                      actions[job.args?.action] ||
-                                      "Действие",
+        job.type === "character.start"
+          ? "Прокачка характеристик"
+          : job.type === "subscription.start"
+            ? "Подписка на рейды"
+            : job.type === "work.start"
+              ? queuedWork?.nameRu || queuedWork?.name || "Фарм работёнки"
+              : job.type === "floor.start"
+                ? "Открытие этажа"
+                : job.type === "auto.start"
+                  ? "Автобой"
+                  : job.type === "raid.start"
+                    ? "Рейды"
+                    : job.type === "business.start"
+                      ? "Прокачка бизнеса"
+                      : job.type === "invitation.accept"
+                        ? "Принять приглашение"
+                        : job.type === "battle.buy"
+                          ? "Покупка аптечек"
+                          : job.type === "battle.heal"
+                            ? "Лечение"
+                            : job.type === "battle.attack"
+                              ? "Удар по боссу"
+                              : job.type === "battle.start"
+                                ? "Нападение на босса"
+                                : job.type === "friend.request"
+                                  ? job.args.username
+                                    ? `@${job.args.username}`
+                                    : "Ведущий рейда"
+                                  : [
+                                        "friend.remove",
+                                        "friend.favorite",
+                                        "friend.buddy",
+                                      ].includes(job.type)
+                                    ? job.args.name || "Друг"
+                                    : job.type === "work.booster"
+                                      ? "Дефибриллятор"
+                                      : item?.name ||
+                                        actions[job.args?.action] ||
+                                        "Действие",
       status:
         state.gameHealth?.status === "credentials_invalid" ||
         job.reason === "game_session_required"
@@ -349,6 +353,7 @@ export function actionQueueCards(state, catalogue = {}) {
                               ? [
                                   "work.booster",
                                   "work.start",
+                                  "character.start",
                                   "subscription.start",
                                   "battle.start",
                                   "battle.attack",
@@ -364,29 +369,41 @@ export function actionQueueCards(state, catalogue = {}) {
                                 : "Ожидает окончания боя"
                               : phases[job.status] || "Ожидание",
       detail:
-        job.type === "subscription.start"
-          ? job.args.leaderUsername
-            ? `@${job.args.leaderUsername}`
-            : null
-          : job.type === "friend.request"
-            ? "Заявка в друзья"
-            : job.type === "friend.favorite"
-              ? job.args.enabled
-                ? "В избранное"
-                : "Убрать из избранного"
-              : job.type === "friend.buddy"
+        job.type === "character.start"
+          ? job.args.quotes
+              ?.map(
+                (quote) =>
+                  ({
+                    madness: "Безумие",
+                    aggression: "Агрессия",
+                    rage: "Ярость",
+                  })[quote.stat],
+              )
+              .filter(Boolean)
+              .join(", ") || null
+          : job.type === "subscription.start"
+            ? job.args.leaderUsername
+              ? `@${job.args.leaderUsername}`
+              : null
+            : job.type === "friend.request"
+              ? "Заявка в друзья"
+              : job.type === "friend.favorite"
                 ? job.args.enabled
-                  ? "Добавить в Buddy"
-                  : "Убрать из Buddy"
-                : job.type === "friend.remove"
-                  ? "Удаление друга"
-                  : job.type === "work.booster"
-                    ? job.args.type === "full"
-                      ? "Полный"
-                      : "Малый"
-                    : item?.name
-                      ? actions[job.args?.action]
-                      : null,
+                  ? "В избранное"
+                  : "Убрать из избранного"
+                : job.type === "friend.buddy"
+                  ? job.args.enabled
+                    ? "Добавить в Buddy"
+                    : "Убрать из Buddy"
+                  : job.type === "friend.remove"
+                    ? "Удаление друга"
+                    : job.type === "work.booster"
+                      ? job.args.type === "full"
+                        ? "Полный"
+                        : "Малый"
+                      : item?.name
+                        ? actions[job.args?.action]
+                        : null,
       image: queuedWork?.image || item?.image,
       command: job.cancelRequested ? null : "queue.cancel",
       position: ready(job) ? ++position : null,

@@ -11,6 +11,7 @@ import { queuedFriendSettingAdapter } from "./queued-friend-setting.mjs";
 import { queuedFriendRequestAdapter } from "./queued-friend-request.mjs";
 import { queuedWorkBoosterAdapter } from "./queued-work-booster.mjs";
 import { queuedWorkRunAdapter } from "./queued-work-run.mjs";
+import { queuedCharacterRunAdapter } from "./queued-character-run.mjs";
 import { queuedSubscriptionAdapter } from "./queued-subscription.mjs";
 import { queuedBattleStartAdapter } from "./queued-battle-start.mjs";
 import { queuedBattleAttackAdapter } from "./queued-battle-attack.mjs";
@@ -1454,6 +1455,8 @@ export function createAutomationService({
           (entry.workFarm.getSnapshot().startReceipts ?? []).includes(
             job.id,
           )) ||
+        (job.type === "character.start" &&
+          (entry.characterUpgrade.startReceipts ?? []).includes(job.id)) ||
         (job.type === "subscription.start" &&
           (entry.raidSubscription.getSnapshot().startReceipts ?? []).includes(
             job.id,
@@ -1469,6 +1472,7 @@ export function createAutomationService({
         "friend.favorite",
         "friend.buddy",
         "subscription.start",
+        "character.start",
       ].includes(job.type);
     };
     const queueBlockedBy = (job) => {
@@ -1559,6 +1563,7 @@ export function createAutomationService({
         }),
         "work.booster": queuedWorkBoosterAdapter({ entry }),
         "work.start": queuedWorkRunAdapter({ entry }),
+        "character.start": queuedCharacterRunAdapter({ entry }),
         "subscription.start": queuedSubscriptionAdapter({
           entry,
           getBoss,
@@ -1576,106 +1581,110 @@ export function createAutomationService({
       blockedBy: queueBlockedBy,
       ready: () => now() >= actionQueueReadyAt,
       eligible: (job) =>
-        job.type === "subscription.start"
+        job.type === "character.start"
           ? job.status === "reconciling" ||
-            (!entry.raidSubscription.getSnapshot().enabled &&
-              !entry.raidSubscription.getSnapshot().checkpoint)
-          : job.type === "work.start"
+            (!entry.characterBatch.running() && !entry.characterUpgrade.pending)
+          : job.type === "subscription.start"
             ? job.status === "reconciling" ||
-              (!["running", "paused"].includes(
-                entry.workFarm.getSnapshot().run?.status,
-              ) &&
-                !entry.workFarm.getSnapshot().manualPending &&
-                !entry.workFarm.getSnapshot().run?.pending)
-            : job.type === "floor.start"
+              (!entry.raidSubscription.getSnapshot().enabled &&
+                !entry.raidSubscription.getSnapshot().checkpoint)
+            : job.type === "work.start"
               ? job.status === "reconciling" ||
-                (entry.floorRunner.getSnapshot().status !== "running" &&
-                  !entry.floorActions.hasOtherWork())
-              : ["auto.start", "raid.start"].includes(job.type)
+                (!["running", "paused"].includes(
+                  entry.workFarm.getSnapshot().run?.status,
+                ) &&
+                  !entry.workFarm.getSnapshot().manualPending &&
+                  !entry.workFarm.getSnapshot().run?.pending)
+              : job.type === "floor.start"
                 ? job.status === "reconciling" ||
-                  (!entry.auto.getSnapshot().enabled &&
-                    !entry.collector.running() &&
-                    entry.businessHelper.run?.status !== "paused" &&
-                    !entry.pausedAuto &&
-                    !entry.raidWorker.getSnapshot().enabled &&
-                    !entry.raidWorker.getSnapshot().userPaused &&
-                    !entry.controller.getSnapshot().pendingInvitation &&
-                    (job.type === "auto.start" ||
-                      entry.controller.getSnapshot().battle?.status !==
-                        "active"))
-                : job.type === "business.start"
+                  (entry.floorRunner.getSnapshot().status !== "running" &&
+                    !entry.floorActions.hasOtherWork())
+                : ["auto.start", "raid.start"].includes(job.type)
                   ? job.status === "reconciling" ||
                     (!entry.auto.getSnapshot().enabled &&
                       !entry.collector.running() &&
                       entry.businessHelper.run?.status !== "paused" &&
+                      !entry.pausedAuto &&
                       !entry.raidWorker.getSnapshot().enabled &&
                       !entry.raidWorker.getSnapshot().userPaused &&
-                      !entry.pausedAuto &&
-                      entry.goal.getSnapshot()?.status !== "active" &&
-                      entry.controller.getSnapshot().battle?.status !==
-                        "active" &&
-                      !entry.controller.getSnapshot().pendingInvitation)
-                  : job.type === "invitation.accept"
+                      !entry.controller.getSnapshot().pendingInvitation &&
+                      (job.type === "auto.start" ||
+                        entry.controller.getSnapshot().battle?.status !==
+                          "active"))
+                  : job.type === "business.start"
                     ? job.status === "reconciling" ||
-                      entry.queueBattleDispatch ||
-                      job.args.expiresAt <= now() ||
                       (!entry.auto.getSnapshot().enabled &&
                         !entry.collector.running() &&
+                        entry.businessHelper.run?.status !== "paused" &&
                         !entry.raidWorker.getSnapshot().enabled &&
-                        !entry.pausedAuto &&
                         !entry.raidWorker.getSnapshot().userPaused &&
+                        !entry.pausedAuto &&
+                        entry.goal.getSnapshot()?.status !== "active" &&
                         entry.controller.getSnapshot().battle?.status !==
                           "active" &&
                         !entry.controller.getSnapshot().pendingInvitation)
-                    : ["battle.attack", "battle.heal", "battle.buy"].includes(
-                          job.type,
-                        )
+                    : job.type === "invitation.accept"
                       ? job.status === "reconciling" ||
                         entry.queueBattleDispatch ||
-                        ((["battle.heal", "battle.buy"].includes(job.type) ||
-                          (!entry.auto.getSnapshot().enabled &&
-                            !entry.collector.running() &&
-                            !entry.raidWorker.getSnapshot().enabled &&
-                            !entry.pausedAuto &&
-                            !entry.raidWorker.getSnapshot().userPaused)) &&
-                          (entry.controller.getSnapshot().battle?.id !==
-                            job.args.battleId ||
-                            entry.controller.getSnapshot().battle?.status !==
-                              "active" ||
-                            now() >=
-                              (entry.controller.getSnapshot().battle?.readyAt ??
-                                0)))
-                      : job.type === "battle.start"
+                        job.args.expiresAt <= now() ||
+                        (!entry.auto.getSnapshot().enabled &&
+                          !entry.collector.running() &&
+                          !entry.raidWorker.getSnapshot().enabled &&
+                          !entry.pausedAuto &&
+                          !entry.raidWorker.getSnapshot().userPaused &&
+                          entry.controller.getSnapshot().battle?.status !==
+                            "active" &&
+                          !entry.controller.getSnapshot().pendingInvitation)
+                      : ["battle.attack", "battle.heal", "battle.buy"].includes(
+                            job.type,
+                          )
                         ? job.status === "reconciling" ||
                           entry.queueBattleDispatch ||
-                          (!entry.auto.getSnapshot().enabled &&
-                            !entry.collector.running() &&
-                            !entry.raidWorker.getSnapshot().enabled &&
-                            !entry.pausedAuto &&
-                            !entry.raidWorker.getSnapshot().userPaused &&
-                            entry.controller.getSnapshot().battle?.status !==
-                              "active" &&
-                            !entry.controller.getSnapshot().pendingInvitation)
-                        : job.type === "work.booster"
-                          ? (entry.queueActiveBooster ||
-                              entry.workFarm.canSuspendForManual()) &&
-                            (job.status === "reconciling" ||
-                              (!entry.auto.getSnapshot().enabled &&
-                                !entry.collector.running() &&
-                                !entry.raidWorker.getSnapshot().enabled &&
-                                entry.controller.getSnapshot().battle
-                                  ?.status !== "active" &&
-                                !entry.controller.getSnapshot()
-                                  .pendingInvitation))
-                          : job.status === "reconciling" ||
-                            job.type === "friend.remove" ||
-                            job.type === "friend.request" ||
-                            job.type === "friend.favorite" ||
-                            job.type === "friend.buddy" ||
-                            job.type === "subscription.start" ||
-                            job.args.action === "buy" ||
-                            entry.controller.getSnapshot().battle?.status !==
-                              "active",
+                          ((["battle.heal", "battle.buy"].includes(job.type) ||
+                            (!entry.auto.getSnapshot().enabled &&
+                              !entry.collector.running() &&
+                              !entry.raidWorker.getSnapshot().enabled &&
+                              !entry.pausedAuto &&
+                              !entry.raidWorker.getSnapshot().userPaused)) &&
+                            (entry.controller.getSnapshot().battle?.id !==
+                              job.args.battleId ||
+                              entry.controller.getSnapshot().battle?.status !==
+                                "active" ||
+                              now() >=
+                                (entry.controller.getSnapshot().battle
+                                  ?.readyAt ?? 0)))
+                        : job.type === "battle.start"
+                          ? job.status === "reconciling" ||
+                            entry.queueBattleDispatch ||
+                            (!entry.auto.getSnapshot().enabled &&
+                              !entry.collector.running() &&
+                              !entry.raidWorker.getSnapshot().enabled &&
+                              !entry.pausedAuto &&
+                              !entry.raidWorker.getSnapshot().userPaused &&
+                              entry.controller.getSnapshot().battle?.status !==
+                                "active" &&
+                              !entry.controller.getSnapshot().pendingInvitation)
+                          : job.type === "work.booster"
+                            ? (entry.queueActiveBooster ||
+                                entry.workFarm.canSuspendForManual()) &&
+                              (job.status === "reconciling" ||
+                                (!entry.auto.getSnapshot().enabled &&
+                                  !entry.collector.running() &&
+                                  !entry.raidWorker.getSnapshot().enabled &&
+                                  entry.controller.getSnapshot().battle
+                                    ?.status !== "active" &&
+                                  !entry.controller.getSnapshot()
+                                    .pendingInvitation))
+                            : job.status === "reconciling" ||
+                              job.type === "friend.remove" ||
+                              job.type === "friend.request" ||
+                              job.type === "friend.favorite" ||
+                              job.type === "friend.buddy" ||
+                              job.type === "subscription.start" ||
+                              job.type === "character.start" ||
+                              job.args.action === "buy" ||
+                              entry.controller.getSnapshot().battle?.status !==
+                                "active",
       onAttempt: () => {
         actionQueueReadyAt = now() + 1000;
       },
@@ -2441,6 +2450,7 @@ export function createAutomationService({
           "friend.request",
           "work.booster",
           "work.start",
+          "character.start",
           "subscription.start",
           "battle.start",
           "battle.attack",
@@ -2482,7 +2492,7 @@ export function createAutomationService({
           priority:
             input.args.type === "invitation.accept"
               ? 60
-              : input.args.type === "work.start"
+              : ["work.start", "character.start"].includes(input.args.type)
                 ? 20
                 : [
                       "business.start",
@@ -2526,6 +2536,8 @@ export function createAutomationService({
         ["running", "paused"].includes(entry.workFarm.getSnapshot().run?.status)
       )
         entry.workFarm.stop();
+      if (entry.characterUpgrade.run?.queueId === input.args.id)
+        entry.characterBatch.stop();
       if (
         entry.raidSubscription.getSnapshot().mode === "subscription" &&
         entry.raidSubscription.getSnapshot().queueId === input.args.id

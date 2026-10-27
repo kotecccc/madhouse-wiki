@@ -620,7 +620,10 @@ export function createRemoteBattleSession({
         battleCommandError = "Не удалось добавить действие в очередь.";
         publish();
       }
-      if (command.startsWith("character.")) {
+      if (
+        command.startsWith("character.") ||
+        (enqueue && args.type === "character.start")
+      ) {
         characterCommandError =
           error?.status === 409
             ? "Состояние изменилось. Обновите данные и проверьте прокачку."
@@ -863,9 +866,27 @@ export function createRemoteBattleSession({
     },
     getSnapshot: () => characterSnapshot,
     refresh: () => send("character.refresh"),
-    upgrade: (args) => send("character.upgrade", args),
-    start: (args) => send("character.start", args),
-    startAll: (args) => send("character.startAll", args),
+    upgrade: (args) =>
+      characterSnapshot.run?.status === "running" || characterSnapshot.pending
+        ? send("queue.enqueue", {
+            type: "character.start",
+            action: { quotes: [args.expected] },
+          })
+        : send("character.upgrade", args),
+    start: (args) =>
+      characterSnapshot.run?.status === "running" || characterSnapshot.pending
+        ? send("queue.enqueue", {
+            type: "character.start",
+            action: { quotes: [args.expected] },
+          })
+        : send("character.start", args),
+    startAll: (args) =>
+      characterSnapshot.run?.status === "running" || characterSnapshot.pending
+        ? send("queue.enqueue", {
+            type: "character.start",
+            action: { quotes: args.quotes },
+          })
+        : send("character.startAll", args),
     stop: () => send("character.stop"),
   };
   const workFarm = {

@@ -108,6 +108,27 @@ test("character upgrades can be queued while battle state is unresolved", async 
   }
 });
 
+test("a character upgrade requested during another batch becomes a queue intention", async () => {
+  const state = {
+    ...initialState(),
+    characterUpgrade: {
+      profile: {},
+      pending: null,
+      run: { status: "running" },
+    },
+  };
+  const h = harness({ state });
+  await h.connect();
+  const quote = { stat: "madness", amount: 1, maxPrice: 500 };
+  await h.characterUpgrade.upgrade({ stat: "madness", expected: quote });
+  assert.equal(h.calls.at(-1)[2].command, "queue.enqueue");
+  assert.deepEqual(h.calls.at(-1)[2].args, {
+    type: "character.start",
+    action: { quotes: [quote] },
+  });
+  h.disconnect();
+});
+
 test("app launch passes the auth battle reference once per connection; polls stay local", async () => {
   const ref = { battleId: "manual-fight", bossId: 7 };
   const h = harness({ launchBattle: () => ref });

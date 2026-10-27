@@ -331,6 +331,27 @@ test("a queued work goal is named and replaced by its running actor", () => {
   assert.equal(cards[0].command, "work.stop");
 });
 
+test("a queued character upgrade identifies its target and is not duplicated after start", () => {
+  const job = {
+    id: "character-job",
+    type: "character.start",
+    status: "queued",
+    eligible: false,
+    priority: 20,
+    createdAt: 0,
+    args: { quotes: [{ stat: "madness" }] },
+  };
+  const state = { queuedActions: [job], characterUpgrade: { run: null } };
+  let cards = actionQueueCards(state);
+  assert.equal(cards[0].title, "Прокачка характеристик");
+  assert.equal(cards[0].detail, "Безумие");
+  assert.equal(cards[0].status, "Ожидает другие действия");
+  state.characterUpgrade.run = { status: "running", queueId: "character-job" };
+  cards = actionQueueCards(state);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].command, "character.stop");
+});
+
 test("subscription waiting for identity confirmation has a clear queue status", () => {
   const cards = actionQueueCards({
     queuedActions: [

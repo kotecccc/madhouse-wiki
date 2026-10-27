@@ -92,7 +92,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
     );
   });
   const activate = async (key, selection) => {
-    if (!selection || state.busy || pending || running || blocked) return;
+    if (!selection || state.busy || blocked) return;
     const signature = JSON.stringify(selection);
     const alreadyApproved = key.startsWith("single:") && approvedSingles[key];
     if (
@@ -115,7 +115,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
             amount: selection.amount,
             expected: selection,
           });
-    if (ok && key.startsWith("single:"))
+    if (ok && key.startsWith("single:") && !running && !pending)
       setSubmittedSingle({ key, id: characterUpgrade.getSnapshot().run?.id });
     if (ok)
       void getSessionJson("/api/me", {
@@ -145,8 +145,6 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
             variant={allArmed ? "warning" : "primary"}
             disabled={
               state.busy ||
-              pending ||
-              running ||
               blocked ||
               !allReady ||
               !availableQuotes.length ||
@@ -255,9 +253,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
                   }
                   disabled={
                     state.busy ||
-                    running ||
                     blocked ||
-                    pending ||
                     !quote ||
                     quote.balance < quote.nextCost
                   }
@@ -282,9 +278,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
                   }
                   disabled={
                     state.busy ||
-                    running ||
                     blocked ||
-                    pending ||
                     !maximum ||
                     maximum.balance < maximum.maxPrice
                   }

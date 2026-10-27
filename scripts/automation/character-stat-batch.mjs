@@ -235,7 +235,7 @@ export function createCharacterStatBatch({
   }
   return {
     running,
-    start({ stat, amount, quote, budget }) {
+    start({ stat, amount, quote, budget, queueId = null }) {
       if (
         disposed ||
         running() ||
@@ -253,6 +253,7 @@ export function createCharacterStatBatch({
         throw new Error("character_batch_invalid");
       state.run = {
         id: randomUUID(),
+        queueId,
         stat,
         target: amount,
         expected: structuredClone(quote),
@@ -264,11 +265,16 @@ export function createCharacterStatBatch({
         status: "running",
         reason: null,
       };
+      if (queueId && !(state.startReceipts ?? []).includes(queueId))
+        state.startReceipts = [
+          ...(state.startReceipts ?? []).slice(-127),
+          queueId,
+        ];
       generation++;
       save();
       queue();
     },
-    startAll(quotes) {
+    startAll(quotes, { queueId = null } = {}) {
       if (
         disposed ||
         running() ||
@@ -289,6 +295,7 @@ export function createCharacterStatBatch({
         throw new Error("character_batch_invalid");
       state.run = {
         id: randomUUID(),
+        queueId,
         items: quotes.map((q) => ({
           stat: q.stat,
           target: q.amount,
@@ -305,6 +312,11 @@ export function createCharacterStatBatch({
         status: "running",
         reason: null,
       };
+      if (queueId && !(state.startReceipts ?? []).includes(queueId))
+        state.startReceipts = [
+          ...(state.startReceipts ?? []).slice(-127),
+          queueId,
+        ];
       generation++;
       save();
       queue();
