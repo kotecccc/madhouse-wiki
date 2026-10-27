@@ -64,6 +64,12 @@
   border-color: var(--status-business);
 }
 
+.base-card--toast-error {
+  --card-background: var(--control-locked-background);
+  --card-border: var(--control-locked-border);
+  box-shadow: var(--navigation-glass-shadow);
+}
+
 .base-card--token-help {
   --card-background: var(--surface-raised);
   --card-border: var(--border-strong);

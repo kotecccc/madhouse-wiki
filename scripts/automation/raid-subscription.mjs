@@ -23,6 +23,7 @@ export function createRaidSubscription({
   battle,
   fight,
   restore,
+  priorityActive = () => false,
 }) {
   let value = saved
     ? structuredClone(saved)
@@ -133,6 +134,16 @@ export function createRaidSubscription({
       if (running || (!value.enabled && !value.checkpoint) || !lock()) return;
       running = true;
       try {
+        if (priorityActive()) {
+          if (value.phase === "joining") commit({ phase: "confirming" });
+          if (value.phase === "confirming") {
+            const result = await reconcile(value);
+            if (result === "joined") commit({ phase: "fighting" });
+            else if (result === "absent")
+              commit({ phase: value.enabled ? "waiting" : "restoring" });
+          } else if (value.phase === "fighting") await battle(value);
+          return;
+        }
         if (value.phase === "monitoring") {
           if (!value.enabled || !nextCandidate()) return;
           const checkpoint = capture();

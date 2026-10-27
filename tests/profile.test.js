@@ -249,3 +249,30 @@ test("current level changes invalidate experience from a previous level", async 
   assert.equal(current.experience.current, undefined);
   assert.equal(current.experience.toNextLevel, undefined);
 });
+
+test("profile exposes verified daily upgrade limits for overview display", () => {
+  const upgrades = {
+    resetAtUtc: "2099-01-01T00:00:00Z",
+    madness: {
+      dailyLimit: 18,
+      dailyUsed: 18,
+      dailyRemaining: 0,
+      privateDetail: "discard",
+    },
+    aggression: { dailyLimit: 60, dailyUsed: 60, dailyRemaining: 0 },
+    rage: { dailyLimit: 20, dailyUsed: 20, dailyRemaining: 0 },
+  };
+  const normalized = normalizePlayerProfile({
+    playerId: 1,
+    characterStatsUpgrade: upgrades,
+  });
+  assert.deepEqual(normalized.characterStatsUpgrade.madness, {
+    dailyLimit: 18,
+    dailyUsed: 18,
+    dailyRemaining: 0,
+  });
+  assert.equal(
+    normalized.characterStatsUpgrade.resetAtUtc,
+    upgrades.resetAtUtc,
+  );
+});

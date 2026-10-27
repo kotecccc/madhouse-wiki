@@ -154,6 +154,21 @@ export function normalizePlayerProfile(data, bag) {
       ],
     ].filter(([, value]) => Number.isFinite(value)),
     statBreakdown,
+    characterStatsUpgrade: data.characterStatsUpgrade
+      ? {
+          resetAtUtc: data.characterStatsUpgrade.resetAtUtc,
+          ...Object.fromEntries(
+            ["madness", "aggression", "rage"].map((key) => [
+              key,
+              {
+                dailyLimit: data.characterStatsUpgrade[key]?.dailyLimit,
+                dailyUsed: data.characterStatsUpgrade[key]?.dailyUsed,
+                dailyRemaining: data.characterStatsUpgrade[key]?.dailyRemaining,
+              },
+            ]),
+          ),
+        }
+      : null,
     stashBuffs: normalizeActiveStashBuffs(bag),
     wallet: [
       ["Монеты", data.wallet?.gold, "coin"],

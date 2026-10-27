@@ -1,10 +1,10 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
 import { Button } from "../../../components/ui/Button/Button.jsx";
-import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BossBattleReceivedDrops } from "./BossBattleReference.jsx";
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
@@ -206,9 +206,7 @@ export function BossBattleDialog() {
           {state.healing?.notice &&
             state.healing.notice !==
               "Результат удара проверяется. Автоматического повтора не будет." && (
-              <CardDescription role="status" title={state.healing.notice}>
-                {state.healing.notice}
-              </CardDescription>
+              <ErrorToast message={state.healing.notice} />
             )}
           <BossHealingSettings
             key={`healing-${state.boss.id}`}

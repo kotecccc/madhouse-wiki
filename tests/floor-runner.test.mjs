@@ -30,6 +30,25 @@ function setup(overrides = {}) {
     },
   };
 }
+test("floor planning yields to a queued character upgrade and resumes", async () => {
+  let priority = false;
+  let first = true;
+  const h = setup({
+    priorityActive: () => priority,
+    plan: async () => {
+      if (first) priority = true;
+      first = false;
+      return { status: "ready", kind: "work", apiId: 1 };
+    },
+  });
+  h.runner.start();
+  await h.runner.tick();
+  assert.equal(h.launches(), 0);
+  assert.equal(h.runner.getSnapshot().phase, "planning");
+  priority = false;
+  await h.runner.tick();
+  assert.equal(h.launches(), 1);
+});
 test("persists launch intent and observes worker before planning the next goal", async () => {
   let planned = 0;
   const h = setup({

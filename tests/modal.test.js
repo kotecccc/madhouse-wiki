@@ -39,6 +39,13 @@ test("shared modal uses one surface with a separate body and optional actions", 
     assert.match(html, /<header[^>]*>[\s\S]*<h2[^>]*id="drop-title"/);
     assert.match(html, /<\/header><div class="shared-modal-content"><ul>/);
     assert.ok(!html.includes("<section"));
+    assert.ok(
+      html.indexOf("shared-modal-toast-anchor") < html.indexOf("<footer"),
+    );
+    assert.match(
+      html,
+      /shared-modal-toast-anchor"><div class="ui-toast-stack"/,
+    );
     assert.match(
       html,
       /<footer class="shared-modal-footer shared-modal-mobile-footer"><button[^>]*>Закрыть<\/button><\/footer>/,

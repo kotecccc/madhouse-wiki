@@ -38,6 +38,7 @@ export function createBusinessCollector({
   getBoss,
   get,
   upgrade,
+  priorityActive = () => false,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -147,6 +148,10 @@ export function createBusinessCollector({
       return;
     }
     if (working) return;
+    if (priorityActive() && !helper.run.pendingUpgrade) {
+      queue(1000);
+      return;
+    }
     if ((helper.run.nextRetryAt ?? 0) > now()) {
       queue(helper.run.nextRetryAt - now());
       return;
@@ -219,8 +224,16 @@ export function createBusinessCollector({
     if (working || !running() || generation !== id || disposed) return;
     working = true;
     const valid = () =>
-      !disposed && running() && generation === id && withinTime();
+      !disposed &&
+      running() &&
+      generation === id &&
+      withinTime() &&
+      (!priorityActive() || Boolean(helper.run.pendingUpgrade));
     try {
+      if (priorityActive() && !helper.run.pendingUpgrade) {
+        queue(1000);
+        return;
+      }
       auto.stop();
       helper.run.phase = "verifying";
       changed();
@@ -239,6 +252,10 @@ export function createBusinessCollector({
           finish("limited", "deadline");
           return;
         }
+      }
+      if (priorityActive()) {
+        queue(1000);
+        return;
       }
       const complete = await refreshBusiness(
         helper,
@@ -379,6 +396,7 @@ export function createBusinessCollector({
   );
   return {
     running,
+    idleForPriority: () => !working && !helper.run?.pendingUpgrade,
     canStartBattle,
     withinTime,
     tick: evaluate,

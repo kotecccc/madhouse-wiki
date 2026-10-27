@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { useEffect, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
@@ -6,6 +7,7 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
+import { Wallet } from "../../../components/ui/Wallet/Wallet.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
@@ -20,6 +22,7 @@ import {
   orderedFloors,
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
+import { allCharacterUpgradesComplete } from "../../../lib/character-stat-upgrades.js";
 import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
 import { CharacterUpgrade } from "../CharacterUpgrade/CharacterUpgrade.jsx";
 import { getProfileStatDisplay } from "../../auth/profile.js";
@@ -192,6 +195,14 @@ function ProfileSummary({ state }) {
     Number.isFinite(energy?.max) &&
     energy.max > 0;
   const displayedEnergy = energyKnown ? energyAtTime(energy, now) : null;
+  const upgradeResetAt = Date.parse(profile?.characterStatsUpgrade?.resetAtUtc);
+  useEffect(() => {
+    const delay = upgradeResetAt - Date.now();
+    if (!Number.isFinite(delay) || delay <= 0 || delay > 2147483647)
+      return undefined;
+    const timer = setTimeout(() => setNow(Date.now()), delay + 1);
+    return () => clearTimeout(timer);
+  }, [upgradeResetAt]);
   const shouldTickEnergy =
     !!displayedEnergy && displayedEnergy.current < energy.max;
   const shouldTickEffects = profile?.stashBuffs?.some(
@@ -211,12 +222,7 @@ function ProfileSummary({ state }) {
         <Skeleton as="article" className="overview-card overview-player-card" />
       </>
     );
-  if (state.status === "error")
-    return (
-      <p className="overview-empty" role="status">
-        {state.message}
-      </p>
-    );
+  if (state.status === "error") return <ErrorToast message={state.message} />;
   const nextEnergy = !displayedEnergy
     ? ""
     : displayedEnergy.current >= energy.max
@@ -245,7 +251,7 @@ function ProfileSummary({ state }) {
                 </Pill>
               )}
             </div>
-            {Number.isSafeInteger(profile.playerLevel) && (
+            {Number.isSafeInteger(profile.playerLevel) && experienceKnown && (
               <div
                 className="overview-level-progress"
                 role="group"
@@ -265,20 +271,14 @@ function ProfileSummary({ state }) {
                     </CardTitle>
                   )}
                 </div>
-                {experienceKnown ? (
-                  <ProgressBar
-                    value={profile.experience.current}
-                    max={profile.experience.toNextLevel}
-                    size="sm"
-                    variant="active"
-                    label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
-                    valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
-                  />
-                ) : (
-                  <CardDescription size="xs">
-                    Данные об опыте пока недоступны.
-                  </CardDescription>
-                )}
+                <ProgressBar
+                  value={profile.experience.current}
+                  max={profile.experience.toNextLevel}
+                  size="sm"
+                  variant="active"
+                  label={`Прогресс уровня ${fmt(profile.playerLevel)}`}
+                  valueText={`${fmt(profile.experience.current)} из ${fmt(profile.experience.toNextLevel)} опыта`}
+                />
               </div>
             )}
             {profile.stashBuffs?.map((buff, index) => (
@@ -302,9 +302,7 @@ function ProfileSummary({ state }) {
               </div>
             ))}
             {profile.stashBuffsStatus === "error" && (
-              <CardDescription size="xs">
-                Данные о временных эффектах недоступны
-              </CardDescription>
+              <ErrorToast message="Данные о временных эффектах недоступны" />
             )}
           </div>
         </div>
@@ -373,27 +371,18 @@ function ProfileSummary({ state }) {
           );
         })}
       </dl>
-      <Button onClick={() => setUpgradeOpen(true)}>
-        Прокачать характеристики
-      </Button>
-      {upgradeOpen && (
-        <CharacterUpgrade onClose={() => setUpgradeOpen(false)} />
+      {!allCharacterUpgradesComplete(profile.characterStatsUpgrade, now) && (
+        <Button onClick={() => setUpgradeOpen(true)}>
+          Прокачать характеристики
+        </Button>
       )}
-      <dl className="overview-wallet" aria-label="Валюта">
-        {profile.wallet.map(([name, value, icon]) => (
-          <div key={name}>
-            <dt>
-              <Icon
-                type={icon}
-                size="small"
-                className={`overview-wallet-icon overview-wallet-icon--${icon}`}
-              />
-              {name}
-            </dt>
-            <dd>{numberFormat.format(value)}</dd>
-          </div>
-        ))}
-      </dl>
+      {upgradeOpen && (
+        <CharacterUpgrade
+          onClose={() => setUpgradeOpen(false)}
+          profileWallet={profile.wallet}
+        />
+      )}
+      <Wallet entries={profile.wallet} />
     </BaseCard>
   );
 }

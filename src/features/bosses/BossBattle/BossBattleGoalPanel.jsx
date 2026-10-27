@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
 import {
   goalProgressPresentation,
@@ -251,12 +252,8 @@ export function BossBattleGoalPanel({
               onChange={(hours) => update({ hours })}
             />
           </div>
-          {!config && (
-            <CardDescription role="alert">
-              Проверьте количество и доступный дроп.
-            </CardDescription>
-          )}
-          {error && <CardDescription role="alert">{error}</CardDescription>}
+
+          <ErrorToast message={error} />
         </div>
       </Disclosure>
       {actionsTarget === undefined

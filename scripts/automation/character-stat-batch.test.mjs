@@ -158,3 +158,80 @@ test("stop during a pending read prevents the next mutation", async () => {
   assert.equal(posts, 0);
   assert.equal(base.state.run.status, "stopped");
 });
+
+test("all stats run in order within individual budgets", async () => {
+  const h = setup();
+  h.profile.characterStats.aggression = { base: 1 };
+  h.profile.characterStatsUpgrade.aggression = {
+    ...h.profile.characterStatsUpgrade.madness,
+    dailyLimit: 1,
+    dailyUsed: 0,
+    dailyRemaining: 1,
+  };
+  const first = characterUpgradeQuote(h.profile, "madness", 3);
+  const second = characterUpgradeQuote(h.profile, "aggression", 1);
+  const callbacks = [];
+  const calls = [];
+  const batch = createCharacterStatBatch({
+    state: h.state,
+    read: async () => h.profile,
+    persist: () => true,
+    lock: () => true,
+    unlock: () => {},
+    schedule: (fn) => {
+      callbacks.push(fn);
+      return fn;
+    },
+    cancel: () => {},
+    step: async (quote, allowed, confirm) => {
+      assert.ok(allowed());
+      calls.push(quote.stat);
+      confirm(quote);
+      h.profile.characterStats[quote.stat].base++;
+      h.profile.characterStatsUpgrade[quote.stat].dailyUsed++;
+      h.profile.characterStatsUpgrade[quote.stat].dailyRemaining--;
+      return { status: "confirmed" };
+    },
+  });
+  batch.startAll([first, second]);
+  for (let i = 0; i < 4; i++) await advance(callbacks);
+  assert.deepEqual(calls, ["madness", "madness", "madness", "aggression"]);
+  assert.equal(h.state.run.status, "completed");
+  assert.equal(h.state.run.completed, 4);
+  batch.dispose();
+});
+
+test("queued upgrade waits for a busy account and refuses a changed quote", async () => {
+  const h = setup();
+  const quote = characterUpgradeQuote(h.profile, "madness", 1);
+  let busy = true;
+  let posts = 0;
+  const callbacks = [];
+  const batch = createCharacterStatBatch({
+    state: h.state,
+    read: async () => h.profile,
+    step: async () => {
+      posts++;
+      return { status: "confirmed" };
+    },
+    persist: () => true,
+    lock: () => !busy,
+    unlock: () => {},
+    schedule: (fn) => {
+      callbacks.push(fn);
+      return fn;
+    },
+    cancel: () => {},
+  });
+  batch.start({ stat: "madness", amount: 1, quote, budget: quote.maxPrice });
+  await advance(callbacks);
+  assert.equal(posts, 0);
+  assert.equal(h.state.run.status, "running");
+  h.profile.characterStatsUpgrade.madness.costPerPoint = 600;
+  h.profile.characterStatsUpgrade.madness.nextCost = 600;
+  busy = false;
+  await advance(callbacks);
+  assert.equal(posts, 0);
+  assert.equal(h.state.run.status, "stopped");
+  batch.dispose();
+});

@@ -32,7 +32,7 @@ test("character action is account scoped, checkpointed, and never replayed after
   const store = createAutomationStateStore({ directory });
   const profile = {
     playerId: 101,
-    wallet: { gold: 10000, pills: 10000 },
+    wallet: { gold: 10000, pills: 10000, dollar: 1234 },
     characterStats: { madness: { base: 20, total: 30 } },
     characterStatsUpgrade: {
       resetAtUtc: "2026-10-27T21:00:00Z",
@@ -62,8 +62,8 @@ test("character action is account scoped, checkpointed, and never replayed after
     fetcher,
     identifyPlayer: async () => ({ playerId: 101 }),
     getBoss: () => null,
-    schedule: () => ({}),
-    cancel: () => {},
+    schedule: (fn) => setTimeout(fn, 0),
+    cancel: clearTimeout,
   };
   let service = createAutomationService(options);
   try {
@@ -74,6 +74,7 @@ test("character action is account scoped, checkpointed, and never replayed after
       expectedVersion: service.snapshot(entry).version,
       args: {},
     });
+    assert.equal(snapshot.characterUpgrade.profile.wallet.dollar, 1234);
     const quote = characterUpgradeQuote(
       snapshot.characterUpgrade.profile,
       "madness",
@@ -82,10 +83,17 @@ test("character action is account scoped, checkpointed, and never replayed after
     snapshot = await service.command(entry, {
       id: "upgrade-1",
       command: "character.upgrade",
-      expectedVersion: snapshot.version,
+      expectedVersion: Math.max(0, snapshot.version - 1),
       args: { stat: "madness", expected: quote },
     });
-    assert.ok(snapshot.characterUpgrade.pending);
+    assert.equal(snapshot.characterUpgrade.run.status, "running");
+    for (
+      let i = 0;
+      i < 100 && !service.snapshot(entry).characterUpgrade.pending;
+      i++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(service.snapshot(entry).characterUpgrade.pending);
     assert.equal(posts, 1);
     service.close();
     service = createAutomationService(options);
@@ -306,6 +314,188 @@ test("batch with a lost game response pauses across a server restart", async () 
     );
     assert.ok(service.snapshot(entry).characterUpgrade.pending);
     await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(posts, 1);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("start all validates shared currency totals and durably starts a multi-stat run", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "character-all-"));
+  const store = createAutomationStateStore({ directory });
+  const config = {
+    currency: "gold",
+    costPerPoint: 100,
+    nextCost: 100,
+    maxCost: 100,
+    dailyLimit: 2,
+    dailyUsed: 0,
+    dailyRemaining: 2,
+  };
+  const profile = {
+    playerId: 101,
+    wallet: { gold: 400, pills: 0 },
+    characterStats: { madness: { base: 1 }, aggression: { base: 1 } },
+    characterStatsUpgrade: {
+      resetAtUtc: "2099-01-01T00:00:00Z",
+      madness: { ...config },
+      aggression: { ...config },
+    },
+  };
+  const service = createAutomationService({
+    store,
+    fetcher: async (url) =>
+      new URL(url).pathname === "/api/me"
+        ? Response.json(profile)
+        : Response.json({ items: [] }),
+    identifyPlayer: async () => ({ playerId: 101 }),
+    getBoss: () => null,
+    schedule: () => ({}),
+    cancel: () => {},
+  });
+  try {
+    const entry = await service.identify("Bearer a.b.c");
+    const quotes = ["madness", "aggression"].map((stat) =>
+      characterUpgradeQuote(profile, stat, 2),
+    );
+    profile.wallet.gold = 399;
+    await service.command(entry, {
+      id: "all-refresh-1",
+      command: "character.refresh",
+      expectedVersion: service.snapshot(entry).version,
+      args: {},
+    });
+    await assert.rejects(
+      service.command(entry, {
+        id: "all-test-1",
+        command: "character.startAll",
+        expectedVersion: service.snapshot(entry).version,
+        args: { quotes },
+      }),
+      /character_upgrade_insufficient_funds/,
+    );
+    profile.wallet.gold = 400;
+    await service.command(entry, {
+      id: "all-refresh-2",
+      command: "character.refresh",
+      expectedVersion: service.snapshot(entry).version,
+      args: {},
+    });
+    const snapshot = await service.command(entry, {
+      id: "all-test-2",
+      command: "character.startAll",
+      expectedVersion: service.snapshot(entry).version,
+      args: { quotes },
+    });
+    assert.equal(snapshot.characterUpgrade.run.status, "running");
+    assert.equal(snapshot.characterUpgrade.run.target, 4);
+    assert.deepEqual(
+      snapshot.characterUpgrade.run.items.map((item) => item.budget),
+      [200, 200],
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("queued character intent survives restart without releasing a busy account lock", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "character-priority-restart-"));
+  const store = createAutomationStateStore({ directory });
+  const profile = {
+    playerId: 101,
+    wallet: { gold: 100, pills: 0 },
+    characterStats: { madness: { base: 5, total: 5 } },
+    characterStatsUpgrade: {
+      resetAtUtc: "2099-01-01T00:00:00Z",
+      madness: {
+        currency: "gold",
+        costPerPoint: 10,
+        nextCost: 10,
+        maxCost: 10,
+        dailyLimit: 2,
+        dailyUsed: 0,
+        dailyRemaining: 2,
+      },
+    },
+  };
+  let posts = 0;
+  const options = {
+    store,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    getBoss: () => null,
+    schedule: (fn) => setTimeout(fn, 2),
+    cancel: clearTimeout,
+    fetcher: async (url) => {
+      if (new URL(url).pathname === "/api/me") return Response.json(profile);
+      if (new URL(url).pathname === "/api/character-stats/upgrade") {
+        posts++;
+        profile.wallet.gold -= 10;
+        profile.characterStats.madness.base++;
+        profile.characterStats.madness.total++;
+        profile.characterStatsUpgrade.madness.dailyUsed++;
+        profile.characterStatsUpgrade.madness.dailyRemaining--;
+        return Response.json({
+          success: true,
+          balance: profile.wallet,
+          characterStats: profile.characterStats,
+          characterStatsUpgrade: profile.characterStatsUpgrade,
+        });
+      }
+      return Response.json({ items: [] });
+    },
+  };
+  let service = createAutomationService(options);
+  try {
+    let entry = await service.identify("Bearer priority-restart.payload.sig");
+    const initial = await service.command(entry, {
+      id: "priority-refresh",
+      command: "character.refresh",
+      expectedVersion: service.snapshot(entry).version,
+      args: {},
+    });
+    const expected = characterUpgradeQuote(
+      initial.characterUpgrade.profile,
+      "madness",
+      1,
+    );
+    entry.busy = true;
+    const busyRefresh = await service.command(entry, {
+      id: "priority-busy-refresh",
+      command: "character.refresh",
+      expectedVersion: initial.version,
+      args: {},
+    });
+    assert.equal(busyRefresh.characterUpgrade.profile.wallet.gold, 100);
+    assert.equal(entry.busy, true);
+    const queued = await service.command(entry, {
+      id: "priority-queued",
+      command: "character.upgrade",
+      expectedVersion: initial.version,
+      args: { stat: "madness", expected },
+    });
+    assert.equal(entry.busy, true);
+    assert.equal(queued.characterUpgrade.run.status, "running");
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(posts, 0);
+    assert.equal(store.read("101").characterUpgrade.run.status, "running");
+    service.close();
+    service = createAutomationService(options);
+    entry = await service.identify("Bearer priority-restart.payload.sig");
+    for (
+      let i = 0;
+      i < 100 &&
+      service.snapshot(entry).characterUpgrade.run.status === "running";
+      i++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(
+      service.snapshot(entry).characterUpgrade.run.status,
+      "completed",
+    );
     assert.equal(posts, 1);
   } finally {
     service.close();

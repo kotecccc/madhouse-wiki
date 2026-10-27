@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { WorkStashCard } from "./WorkStashCard.jsx";
 import {
   getSessionJson,
@@ -563,18 +564,8 @@ export function WorkFarmDialog({
           {!running &&
             run?.workId === workId &&
             ["limited", "error"].includes(run.status) &&
-            run.reason && (
-              <BaseCard role="status">
-                <CardDescription>{run.reason}</CardDescription>
-              </BaseCard>
-            )}
-          {launchError && !running && (
-            <BaseCard role="alert">
-              <CardDescription title={launchError}>
-                {launchError}
-              </CardDescription>
-            </BaseCard>
-          )}
+            run.reason && <ErrorToast message={run.reason} />}
+          {!running && <ErrorToast message={launchError} />}
         </>
       }
     />

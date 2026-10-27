@@ -7,6 +7,7 @@ export function createFloorRunner({
   stopOwned,
   persist,
   now = Date.now,
+  priorityActive = () => false,
 }) {
   const record = saved
     ? structuredClone(saved)
@@ -95,7 +96,7 @@ export function createFloorRunner({
           publish();
         }
         const next = await plan();
-        if (!valid()) return;
+        if (!valid() || priorityActive()) return;
         if (next.status !== "ready") {
           record.reason = next.reason;
           record.nextCheckAt = now() + 60000;

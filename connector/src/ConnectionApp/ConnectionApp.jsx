@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../src/components/ui/Button/Button.jsx";
+import { ErrorToast } from "../../../src/components/ui/ErrorToast/ErrorToast.jsx";
 import { FieldLabel } from "../../../src/components/ui/FieldLabel/FieldLabel.jsx";
 import { Input } from "../../../src/components/ui/Input/Input.jsx";
 import { LoadingStatus } from "../../../src/components/ui/LoadingStatus/LoadingStatus.jsx";
@@ -1293,7 +1294,7 @@ export function ConnectionApp() {
       {stage === "connected" && (
         <LoadingStatus>Завершаем вход в игровую сессию…</LoadingStatus>
       )}
-      {error && <p role="alert">{error}</p>}
+      <ErrorToast message={error} />
     </main>
   );
 }

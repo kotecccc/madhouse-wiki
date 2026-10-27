@@ -1,3 +1,4 @@
+import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useEffect, useRef, useState } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -87,15 +88,15 @@ function ArchivePages({ cursor, floorAvailability }) {
           <LoadingStatus>Загружаем архив…</LoadingStatus>
         )}
         {state.status === "error" && (
-          <>
-            <p role="status">Не удалось загрузить архив.</p>
+          <ErrorToast message="Не удалось загрузить архив.">
             <Button
               variant="secondary"
+              size="sm"
               onClick={() => setRequest({ ...request })}
             >
               Повторить
             </Button>
-          </>
+          </ErrorToast>
         )}
         {state.status === "ready" && state.nextCursor && (
           <Button
