@@ -91,7 +91,7 @@ test("floor mode owns a persisted work goal and stops it without a browser", asy
     );
     await assert.rejects(
       command("character.start", "character-start-conflict"),
-      /automation_controls_resources|floor_automation_controls_resources/,
+      /character_upgrade_quote_changed/,
     );
     service.close();
     service = makeService();
