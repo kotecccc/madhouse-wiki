@@ -8,10 +8,20 @@ export async function sendInventoryCommand({
   zoneId = item?.zoneId,
   makeId = () => crypto.randomUUID(),
 }) {
-  const state = await get("/api/automation/state", {
-    fresh: true,
-    revalidate: false,
-  });
+  const run = async (stage, fn) => {
+    try {
+      return await fn();
+    } catch (error) {
+      error.inventoryStage = stage;
+      throw error;
+    }
+  };
+  const state = await run("state", () =>
+    get("/api/automation/state", {
+      fresh: true,
+      revalidate: false,
+    }),
+  );
   if (!refreshOnly && state.equipment?.pending)
     throw new Error("inventory_pending");
   const price =
@@ -27,16 +37,22 @@ export async function sendInventoryCommand({
         ...(zoneId != null ? { zoneId: Number(zoneId) } : {}),
         ...(["buy", "repair"].includes(action) ? { price } : {}),
       };
-  const result = await post("/api/automation/commands", {
-    id: makeId(),
-    expectedVersion: state.version,
-    command: refreshOnly ? "inventory.refresh" : "inventory.action",
-    args,
-  });
+  const result = await run("command", () =>
+    post("/api/automation/commands", {
+      id: makeId(),
+      expectedVersion: state.version,
+      command: refreshOnly ? "inventory.refresh" : "inventory.action",
+      args,
+    }),
+  );
   if (result.equipment?.pending) throw new Error("inventory_pending");
   const paths = result.equipment?.paths || [];
-  for (const path of paths) await get(path, { fresh: true, revalidate: false });
-  if (paths.length) await get("/api/me", { fresh: true, revalidate: false });
+  for (const path of paths)
+    await run("inventory", () => get(path, { fresh: true, revalidate: false }));
+  if (paths.length)
+    await run("profile", () =>
+      get("/api/me", { fresh: true, revalidate: false }),
+    );
   return result;
 }
 export function sendEquipmentCommand(options) {

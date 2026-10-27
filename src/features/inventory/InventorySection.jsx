@@ -93,7 +93,7 @@ export function InventorySection({
       setEquipmentState({
         busy: false,
         needsCheck: true,
-        notice: `Действие не подтверждено. Проверьте состояние перед новым действием.${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}`,
+        notice: `Действие не подтверждено. Проверьте состояние перед новым действием.${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}${error.inventoryStage ? ` Этап: ${error.inventoryStage}.` : ""}`,
       });
     } finally {
       equipmentPending.current = false;
