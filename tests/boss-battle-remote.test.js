@@ -89,6 +89,25 @@ test("raid subscription stays unavailable until server state has loaded", async 
   assert.equal(h.raidSubscriptions.getSnapshot().loaded, false);
 });
 
+test("character upgrades allow an idle battle but block unresolved battle state", async () => {
+  for (const [extra, blocked] of [
+    [{}, false],
+    [{ needsRefresh: true }, true],
+    [{ error: "offline" }, true],
+    [{ pending: "attack" }, true],
+    [{ purchaseUncertain: true }, true],
+    [{ healing: { uncertain: true } }, true],
+  ]) {
+    const state = initialState();
+    state.battle = { ...state.battle, ...extra };
+    state.characterUpgrade = { profile: null, pending: null };
+    const h = harness({ state });
+    await h.connect();
+    assert.equal(h.characterUpgrade.getSnapshot().blocked, blocked);
+    h.disconnect();
+  }
+});
+
 test("app launch passes the auth battle reference once per connection; polls stay local", async () => {
   const ref = { battleId: "manual-fight", bossId: 7 };
   const h = harness({ launchBattle: () => ref });

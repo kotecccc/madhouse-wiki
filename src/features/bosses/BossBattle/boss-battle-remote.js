@@ -185,8 +185,12 @@ export function createRemoteBattleSession({
         server?.workFarm?.run?.status === "running" ||
         server?.raid?.enabled ||
         server?.subscription?.enabled ||
-        server?.battle?.battle?.status === "active" ||
-        server?.battle?.pending,
+        server?.battle?.pending ||
+        server?.battle?.needsRefresh ||
+        server?.battle?.error ||
+        server?.battle?.healing?.uncertain ||
+        server?.battle?.pendingInvitation ||
+        server?.battle?.purchaseUncertain,
       ),
       error: transportError || characterCommandError,
     });

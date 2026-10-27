@@ -3,9 +3,29 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAutomationService } from "../scripts/automation/service.mjs";
+import {
+  characterBattleUncertain,
+  createAutomationService,
+} from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 import { characterUpgradeQuote } from "../src/lib/character-stat-upgrades.js";
+
+test("an unresolved assistant operation blocks stat spending even after battle reads recover", () => {
+  assert.equal(
+    characterBattleUncertain(
+      { battle: { status: "active" } },
+      { uncertain: false },
+    ),
+    false,
+  );
+  assert.equal(
+    characterBattleUncertain(
+      { battle: { status: "active" } },
+      { uncertain: true },
+    ),
+    true,
+  );
+});
 
 test("character action is account scoped, checkpointed, and never replayed after a lost reply", async () => {
   const directory = mkdtempSync(join(tmpdir(), "character-upgrade-"));
@@ -112,7 +132,7 @@ test("character action is account scoped, checkpointed, and never replayed after
   }
 });
 
-test("server executes a batch point by point with fresh prices and a spending limit", async () => {
+test("server executes a batch with an idle battle, fresh prices and a spending limit", async () => {
   const directory = mkdtempSync(join(tmpdir(), "character-batch-"));
   const store = createAutomationStateStore({ directory });
   const profile = {
@@ -164,6 +184,14 @@ test("server executes a batch point by point with fresh prices and a spending li
   });
   try {
     const entry = await service.identify("Bearer a.b.c");
+    assert.equal(
+      entry.controller.syncExternalBattle(
+        { numericId: 7, name: "Boss" },
+        { battleId: "battle-1", bossId: 7, status: "active" },
+        entry.controller.getSnapshot(),
+      ),
+      true,
+    );
     const initial = await service.command(entry, {
       id: "refresh-1",
       command: "character.refresh",
