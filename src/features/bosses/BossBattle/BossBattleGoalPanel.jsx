@@ -88,10 +88,13 @@ export function BossBattleGoalPanel({
           variant="secondary"
           icon="pause"
           aria-pressed="true"
-          aria-label="Остановить рейд"
+          aria-label={
+            raid.stopAfterBattle ? "Завершаем бой" : "Остановить рейд"
+          }
+          disabled={raid.stopAfterBattle}
           onClick={() => void onStopRaid()}
         >
-          Остановить рейд
+          {raid.stopAfterBattle ? "Завершаем бой" : "Остановить рейд"}
         </Button>
       ) : (
         <Button
@@ -112,7 +115,7 @@ export function BossBattleGoalPanel({
       )}
       <InfoButton
         label="Как работает рейд"
-        description="Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты лечения и покупок сохраняются."
+        description="Рейд сначала ищет приглашение. Если его нет, открывает свой бой; лимиты лечения и покупок сохраняются. При остановке текущий бой продолжается до завершения."
       />
     </div>
   );

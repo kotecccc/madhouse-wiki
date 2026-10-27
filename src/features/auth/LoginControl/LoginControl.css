@@ -98,58 +98,8 @@
   margin: 0;
 }
 
-.profile-session-expiry {
-  font-size: var(--font-size-xs);
-  line-height: 1.6;
-  color: var(--muted);
-}
-
 .profile-session-expiry span {
   display: block;
-}
-
-.profile-stats {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-12) var(--space-8);
-  margin: 0;
-}
-.profile-stats div {
-  min-width: 0;
-}
-.profile-stats dt {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  color: var(--muted);
-  font-size: var(--font-size-2xs);
-  margin-bottom: var(--space-4);
-}
-.profile-stats dd {
-  margin: 0;
-  color: var(--paper-bright);
-  font: var(--font-size-xs) var(--mono);
-  overflow-wrap: anywhere;
-}
-
-.profile-attributes {
-  display: grid;
-  gap: var(--space-12);
-  margin: 0;
-}
-.profile-attributes dt {
-  margin-bottom: var(--space-4);
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-}
-.profile-attributes dd {
-  margin: 0;
-  color: var(--paper-bright);
-  font: var(--font-size-sm) var(--mono);
-}
-.profile-attributes small {
-  color: var(--muted);
-  font: var(--font-size-xs) var(--sans);
 }
 
 .login-modal-actions {
