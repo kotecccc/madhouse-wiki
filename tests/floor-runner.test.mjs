@@ -31,7 +31,16 @@ function setup(overrides = {}) {
   };
 }
 test("persists launch intent and observes worker before planning the next goal", async () => {
-  const h = setup();
+  let planned = 0;
+  const h = setup({
+    plan: async () => ({
+      status: "ready",
+      kind: "work",
+      apiId: ++planned,
+      current: 0,
+      required: 1,
+    }),
+  });
   h.runner.start();
   await h.runner.tick();
   assert.equal(h.writes.at(-2).phase, "launching");
@@ -43,6 +52,24 @@ test("persists launch intent and observes worker before planning the next goal",
   h.advance();
   await h.runner.tick();
   assert.equal(h.launches(), 2);
+});
+test("does not relaunch a completed goal while the game's progress is stale", async () => {
+  const h = setup({
+    plan: async () => ({
+      status: "ready",
+      kind: "boss",
+      apiId: 4,
+      current: 1,
+      required: 2,
+    }),
+  });
+  h.runner.start();
+  await h.runner.tick();
+  h.setOutcome("completed");
+  h.advance();
+  await h.runner.tick();
+  assert.equal(h.launches(), 1);
+  assert.match(h.runner.getSnapshot().reason, /подтверждения прогресса/);
 });
 test("never repeats a launch with an unknown outcome", async () => {
   let calls = 0;

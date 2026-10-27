@@ -22,6 +22,8 @@ import {
 import { createBossBattleGoal } from "../../src/features/bosses/BossBattle/boss-battle-goal.js";
 import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
 import { createWorkFarm } from "./work-farm.mjs";
+import { createFloorRunner } from "./floor-runner.mjs";
+import { createFloorActions } from "./floor-actions.mjs";
 import { createBusinessCollector } from "./business-collector.mjs";
 import { advanceBusinessUpgrade } from "./business-upgrade.mjs";
 import { createBattleSeries } from "./battle-series.mjs";
@@ -47,6 +49,7 @@ const failure = (status, code) => Object.assign(new Error(code), { status });
 const positive = (id) => Number.isSafeInteger(id) && id > 0;
 const INVITATION_DISCOVERY_INTERVAL_MS = 30000;
 const safeCommands = new Set([
+  "floor.stop",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.refresh",
@@ -64,6 +67,8 @@ const safeCommands = new Set([
   "business.refresh",
 ]);
 const commands = new Set([
+  "floor.start",
+  "floor.stop",
   "raid.friend.check",
   "raid.friend.inspect",
   "raid.friend.request",
@@ -144,6 +149,7 @@ export function createAutomationService({
     now,
   });
   let closed = false;
+  let booting = false;
   let heartbeat = null;
   const owner = randomUUID();
   function ensureLease() {
@@ -179,6 +185,7 @@ export function createAutomationService({
       goalRecord: entry.goal.exportState(),
       businessHelper: entry.businessHelper,
       workFarm: entry.workFarm.exportState(),
+      floorRunner: entry.floorRunner?.getSnapshot() ?? null,
       auto: entry.auto.exportState(),
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
@@ -351,6 +358,7 @@ export function createAutomationService({
       },
       preferences: entry.preferences,
       workFarm: entry.workFarm.getSnapshot(),
+      floorRunner: entry.floorRunner.getSnapshot(),
       businessAssistant: businessProjection(
         entry.businessHelper,
         Object.keys(entry.businessHelper.configs).length
@@ -860,6 +868,24 @@ export function createAutomationService({
         return !entry.storageFailed;
       },
     });
+    entry.floorActions = createFloorActions({
+      entry,
+      get: (path) => gameJson(entry.credential, path),
+      getCatalogue: getBusinessCatalogue,
+      getBoss,
+      refreshAutoDamageLimit: () => refreshAutoDamageLimit(entry),
+      configureAutoGoal,
+      now,
+    });
+    entry.floorRunner = createFloorRunner({
+      saved: saved?.floorRunner,
+      ...entry.floorActions,
+      persist: () => {
+        save(entry);
+        return !entry.storageFailed;
+      },
+      now,
+    });
     let savedGoal = JSON.stringify(entry.goal.exportState());
     entry.unsubscribers = [entry.controller, entry.auto].map((source) =>
       source.subscribe(() => save(entry)),
@@ -1328,6 +1354,7 @@ export function createAutomationService({
     if (
       entry.businessHelper.run?.pendingUpgrade &&
       ![
+        "floor.stop",
         "business.run.stop",
         "business.select",
         "business.refresh",
@@ -1350,6 +1377,7 @@ export function createAutomationService({
     if (
       (entry.busy || entry.inventoryBusy) &&
       ![
+        "floor.stop",
         "raid.stop",
         "subscription.stop",
         "auto.stop",
@@ -1375,6 +1403,7 @@ export function createAutomationService({
     if (
       entry.raidSubscription.getSnapshot().checkpoint &&
       ![
+        "floor.stop",
         "subscription.stop",
         "invitations.refresh",
         "raid.friend.check",
@@ -1471,6 +1500,15 @@ export function createAutomationService({
     const args = input.args ?? {};
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw failure(400, "invalid_command_arguments");
+    if (
+      (entry.floorRunner.getSnapshot().status === "running" ||
+        entry.floorRunner.getSnapshot().phase === "launching") &&
+      !safeCommands.has(input.command) &&
+      !["floor.stop", "refresh", "hydrate", "invitations.refresh"].includes(
+        input.command,
+      )
+    )
+      throw failure(409, "floor_automation_controls_resources");
     updateGoal(entry);
     let state = entry.controller.getSnapshot();
     if (
@@ -1499,6 +1537,14 @@ export function createAutomationService({
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
+        case "floor.start":
+          if (entry.floorActions.hasOtherWork())
+            throw failure(409, "floor_resources_busy");
+          entry.floorRunner.start();
+          break;
+        case "floor.stop":
+          entry.floorRunner.stop();
+          break;
         case "raid.friend.inspect": {
           const result = await inspectRaidFriend({ entry, args, fetcher });
           const status =
@@ -1979,6 +2025,7 @@ export function createAutomationService({
     command,
     async boot() {
       ensureLease();
+      booting = true;
       heartbeat = setInterval(() => {
         try {
           ensureLease();
@@ -1994,6 +2041,22 @@ export function createAutomationService({
           discoverInvitations(entry);
           void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});
+          if (
+            !booting &&
+            entry.floorRunner.getSnapshot().status === "running" &&
+            now() >= (entry.floorRunner.getSnapshot().nextCheckAt ?? 0) &&
+            !entry.busy &&
+            !entry.inventoryBusy &&
+            !entry.storageFailed
+          ) {
+            entry.busy = true;
+            void entry.floorRunner
+              .tick()
+              .catch(() => {})
+              .finally(() => {
+                entry.busy = false;
+              });
+          }
           if (now() < (entry.workerRetryAt ?? 0)) continue;
           try {
             updateGoal(entry);
@@ -2016,6 +2079,16 @@ export function createAutomationService({
       for (const { playerId, value } of store.list()) {
         // Discovery is server-owned and continues even when no browser is open.
         if (value?.credential) await actor(playerId);
+        if (
+          value?.credential &&
+          value?.floorRunner?.status === "running" &&
+          value.floorRunner.phase === "launching"
+        ) {
+          const entry = await actor(playerId);
+          entry.floorActions.stopOwned(value.floorRunner.target);
+          save(entry);
+          continue;
+        }
         if (value?.raidSubscription?.checkpoint) continue;
         if (
           !value?.raid?.enabled &&
@@ -2101,10 +2174,12 @@ export function createAutomationService({
           });
         save(entry);
       }
+      booting = false;
     },
     close() {
       closed = true;
       for (const entry of actors.values()) {
+        entry.floorRunner.dispose();
         for (const unsub of entry.unsubscribers) unsub();
         entry.workFarm.dispose();
         entry.collector.dispose();

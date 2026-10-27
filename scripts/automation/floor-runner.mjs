@@ -13,6 +13,7 @@ export function createFloorRunner({
     : { status: "stopped", phase: "idle", target: null, reason: null };
   let working = false;
   let generation = 0;
+  let disposed = false;
   if (record.status === "running" && record.phase === "launching") {
     record.status = "paused";
     record.reason =
@@ -23,6 +24,10 @@ export function createFloorRunner({
   };
   return {
     getSnapshot: () => record,
+    dispose() {
+      disposed = true;
+      generation++;
+    },
     start() {
       if (
         working ||
@@ -35,6 +40,7 @@ export function createFloorRunner({
         status: "running",
         phase: "planning",
         target: null,
+        lastCompleted: null,
         reason: null,
         startedAt: now(),
         nextCheckAt: 0,
@@ -46,18 +52,23 @@ export function createFloorRunner({
       record.status = "stopped";
       record.phase = "idle";
       record.reason = null;
-      publish();
-      stopOwned(record.target);
+      try {
+        publish();
+      } finally {
+        stopOwned(record.target);
+      }
     },
     async tick() {
       if (
+        disposed ||
         working ||
         record.status !== "running" ||
         now() < (record.nextCheckAt ?? 0)
       )
         return;
       const current = generation;
-      const valid = () => current === generation && record.status === "running";
+      const valid = () =>
+        !disposed && current === generation && record.status === "running";
       working = true;
       try {
         if (record.phase === "executing") {
@@ -75,6 +86,7 @@ export function createFloorRunner({
             publish();
             return;
           }
+          record.lastCompleted = record.target;
           record.phase = "planning";
           record.target = null;
           publish();
@@ -87,6 +99,18 @@ export function createFloorRunner({
           publish();
           return;
         }
+        if (
+          record.lastCompleted?.kind === next.kind &&
+          record.lastCompleted?.apiId === next.apiId &&
+          next.current < record.lastCompleted.required
+        ) {
+          record.reason =
+            "Ожидаем подтверждения прогресса после завершённой цели.";
+          record.nextCheckAt = now() + 60000;
+          publish();
+          return;
+        }
+        record.lastCompleted = null;
         record.target = next;
         record.phase = "launching";
         record.reason = null;

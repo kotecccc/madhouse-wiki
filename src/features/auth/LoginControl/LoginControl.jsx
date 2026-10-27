@@ -8,7 +8,8 @@ import {
   peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { floorAutomation } from "../../bosses/BossBattle/boss-battle-session.js";
 import {
   readSession,
   authorizeRequest,
@@ -58,6 +59,11 @@ function shouldRestoreTelegramSession() {
 }
 
 export function LoginControl() {
+  const floor = useSyncExternalStore(
+    floorAutomation.subscribe,
+    floorAutomation.getSnapshot,
+    floorAutomation.getSnapshot,
+  );
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
   const [loginMethod, setLoginMethod] = useState("choose");
@@ -320,6 +326,42 @@ export function LoginControl() {
             role="region"
             aria-label="Сеанс пользователя"
           >
+            <CardTitle size="xs">Автопрокачка</CardTitle>
+            <CardDescription size="xs">
+              {floor.status === "running"
+                ? floor.target
+                  ? `Цель: ${floor.target.destination} · ${floor.target.kind === "work" ? "работа" : floor.target.kind === "boss" ? "босс" : "бизнес"}`
+                  : "Ищем следующую цель"
+                : floor.status === "paused"
+                  ? "Приостановлена"
+                  : "Остановлена"}
+            </CardDescription>
+            <CardDescription size="xs">
+              Ожидание энергии, рейды и собственные бои, улучшение бизнеса.
+            </CardDescription>
+            {floor.reason && (
+              <CardDescription size="xs">{floor.reason}</CardDescription>
+            )}
+            {floor.error && (
+              <CardDescription size="xs" role="alert">
+                {floor.error}
+              </CardDescription>
+            )}
+            <Button
+              variant="secondary"
+              disabled={
+                !floor.loaded || (floor.pending && floor.status !== "running")
+              }
+              onClick={() =>
+                void (floor.status === "running" || floor.phase === "launching"
+                  ? floorAutomation.stop()
+                  : floorAutomation.start())
+              }
+            >
+              {floor.status === "running" || floor.phase === "launching"
+                ? "Остановить"
+                : "Запустить"}
+            </Button>
             <CardDescription className="profile-session-expiry">
               {label.split(" • ").map((line) => (
                 <span key={line}>{line}</span>
