@@ -1045,3 +1045,19 @@ test("a persisted terminal battle missing completion time hydrates once despite 
     1,
   );
 });
+
+test("unavailable boss explains the required player level", async () => {
+  const { store } = setup(async () =>
+    detail({
+      requiredLevel: 15,
+      state: { playerLevel: 8, isAvailable: false, canStartFight: false },
+    }),
+  );
+  store.open(boss);
+  await settle();
+  assert.equal(store.getSnapshot().canStart, false);
+  assert.equal(
+    store.getSnapshot().unavailableReason,
+    "Босс доступен с 15 уровня. Ваш уровень: 8.",
+  );
+});

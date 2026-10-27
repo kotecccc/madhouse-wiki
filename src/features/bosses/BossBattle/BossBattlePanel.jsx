@@ -329,6 +329,9 @@ export function BossBattlePanel({
           </Button>
         </div>
       ) : null}
+      {!battle && state.unavailableReason && (
+        <CardDescription>{state.unavailableReason}</CardDescription>
+      )}
       {!state.medicineOpen && <ErrorToast message={state.notice} />}
       {expired && !battle.outcome && (
         <CardDescription>

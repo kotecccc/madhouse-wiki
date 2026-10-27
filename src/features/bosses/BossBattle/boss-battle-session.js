@@ -4,6 +4,7 @@ import {
   readSession,
 } from "../../../../shared/auth-session.js";
 import { createRemoteBattleSession } from "./boss-battle-remote.js";
+import { readAutomationResponse } from "./automation-response.js";
 export { createBossBattleRequest } from "./boss-battle-request.js";
 
 async function automationRequest(method, path, body) {
@@ -19,7 +20,7 @@ async function automationRequest(method, path, body) {
     cache: "no-store",
     signal: AbortSignal.timeout(25000),
   });
-  const value = await response.json();
+  const value = await readAutomationResponse(response);
   if (value.gameHealth) reportGameHealth(value.gameHealth);
   if (!response.ok) {
     const error = new Error(
