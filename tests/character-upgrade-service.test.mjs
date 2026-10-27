@@ -112,7 +112,7 @@ test("character action is account scoped, checkpointed, and never replayed after
   }
 });
 
-test("server executes a batch point by point with fresh prices and a spending limit", async () => {
+test("server executes a batch with an idle battle, fresh prices and a spending limit", async () => {
   const directory = mkdtempSync(join(tmpdir(), "character-batch-"));
   const store = createAutomationStateStore({ directory });
   const profile = {
@@ -164,6 +164,14 @@ test("server executes a batch point by point with fresh prices and a spending li
   });
   try {
     const entry = await service.identify("Bearer a.b.c");
+    assert.equal(
+      entry.controller.syncExternalBattle(
+        { numericId: 7, name: "Boss" },
+        { battleId: "battle-1", bossId: 7, status: "active" },
+        entry.controller.getSnapshot(),
+      ),
+      true,
+    );
     const initial = await service.command(entry, {
       id: "refresh-1",
       command: "character.refresh",
