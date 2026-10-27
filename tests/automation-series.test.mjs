@@ -42,6 +42,7 @@ function setup({
   invitationOutage = false,
   inviteAvailable = false,
   battleTtl = 120000,
+  holdInvite = false,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "automation-series-"));
   const store = createAutomationStateStore({ directory });
@@ -53,6 +54,7 @@ function setup({
   let bossReads = 0;
   let holdNextPreflight = false;
   let finishPreflight;
+  let finishInvite;
   const fetcher = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     const method = init.method || "GET";
@@ -95,8 +97,13 @@ function setup({
       });
       return Response.json({ battle: current });
     }
-    if (url.pathname.endsWith("/invitations/bulk") && method === "POST")
+    if (url.pathname.endsWith("/invitations/bulk") && method === "POST") {
+      if (holdInvite)
+        return new Promise((resolve) => {
+          finishInvite = () => resolve(Response.json({ invitedCount: 1 }));
+        });
       return Response.json({ invitedCount: 1 });
+    }
     const id = url.pathname.match(/^\/api\/bosses\/battles\/([^/]+)$/)?.[1];
     if (id && method === "GET")
       return Response.json(current || makeBattle(id, "active", now));
@@ -229,6 +236,9 @@ function setup({
     },
     releasePreflight() {
       finishPreflight?.();
+    },
+    releaseInvite() {
+      finishInvite?.();
     },
     close() {
       service.close();
@@ -387,6 +397,34 @@ test("a stopped raid continues its current fight after the original time limit",
       1,
     );
     assert.equal(ctx.starts, 1);
+  });
+});
+
+test("raid.stop lets an already submitted invitation finish and then attacks", async () => {
+  await withSetup({ inviteAvailable: true, holdInvite: true }, async (ctx) => {
+    const entry = await ctx.openAndConfigure("battles", 3);
+    assert.equal(entry.raidWorker.start(7), true);
+    await entry.raidWorker.tick();
+    await ctx.advance(2000, entry);
+    assert.equal(ctx.service.snapshot(entry).battle.pending, "invite");
+    await ctx.command(entry, "stop-invitation", "raid.stop");
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    ctx.releaseInvite();
+    await ctx.flush();
+    await ctx.advance(5000, entry);
+    assert.equal(
+      ctx.calls.filter(
+        (call) =>
+          call.path.endsWith("/invitations/bulk") && call.method === "POST",
+      ).length,
+      1,
+    );
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.path.endsWith("/attack") && call.method === "POST",
+      ).length,
+      1,
+    );
   });
 });
 
