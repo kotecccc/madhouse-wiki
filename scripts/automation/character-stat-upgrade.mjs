@@ -34,6 +34,7 @@ export async function upgradeCharacterPoint({
   onConfirmed = () => {},
   allowed = () => true,
   operationId = randomUUID,
+  runId = null,
 }) {
   if (state.pending) throw new Error("character_upgrade_uncertain");
   const profile = await getProfile();
@@ -66,6 +67,7 @@ export async function upgradeCharacterPoint({
     currency: quote.currency,
     balance: quote.balance,
     price: quote.nextCost,
+    ...(runId ? { runId } : {}),
   };
   if (persist() === false)
     throw new Error("character_upgrade_storage_unavailable");
@@ -123,6 +125,7 @@ export async function upgradeCharacterPoint({
       currency: quote.currency,
       balance: quote.balance,
       price: quote.nextCost,
+      ...(runId ? { runId } : {}),
     };
     throw new Error("character_upgrade_storage_unavailable");
   }

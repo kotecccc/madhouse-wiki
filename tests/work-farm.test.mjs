@@ -828,3 +828,97 @@ test("a lost purchase reply followed by an outage never buys a second booster", 
     1,
   );
 });
+
+test("pausing and immediately resuming an in-flight work action reconciles it before continuing", async () => {
+  const h = makeHarness({ required: [2], holdPerform: true });
+  await refresh(h);
+  start(h.farm);
+  await h.fireNext({ advance: false });
+  assert.equal(h.farm.getSnapshot().run.pending.kind, "performing");
+  const firstId = h.farm.getSnapshot().run.pending.operationId;
+  assert.equal(h.farm.pause(), true);
+  assert.equal(h.farm.getSnapshot().run.status, "paused");
+  assert.equal(h.farm.canSuspend(), false);
+  assert.throws(() => start(h.farm), /Фарм уже запущен/);
+  assert.equal(h.farm.resumePaused(), true);
+  h.releasePerform();
+  await h.flush();
+  assert.equal(h.farm.getSnapshot().run.pending.kind, "performing");
+  await h.fireNext({ advance: false });
+  assert.notEqual(h.farm.getSnapshot().run.pending.operationId, firstId);
+  assert.equal(h.farm.getSnapshot().run.pending.before.tasks[0].progress, 1);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    2,
+  );
+  assert.equal(h.game.tasks[0].progress, 1);
+  h.farm.stop();
+  h.releasePerform();
+  await h.flush();
+});
+
+test("a paused farm survives restart and remains stopped until resumed", async () => {
+  const h = makeHarness({ required: [2] });
+  await refresh(h);
+  start(h.farm);
+  h.farm.pause();
+  const saved = structuredClone(h.farm.exportState());
+  h.farm.dispose();
+  const timers = [];
+  const restored = createWorkFarm({
+    saved,
+    request: h.request,
+    getWork: () => ({ workId: 7 }),
+    now: () => 1_000_000,
+    schedule: (callback) => {
+      timers.push(callback);
+      return callback;
+    },
+    cancel: () => {},
+  });
+  restored.resume();
+  assert.equal(restored.getSnapshot().run.status, "paused");
+  assert.equal(timers.length, 0);
+  assert.equal(restored.resumePaused(), true);
+  assert.equal(restored.getSnapshot().run.status, "running");
+  assert.equal(timers.length, 1);
+  restored.stop();
+});
+
+test("a stopped in-flight work action is reconciled by reads without resuming the farm", async () => {
+  const h = makeHarness({ required: [2], holdPerform: true });
+  await refresh(h);
+  start(h.farm);
+  await h.fireNext({ advance: false });
+  h.farm.stop();
+  assert.equal(h.farm.canSuspend(), false);
+  h.releasePerform();
+  await h.flush();
+  h.farm.tick();
+  await h.flush();
+  assert.equal(h.farm.getSnapshot().run.status, "stopped");
+  assert.equal(h.farm.getSnapshot().run.pending, null);
+  assert.equal(h.farm.canSuspend(), true);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
+  assert.equal(h.timers.filter((timer) => !timer.canceled).length, 0);
+});
+
+test("legacy uncertain booster is reconciled automatically without another use", async () => {
+  const h = makeHarness({
+    boosters: { small: 1, full: 0 },
+    energy: 0,
+    loseBoosterReply: true,
+  });
+  await assert.rejects(h.farm.useBooster(7, "small"));
+  assert.ok(h.farm.getSnapshot().manualPending);
+  h.farm.tick();
+  await h.flush();
+  assert.equal(h.farm.getSnapshot().manualPending, null);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/me/bag/boosters/use").length,
+    1,
+  );
+});

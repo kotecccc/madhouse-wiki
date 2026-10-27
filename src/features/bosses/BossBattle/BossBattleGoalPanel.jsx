@@ -1,9 +1,6 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
-import {
-  goalProgressPresentation,
-  bossAutomationEligible,
-} from "./boss-battle-presentation.js";
+import { goalProgressPresentation } from "./boss-battle-presentation.js";
 import { useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
@@ -39,7 +36,8 @@ export function BossBattleGoalPanel({
   const current = Number(goal?.boss?.id) === bossId ? goal : null;
   const foreignGoal = goal?.boss?.id != null && !current;
   const foreignRaid = raid.bossId != null && Number(raid.bossId) !== bossId;
-  if (foreignGoal || (foreignRaid && raid.enabled)) auto = { enabled: false };
+  if (foreignGoal || (foreignRaid && (raid.enabled || raid.userPaused)))
+    auto = { enabled: false };
   if (foreignRaid) raid = { enabled: false };
   const id = useId();
   const [draft, setDraft] = useState(null);
@@ -53,21 +51,28 @@ export function BossBattleGoalPanel({
   const shopOptions = options.filter(isShopGoalDrop);
   const config = battleSettingsConfig(settings, state.boss);
   const pending = Boolean(state.pending);
-  const busy = auto.enabled || raid.enabled || pending;
-  const eligible = bossAutomationEligible(state);
-  const soloEnabled = auto.enabled && !raid.enabled;
+  const raidActive = raid.enabled || raid.userPaused;
+  const autoActive = auto.enabled || auto.userPaused;
+  const busy = autoActive || raidActive || pending;
+  const soloEnabled = autoActive && !raidActive;
   const progressStatus = goalProgressPresentation(current, now);
   const toggle = async () => {
     if (soloEnabled) {
       await onStopAuto();
       return;
     }
-    if (!config || !eligible || pending) return;
+    if (!config) return;
     setError(null);
     if (!(await onStart(config)))
       setError(
         "Не удалось включить автобой. Обновите состояние и попробуйте снова.",
       );
+  };
+  const queueRaid = async () => {
+    if (!config) return;
+    setError(null);
+    if (!(await onStartRaid(config)))
+      setError("Не удалось добавить рейд в очередь.");
   };
   const actions = (
     <div className="boss-battle-goal-actions">
@@ -76,14 +81,12 @@ export function BossBattleGoalPanel({
         icon={soloEnabled ? "pause" : "combat"}
         aria-pressed={soloEnabled}
         aria-label={soloEnabled ? "Остановить автобой" : "Начать автобой"}
-        disabled={
-          !soloEnabled && (raid.enabled || pending || !config || !eligible)
-        }
+        disabled={!soloEnabled && !config}
         onClick={() => void toggle()}
       >
         {soloEnabled ? "Остановить автобой" : "Начать автобой"}
       </Button>
-      {raid.enabled ? (
+      {raidActive ? (
         <Button
           variant="secondary"
           icon="pause"
@@ -102,13 +105,8 @@ export function BossBattleGoalPanel({
           icon="play"
           aria-pressed="false"
           aria-label="Запустить рейд"
-          disabled={
-            auto.enabled ||
-            !eligible ||
-            state.battle?.status === "active" ||
-            !config
-          }
-          onClick={() => void onStartRaid(config)}
+          disabled={!config}
+          onClick={() => void queueRaid()}
         >
           Запустить рейд
         </Button>
@@ -122,11 +120,11 @@ export function BossBattleGoalPanel({
   return (
     <>
       <Disclosure
-        key={`${auto.enabled || raid.enabled}:${Boolean(state.battle)}`}
+        key={`${autoActive || raidActive}:${Boolean(state.battle)}`}
         title="Цель и условия боя"
         size="sm"
         leading={<Icon type="target" size="medium" />}
-        defaultOpen={!auto.enabled && !raid.enabled && !state.battle}
+        defaultOpen={!autoActive && !raidActive && !state.battle}
         status={
           <Pill
             variant={progressStatus ? "active" : "unknown"}

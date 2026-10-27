@@ -25,6 +25,20 @@ jobs:
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
+      - name: Validate release version and changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest_tag="$(gh release view --json tagName --jq .tagName)"
+          if [[ ! "${latest_tag}" =~ ^vps-([0-9a-f]{40})$ ]]; then
+            echo "Latest release is not a VPS release" >&2
+            exit 1
+          fi
+          previous_sha="${BASH_REMATCH[1]}"
+          git fetch --depth=1 origin "${previous_sha}"
+          previous_version="$(git show "${previous_sha}:package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+          node scripts/deploy/release-version.mjs "${previous_version}"
+
       - name: Validate and build the immutable VPS image
         run: |
           docker build --pull --platform linux/amd64 \
@@ -83,13 +97,6 @@ jobs:
             http://127.0.0.1:19092 \
             http://127.0.0.1:19093 \
             "${GITHUB_SHA}"
-          docker exec "${wiki_name}" node --input-type=module -e '
-            import puppeteer from "puppeteer";
-            const browser = await puppeteer.launch({
-              args: ["--no-sandbox", "--disable-dev-shm-usage"],
-            });
-            await browser.close();
-          '
 
       - name: Package the image and checksum
         run: |

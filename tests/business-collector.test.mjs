@@ -20,6 +20,7 @@ function harness({
   goalStatus = null,
   failOpenOnce = false,
   priorityActive = () => false,
+  upgrade,
 } = {}) {
   const helper = {
     configs: { [businessId]: structuredClone(config) },
@@ -193,6 +194,7 @@ function harness({
     getCatalogue: () => catalogue,
     getBoss: async (id) => bossRecords.get(id),
     get,
+    upgrade,
     priorityActive,
     now: () => now,
     schedule(fn, delay) {
@@ -513,4 +515,120 @@ test("business collection waits for character priority and resumes its saved pla
   assert.equal(h.helper.run.status, "running");
   assert.equal(h.helper.run.phase, "farming");
   assert.equal(h.controller.opens.length, 1);
+});
+
+test("business pause preserves its goal and resumes the same run after restart", async () => {
+  const h = harness();
+  h.start();
+  await h.drain();
+  const id = h.helper.run.id;
+  assert.equal(h.auto.getSnapshot().enabled, true);
+  assert.equal(h.collector.pause(), true);
+  assert.equal(h.helper.run.status, "paused");
+  assert.equal(h.goal.getSnapshot().status, "active");
+  assert.equal(h.auto.getSnapshot().enabled, false);
+  assert.throws(() => h.start(), /business_run_active/);
+  const restored = harness({ run: h.helper.run, goalStatus: "active" });
+  restored.collector.tick();
+  assert.equal(restored.auto.starts.length, 0);
+  assert.equal(restored.collector.resumePaused(), true);
+  restored.collector.tick();
+  assert.equal(restored.helper.run.id, id);
+  assert.equal(restored.helper.run.status, "running");
+  assert.equal(restored.auto.starts.length, 1);
+});
+
+test("business resume waits for the read that was in flight during pause", async () => {
+  const releases = [];
+  const h = harness({
+    getImpl: (path) =>
+      new Promise((resolve) => {
+        releases.push(() =>
+          resolve(
+            path === "/api/me/bag"
+              ? { activityItems: [] }
+              : { id: 1, level: 1 },
+          ),
+        );
+      }),
+  });
+  h.start();
+  const old = h.next();
+  assert.equal(h.collector.pause(), true);
+  assert.equal(h.collector.resumePaused(), true);
+  h.collector.tick();
+  assert.equal(h.helper.run.status, "paused");
+  releases.forEach((release) => release());
+  await old;
+  await new Promise((resolve) => setImmediate(resolve));
+  h.collector.tick();
+  assert.equal(h.helper.run.status, "running");
+  assert.equal(h.controller.opens.length, 0);
+});
+
+test("paused business reconciles an uncertain upgrade by reads only", async () => {
+  const run = {
+    id: "run-pending",
+    status: "paused",
+    phase: "verifying",
+    businessId,
+    config: structuredClone(expectedPlan),
+    targetLevel: 2,
+    pendingUpgrade: { businessId: 1, fromLevel: 1, operationId: "upgrade-1" },
+    attemptIds: [],
+    completedIds: [],
+  };
+  let calls = 0;
+  const h = harness({
+    run,
+    upgrade: async (current, allowed) => {
+      calls++;
+      assert.equal(allowed(), false);
+      assert.ok(current.pendingUpgrade);
+      current.pendingUpgrade = null;
+      return { status: "confirmed" };
+    },
+  });
+  h.collector.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.equal(h.helper.run.pendingUpgrade, null);
+  assert.equal(h.helper.run.status, "paused");
+  assert.equal(h.auto.starts.length, 0);
+});
+
+test("stopping while paused upgrade reconciliation is in flight finishes without resuming the run", async () => {
+  const run = {
+    id: "run-pending",
+    status: "paused",
+    phase: "verifying",
+    businessId,
+    config: structuredClone(expectedPlan),
+    targetLevel: 2,
+    pendingUpgrade: { businessId: 1, fromLevel: 1, operationId: "upgrade-1" },
+    attemptIds: [],
+    completedIds: [],
+    ownsGoal: true,
+  };
+  let release;
+  const h = harness({
+    run,
+    upgrade: async (current, allowed) => {
+      assert.equal(allowed(), false);
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      current.pendingUpgrade = null;
+      return { status: "confirmed" };
+    },
+  });
+  h.collector.tick();
+  assert.ok(release);
+  h.collector.stop();
+  assert.equal(h.helper.run.stopRequested, true);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.helper.run.status, "stopped");
+  assert.equal(h.auto.starts.length, 0);
+  assert.equal(h.goal.stops, 1);
 });

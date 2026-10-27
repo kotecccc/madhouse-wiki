@@ -17,7 +17,7 @@ import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { authorizeRequest } from "../../../shared/auth-session.js";
 import { sendFriendCommand } from "./friend-commands.js";
-import { loadFriends, selectFriends } from "./friends.js";
+import { selectFriends } from "./friends.js";
 import "../../components/ui/StatusList/StatusList.css";
 import "./FriendsSection.css";
 
@@ -49,6 +49,7 @@ export function FriendsSection({
   active,
   refreshGeneration = 0,
   onRefreshState,
+  onNotice,
 }) {
   const [state, setState] = useState({ status: "loading", items: [] });
 
@@ -71,7 +72,6 @@ export function FriendsSection({
     if (!active) return;
     const controller = new AbortController();
     let retryTimer;
-    let attempts = 0;
     onRefreshState?.(true);
     void getSessionJson("/api/automation/state", {
       fresh: true,
@@ -85,21 +85,41 @@ export function FriendsSection({
       })
       .catch(() => {});
     const load = () => {
-      attempts++;
-      void loadFriends(getSessionJson, controller.signal).then(
-        (items) => {
-          setState({ status: "ready", items });
-          onRefreshState?.(false);
+      void getSessionJson("/api/automation/friends", {
+        fresh: true,
+        revalidate: false,
+        signal: controller.signal,
+      }).then(
+        (snapshot) => {
+          if (controller.signal.aborted) return;
+          if (Array.isArray(snapshot?.items)) {
+            setState({
+              status: "ready",
+              items: snapshot.items,
+              stale: snapshot.stale,
+              updatedAt: snapshot.updatedAt,
+            });
+            onRefreshState?.(false);
+          } else
+            setState((previous) =>
+              previous.status === "ready"
+                ? previous
+                : { status: "waiting", items: [] },
+            );
+          retryTimer = window.setTimeout(
+            load,
+            Array.isArray(snapshot?.items) ? 15000 : 3000,
+          );
         },
         () => {
           if (!controller.signal.aborted) {
             setState((previous) =>
               previous.status === "ready"
                 ? previous
-                : { status: "error", items: [] },
+                : { status: "waiting", items: [] },
             );
             onRefreshState?.(false);
-            if (attempts < 3) retryTimer = window.setTimeout(load, 15000);
+            retryTimer = window.setTimeout(load, 15000);
           }
         },
       );
@@ -143,6 +163,13 @@ export function FriendsSection({
       window.clearInterval(timer);
     };
   }, [active]);
+  const previousRemoval = useRef(null);
+  useEffect(() => {
+    const current = automation?.friendRemoval?.pending?.playerId ?? null;
+    if (previousRemoval.current != null && current == null)
+      setReload((value) => value + 1);
+    previousRemoval.current = current;
+  }, [automation?.friendRemoval?.pending?.playerId]);
   const favorites = automation?.preferences?.favoriteFriendIds ?? [];
   const buddy = automation?.buddy?.mode === "buddy" ? automation.buddy : null;
   const buddyFriends = buddy?.friendIds ?? [];
@@ -153,43 +180,59 @@ export function FriendsSection({
     setAction(target);
     setActionError("");
     try {
-      const command =
+      const command = ["remove", "buddy", "favorite"].includes(target.kind)
+        ? "queue.enqueue"
+        : "buddy.order";
+      const result = await sendCommand(command, (current) =>
         target.kind === "remove"
-          ? "friends.remove"
-          : target.kind === "buddy"
-            ? "buddy.set"
-            : target.kind === "order"
-              ? "buddy.order"
-              : "friends.favorite";
-      const result = await sendCommand(command, (current) => ({
-        ...(target.kind === "order"
-          ? { friendIds: target.friendIds }
-          : { playerId: target.player.playerId }),
-        ...(target.kind === "buddy"
           ? {
-              enabled: !(
-                current.buddy?.mode === "buddy" &&
-                current.buddy.friendIds?.includes(target.player.playerId)
-              ),
+              type: "friend.remove",
+              action: {
+                playerId: target.player.playerId,
+                name:
+                  target.player.nickname || target.player.username || "Игрок",
+              },
             }
-          : {}),
-        ...(target.kind === "favorite"
-          ? {
-              enabled: !(current.preferences?.favoriteFriendIds ?? []).includes(
-                target.player.playerId,
-              ),
-            }
-          : {}),
-      }));
+          : target.kind === "order"
+            ? { friendIds: target.friendIds }
+            : (() => {
+                const type = `friend.${target.kind}`;
+                const pending = (current.queuedActions ?? [])
+                  .filter(
+                    (job) =>
+                      job.type === type &&
+                      job.args.playerId === target.player.playerId &&
+                      !job.cancelRequested &&
+                      ["queued", "waiting", "running", "reconciling"].includes(
+                        job.status,
+                      ),
+                  )
+                  .at(-1);
+                const selected =
+                  pending?.args.enabled ??
+                  (target.kind === "buddy"
+                    ? current.buddy?.mode === "buddy" &&
+                      current.buddy.friendIds?.includes(target.player.playerId)
+                    : (current.preferences?.favoriteFriendIds ?? []).includes(
+                        target.player.playerId,
+                      ));
+                return {
+                  type,
+                  action: {
+                    playerId: target.player.playerId,
+                    name:
+                      target.player.nickname ||
+                      target.player.username ||
+                      "Игрок",
+                    enabled: !selected,
+                  },
+                };
+              })(),
+      );
       setAutomation(result);
-      if (target.kind === "remove" && result.friendRemoval?.pending) {
-        setActionError(
-          "Результат удаления не подтверждён. Обновите список; повторная отправка заблокирована.",
-        );
-        return;
-      }
       setAction(null);
-      if (target.kind === "remove") setReload((value) => value + 1);
+      if (target.kind !== "order")
+        onNotice?.({ success: true, message: "Действие добавлено в очередь." });
     } catch {
       try {
         const latest = await getSessionJson("/api/automation/state", {
@@ -203,27 +246,6 @@ export function FriendsSection({
       setActionError(
         "Не удалось подтвердить действие. Проверьте состояние друга.",
       );
-    } finally {
-      actionLock.current = false;
-      setActionBusy(false);
-    }
-  }
-  async function checkRemoval() {
-    if (actionLock.current) return;
-    actionLock.current = true;
-    setActionBusy(true);
-    try {
-      const result = await sendCommand("friends.reconcile", {});
-      setAutomation(result);
-      if (result.friendRemoval?.pending)
-        setActionError("Результат удаления пока не подтверждён.");
-      else {
-        setAction(null);
-        setActionError("");
-        setReload((value) => value + 1);
-      }
-    } catch {
-      setActionError("Не удалось проверить результат удаления.");
     } finally {
       actionLock.current = false;
       setActionBusy(false);
@@ -332,9 +354,9 @@ export function FriendsSection({
       {state.status === "error" && (
         <ErrorToast message="Не удалось загрузить друзей. Проверьте подключение к игре." />
       )}
-      {state.status === "loading" && (
+      {(state.status === "loading" || state.status === "waiting") && (
         <div className="friends-list" aria-busy="true" role="status">
-          <span className="sr-only">Загружаем список друзей</span>
+          <span className="sr-only">Ждём список друзей</span>
           <Skeleton variant="control" />
           <div className="friends-filters">
             <Skeleton variant="control" />
@@ -347,6 +369,11 @@ export function FriendsSection({
       )}
       {state.status === "ready" && (
         <>
+          {state.stale && (
+            <CardDescription>
+              Показываем сохранённый список друзей.
+            </CardDescription>
+          )}
           {buddyFriends.length > 0 && (
             <BaseCard>
               <div className="friends-card-content">
@@ -411,18 +438,9 @@ export function FriendsSection({
               (player) =>
                 player.playerId === automation.friendRemoval.pending.playerId,
             ) && (
-              <div>
-                <CardDescription role="alert">
-                  Удаление друга не подтверждено.
-                </CardDescription>
-                <Button
-                  size="sm"
-                  disabled={actionBusy}
-                  onClick={() => void checkRemoval()}
-                >
-                  Проверить результат
-                </Button>
-              </div>
+              <CardDescription role="status">
+                Проверяем удаление друга.
+              </CardDescription>
             )}
           {(buddyFriends.length > 0 || automation?.buddyHelp?.hasPending) && (
             <BaseCard>
@@ -785,11 +803,7 @@ export function FriendsSection({
                           ? "warning"
                           : "secondary"
                       }
-                      disabled={
-                        actionBusy ||
-                        !automation ||
-                        Boolean(automation?.friendRemoval?.pending)
-                      }
+                      disabled={actionBusy || !automation}
                       onClick={() => {
                         if (
                           action?.kind === "remove" &&
@@ -868,19 +882,9 @@ export function FriendsSection({
                     )}
                   {automation?.friendRemoval?.pending?.playerId ===
                     player.playerId && (
-                    <>
-                      <CardDescription role="alert">
-                        Удаление не подтверждено. Повторная отправка
-                        заблокирована.
-                      </CardDescription>
-                      <Button
-                        size="sm"
-                        disabled={actionBusy}
-                        onClick={() => void checkRemoval()}
-                      >
-                        Проверить результат
-                      </Button>
-                    </>
+                    <CardDescription role="status">
+                      Проверяем удаление.
+                    </CardDescription>
                   )}
                 </div>
               </BaseCard>

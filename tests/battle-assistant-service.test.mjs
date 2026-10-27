@@ -29,6 +29,8 @@ function createHarness({
   totalDamage = 100,
   dropDamageRequired = 100,
   unknownPurchase = false,
+  lostPurchaseAfterApply = false,
+  unknownHeal = false,
   inviteResult = { invitedCount: 2 },
   nowStart = start,
   damageMax = 50,
@@ -199,6 +201,7 @@ function createHarness({
       quantity--;
       hp = Math.min(100, hp + 10);
       currentReadyAt = now;
+      if (unknownHeal) throw new Error("simulated lost heal reply");
       return Response.json({
         battle: rawBattle(),
         isDuplicate: false,
@@ -212,6 +215,8 @@ function createHarness({
         .combatItems.find((item) => item.type === body.type)
         .prices.find((item) => item.currency === body.currency).amount;
       balance[body.currency] -= body.quantity * price;
+      if (lostPurchaseAfterApply)
+        throw new Error("simulated lost purchase reply");
       return Response.json({ ok: true });
     }
     if (
@@ -863,6 +868,245 @@ test("character priority waits for the in-flight strike and auto battle resumes 
     );
   } finally {
     ctx.releaseAttack();
+    ctx.cleanup();
+  }
+});
+
+test("queued manual healing uses the assistant ledger and spends one item", async () => {
+  const ctx = createHarness({ health: 40, medicineQuantity: 2 });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await ctx.command(entry, "queued-heal-001", "queue.enqueue", {
+      type: "battle.heal",
+      action: { bossId: 7, battleId: "battle-1", type: "heal_10" },
+    });
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+    assert.equal(ctx.service.snapshot(entry).battle.healing.used.heal_10, 1);
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) => method === "POST" && path.endsWith("/items/use"),
+      ).length,
+      1,
+    );
+    assert.ok(
+      ctx.store
+        .read("101")
+        .assistant.queuedReceipts.includes("queued-heal-001"),
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("lost queued healing is reconciled after restart without consuming twice", async () => {
+  const ctx = createHarness({
+    health: 40,
+    medicineQuantity: 2,
+    unknownHeal: true,
+  });
+  try {
+    let entry = await ctx.open();
+    await ctx.service.boot();
+    await ctx.command(entry, "queued-heal-lost", "queue.enqueue", {
+      type: "battle.heal",
+      action: { bossId: 7, battleId: "battle-1", type: "heal_10" },
+    });
+    let end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "reconciling"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "reconciling",
+    );
+    assert.equal(
+      ctx.store.read("101").assistant.pending.queueId,
+      "queued-heal-lost",
+    );
+    ctx.restart();
+    await ctx.advance(30000);
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+    assert.equal(ctx.service.snapshot(entry).battle.healing.used.heal_10, 1);
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) => method === "POST" && path.endsWith("/items/use"),
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("queued healing runs safely between automatic battle steps", async () => {
+  const ctx = createHarness({ health: 40, medicineQuantity: 2 });
+  try {
+    const entry = await ctx.open();
+    await ctx.command(entry, "healing-config-queue", "healing.configure", {
+      settings,
+    });
+    await ctx.command(entry, "auto-before-healing", "auto.start");
+    await ctx.service.boot();
+    await ctx.command(entry, "heal-during-auto", "queue.enqueue", {
+      type: "battle.heal",
+      action: { bossId: 7, battleId: "battle-1", type: "heal_10" },
+    });
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    assert.equal(ctx.service.snapshot(entry).battle.healing.used.heal_10, 1);
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) => method === "POST" && path.endsWith("/items/use"),
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+const queuedMedicineQuote = {
+  type: "heal_10",
+  currency: "gold",
+  quantity: 2,
+  unitPrice: 5,
+  total: 10,
+};
+async function queueMedicinePurchase(
+  ctx,
+  entry,
+  id,
+  quote = queuedMedicineQuote,
+) {
+  return ctx.command(entry, id, "queue.enqueue", {
+    type: "battle.buy",
+    action: { bossId: 7, battleId: "battle-1", quote },
+  });
+}
+async function waitForQueuedPurchase(ctx, entry, status) {
+  const end = Date.now() + 4000;
+  while (
+    Date.now() < end &&
+    ctx.service.snapshot(entry).queuedActions[0].status !== status
+  )
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(ctx.service.snapshot(entry).queuedActions[0].status, status);
+}
+
+test("queued medicine purchase verifies price and wallet and spends once", async () => {
+  const ctx = createHarness({ health: 40, medicineQuantity: 1 });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await queueMedicinePurchase(ctx, entry, "queued-med-buy-1");
+    await waitForQueuedPurchase(ctx, entry, "completed");
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) =>
+          method === "POST" && path === "/api/me/bag/combat-items/buy",
+      ).length,
+      1,
+    );
+    assert.equal(ctx.service.snapshot(entry).battle.healing.spent.gold, 10);
+    assert.ok(
+      ctx.store
+        .read("101")
+        .assistant.queuedReceipts.includes("queued-med-buy-1"),
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("queued medicine purchase rejects a changed price before spending", async () => {
+  const ctx = createHarness({ health: 40, medicineQuantity: 1 });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await queueMedicinePurchase(ctx, entry, "queued-med-price", {
+      ...queuedMedicineQuote,
+      unitPrice: 4,
+      total: 8,
+    });
+    await waitForQueuedPurchase(ctx, entry, "failed");
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].reason,
+      "inventory_price_changed",
+    );
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) =>
+          method === "POST" && path === "/api/me/bag/combat-items/buy",
+      ).length,
+      0,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("lost medicine purchase is reconciled against stock and wallet after restart", async () => {
+  const ctx = createHarness({
+    health: 40,
+    medicineQuantity: 1,
+    lostPurchaseAfterApply: true,
+  });
+  try {
+    let entry = await ctx.open();
+    await ctx.service.boot();
+    await queueMedicinePurchase(ctx, entry, "queued-med-lost");
+    await waitForQueuedPurchase(ctx, entry, "reconciling");
+    assert.equal(
+      ctx.store.read("101").assistant.pending.queueId,
+      "queued-med-lost",
+    );
+    ctx.restart();
+    await ctx.advance(30000);
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    await waitForQueuedPurchase(ctx, entry, "completed");
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) =>
+          method === "POST" && path === "/api/me/bag/combat-items/buy",
+      ).length,
+      1,
+    );
+    assert.equal(ctx.service.snapshot(entry).battle.healing.spent.gold, 10);
+    assert.equal(ctx.service.snapshot(entry).battle.purchaseUncertain, false);
+  } finally {
     ctx.cleanup();
   }
 });

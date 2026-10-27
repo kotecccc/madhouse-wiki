@@ -5,6 +5,123 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 import { createAutomationService } from "../scripts/automation/service.mjs";
+import { inventoryGame } from "./helpers/inventory-game.mjs";
+
+test("queued floor start waits for resources and stop cancels it without touching other work", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "floor-queue-service-"));
+  const store = createAutomationStateStore({ directory });
+  const service = createAutomationService({
+    store,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    fetcher: async () => {
+      throw new Error("offline");
+    },
+    getBoss: () => null,
+  });
+  try {
+    const entry = await service.identify("Bearer test.payload.sig");
+    entry.floorActions.hasOtherWork = () => true;
+    await service.command(entry, {
+      id: "floor-queue-01",
+      command: "queue.enqueue",
+      expectedVersion: service.snapshot(entry).version,
+      args: { type: "floor.start", action: {} },
+    });
+    await entry.actionQueue.tick();
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "queued");
+    await service.command(entry, {
+      id: "floor-stop-01",
+      command: "floor.stop",
+      expectedVersion: service.snapshot(entry).version,
+      args: {},
+    });
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "cancelled");
+    assert.equal(service.snapshot(entry).floorRunner.status, "stopped");
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a recovered queue receipt reconciles while its floor runner is active", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "floor-queue-recovery-"));
+  const store = createAutomationStateStore({ directory });
+  const makeService = () =>
+    createAutomationService({
+      store,
+      identifyPlayer: async () => ({ playerId: 101 }),
+      fetcher: async () => {
+        throw new Error("offline");
+      },
+      getBoss: () => null,
+    });
+  let service = makeService();
+  try {
+    let entry = await service.identify("Bearer test.payload.sig");
+    await service.command(entry, {
+      id: "floor-queue-01",
+      command: "queue.enqueue",
+      expectedVersion: service.snapshot(entry).version,
+      args: { type: "floor.start", action: {} },
+    });
+    entry.floorRunner.start({ queueId: "floor-queue-01" });
+    service.close();
+    const saved = store.read("101");
+    saved.queuedActions[0].status = "running";
+    store.write("101", saved);
+    service = makeService();
+    entry = await service.identify("Bearer test.payload.sig");
+    assert.equal(entry.actionQueue.hasDue(), true);
+    await entry.actionQueue.tick();
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
+    assert.equal(service.snapshot(entry).floorRunner.queueId, "floor-queue-01");
+    assert.equal(service.snapshot(entry).floorRunner.status, "running");
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a short purchase can run while floor automation is planning", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "floor-queue-priority-"));
+  const store = createAutomationStateStore({ directory });
+  const game = inventoryGame();
+  const service = createAutomationService({
+    store,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    fetcher: game.fetcher,
+    getBoss: () => null,
+  });
+  try {
+    const entry = await service.identify("Bearer test.payload.sig");
+    entry.floorRunner.start();
+    await service.command(entry, {
+      id: "floor-purchase-1",
+      command: "queue.enqueue",
+      expectedVersion: service.snapshot(entry).version,
+      args: {
+        type: "inventory",
+        action: {
+          type: "weapon",
+          id: 1,
+          action: "buy",
+          price: { amount: 100, currency: "gold" },
+        },
+      },
+    });
+    assert.equal(entry.actionQueue.hasDue(), true);
+    await entry.actionQueue.tick();
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
+    assert.equal(game.mutations().length, 1);
+    assert.equal(service.snapshot(entry).floorRunner.status, "running");
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("floor mode owns a persisted work goal and stops it without a browser", async () => {
   const directory = mkdtempSync(join(tmpdir(), "floor-service-"));

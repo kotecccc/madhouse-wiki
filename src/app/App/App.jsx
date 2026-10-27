@@ -1,3 +1,5 @@
+import { ActionQueueSection } from "../../features/action-queue/ActionQueueSection.jsx";
+import { useActionQueue } from "../../features/action-queue/useActionQueue.js";
 import { AccountSummary } from "../../components/layout/SiteHeader/AccountSummary.jsx";
 import { Toast } from "../../components/ui/Toast/Toast.jsx";
 import { FriendsSection } from "../../features/friends/FriendsSection.jsx";
@@ -85,6 +87,15 @@ export function App() {
   const [friendsLoading, setFriendsLoading] = useState(false);
   const lastPull = useRef(0);
   const [sessionGeneration, setSessionGeneration] = useState(0);
+  const onFriendCompleted = useCallback(
+    () => setFriendsRefresh((value) => value + 1),
+    [],
+  );
+  const actionQueue = useActionQueue(
+    authenticated,
+    sessionGeneration,
+    onFriendCompleted,
+  );
   const [inventoryResponses, setInventoryResponses] = useState({});
   const [inventoryDirty, setInventoryDirty] = useState([]);
   const inventoryPathsSet = useRef(
@@ -356,15 +367,33 @@ export function App() {
                 onRetry={raidSchedule.retry}
               />
             </div>
+            {visibleScreen === "queue" && (
+              <div id="screen-queue" className="app-screen app-screen--queue">
+                <ActionQueueSection
+                  authenticated={authenticated}
+                  state={actionQueue.state}
+                  catalogue={kb}
+                  onCommand={actionQueue.command}
+                  pending={actionQueue.pending}
+                />
+                {actionQueue.error && (
+                  <CardDescription role="alert">
+                    {actionQueue.error}
+                  </CardDescription>
+                )}
+              </div>
+            )}
             {authenticated && visibleScreen === "friends" && (
               <div
                 id="screen-friends"
                 className="app-screen app-screen--friends"
               >
                 <FriendsSection
+                  key={sessionGeneration}
                   active
                   refreshGeneration={friendsRefresh}
                   onRefreshState={setFriendsLoading}
+                  onNotice={setInventoryNotice}
                 />
               </div>
             )}
@@ -392,8 +421,9 @@ export function App() {
         <BottomDock toastRef={setToastTarget}>
           {inventoryNotice ? (
             <Toast
-              urgent
-              title="Ошибка"
+              urgent={!inventoryNotice.success}
+              success={inventoryNotice.success}
+              title={inventoryNotice.success ? "В очереди" : "Ошибка"}
               onDismiss={() => setInventoryNotice(null)}
             >
               {inventoryNotice.message}

@@ -18,13 +18,19 @@ export function createAutomationHttp({
         "/api/automation/state",
         "/api/automation/commands",
         "/api/automation/launch",
+        "/api/automation/friends",
       ].includes(url.pathname) ||
       url.search
     )
       return json({ error: "unknown_automation_route" }, 404);
     if (!enabled)
       return json({ error: "automation_game_requests_disabled" }, 503);
-    const expectedMethod = url.pathname.endsWith("/state") ? "GET" : "POST";
+    const expectedMethod = [
+      "/api/automation/state",
+      "/api/automation/friends",
+    ].includes(url.pathname)
+      ? "GET"
+      : "POST";
     if (request.method !== expectedMethod)
       return json({ error: "method_not_allowed" }, 405);
     if (
@@ -64,7 +70,9 @@ export function createAutomationHttp({
       entry = await service.identify(request.headers.get("authorization"));
       return json(
         request.method === "GET"
-          ? service.snapshot(entry)
+          ? url.pathname.endsWith("/friends")
+            ? service.friends(entry, request.headers.get("authorization"))
+            : service.snapshot(entry)
           : url.pathname.endsWith("/launch")
             ? await service.launch(entry, input?.activeBossBattle)
             : await service.command(entry, input),

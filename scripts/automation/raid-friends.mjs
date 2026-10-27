@@ -7,6 +7,29 @@ const normalize = (value) =>
     .replace(/^@/, "")
     .toLowerCase();
 
+function rememberRequest(entry, id) {
+  if (id && !(entry.raidFriendReceipts ?? []).includes(id))
+    entry.raidFriendReceipts = [
+      ...(entry.raidFriendReceipts ?? []).slice(-127),
+      id,
+    ];
+}
+
+function unavailable(response, message) {
+  const error = fail(
+    [401, 403, 429].includes(response.status) ? response.status : 503,
+    message,
+  );
+  const header = response.headers?.get?.("Retry-After");
+  if (header) {
+    const delay = /^\d+$/.test(header)
+      ? Number(header) * 1000
+      : Date.parse(header) - Date.now();
+    if (Number.isFinite(delay) && delay >= 0) error.retryAfterMs = delay;
+  }
+  return error;
+}
+
 // Only an exact, unambiguous game identity is safe to use as the recipient.
 export function resolveRaidLeader(body, { playerId, username }) {
   const rows =
@@ -44,7 +67,9 @@ async function readList(fetcher, headers, path) {
       redirect: "error",
       signal: AbortSignal.timeout(20000),
     });
-    if (!response.ok) throw fail(503, "friend_status_unavailable");
+    if (!response.ok) {
+      throw unavailable(response, "friend_status_unavailable");
+    }
     const body = await response.json();
     if (
       !Array.isArray(body?.items) ||
@@ -173,13 +198,16 @@ export async function refreshWatchedRaidFriends({ entry, fetcher, save }) {
       status === "none"
     )
       status = "pending";
-    else if (currentId === target.playerId)
+    else if (currentId === target.playerId) {
+      if (current.pending && ["friend", "pending"].includes(status))
+        rememberRequest(entry, current.pending.id);
       entry.raidFriend = {
         pending: null,
         playerId: currentId,
         username: current.username,
         status,
       };
+    }
     entry.raidFriendStatuses[`id:${target.playerId}`] = status;
     if (target.username)
       entry.raidFriendStatuses[`name:${target.username}`] = status;
@@ -212,6 +240,8 @@ export async function reconcileRaidFriend({ entry, fetcher, save }) {
   if (entry.raidFriend?.pending && status === "none") return "uncertain";
   if (entry.raidFriend?.status === "pending" && status === "none")
     return "pending";
+  if (entry.raidFriend?.pending && ["friend", "pending"].includes(status))
+    rememberRequest(entry, entry.raidFriend.pending.id);
   entry.raidFriend = {
     pending: null,
     playerId,
@@ -238,7 +268,7 @@ export async function inspectRaidFriend({ entry, args, fetcher }) {
     `${root}/api/friends/search?${new URLSearchParams({ query })}`,
     { headers, redirect: "error", signal: AbortSignal.timeout(20000) },
   );
-  if (!response.ok) throw fail(503, "friend_search_unavailable");
+  if (!response.ok) throw unavailable(response, "friend_search_unavailable");
   const recipient = resolveRaidLeader(await response.json(), {
     playerId,
     username,
@@ -291,7 +321,7 @@ export async function requestRaidFriend({
     `${root}/api/friends/search?${new URLSearchParams({ query })}`,
     { headers, redirect: "error", signal: AbortSignal.timeout(20000) },
   );
-  if (!response.ok) throw fail(503, "friend_search_unavailable");
+  if (!response.ok) throw unavailable(response, "friend_search_unavailable");
   const recipient = resolveRaidLeader(await response.json(), {
     playerId,
     username,
@@ -307,6 +337,7 @@ export async function requestRaidFriend({
       username: normalize(username) || null,
       status: "pending",
     };
+    rememberRequest(entry, commandId);
     save(entry);
     return { playerId: recipient, status: "pending" };
   }
@@ -322,6 +353,7 @@ export async function requestRaidFriend({
       username: normalize(username) || null,
       status: before,
     };
+    rememberRequest(entry, commandId);
     save(entry);
     return { playerId: recipient, status: before };
   }
@@ -332,15 +364,30 @@ export async function requestRaidFriend({
   };
   save(entry);
   if (entry.storageFailed) throw fail(503, "automation_storage_unavailable");
-  if (!allowed()) throw fail(503, "automation_stopped");
-  const sent = await fetcher(`${root}/api/friends/requests`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ playerId: recipient }),
-    canDispatch: allowed,
-    redirect: "error",
-    signal: AbortSignal.timeout(20000),
-  });
+  if (!allowed()) {
+    entry.raidFriend.pending = null;
+    save(entry);
+    throw Object.assign(fail(503, "automation_stopped"), {
+      notDispatched: true,
+    });
+  }
+  let sent;
+  try {
+    sent = await fetcher(`${root}/api/friends/requests`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId: recipient }),
+      canDispatch: allowed,
+      redirect: "error",
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (error) {
+    if (error?.notDispatched) {
+      entry.raidFriend.pending = null;
+      save(entry);
+    }
+    throw error;
+  }
   if (!sent.ok) {
     throw fail(503, "friend_request_failed");
   }
@@ -357,6 +404,7 @@ export async function requestRaidFriend({
     username: normalize(username) || null,
     status: after,
   };
+  rememberRequest(entry, commandId);
   save(entry);
   return { playerId: recipient, status: after };
 }

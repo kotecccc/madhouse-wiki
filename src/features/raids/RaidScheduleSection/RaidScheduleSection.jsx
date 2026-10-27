@@ -121,7 +121,7 @@ export function RaidScheduleSection({
             onSubscribe={(leader, boss, username) =>
               void raidSubscriptions.start(leader, boss, username)
             }
-            onUnsubscribe={() => void raidSubscriptions.stop()}
+            onUnsubscribe={(queueId) => void raidSubscriptions.stop(queueId)}
             onRequestFriend={(target) =>
               void raidSubscriptions.requestFriend(
                 target.playerId ?? null,

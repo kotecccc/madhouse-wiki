@@ -13,7 +13,7 @@ import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import { BossPortrait } from "../BossPortrait/BossPortrait.jsx";
-import { canAttackBattle, battleActionHint } from "./boss-battle-controller.js";
+import { battleActionHint } from "./boss-battle-controller.js";
 import { medicineNames } from "./boss-medicines.js";
 import { fmt } from "../../../lib/format.js";
 import {
@@ -130,6 +130,15 @@ export function BossBattlePanel({
     : 0;
   const expired = battle?.expiresAt != null && battle.expiresAt <= now;
   const hint = battleActionHint(state);
+  const queuedAttack = state.queuedBattleActions?.some(
+    (job) => job.type === "battle.attack" && job.args.battleId === battle?.id,
+  );
+  const canQueueAttack = Boolean(
+    state.boss?.id &&
+    battle?.id &&
+    battle.status === "active" &&
+    !state.medicineOpen,
+  );
   const countdown =
     battle?.status === "active" && !battle.outcome
       ? formatBattleCountdown(battle.expiresAt, now)
@@ -315,17 +324,28 @@ export function BossBattlePanel({
           <Button
             variant="primary"
             icon="combat"
-            disabled={auto.enabled || !canAttackBattle(state, now)}
-            title={auto.enabled ? "Ручной удар недоступен в авторежиме" : hint}
+            disabled={auto.enabled || !canQueueAttack || queuedAttack}
+            title={
+              queuedAttack
+                ? "Удар в очереди"
+                : auto.enabled
+                  ? "Ручной удар недоступен в авторежиме"
+                  : state.needsRefresh &&
+                      ![401, 403].includes(state.errorStatus)
+                    ? "Удар дождётся проверки состояния игры"
+                    : hint
+            }
             onClick={onAttack}
           >
-            {auto.enabled
-              ? "Ударить"
-              : state.pending === "attack"
-                ? "Удар…"
-                : waiting > 0
-                  ? `Ударить · ${waiting} с`
-                  : "Ударить"}
+            {queuedAttack
+              ? "В очереди"
+              : auto.enabled
+                ? "Ударить"
+                : state.pending === "attack"
+                  ? "Удар…"
+                  : waiting > 0
+                    ? `Ударить · ${waiting} с`
+                    : "Ударить"}
           </Button>
         </div>
       ) : null}

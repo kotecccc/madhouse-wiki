@@ -114,7 +114,8 @@ export function BusinessAssistantDialog({
     (duration == null || [1, 2, 4].includes(duration));
   const busy = state.pending;
   const run = state.run;
-  const running = run?.status === "running";
+  const queued = state.queuedBusinessIds?.includes(business.id);
+  const running = ["running", "paused"].includes(run?.status);
   const selectedBoss = (item) => {
     const choices = item.bosses || [];
     return (
@@ -511,16 +512,18 @@ export function BusinessAssistantDialog({
           )}
           <Button
             variant="primary"
-            disabled={busy || running || !state.loaded || !runReady}
+            disabled={busy || running || queued || !state.loaded || !runReady}
             onClick={() => setRunConfirmation(true)}
           >
-            {plan.config.autoUpgrade
-              ? "Улучшить бизнес"
-              : "Собрать все материалы"}
+            {queued
+              ? "В очереди"
+              : plan.config.autoUpgrade
+                ? "Улучшить бизнес"
+                : "Собрать все материалы"}
           </Button>
         </BaseCard>
       )}
-      {run && run.status !== "running" && run.status !== "completed" && (
+      {run && !["running", "paused", "completed"].includes(run.status) && (
         <ErrorToast message={run.reason || "Выполнение остановлено."} />
       )}
       {run && run.status === "completed" && (
@@ -540,14 +543,16 @@ export function BusinessAssistantDialog({
           <CardTitle as="h3">
             {run.config?.autoUpgrade ? "Улучшение бизнеса" : "Сбор материалов"}{" "}
             ·{" "}
-            {{
-              preparing: "подготовка",
-              opening: "выбор босса",
-              farming: "бой",
-              verifying: "проверка запасов",
-              upgrading: "улучшение бизнеса",
-              retrying: "ожидание проверки",
-            }[run.phase] || "подготовка"}
+            {run.status === "paused"
+              ? "на паузе"
+              : {
+                  preparing: "подготовка",
+                  opening: "выбор босса",
+                  farming: "бой",
+                  verifying: "проверка запасов",
+                  upgrading: "улучшение бизнеса",
+                  retrying: "ожидание проверки",
+                }[run.phase] || "подготовка"}
           </CardTitle>
           <CardDescription>
             {run.name} · уровень {run.targetLevel} · общий лимит боёв:{" "}

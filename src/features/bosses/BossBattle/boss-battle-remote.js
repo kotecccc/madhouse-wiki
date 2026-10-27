@@ -101,6 +101,7 @@ export function createRemoteBattleSession({
   let openingRequirements = [];
   let server = null;
   let serverReady = false;
+  let battleCommandError = null;
   let snapshot = EMPTY_BATTLE;
   let autoSnapshot = EMPTY_AUTO;
   let goalSnapshot = null;
@@ -143,7 +144,21 @@ export function createRemoteBattleSession({
     snapshot = Object.freeze({
       ...EMPTY_BATTLE,
       ...battleState,
+      error: battleCommandError || battleState.error || null,
       raid: server?.raid ?? EMPTY_RAID,
+      queuedBattleActions: (server?.queuedActions ?? []).filter(
+        (job) =>
+          [
+            "battle.start",
+            "battle.attack",
+            "battle.heal",
+            "battle.buy",
+          ].includes(job.type) &&
+          ["queued", "waiting", "running", "reconciling"].includes(
+            job.status,
+          ) &&
+          Number(job.args.bossId) === numericId(battleState.boss ?? localBoss),
+      ),
       boss: battleState.boss ?? localBoss ?? null,
       visible,
       openingRequirements:
@@ -169,6 +184,15 @@ export function createRemoteBattleSession({
     notify(pvpListeners, pvpSnapshot);
     businessSnapshot = Object.freeze({
       ...(server?.businessAssistant ?? EMPTY_BUSINESS),
+      queuedBusinessIds: (server?.queuedActions ?? [])
+        .filter(
+          (job) =>
+            job.type === "business.start" &&
+            ["queued", "waiting", "running", "reconciling"].includes(
+              job.status,
+            ),
+        )
+        .map((job) => job.args.businessId),
       loaded: Boolean(server?.businessAssistant),
       pending: pendingCommands > 0,
       error: transportError || businessCommandError,
@@ -193,6 +217,15 @@ export function createRemoteBattleSession({
     notify(workFarmListeners, workFarmSnapshot);
     floorSnapshot = Object.freeze({
       ...(server?.floorRunner ?? { status: "stopped" }),
+      queuedId: (server?.queuedActions ?? []).find(
+        (job) =>
+          job.type === "floor.start" &&
+          !job.cancelRequested &&
+          ["queued", "waiting", "running", "reconciling"].includes(
+            job.status,
+          ) &&
+          job.id !== server?.floorRunner?.queueId,
+      )?.id,
       loaded: Boolean(server),
       pending: pendingCommands > 0,
       error: transportError || floorCommandError,
@@ -201,6 +234,15 @@ export function createRemoteBattleSession({
     invitationSnapshot = Object.freeze({
       ...EMPTY_INVITATIONS,
       ...(server?.invitations ?? {}),
+      queuedIds: (server?.queuedActions ?? [])
+        .filter(
+          (job) =>
+            job.type === "invitation.accept" &&
+            ["queued", "waiting", "running", "reconciling"].includes(
+              job.status,
+            ),
+        )
+        .map((job) => job.args.invitationId),
       pending: pendingCommands > 0,
       unresolved: Boolean(server?.battle?.pendingInvitation),
       blocked: Boolean(
@@ -212,11 +254,33 @@ export function createRemoteBattleSession({
       error: transportError || invitationCommandError,
     });
     notify(invitationListeners, invitationSnapshot);
+    const friend = server?.raidFriend ?? { statuses: {} };
+    const friendStatuses = { ...friend.statuses };
+    for (const job of server?.queuedActions ?? []) {
+      if (
+        job.type !== "friend.request" ||
+        !["queued", "waiting", "running", "reconciling"].includes(job.status)
+      )
+        continue;
+      if (job.args.playerId)
+        friendStatuses[`id:${job.args.playerId}`] = "queued";
+      if (job.args.username)
+        friendStatuses[`name:${job.args.username}`] = "queued";
+    }
     subscriptionSnapshot = Object.freeze({
       detectedRaids: server?.detectedRaids ?? [],
       subscription: server?.subscription ?? null,
+      queuedSubscriptions: (server?.queuedActions ?? []).filter(
+        (job) =>
+          job.type === "subscription.start" &&
+          !job.cancelRequested &&
+          ["queued", "waiting", "running", "reconciling"].includes(
+            job.status,
+          ) &&
+          job.id !== server?.subscription?.queueId,
+      ),
       loaded: connected && serverReady,
-      friend: server?.raidFriend ?? { statuses: {} },
+      friend: { ...friend, statuses: friendStatuses },
       friendError: friendCommandError,
       pending: pendingCommands > 0,
       error: transportError || invitationCommandError,
@@ -226,6 +290,7 @@ export function createRemoteBattleSession({
 
   function setServerState(value) {
     transportError = null;
+    battleCommandError = null;
     workCommandError = null;
     businessCommandError = null;
     floorCommandError = null;
@@ -242,8 +307,21 @@ export function createRemoteBattleSession({
         incomingVersion < currentVersion
       )
     ) {
+      const joined =
+        value.battle?.invitationOnly &&
+        value.battle?.battle?.id &&
+        (value.queuedActions ?? []).some(
+          (job) =>
+            job.type === "invitation.accept" &&
+            job.status === "completed" &&
+            job.args.battleId === value.battle.battle.id &&
+            (server?.queuedActions ?? []).some(
+              (old) => old.id === job.id && old.status !== "completed",
+            ),
+        );
       server = value;
       serverReady = true;
+      if (joined) localOpen(value.battle.boss);
     }
     publish();
   }
@@ -269,7 +347,10 @@ export function createRemoteBattleSession({
       server?.businessAssistant?.run?.status === "running" ||
       server?.workFarm?.run?.status === "running" ||
       server?.floorRunner?.status === "running" ||
-      server?.characterUpgrade?.run?.status === "running"
+      server?.characterUpgrade?.run?.status === "running" ||
+      server?.queuedActions?.some((job) =>
+        ["queued", "waiting", "running", "reconciling"].includes(job.status),
+      )
     );
   }
   const pollInterval = () =>
@@ -422,10 +503,29 @@ export function createRemoteBattleSession({
       command === "character.stop" ||
       command === "work.stop";
     const floorStop = command === "floor.stop";
-    if (!connected || (!urgent && !floorStop && pendingCommands > 0))
+    const enqueue = command === "queue.enqueue";
+    if (
+      enqueue &&
+      ["battle.start", "battle.attack", "battle.heal", "battle.buy"].includes(
+        args.type,
+      )
+    )
+      battleCommandError = null;
+    if (
+      !connected ||
+      (!urgent && !floorStop && !enqueue && pendingCommands > 0)
+    )
       return false;
-    if (command.startsWith("floor.")) floorCommandError = null;
-    if (command.startsWith("raid.friend.")) friendCommandError = null;
+    if (
+      command.startsWith("floor.") ||
+      (enqueue && args.type === "floor.start")
+    )
+      floorCommandError = null;
+    if (
+      command.startsWith("raid.friend.") ||
+      (enqueue && args.type === "friend.request")
+    )
+      friendCommandError = null;
     pendingCommands++;
     publish();
     const run = epoch;
@@ -435,7 +535,7 @@ export function createRemoteBattleSession({
         try {
           value = await request("POST", "/api/automation/commands", {
             id: commandId(makeId),
-            expectedVersion: server?.version ?? null,
+            expectedVersion: server?.version ?? (enqueue ? 0 : null),
             command,
             args,
           });
@@ -460,7 +560,10 @@ export function createRemoteBattleSession({
       return true;
     } catch (error) {
       if (!connected || run !== epoch) return false;
-      if (command.startsWith("floor.")) {
+      if (
+        command.startsWith("floor.") ||
+        (enqueue && args.type === "floor.start")
+      ) {
         floorCommandError =
           "Не удалось изменить авторежим. Проверьте активные цели и повторите попытку.";
         publish();
@@ -468,13 +571,17 @@ export function createRemoteBattleSession({
       if (
         error?.status === 409 &&
         error.snapshot &&
-        command.startsWith("subscription.")
+        (command.startsWith("subscription.") ||
+          (enqueue && args.type === "subscription.start"))
       ) {
         invitationCommandError =
           "Состояние изменилось. Проверьте рейд и попробуйте снова.";
         publish();
       }
-      if (command.startsWith("raid.friend.")) {
+      if (
+        command.startsWith("raid.friend.") ||
+        (enqueue && args.type === "friend.request")
+      ) {
         friendCommandError =
           "Не удалось проверить или изменить заявку. Проверьте состояние и попробуйте снова.";
         publish();
@@ -488,6 +595,31 @@ export function createRemoteBattleSession({
           "Состояние изменилось. Проверьте план и попробуйте снова.";
         publish();
       }
+      if (enqueue && args.type === "work.booster") {
+        workCommandError =
+          error?.message || "Не удалось добавить действие в очередь.";
+        publish();
+      }
+      if (enqueue && args.type === "invitation.accept") {
+        invitationCommandError = "Не удалось добавить приглашение в очередь.";
+        publish();
+      }
+      if (enqueue && args.type === "business.start") {
+        businessCommandError =
+          error?.status === 409
+            ? "Состояние изменилось. Проверьте план и попробуйте снова."
+            : "Не удалось добавить сбор в очередь. Проверьте план.";
+        publish();
+      }
+      if (
+        enqueue &&
+        ["battle.start", "battle.attack", "battle.heal", "battle.buy"].includes(
+          args.type,
+        )
+      ) {
+        battleCommandError = "Не удалось добавить действие в очередь.";
+        publish();
+      }
       if (command.startsWith("character.")) {
         characterCommandError =
           error?.status === 409
@@ -498,7 +630,8 @@ export function createRemoteBattleSession({
       if (
         !(error?.status === 409 && error.snapshot) &&
         !command.startsWith("raid.friend.") &&
-        !command.startsWith("character.")
+        !command.startsWith("character.") &&
+        !enqueue
       ) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (
@@ -601,20 +734,55 @@ export function createRemoteBattleSession({
     open,
     close,
     reset,
-    start: () => send("start"),
-    startNextBattle: () => send("next"),
-    attack: () => send("attack"),
+    start: () =>
+      send("queue.enqueue", {
+        type: "battle.start",
+        action: {
+          bossId: numericId(localBoss) ?? numericId(server?.battle?.boss),
+        },
+      }),
+    startNextBattle: () =>
+      send("queue.enqueue", {
+        type: "battle.start",
+        action: {
+          bossId: numericId(localBoss) ?? numericId(server?.battle?.boss),
+        },
+      }),
+    attack: () =>
+      send("queue.enqueue", {
+        type: "battle.attack",
+        action: {
+          bossId: numericId(server?.battle?.boss),
+          battleId: server?.battle?.battle?.id ?? null,
+        },
+      }),
     refresh: () => send("refresh"),
     hydrateDetails: () => send("hydrate"),
     openMedicines: () => send("medicines.open"),
     closeMedicines: () => send("medicines.close"),
     configureHealing: (settings) => send("healing.configure", { settings }),
     acknowledgeHealing: () => send("healing.ack"),
-    useMedicine: (type) => send("medicine.use", { type }),
+    useMedicine: (type) =>
+      send("queue.enqueue", {
+        type: "battle.heal",
+        action: {
+          bossId: numericId(server?.battle?.boss),
+          battleId: server?.battle?.battle?.id ?? null,
+          type,
+        },
+      }),
     preparePurchase: (type, currency, quantity) =>
       send("purchase.prepare", { type, currency, quantity }),
     cancelPurchase: () => send("purchase.cancel"),
-    buyMedicine: () => send("purchase.buy"),
+    buyMedicine: () =>
+      send("queue.enqueue", {
+        type: "battle.buy",
+        action: {
+          bossId: numericId(server?.battle?.boss),
+          battleId: server?.battle?.battle?.id ?? null,
+          quote: server?.battle?.purchase ?? null,
+        },
+      }),
     acknowledgePurchase: () => send("purchase.ack"),
   };
 
@@ -624,9 +792,13 @@ export function createRemoteBattleSession({
       return () => autoListeners.delete(listener);
     },
     getSnapshot: () => autoSnapshot,
-    start: (settings) => send("auto.start", settings ? { settings } : {}),
+    start: (settings) =>
+      settings
+        ? send("queue.enqueue", { type: "auto.start", action: { settings } })
+        : send("auto.start"),
     stop: () => send("auto.stop"),
-    startRaid: (settings) => send("raid.start", { settings }),
+    startRaid: (settings) =>
+      send("queue.enqueue", { type: "raid.start", action: { settings } }),
     stopRaid: () => send("raid.stop"),
   };
   const goal = {
@@ -680,7 +852,8 @@ export function createRemoteBattleSession({
     save: (args) => send("business.save", args),
     refresh: (businessId) => send("business.refresh", { businessId }),
     createGoal: (args) => send("business.goal", args),
-    startRun: (args) => send("business.run.start", args),
+    startRun: (args) =>
+      send("queue.enqueue", { type: "business.start", action: args }),
     stopRun: () => send("business.run.stop"),
   };
   const characterUpgrade = {
@@ -703,9 +876,11 @@ export function createRemoteBattleSession({
     getSnapshot: () => workFarmSnapshot,
     refresh: (workId, options = {}) =>
       send("work.refresh", { workId, ...options }),
-    useBooster: (workId, type) => send("work.booster.use", { workId, type }),
+    useBooster: (workId, type) =>
+      send("queue.enqueue", { type: "work.booster", action: { workId, type } }),
     plan: (args) => send("work.plan", args),
-    start: (args) => send("work.start", args),
+    start: (args) =>
+      send("queue.enqueue", { type: "work.start", action: args }),
     stop: () => send("work.stop"),
   };
   const bossInvitations = {
@@ -716,7 +891,10 @@ export function createRemoteBattleSession({
     getSnapshot: () => invitationSnapshot,
     refresh: () => send("invitations.refresh"),
     async accept(invitationId) {
-      const accepted = await send("invitations.accept", { invitationId });
+      const accepted = await send("queue.enqueue", {
+        type: "invitation.accept",
+        action: { invitationId },
+      });
       if (
         accepted &&
         server?.battle?.battle &&
@@ -727,7 +905,7 @@ export function createRemoteBattleSession({
         localOpen(server.battle.boss);
         return true;
       }
-      return false;
+      return accepted;
     },
     async reconcile() {
       const refreshed = await send("invitations.refresh");
@@ -756,13 +934,22 @@ export function createRemoteBattleSession({
       if (connected) schedulePoll(0);
     },
     start: (leaderPlayerId, bossId, leaderUsername) =>
-      send("subscription.start", { leaderPlayerId, bossId, leaderUsername }),
-    stop: () => send("subscription.stop"),
+      send("queue.enqueue", {
+        type: "subscription.start",
+        action: { leaderPlayerId, bossId, leaderUsername },
+      }),
+    stop: (queueId) =>
+      queueId
+        ? send("queue.cancel", { id: queueId })
+        : send("subscription.stop"),
     checkFriends: (targets) => send("raid.friend.check", { targets }),
     inspectFriend: (playerId, username) =>
       send("raid.friend.inspect", { playerId, username }),
     requestFriend: (playerId, username) =>
-      send("raid.friend.request", { playerId, username }),
+      send("queue.enqueue", {
+        type: "friend.request",
+        action: { playerId, username },
+      }),
     refreshFriend: () => send("raid.friend.refresh"),
   };
   const floorAutomation = {
@@ -771,7 +958,7 @@ export function createRemoteBattleSession({
       return () => floorListeners.delete(listener);
     },
     getSnapshot: () => floorSnapshot,
-    start: () => send("floor.start"),
+    start: () => send("queue.enqueue", { type: "floor.start", action: {} }),
     stop: () => send("floor.stop"),
   };
   return Object.freeze({

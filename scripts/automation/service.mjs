@@ -4,6 +4,23 @@ import { weaponEquipment } from "./weapon-equipment.mjs";
 import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
+import { createActionQueue, retryDelay } from "./action-queue.mjs";
+import { queuedInventoryAdapter } from "./queued-inventory.mjs";
+import { queuedFriendRemovalAdapter } from "./queued-friend-removal.mjs";
+import { queuedFriendSettingAdapter } from "./queued-friend-setting.mjs";
+import { queuedFriendRequestAdapter } from "./queued-friend-request.mjs";
+import { queuedWorkBoosterAdapter } from "./queued-work-booster.mjs";
+import { queuedWorkRunAdapter } from "./queued-work-run.mjs";
+import { queuedSubscriptionAdapter } from "./queued-subscription.mjs";
+import { queuedBattleStartAdapter } from "./queued-battle-start.mjs";
+import { queuedBattleAttackAdapter } from "./queued-battle-attack.mjs";
+import { queuedBattleHealAdapter } from "./queued-battle-heal.mjs";
+import { queuedBattlePurchaseAdapter } from "./queued-battle-purchase.mjs";
+import { queuedInvitationAdapter } from "./queued-invitation.mjs";
+import { queuedBusinessRunAdapter } from "./queued-business-run.mjs";
+import { queuedFloorRunAdapter } from "./queued-floor-run.mjs";
+import { queuedBattleSeriesAdapter } from "./queued-battle-series.mjs";
+import { readFriendSnapshot } from "./friend-snapshot.mjs";
 import {
   emptyBusinessHelper,
   selectBusiness,
@@ -74,18 +91,28 @@ const safeCommands = new Set([
   "raid.friend.refresh",
   "inventory.refresh",
   "raid.stop",
+  "raid.pause",
+  "raid.resume",
   "invitations.refresh",
   "subscription.stop",
   "business.run.stop",
+  "business.run.pause",
+  "business.run.resume",
   "work.stop",
+  "work.pause",
+  "work.resume",
   "work.refresh",
   "auto.stop",
+  "auto.pause",
+  "auto.resume",
   "goal.stop",
   "pvp.refresh",
   "business.select",
   "business.refresh",
 ]);
 const commands = new Set([
+  "queue.enqueue",
+  "queue.cancel",
   "buddy.set",
   "buddy.order",
   "buddy.configure",
@@ -110,6 +137,8 @@ const commands = new Set([
   "equipment.refresh",
   "raid.start",
   "raid.stop",
+  "raid.pause",
+  "raid.resume",
   "invitations.refresh",
   "invitations.accept",
   "subscription.start",
@@ -119,6 +148,8 @@ const commands = new Set([
   "work.start",
   "work.booster.use",
   "work.stop",
+  "work.pause",
+  "work.resume",
   "open",
   "refresh",
   "hydrate",
@@ -136,6 +167,8 @@ const commands = new Set([
   "purchase.ack",
   "auto.start",
   "auto.stop",
+  "auto.pause",
+  "auto.resume",
   "goal.configure",
   "goal.stop",
   "goal.reset",
@@ -147,6 +180,8 @@ const commands = new Set([
   "business.goal",
   "business.run.start",
   "business.run.stop",
+  "business.run.pause",
+  "business.run.resume",
 ]);
 
 // One wiki process owns all actors and timers. Browser connections are observers.
@@ -182,6 +217,8 @@ export function createAutomationService({
   let closed = false;
   let booting = false;
   let heartbeat = null;
+  let actionQueueReadyAt = 0;
+  let actionQueueFailures = 0;
   const owner = randomUUID();
   function ensureLease() {
     if (closed || !store.acquireLease(owner, now(), 15000))
@@ -200,8 +237,17 @@ export function createAutomationService({
       cache: "no-store",
       signal: AbortSignal.timeout(20000),
     });
-    if (!response.ok)
-      throw failure(response.status, "game_session_unavailable");
+    if (!response.ok) {
+      const error = failure(response.status, "game_session_unavailable");
+      const header = response.headers?.get?.("Retry-After");
+      if (header) {
+        const delay = /^\d+$/.test(header)
+          ? Number(header) * 1000
+          : Date.parse(header) - now();
+        if (Number.isFinite(delay) && delay >= 0) error.retryAfterMs = delay;
+      }
+      throw error;
+    }
     const text = await response.text();
     if (Buffer.byteLength(text) > 4 * 1024 * 1024)
       throw failure(502, "game_response_too_large");
@@ -219,8 +265,23 @@ export function createAutomationService({
       redirect: "error",
       signal: AbortSignal.timeout(20000),
     });
-    if (!response.ok || response.headers.get("X-Madhouse-Snapshot") === "stale")
-      throw failure(503, "character_profile_unavailable");
+    if (
+      !response.ok ||
+      response.headers.get("X-Madhouse-Snapshot") === "stale"
+    ) {
+      const error = failure(
+        [401, 403, 429].includes(response.status) ? response.status : 503,
+        "character_profile_unavailable",
+      );
+      const header = response.headers.get("Retry-After");
+      if (header) {
+        const delay = /^\d+$/.test(header)
+          ? Number(header) * 1000
+          : Date.parse(header) - now();
+        if (Number.isFinite(delay) && delay >= 0) error.retryAfterMs = delay;
+      }
+      throw error;
+    }
     const raw = await response.json();
     if (
       entry.credential !== credential ||
@@ -285,12 +346,17 @@ export function createAutomationService({
       workFarm: entry.workFarm.exportState(),
       floorRunner: entry.floorRunner?.getSnapshot() ?? null,
       auto: entry.auto.exportState(),
+      pausedAuto: entry.pausedAuto,
+      manualBattle: entry.manualBattle,
+      pendingAutomation: entry.pendingAutomation,
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
       equipment: entry.equipment,
       buddyHelp: entry.buddyHelp,
       friendRemoval: entry.friendRemoval,
+      friendSnapshot: entry.friendSnapshot,
       raidFriend: entry.raidFriend,
+      raidFriendReceipts: entry.raidFriendReceipts,
       raidFriendStatuses: entry.raidFriendStatuses,
       raidFriendWatch: entry.raidFriendWatch,
       preferences: entry.preferences,
@@ -299,6 +365,7 @@ export function createAutomationService({
       raid: entry.raidWorker.getSnapshot(),
       raidSubscription: entry.raidSubscription?.getSnapshot() ?? null,
       receipts: entry.receipts,
+      queuedActions: entry.queuedActions,
       updatedAt: now(),
     };
   }
@@ -313,7 +380,13 @@ export function createAutomationService({
       entry.storageFailed = true;
     }
   }
-  async function submitCharacterPoint(entry, expected, allowed, onConfirmed) {
+  async function submitCharacterPoint(
+    entry,
+    expected,
+    allowed,
+    onConfirmed,
+    runId,
+  ) {
     const credential = entry.credential;
     const permitted = () =>
       allowed() &&
@@ -331,6 +404,7 @@ export function createAutomationService({
       },
       allowed: permitted,
       onConfirmed,
+      runId,
       post: async (body) => {
         const response = await fetcher(
           "https://cargohustle.online/api/character-stats/upgrade",
@@ -380,9 +454,29 @@ export function createAutomationService({
       entry.characterUpgrade?.pending || entry.characterBatch?.running(),
     );
   }
-  function canAct(entry) {
-    if (characterPriorityActive(entry)) return false;
+  function workPriorityActive(entry) {
+    const run = entry.workFarm?.getSnapshot().run;
+    if (
+      run?.status !== "running" ||
+      entry.collector?.running() ||
+      entry.floorRunner?.getSnapshot().status === "running" ||
+      entry.raidSubscription?.getSnapshot().checkpoint
+    )
+      return false;
+    return !(
+      ["waiting", "retrying"].includes(run.phase) &&
+      (run.nextActionAt ?? 0) > now() &&
+      !run.pending
+    );
+  }
+  function canAct(entry, ignoreInventory = false) {
+    if (
+      (!ignoreInventory && entry.inventoryBusy) ||
+      characterPriorityActive(entry)
+    )
+      return false;
     if (entry.workFarm?.getSnapshot().manualPending) return false;
+    if (entry.manualBattle?.pending && !entry.queueBattleDispatch) return false;
     if (accountHealth(entry.credential)?.status === "credentials_invalid")
       return false;
     const goal = updateGoal(entry);
@@ -487,6 +581,7 @@ export function createAutomationService({
         entry.invitations.items,
         now(),
       ),
+      queuedActions: entry.actionQueue.snapshot(),
       gameHealth: accountHealth(entry.credential),
       version: entry.version,
       serverTime: now(),
@@ -512,6 +607,8 @@ export function createAutomationService({
       auto: {
         ...entry.auto.getSnapshot(),
         enabled: entry.auto.getSnapshot().enabled || entry.collector.running(),
+        userPaused: Boolean(entry.pausedAuto),
+        resumeRequested: Boolean(entry.pausedAuto?.resumeRequested),
       },
       pvp: entry.pvp,
       equipment: entry.equipment,
@@ -593,7 +690,17 @@ export function createAutomationService({
       },
       buddyHelpNextAt: 0,
       friendRemoval: saved?.friendRemoval ?? { pending: null },
+      friendSnapshot: saved?.friendSnapshot ?? {
+        items: null,
+        updatedAt: null,
+        failures: 0,
+        nextAt: 0,
+        enabled: false,
+      },
+      friendSnapshotRefreshing: false,
+      friendRemovalRefreshing: false,
       raidFriend: saved?.raidFriend ?? { pending: null, status: null },
+      raidFriendReceipts: saved?.raidFriendReceipts ?? [],
       raidFriendStatuses: saved?.raidFriendStatuses ?? {},
       raidFriendWatch: saved?.raidFriendWatch ?? {},
       raidFriendRefreshAt: 0,
@@ -607,6 +714,12 @@ export function createAutomationService({
       },
       raidObservations: observeRaids(saved?.raidObservations, [], now()),
       receipts: saved?.receipts ?? [],
+      queuedActions: saved?.queuedActions ?? [],
+      queueActiveBooster: false,
+      pausedAuto: saved?.pausedAuto ?? null,
+      manualBattle: saved?.manualBattle ?? { pending: null, receipts: [] },
+      pendingAutomation: saved?.pendingAutomation ?? null,
+      queueBattleDispatch: null,
       version: saved?.version ?? 0,
       pvp: saved?.pvp
         ? {
@@ -656,9 +769,13 @@ export function createAutomationService({
               return false;
             if (init.method !== "POST") return true;
             ensureLease();
+            const operationId = JSON.parse(init.body || "null")?.operationId;
+            const queued = entry.queueBattleDispatch;
             return (
               dispatchGeneration === (entry.autoStartGeneration ?? 0) &&
-              canAct(entry)
+              (queued && queued.operationId === operationId
+                ? queued.canDispatch() && canAct(entry, true)
+                : canAct(entry))
             );
           },
         }).catch((error) => {
@@ -666,12 +783,24 @@ export function createAutomationService({
             entry.assistant?.releaseUnsent(
               JSON.parse(init.body || "null")?.operationId,
             );
+          if (
+            error.notDispatched &&
+            entry.manualBattle.pending?.operationId ===
+              JSON.parse(init.body || "null")?.operationId
+          ) {
+            if (entry.manualBattle.pending.kind === "invitation")
+              entry.controller.releaseUnsentInvitation(
+                entry.manualBattle.pending.invitationId,
+              );
+            entry.manualBattle.pending = null;
+            save(entry);
+          }
           throw error;
         });
         const automated = () =>
           !closed &&
           !entry.storageFailed &&
-          canAct(entry) &&
+          canAct(entry, true) &&
           (entry.auto?.getSnapshot().enabled ||
             entry.raidWorker?.getSnapshot().enabled ||
             entry.collector?.running());
@@ -720,7 +849,10 @@ export function createAutomationService({
         !entry.auto.getSnapshot().enabled && !entry.collector?.running(),
       canStartBattle: () =>
         entry.goal.canStart() && (entry.collector?.canStartBattle() ?? true),
-      canSendMutation: () => canAct(entry) && !entry.equipment?.pending,
+      canSendMutation: () =>
+        (entry.queueBattleDispatch
+          ? entry.queueBattleDispatch.canDispatch() && canAct(entry, true)
+          : canAct(entry)) && !entry.equipment?.pending,
       getPlayerIdentity: () => entry.player,
     });
     if (saved?.battle) entry.controller.restoreState(saved.battle);
@@ -741,8 +873,12 @@ export function createAutomationService({
       saved: saved?.assistant,
       now,
       random,
-      available: () => !closed && !entry.storageFailed && canAct(entry),
-      priorityActive: () => characterPriorityActive(entry),
+      available: () =>
+        !closed &&
+        !entry.storageFailed &&
+        canAct(entry, Boolean(entry.queueBattleDispatch)),
+      priorityActive: () =>
+        characterPriorityActive(entry) || entry.inventoryBusy,
       readAvailable: () =>
         !closed && !entry.storageFailed && Boolean(entry.credential),
       refreshAvailability,
@@ -756,7 +892,7 @@ export function createAutomationService({
       controller: {
         ...entry.controller,
         attack: (options) => entry.assistant.step(options),
-        start: () => entry.assistant.startBattle(),
+        start: ({ allowed } = {}) => entry.assistant.startBattle({ allowed }),
         nextActionAt: (at) => entry.assistant.nextActionAt(at),
         startNextBattle: ({ allowed = () => true } = {}) =>
           entry.assistant.startBattle({
@@ -776,6 +912,7 @@ export function createAutomationService({
       schedule,
       cancel,
       random,
+      priorityActive: () => workPriorityActive(entry),
     });
     entry.collector = createBusinessCollector({
       helper: entry.businessHelper,
@@ -784,7 +921,16 @@ export function createAutomationService({
       auto: entry.auto,
       getCatalogue: getBusinessCatalogue,
       getBoss,
-      priorityActive: () => characterPriorityActive(entry),
+      priorityActive: () =>
+        characterPriorityActive(entry) || entry.inventoryBusy,
+      canResume: () =>
+        !entry.raidWorker.getSnapshot().enabled &&
+        !entry.raidWorker.getSnapshot().userPaused &&
+        !entry.auto.getSnapshot().enabled &&
+        !entry.pausedAuto &&
+        entry.floorRunner.getSnapshot().status !== "running" &&
+        !entry.raidSubscription.getSnapshot().checkpoint &&
+        !entry.inventoryBusy,
       get: (path) => gameJson(entry.credential, path),
       upgrade: (run, valid) => {
         const business = getBusinessCatalogue().businesses.find(
@@ -842,6 +988,7 @@ export function createAutomationService({
         !closed &&
         !entry.storageFailed &&
         Boolean(entry.credential) &&
+        !entry.raidPolling &&
         !entry.inventoryBusy &&
         !entry.equipment?.pending &&
         !entry.characterUpgrade.pending &&
@@ -850,9 +997,26 @@ export function createAutomationService({
         !entry.businessHelper.run?.pendingUpgrade &&
         !entry.controller.getSnapshot().pending &&
         (mode === "energy" ||
-          (!entry.auto.getSnapshot().enabled &&
+          ((!entry.auto.getSnapshot().enabled ||
+            (["between_battles", "yielding"].includes(
+              entry.auto.getSnapshot().phase,
+            ) &&
+              workPriorityActive(entry))) &&
             !entry.collector.running() &&
             entry.controller.getSnapshot().battle?.status !== "active")),
+      manualReconcileManaged: () =>
+        accountHealth(entry.credential)?.status === "credentials_invalid" ||
+        Boolean(
+          entry.actionQueue
+            ?.snapshot()
+            .some(
+              (job) =>
+                job.type === "work.booster" &&
+                ["queued", "waiting", "running", "reconciling"].includes(
+                  job.status,
+                ),
+            ),
+        ),
       getStash: async () => {
         const response = await snapshotFetch(
           "https://cargohustle.online/api/stash/sets",
@@ -865,7 +1029,7 @@ export function createAutomationService({
         (getBusinessCatalogue().works || []).find(
           (work) => Number(work.workId ?? work.numericId ?? work.apiId) === id,
         ),
-      request: async (method, path, body, { signal } = {}) => {
+      request: async (method, path, body, { signal, canDispatch } = {}) => {
         if (closed || entry.storageFailed || !entry.credential)
           throw failure(503, "automation_stopped");
         save(entry);
@@ -884,12 +1048,23 @@ export function createAutomationService({
           signal: signal
             ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
             : AbortSignal.timeout(20000),
+          ...(canDispatch ? { canDispatch } : {}),
         });
-        if (!response.ok)
-          throw failure(
+        if (!response.ok) {
+          const error = failure(
             response.status,
             `Сервис работёнок временно недоступен (HTTP ${response.status}). Запрос не повторён.`,
           );
+          const header = response.headers.get("Retry-After");
+          if (header) {
+            const delay = /^\d+$/.test(header)
+              ? Number(header) * 1000
+              : Date.parse(header) - now();
+            if (Number.isFinite(delay) && delay >= 0)
+              error.retryAfterMs = delay;
+          }
+          throw error;
+        }
         const text = await response.text();
         if (Buffer.byteLength(text) > 4 * 1024 * 1024)
           throw failure(502, "Слишком большой ответ игры.");
@@ -907,7 +1082,15 @@ export function createAutomationService({
       state: entry.controller.getSnapshot,
       goal: entry.goal,
       auto: entry.auto,
-      priorityActive: () => characterPriorityActive(entry),
+      priorityActive: () =>
+        characterPriorityActive(entry) || entry.inventoryBusy,
+      workPriority: () => workPriorityActive(entry),
+      canResume: () =>
+        !entry.collector.running() &&
+        !entry.auto.getSnapshot().enabled &&
+        !entry.pausedAuto &&
+        entry.floorRunner.getSnapshot().status !== "running" &&
+        !entry.raidSubscription.getSnapshot().checkpoint,
       available: () =>
         !closed &&
         !entry.storageFailed &&
@@ -916,6 +1099,7 @@ export function createAutomationService({
       lock: () => {
         if (
           entry.busy ||
+          (workPriorityActive(entry) && !entry.workFarm.canSuspend()) ||
           (characterPriorityActive(entry) &&
             !characterBattleUncertain(
               entry.controller.getSnapshot(),
@@ -924,9 +1108,11 @@ export function createAutomationService({
         )
           return false;
         entry.busy = true;
+        entry.raidPolling = true;
         return true;
       },
       unlock: () => {
+        entry.raidPolling = false;
         entry.busy = false;
       },
       refresh: async ({ force = false } = {}) => {
@@ -943,12 +1129,13 @@ export function createAutomationService({
       invitations: () => entry.invitations.items,
       accept: (id, allowed) => acceptInvitation(entry, id, allowed),
       startSolo: async (allowed) => {
-        if (!allowed() || !entry.goal.canStart()) return;
+        if (!allowed() || workPriorityActive(entry) || !entry.goal.canStart())
+          return;
         if (!entry.controller.allowSoloContinuation()) return;
         startAssistant();
         await entry.assistant.startBattle({
           next: Boolean(entry.controller.getSnapshot().battle),
-          allowed,
+          allowed: () => allowed() && !workPriorityActive(entry),
         });
       },
       onChange: () => save(entry),
@@ -964,7 +1151,8 @@ export function createAutomationService({
     entry.raidSubscription = createRaidSubscription({
       saved: saved?.raidSubscription,
       now,
-      priorityActive: () => characterPriorityActive(entry),
+      priorityActive: () =>
+        characterPriorityActive(entry) || entry.inventoryBusy,
       persist: () => {
         save(entry);
         return !entry.storageFailed;
@@ -1139,7 +1327,8 @@ export function createAutomationService({
     entry.floorRunner = createFloorRunner({
       saved: saved?.floorRunner,
       ...entry.floorActions,
-      priorityActive: () => characterPriorityActive(entry),
+      priorityActive: () =>
+        characterPriorityActive(entry) || entry.inventoryBusy,
       persist: () => {
         save(entry);
         return !entry.storageFailed;
@@ -1149,8 +1338,8 @@ export function createAutomationService({
     entry.characterBatch = createCharacterStatBatch({
       state: entry.characterUpgrade,
       read: () => readCharacterProfile(entry, entry.credential),
-      step: (quote, allowed, confirmed) =>
-        submitCharacterPoint(entry, quote, allowed, confirmed),
+      step: (quote, allowed, confirmed, runId) =>
+        submitCharacterPoint(entry, quote, allowed, confirmed, runId),
       persist: () => {
         save(entry);
         return !entry.storageFailed;
@@ -1183,6 +1372,312 @@ export function createAutomationService({
       schedule,
       cancel,
       now,
+      random,
+    });
+    const startedQueueActor = (job) =>
+      job.status === "reconciling" &&
+      ((job.type === "floor.start" && entry.floorRunner.hasStarted(job.id)) ||
+        (job.type === "work.start" &&
+          (entry.workFarm.getSnapshot().startReceipts ?? []).includes(
+            job.id,
+          )) ||
+        (job.type === "subscription.start" &&
+          (entry.raidSubscription.getSnapshot().startReceipts ?? []).includes(
+            job.id,
+          )));
+    const floorBlocksQueue = (job) => {
+      const floor = entry.floorRunner.getSnapshot();
+      if (floor.phase === "launching") return true;
+      if (floor.status !== "running") return false;
+      return ![
+        "inventory",
+        "friend.remove",
+        "friend.request",
+        "friend.favorite",
+        "friend.buddy",
+        "subscription.start",
+      ].includes(job.type);
+    };
+    const queueBlockedBy = (job) => {
+      if (closed || entry.storageFailed) return "storage";
+      if (
+        !entry.credential ||
+        accountHealth(entry.credential)?.status === "credentials_invalid"
+      )
+        return "credentials";
+      if (startedQueueActor(job)) return null;
+      if (entry.busy || entry.inventoryBusy) return "action";
+      if (
+        !entry.collector.idleForPriority() ||
+        (entry.assistant.projection().uncertain &&
+          entry.assistant.queuedState().pending?.queueId !== job.id) ||
+        (entry.manualBattle.pending &&
+          entry.manualBattle.pending.id !== job.id) ||
+        (entry.pendingAutomation && entry.pendingAutomation.id !== job.id) ||
+        entry.businessHelper.run?.pendingUpgrade ||
+        !(
+          entry.workFarm.canSuspend() ||
+          (job.type === "work.booster" && entry.workFarm.canReconcileManual())
+        ) ||
+        entry.characterBatch.running() ||
+        floorBlocksQueue(job) ||
+        entry.raidSubscription.getSnapshot().checkpoint ||
+        entry.controller.getSnapshot().pending
+      )
+        return "action";
+      if (now() < actionQueueReadyAt)
+        return actionQueueFailures ? "game" : "rate";
+      return null;
+    };
+    entry.actionQueue = createActionQueue({
+      saved: entry.queuedActions,
+      adapters: {
+        inventory: queuedInventoryAdapter({ entry, fetcher, save }),
+        "friend.remove": queuedFriendRemovalAdapter({ entry, fetcher, save }),
+        "friend.favorite": queuedFriendSettingAdapter({
+          entry,
+          fetcher,
+          save,
+          kind: "favorite",
+        }),
+        "friend.buddy": queuedFriendSettingAdapter({
+          entry,
+          fetcher,
+          save,
+          kind: "buddy",
+        }),
+        "friend.request": queuedFriendRequestAdapter({ entry, fetcher, save }),
+        "battle.start": queuedBattleStartAdapter({ entry, getBoss, save }),
+        "battle.attack": queuedBattleAttackAdapter({ entry, save, now }),
+        "battle.heal": queuedBattleHealAdapter({ entry }),
+        "business.start": queuedBusinessRunAdapter({
+          entry,
+          getCatalogue: getBusinessCatalogue,
+        }),
+        "floor.start": queuedFloorRunAdapter({ entry }),
+        ...Object.fromEntries(
+          ["auto", "raid"].map((mode) => [
+            `${mode}.start`,
+            queuedBattleSeriesAdapter({
+              entry,
+              mode,
+              getBoss,
+              save,
+              refresh: () => refreshAutoDamageLimit(entry),
+              configure: (settings, state) =>
+                configureAutoGoal(entry, settings, state),
+              matches: (settings, state) =>
+                autoGoalMatches(entry, settings, state),
+            }),
+          ]),
+        ),
+        "invitation.accept": queuedInvitationAdapter({
+          entry,
+          now,
+          save,
+          accept: (id, allowed, expected, beforeSend) =>
+            acceptInvitation(entry, id, allowed, expected, beforeSend),
+          refresh: () => refreshInvitations(entry, true),
+        }),
+        "battle.buy": queuedBattlePurchaseAdapter({
+          entry,
+          readWallet: async (currency) =>
+            (await gameJson(entry.credential, "/api/me"))?.wallet?.[currency],
+        }),
+        "work.booster": queuedWorkBoosterAdapter({ entry }),
+        "work.start": queuedWorkRunAdapter({ entry }),
+        "subscription.start": queuedSubscriptionAdapter({
+          entry,
+          getBoss,
+          now,
+          refresh: () => refreshInvitations(entry, true),
+        }),
+      },
+      persist: (items) => {
+        entry.queuedActions = items;
+        save(entry);
+        return !entry.storageFailed;
+      },
+      now,
+      random,
+      blockedBy: queueBlockedBy,
+      ready: () => now() >= actionQueueReadyAt,
+      eligible: (job) =>
+        job.type === "subscription.start"
+          ? job.status === "reconciling" ||
+            (!entry.raidSubscription.getSnapshot().enabled &&
+              !entry.raidSubscription.getSnapshot().checkpoint)
+          : job.type === "work.start"
+            ? job.status === "reconciling" ||
+              (!["running", "paused"].includes(
+                entry.workFarm.getSnapshot().run?.status,
+              ) &&
+                !entry.workFarm.getSnapshot().manualPending &&
+                !entry.workFarm.getSnapshot().run?.pending)
+            : job.type === "floor.start"
+              ? job.status === "reconciling" ||
+                (entry.floorRunner.getSnapshot().status !== "running" &&
+                  !entry.floorActions.hasOtherWork())
+              : ["auto.start", "raid.start"].includes(job.type)
+                ? job.status === "reconciling" ||
+                  (!entry.auto.getSnapshot().enabled &&
+                    !entry.collector.running() &&
+                    entry.businessHelper.run?.status !== "paused" &&
+                    !entry.pausedAuto &&
+                    !entry.raidWorker.getSnapshot().enabled &&
+                    !entry.raidWorker.getSnapshot().userPaused &&
+                    !entry.controller.getSnapshot().pendingInvitation &&
+                    (job.type === "auto.start" ||
+                      entry.controller.getSnapshot().battle?.status !==
+                        "active"))
+                : job.type === "business.start"
+                  ? job.status === "reconciling" ||
+                    (!entry.auto.getSnapshot().enabled &&
+                      !entry.collector.running() &&
+                      entry.businessHelper.run?.status !== "paused" &&
+                      !entry.raidWorker.getSnapshot().enabled &&
+                      !entry.raidWorker.getSnapshot().userPaused &&
+                      !entry.pausedAuto &&
+                      entry.goal.getSnapshot()?.status !== "active" &&
+                      entry.controller.getSnapshot().battle?.status !==
+                        "active" &&
+                      !entry.controller.getSnapshot().pendingInvitation)
+                  : job.type === "invitation.accept"
+                    ? job.status === "reconciling" ||
+                      entry.queueBattleDispatch ||
+                      job.args.expiresAt <= now() ||
+                      (!entry.auto.getSnapshot().enabled &&
+                        !entry.collector.running() &&
+                        !entry.raidWorker.getSnapshot().enabled &&
+                        !entry.pausedAuto &&
+                        !entry.raidWorker.getSnapshot().userPaused &&
+                        entry.controller.getSnapshot().battle?.status !==
+                          "active" &&
+                        !entry.controller.getSnapshot().pendingInvitation)
+                    : ["battle.attack", "battle.heal", "battle.buy"].includes(
+                          job.type,
+                        )
+                      ? job.status === "reconciling" ||
+                        entry.queueBattleDispatch ||
+                        ((["battle.heal", "battle.buy"].includes(job.type) ||
+                          (!entry.auto.getSnapshot().enabled &&
+                            !entry.collector.running() &&
+                            !entry.raidWorker.getSnapshot().enabled &&
+                            !entry.pausedAuto &&
+                            !entry.raidWorker.getSnapshot().userPaused)) &&
+                          (entry.controller.getSnapshot().battle?.id !==
+                            job.args.battleId ||
+                            entry.controller.getSnapshot().battle?.status !==
+                              "active" ||
+                            now() >=
+                              (entry.controller.getSnapshot().battle?.readyAt ??
+                                0)))
+                      : job.type === "battle.start"
+                        ? job.status === "reconciling" ||
+                          entry.queueBattleDispatch ||
+                          (!entry.auto.getSnapshot().enabled &&
+                            !entry.collector.running() &&
+                            !entry.raidWorker.getSnapshot().enabled &&
+                            !entry.pausedAuto &&
+                            !entry.raidWorker.getSnapshot().userPaused &&
+                            entry.controller.getSnapshot().battle?.status !==
+                              "active" &&
+                            !entry.controller.getSnapshot().pendingInvitation)
+                        : job.type === "work.booster"
+                          ? (entry.queueActiveBooster ||
+                              entry.workFarm.canSuspendForManual()) &&
+                            (job.status === "reconciling" ||
+                              (!entry.auto.getSnapshot().enabled &&
+                                !entry.collector.running() &&
+                                !entry.raidWorker.getSnapshot().enabled &&
+                                entry.controller.getSnapshot().battle
+                                  ?.status !== "active" &&
+                                !entry.controller.getSnapshot()
+                                  .pendingInvitation))
+                          : job.status === "reconciling" ||
+                            job.type === "friend.remove" ||
+                            job.type === "friend.request" ||
+                            job.type === "friend.favorite" ||
+                            job.type === "friend.buddy" ||
+                            job.type === "subscription.start" ||
+                            job.args.action === "buy" ||
+                            entry.controller.getSnapshot().battle?.status !==
+                              "active",
+      onAttempt: () => {
+        actionQueueReadyAt = now() + 1000;
+      },
+      onResult: (result) => {
+        if (Number.isFinite(result.retryAfterMs) && result.retryAfterMs > 0)
+          actionQueueReadyAt = Math.max(
+            actionQueueReadyAt,
+            now() + result.retryAfterMs,
+          );
+        if (result.reason === "Ожидаем игру.") {
+          const delay = Math.min(
+            300000,
+            10000 * 2 ** Math.min(actionQueueFailures++, 5),
+          );
+          actionQueueReadyAt = Math.max(
+            actionQueueReadyAt,
+            now() + delay,
+            now() + (result.retryAfterMs ?? 0),
+          );
+        } else if (result.status === "completed") actionQueueFailures = 0;
+      },
+      allowed: (job) => {
+        try {
+          ensureLease();
+        } catch {
+          entry.storageFailed = true;
+          return false;
+        }
+        if (
+          !closed &&
+          !entry.storageFailed &&
+          entry.credential &&
+          accountHealth(entry.credential)?.status !== "credentials_invalid" &&
+          startedQueueActor(job)
+        )
+          return true;
+        return (
+          !closed &&
+          !entry.storageFailed &&
+          Boolean(entry.credential) &&
+          accountHealth(entry.credential)?.status !== "credentials_invalid" &&
+          entry.collector.idleForPriority() &&
+          (!entry.assistant.projection().uncertain ||
+            entry.assistant.queuedState().pending?.queueId === job.id) &&
+          (!entry.manualBattle.pending ||
+            entry.manualBattle.pending.id === job.id) &&
+          (!entry.pendingAutomation || entry.pendingAutomation.id === job.id) &&
+          (![
+            "battle.start",
+            "battle.attack",
+            "battle.heal",
+            "battle.buy",
+            "invitation.accept",
+          ].includes(job.type) ||
+            job.status === "reconciling" ||
+            (!entry.equipment?.pending && canAct(entry, true))) &&
+          !entry.businessHelper.run?.pendingUpgrade &&
+          (entry.workFarm.canSuspend() ||
+            (job.type === "work.booster" &&
+              (entry.queueActiveBooster ||
+                entry.workFarm.canReconcileManual()))) &&
+          !entry.characterBatch.running() &&
+          !floorBlocksQueue(job) &&
+          !entry.raidSubscription.getSnapshot().checkpoint &&
+          (!entry.controller.getSnapshot().pending ||
+            ([
+              "battle.start",
+              "battle.attack",
+              "battle.heal",
+              "battle.buy",
+              "invitation.accept",
+            ].includes(job.type) &&
+              entry.queueBattleDispatch))
+        );
+      },
     });
     let savedGoal = JSON.stringify(entry.goal.exportState());
     entry.unsubscribers = [entry.controller, entry.auto].map((source) =>
@@ -1213,7 +1708,10 @@ export function createAutomationService({
       }
     }
     actors.set(playerId, entry);
-    if (entry.credential && entry.characterBatch.running())
+    if (
+      entry.credential &&
+      (entry.characterBatch.running() || entry.characterBatch.recovering())
+    )
       entry.characterBatch.resume();
     return entry;
   }
@@ -1396,7 +1894,10 @@ export function createAutomationService({
       entry.invitations.notice =
         "Не удалось обновить приглашения. Попробуйте позже.";
       save(entry);
-      throw failure(error.status || 502, "invitations_unavailable");
+      const wrapped = failure(error.status || 502, "invitations_unavailable");
+      if (Number.isFinite(error.retryAfterMs))
+        wrapped.retryAfterMs = error.retryAfterMs;
+      throw wrapped;
     }
   }
   async function refreshPendingFriend(entry) {
@@ -1420,6 +1921,109 @@ export function createAutomationService({
       // Keep the durable checkpoint and retry reads only.
     } finally {
       entry.raidFriendRefreshing = false;
+    }
+  }
+  async function refreshFriendSnapshot(entry) {
+    const record = entry.friendSnapshot;
+    if (
+      closed ||
+      booting ||
+      !record.enabled ||
+      entry.friendSnapshotRefreshing ||
+      !entry.credential ||
+      entry.storageFailed ||
+      entry.busy ||
+      entry.inventoryBusy ||
+      entry.actionQueue.hasDue() ||
+      entry.characterBatch.running() ||
+      !entry.collector.idleForPriority() ||
+      entry.controller.getSnapshot().pending ||
+      now() < (record.nextAt ?? 0) ||
+      accountHealth(entry.credential)?.status === "credentials_invalid"
+    )
+      return;
+    const credential = entry.credential;
+    entry.friendSnapshotRefreshing = true;
+    entry.busy = true;
+    entry.inventoryBusy = true;
+    record.failures = (record.failures ?? 0) + 1;
+    record.nextAt = now() + retryDelay(record.failures - 1, random);
+    save(entry);
+    try {
+      if (entry.storageFailed) return;
+      const items = await readFriendSnapshot({ fetcher, credential });
+      if (entry.credential !== credential || closed) return;
+      const previous = { ...record };
+      record.items = items;
+      record.updatedAt = now();
+      record.failures = 0;
+      record.nextAt = now() + 300000;
+      if (
+        Buffer.byteLength(
+          JSON.stringify({ playerId: entry.playerId, value: persisted(entry) }),
+        ) > 3500000
+      ) {
+        Object.assign(record, previous);
+        record.nextAt = now() + 3600000;
+        throw new Error("friends_capacity_exceeded");
+      }
+      save(entry);
+    } catch (error) {
+      if (Number.isFinite(error.retryAfterMs))
+        record.nextAt = Math.max(record.nextAt, now() + error.retryAfterMs);
+      save(entry);
+    } finally {
+      entry.inventoryBusy = false;
+      entry.busy = false;
+      entry.friendSnapshotRefreshing = false;
+    }
+  }
+  async function refreshPendingFriendRemoval(entry) {
+    const pending = entry.friendRemoval?.pending;
+    if (
+      closed ||
+      entry.storageFailed ||
+      !entry.credential ||
+      !pending ||
+      entry.busy ||
+      entry.inventoryBusy ||
+      entry.friendRemovalRefreshing ||
+      now() < (entry.friendRemoval.nextCheckAt ?? 0) ||
+      accountHealth(entry.credential)?.status === "credentials_invalid" ||
+      entry.actionQueue
+        .snapshot()
+        .some(
+          (job) =>
+            job.type === "friend.remove" &&
+            ["queued", "waiting", "running", "reconciling"].includes(
+              job.status,
+            ),
+        )
+    )
+      return;
+    entry.friendRemovalRefreshing = true;
+    entry.busy = true;
+    entry.inventoryBusy = true;
+    entry.friendRemoval.failures = (entry.friendRemoval.failures ?? 0) + 1;
+    entry.friendRemoval.nextCheckAt =
+      now() + retryDelay(entry.friendRemoval.failures - 1, random);
+    save(entry);
+    try {
+      if (!entry.storageFailed)
+        await reconcileFriendRemoval({ entry, fetcher, save });
+    } catch (error) {
+      // Only reads are retried; the uncertain deletion is never sent again.
+      if (Number.isFinite(error.retryAfterMs) && entry.friendRemoval.pending) {
+        entry.friendRemoval.nextCheckAt = Math.max(
+          entry.friendRemoval.nextCheckAt,
+          now() + error.retryAfterMs,
+        );
+        save(entry);
+      }
+    } finally {
+      entry.friendRemovalRefreshing = false;
+      entry.inventoryBusy = false;
+      entry.busy = false;
     }
   }
   function discoverInvitations(entry) {
@@ -1454,6 +2058,7 @@ export function createAutomationService({
     invitationId,
     allowed = () => true,
     expected = null,
+    beforeSend = () => true,
   ) {
     if (
       typeof invitationId !== "string" ||
@@ -1486,8 +2091,10 @@ export function createAutomationService({
       throw failure(409, "invitation_unavailable");
     if (
       expected &&
-      (invitation.leaderPlayerId !== expected.leaderPlayerId ||
-        invitation.inviterPlayerId !== expected.inviterPlayerId ||
+      ((expected.leaderPlayerId != null &&
+        invitation.leaderPlayerId !== expected.leaderPlayerId) ||
+        (expected.inviterPlayerId != null &&
+          invitation.inviterPlayerId !== expected.inviterPlayerId) ||
         invitation.bossId !== expected.bossId ||
         invitation.battleId !== expected.battleId)
     )
@@ -1545,14 +2152,15 @@ export function createAutomationService({
       if (!entry.controller.adoptJoinedInvitation(boss, raw))
         throw failure(409, "invitation_state_uncertain");
     } else {
+      if (!allowed() || !canAct(entry, Boolean(entry.queueBattleDispatch)))
+        throw failure(409, "raid_stopped");
       const goal = entry.goal.getSnapshot();
       if (
         goal &&
         (goal.boss.id !== invitation.bossId || goal.status !== "active")
       )
         entry.goal.reset();
-      if (!allowed() || !canAct(entry)) throw failure(409, "raid_stopped");
-      await entry.controller.acceptInvitation(boss, invitation);
+      await entry.controller.acceptInvitation(boss, invitation, { beforeSend });
       if (
         entry.controller.getSnapshot().pendingInvitation ||
         entry.controller.getSnapshot().needsRefresh ||
@@ -1582,7 +2190,13 @@ export function createAutomationService({
       const entry = await actor(cached.playerId);
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
-      return entry;
+      // A different verified session may have replaced this actor's saved
+      // credential. Never let an old cached token operate using the new one.
+      if (
+        entry.credential === authorization &&
+        accountHealth(authorization)?.status !== "credentials_invalid"
+      )
+        return entry;
     }
     if (loading.has(hash)) return loading.get(hash);
     const promise = (async () => {
@@ -1625,14 +2239,11 @@ export function createAutomationService({
       loading.delete(hash);
     }
   }
-  function configureAutoGoal(entry, settingsInput, state) {
-    if (settingsInput == null) return;
+  function resolvedAutoGoal(settingsInput, state) {
     if (!state.boss || settingsInput.bossId !== state.boss.id)
       throw failure(400, "goal_boss_mismatch");
-    if (entry.auto.getSnapshot().enabled)
-      throw failure(409, "automation_controls_the_battle");
     const resolved = resolveBossGoal(settingsInput, state.boss);
-    const settings = {
+    return {
       ...resolved,
       targetCount: ["time", "drops"].includes(resolved.kind)
         ? null
@@ -1643,8 +2254,11 @@ export function createAutomationService({
           ? resolved.targetCount
           : null),
     };
+  }
+  function autoGoalMatches(entry, settingsInput, state) {
+    const settings = resolvedAutoGoal(settingsInput, state);
     const previous = entry.goal.exportState()?.settings;
-    const unchanged =
+    return Boolean(
       entry.goal.getSnapshot()?.status === "active" &&
       previous &&
       [
@@ -1659,8 +2273,57 @@ export function createAutomationService({
           (previous[key] ?? (key === "countWins" ? false : null)) ===
           (settings[key] ?? (key === "countWins" ? false : null)),
       ) &&
-      JSON.stringify(previous.items) === JSON.stringify(settings.items);
-    if (!unchanged) entry.goal.configure(settings);
+      JSON.stringify(previous.items) === JSON.stringify(settings.items),
+    );
+  }
+  function configureAutoGoal(entry, settingsInput, state) {
+    if (settingsInput == null) return;
+    if (entry.auto.getSnapshot().enabled)
+      throw failure(409, "automation_controls_the_battle");
+    const settings = resolvedAutoGoal(settingsInput, state);
+    if (!autoGoalMatches(entry, settingsInput, state))
+      entry.goal.configure(settings);
+  }
+  function tryResumePausedAuto(entry) {
+    const paused = entry.pausedAuto;
+    const goal = entry.goal.getSnapshot();
+    if (paused && goal && goal.status !== "active") {
+      entry.pausedAuto = null;
+      save(entry);
+      return;
+    }
+    if (
+      !paused?.resumeRequested ||
+      now() < (paused.nextAttemptAt ?? 0) ||
+      entry.storageFailed ||
+      closed ||
+      !entry.credential ||
+      entry.busy ||
+      entry.inventoryBusy ||
+      entry.controller.getSnapshot().pending ||
+      entry.equipment?.pending ||
+      entry.workFarm.getSnapshot().manualPending ||
+      entry.floorRunner.getSnapshot().status === "running" ||
+      entry.raidWorker.getSnapshot().enabled ||
+      entry.collector.running() ||
+      entry.raidSubscription.getSnapshot().checkpoint ||
+      entry.characterBatch.running()
+    )
+      return;
+    const state = entry.controller.getSnapshot();
+    if (state.boss?.id !== paused.checkpoint?.bossId) return;
+    paused.nextAttemptAt = now() + 10000;
+    save(entry);
+    if (entry.storageFailed) return;
+    if (
+      entry.auto.start({
+        checkpoint: paused.checkpoint,
+        resumeAt: paused.checkpoint.nextAttackAt,
+      })
+    ) {
+      entry.pausedAuto = null;
+      save(entry);
+    }
   }
   async function command(entry, input) {
     if (
@@ -1675,6 +2338,134 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
+    if (input.command === "queue.enqueue") {
+      if (
+        ![
+          "inventory",
+          "friend.remove",
+          "friend.favorite",
+          "friend.buddy",
+          "friend.request",
+          "work.booster",
+          "work.start",
+          "subscription.start",
+          "battle.start",
+          "battle.attack",
+          "battle.heal",
+          "battle.buy",
+          "invitation.accept",
+          "business.start",
+          "floor.start",
+          "auto.start",
+          "raid.start",
+        ].includes(input.args?.type)
+      )
+        throw failure(400, "invalid_queue_type");
+      const knownJob = entry.actionQueue
+        .snapshot()
+        .find((job) => job.id === input.id);
+      if (entry.receipts.includes(input.id) && !knownJob)
+        throw failure(409, "automation_command_already_received");
+      const previousReceipts = entry.receipts;
+      if (!entry.receipts.includes(input.id))
+        entry.receipts = [...entry.receipts.slice(-127), input.id];
+      try {
+        let action = input.args.action;
+        if (input.args.type === "invitation.accept") {
+          action =
+            knownJob?.type === "invitation.accept"
+              ? knownJob.args
+              : entry.invitations.items.find(
+                  (item) =>
+                    item.invitationId === input.args.action?.invitationId,
+                );
+          if (!knownJob && (!action?.available || action.expiresAt <= now()))
+            throw failure(409, "invitation_unavailable");
+        }
+        const job = entry.actionQueue.add({
+          id: input.id,
+          type: input.args.type,
+          args: action,
+          priority:
+            input.args.type === "invitation.accept"
+              ? 60
+              : input.args.type === "work.start"
+                ? 20
+                : [
+                      "business.start",
+                      "auto.start",
+                      "raid.start",
+                      "floor.start",
+                      "subscription.start",
+                    ].includes(input.args.type)
+                  ? 15
+                  : 30,
+        });
+        // Equivalent clicks may reuse an existing job; their own receipt must
+        // still be durable before the response is returned.
+        if (
+          entry.receipts !== previousReceipts &&
+          (knownJob || job.id !== input.id)
+        )
+          save(entry);
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+      } catch (error) {
+        entry.receipts = previousReceipts;
+        throw failure(entry.storageFailed ? 503 : 400, error.message);
+      }
+      if (input.args.type === "battle.buy") entry.controller.cancelPurchase();
+      return snapshot(entry);
+    }
+    if (input.command === "queue.cancel") {
+      if (typeof input.args?.id !== "string")
+        throw failure(400, "invalid_queue_id");
+      entry.actionQueue.stop(input.args.id);
+      if (
+        entry.floorRunner.getSnapshot().queueId === input.args.id &&
+        entry.floorRunner.getSnapshot().status !== "stopped"
+      ) {
+        entry.floorRunner.stop();
+        entry.raidSubscription.discardFloorCheckpoint();
+      }
+      if (
+        entry.workFarm.getSnapshot().run?.queueId === input.args.id &&
+        ["running", "paused"].includes(entry.workFarm.getSnapshot().run?.status)
+      )
+        entry.workFarm.stop();
+      if (
+        entry.raidSubscription.getSnapshot().mode === "subscription" &&
+        entry.raidSubscription.getSnapshot().queueId === input.args.id
+      )
+        entry.raidSubscription.stop();
+      return snapshot(entry);
+    }
+    if (
+      entry.manualBattle.pending &&
+      [
+        "open",
+        "start",
+        "next",
+        "attack",
+        "auto.start",
+        "raid.start",
+        "invitations.accept",
+        "goal.configure",
+        "goal.reset",
+      ].includes(input.command)
+    )
+      throw failure(409, "battle_start_uncertain");
+    if (
+      entry.pendingAutomation &&
+      [
+        "auto.start",
+        "raid.start",
+        "goal.configure",
+        "goal.reset",
+        "business.run.start",
+      ].includes(input.command)
+    )
+      throw failure(409, "automation_start_pending");
     if (entry.raidFriendRefreshing && input.command.startsWith("raid.friend."))
       throw failure(409, "friend_status_pending");
     if (
@@ -1692,6 +2483,8 @@ export function createAutomationService({
       ![
         "floor.stop",
         "business.run.stop",
+        "business.run.pause",
+        "business.run.resume",
         "friends.reconcile",
         "character.refresh",
         "character.stop",
@@ -1703,9 +2496,15 @@ export function createAutomationService({
         "invitations.refresh",
         "subscription.stop",
         "work.stop",
+        "work.pause",
+        "work.resume",
         "work.refresh",
         "auto.stop",
+        "auto.pause",
+        "auto.resume",
         "raid.stop",
+        "raid.pause",
+        "raid.resume",
         "goal.stop",
         "pvp.refresh",
         "inventory.refresh",
@@ -1757,15 +2556,23 @@ export function createAutomationService({
       ![
         "floor.stop",
         "raid.stop",
+        "raid.pause",
+        "raid.resume",
         "subscription.stop",
         "auto.stop",
+        "auto.pause",
+        "auto.resume",
         "goal.stop",
         "business.run.stop",
+        "business.run.pause",
+        "business.run.resume",
         "character.stop",
         "character.upgrade",
         "character.start",
         "character.startAll",
         "work.stop",
+        "work.pause",
+        "work.resume",
         "work.start",
       ].includes(input.command)
     )
@@ -1787,6 +2594,19 @@ export function createAutomationService({
       input.expectedVersion !== entry.version
     )
       throw failure(409, "automation_state_changed");
+    if (
+      ["auto.pause", "auto.resume"].includes(input.command) &&
+      (entry.raidWorker.getSnapshot().enabled ||
+        entry.raidWorker.getSnapshot().userPaused ||
+        entry.collector.running() ||
+        entry.raidSubscription.getSnapshot().checkpoint)
+    )
+      throw failure(409, "automation_controls_the_battle");
+    if (
+      ["work.pause", "work.resume"].includes(input.command) &&
+      entry.raidSubscription.getSnapshot().checkpoint
+    )
+      throw failure(409, "subscription_controls_automation");
     if (
       entry.raidSubscription.getSnapshot().checkpoint &&
       ![
@@ -1817,7 +2637,8 @@ export function createAutomationService({
     )
       throw failure(409, "automation_controls_the_battle");
     if (
-      entry.collector.running() &&
+      (entry.collector.running() ||
+        entry.businessHelper.run?.status === "paused") &&
       [
         "goal.configure",
         "goal.reset",
@@ -1835,7 +2656,8 @@ export function createAutomationService({
     )
       throw failure(409, "business_collection_controls_the_battle");
     if (
-      entry.raidWorker.getSnapshot().enabled &&
+      (entry.raidWorker.getSnapshot().enabled ||
+        entry.raidWorker.getSnapshot().userPaused) &&
       [
         "start",
         "next",
@@ -1966,10 +2788,15 @@ export function createAutomationService({
           reconciled.item?.owned === true;
       }
       if (
-        ["auto.stop", "goal.stop", "business.run.stop"].includes(
-          input.command,
-        ) ||
-        (input.command === "raid.stop" && state.battle?.status !== "active")
+        [
+          "auto.stop",
+          "auto.pause",
+          "goal.stop",
+          "business.run.stop",
+          "business.run.pause",
+        ].includes(input.command) ||
+        (input.command === "raid.stop" && state.battle?.status !== "active") ||
+        input.command === "raid.pause"
       )
         entry.autoStartGeneration = (entry.autoStartGeneration ?? 0) + 1;
       switch (input.command) {
@@ -2184,8 +3011,23 @@ export function createAutomationService({
           entry.floorRunner.start();
           break;
         case "floor.stop":
-          entry.floorRunner.stop();
-          entry.raidSubscription.discardFloorCheckpoint();
+          for (const job of entry.actionQueue.snapshot()) {
+            if (
+              job.type === "floor.start" &&
+              [
+                "queued",
+                "waiting",
+                "running",
+                "reconciling",
+                "paused",
+              ].includes(job.status)
+            )
+              entry.actionQueue.stop(job.id);
+          }
+          if (entry.floorRunner.getSnapshot().status !== "stopped") {
+            entry.floorRunner.stop();
+            entry.raidSubscription.discardFloorCheckpoint();
+          }
           break;
         case "character.stop":
           entry.characterBatch.stop();
@@ -2305,6 +3147,7 @@ export function createAutomationService({
           const pending = character.pending;
           if (
             pending &&
+            !(pending.runId && pending.runId === character.run?.id) &&
             profile.characterStatsUpgrade.resetAtUtc === pending.resetAt &&
             profile.characterStatsUpgrade[pending.stat]?.dailyUsed ===
               pending.dailyUsed + 1 &&
@@ -2449,7 +3292,20 @@ export function createAutomationService({
           break;
         }
         case "subscription.stop":
-          entry.raidSubscription.stop();
+          for (const job of entry.actionQueue.snapshot())
+            if (
+              job.type === "subscription.start" &&
+              [
+                "queued",
+                "waiting",
+                "running",
+                "reconciling",
+                "paused",
+              ].includes(job.status)
+            )
+              entry.actionQueue.stop(job.id);
+          if (entry.raidSubscription.getSnapshot().mode === "subscription")
+            entry.raidSubscription.stop();
           break;
         case "inventory.action":
         case "inventory.refresh":
@@ -2478,6 +3334,9 @@ export function createAutomationService({
         case "raid.start": {
           const startGeneration = entry.autoStartGeneration ?? 0;
           if (
+            entry.pausedAuto ||
+            entry.raidWorker.getSnapshot().userPaused ||
+            entry.businessHelper.run?.status === "paused" ||
             !args.settings ||
             !state.boss ||
             state.battle?.status === "active" ||
@@ -2505,8 +3364,17 @@ export function createAutomationService({
             throw failure(409, "raid_start_unavailable");
           break;
         }
+        case "raid.pause":
+          entry.raidWorker.pause();
+          break;
+        case "raid.resume":
+          entry.raidWorker.resumePaused();
+          break;
         case "raid.stop":
-          entry.raidWorker.finishAfterCurrent();
+          if (entry.raidWorker.getSnapshot().userPaused) {
+            entry.raidWorker.stop();
+            entry.goal.stop({ clearProgress: true });
+          } else entry.raidWorker.finishAfterCurrent();
           break;
         case "invitations.refresh":
           await refreshInvitations(entry);
@@ -2530,6 +3398,12 @@ export function createAutomationService({
           break;
         case "work.stop":
           entry.workFarm.stop();
+          break;
+        case "work.pause":
+          entry.workFarm.pause();
+          break;
+        case "work.resume":
+          entry.workFarm.resumePaused();
           break;
         case "work.refresh":
         case "work.plan":
@@ -2600,7 +3474,11 @@ export function createAutomationService({
           break;
         case "purchase.prepare":
           entry.auto.stop();
-          if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
+          if (
+            entry.raidWorker.getSnapshot().enabled ||
+            entry.raidWorker.getSnapshot().userPaused
+          )
+            entry.raidWorker.stop();
           entry.controller.preparePurchase(
             args.type,
             args.currency,
@@ -2617,6 +3495,8 @@ export function createAutomationService({
           entry.controller.acknowledgePurchase();
           break;
         case "auto.start": {
+          if (entry.pausedAuto)
+            throw failure(409, "automation_paused_resume_or_stop");
           const startGeneration = entry.autoStartGeneration ?? 0;
           configureAutoGoal(entry, args.settings, state);
           await refreshAutoDamageLimit(entry);
@@ -2636,13 +3516,38 @@ export function createAutomationService({
             entry.goal.getSnapshot().status === "active"
           ) {
             const started = entry.auto.start();
+            if (started) entry.pausedAuto = null;
             if (args.settings != null && !started)
               throw failure(409, "automation_start_unavailable");
           }
           break;
         }
+        case "auto.pause":
+          if (entry.auto.getSnapshot().enabled && !entry.pausedAuto) {
+            entry.pausedAuto = {
+              checkpoint: entry.auto.exportState(),
+              resumeRequested: false,
+            };
+            save(entry);
+            if (entry.storageFailed)
+              throw failure(503, "automation_storage_unavailable");
+            entry.auto.stop();
+          }
+          break;
+        case "auto.resume":
+          if (entry.pausedAuto) {
+            entry.pausedAuto.resumeRequested = true;
+            entry.pausedAuto.nextAttemptAt = 0;
+            save(entry);
+          }
+          break;
         case "auto.stop":
-          if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
+          entry.pausedAuto = null;
+          if (
+            entry.raidWorker.getSnapshot().enabled ||
+            entry.raidWorker.getSnapshot().userPaused
+          )
+            entry.raidWorker.stop();
           entry.collector.stop();
           entry.auto.stop();
           entry.goal.stop({ clearProgress: true });
@@ -2650,22 +3555,35 @@ export function createAutomationService({
         case "goal.configure": {
           if (!state.boss || args.bossId !== state.boss.id)
             throw failure(400, "goal_boss_mismatch");
+          entry.pausedAuto = null;
           entry.auto.stop();
           entry.goal.configure(resolveBossGoal(args, state.boss));
           break;
         }
         case "goal.stop":
-          if (entry.raidWorker.getSnapshot().enabled) entry.raidWorker.stop();
+          entry.pausedAuto = null;
+          if (
+            entry.raidWorker.getSnapshot().enabled ||
+            entry.raidWorker.getSnapshot().userPaused
+          )
+            entry.raidWorker.stop();
           entry.collector.stop();
           entry.auto.stop();
           entry.goal.stop();
           break;
         case "goal.reset":
+          entry.pausedAuto = null;
           entry.auto.stop();
           entry.goal.reset();
           break;
         case "pvp.refresh":
           await refreshPvp(entry);
+          break;
+        case "business.run.pause":
+          entry.collector.pause();
+          break;
+        case "business.run.resume":
+          entry.collector.resumePaused();
           break;
         case "business.run.stop":
           entry.collector.stop();
@@ -2799,6 +3717,29 @@ export function createAutomationService({
     launch,
     snapshot,
     command,
+    friends(entry, authorization) {
+      if (
+        entry.credential !== authorization ||
+        accountHealth(authorization)?.status === "credentials_invalid"
+      )
+        throw failure(401, "game_session_required");
+      if (!entry.friendSnapshot.enabled) {
+        entry.friendSnapshot.enabled = true;
+        entry.friendSnapshot.nextAt = 0;
+        save(entry);
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+      }
+      return {
+        items: entry.friendSnapshot.items,
+        updatedAt: entry.friendSnapshot.updatedAt,
+        stale:
+          entry.friendSnapshot.failures > 0 ||
+          (Number.isFinite(entry.friendSnapshot.updatedAt) &&
+            now() - entry.friendSnapshot.updatedAt >= 300000),
+        refreshing: entry.friendSnapshotRefreshing,
+      };
+    },
     async boot() {
       ensureLease();
       booting = true;
@@ -2814,6 +3755,25 @@ export function createAutomationService({
           return;
         }
         for (const entry of actors.values()) {
+          if (!booting) tryResumePausedAuto(entry);
+          if (
+            !booting &&
+            entry.actionQueue.hasDue() &&
+            !entry.busy &&
+            !entry.inventoryBusy
+          ) {
+            entry.busy = true;
+            entry.inventoryBusy = true;
+            void entry.actionQueue
+              .tick()
+              .catch(() => {})
+              .finally(() => {
+                entry.inventoryBusy = false;
+                entry.busy = false;
+              });
+          }
+          void refreshPendingFriendRemoval(entry);
+          void refreshFriendSnapshot(entry);
           discoverInvitations(entry);
           void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});
@@ -2948,6 +3908,13 @@ export function createAutomationService({
           )
             continue;
         }
+        if (
+          (value?.pausedAuto ||
+            value?.raid?.userPaused ||
+            value?.businessHelper?.run?.status === "paused") &&
+          value?.businessHelper?.run?.status !== "running"
+        )
+          continue;
         if (value?.raid?.enabled) {
           // A pending accept is never replayed. Only confirmed joined fights resume strikes.
           if (

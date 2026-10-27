@@ -39,6 +39,7 @@ export function createBusinessCollector({
   get,
   upgrade,
   priorityActive = () => false,
+  canResume = () => true,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -51,6 +52,7 @@ export function createBusinessCollector({
     armed = false;
   const running = () => helper.run?.status === "running";
   const canSuspend = () => {
+    if (working || helper.run?.pendingUpgrade) return false;
     if (!running()) return true;
     const state = controller.getSnapshot();
     return !(
@@ -388,8 +390,82 @@ export function createBusinessCollector({
         scheduleRetry(helper.run.pendingUpgrade ? undefined : error);
     } finally {
       working = false;
-      if (generation === id) evaluate();
+      if (generation === id || (running() && helper.run?.stopRequested))
+        evaluate();
     }
+  }
+  async function reconcilePausedUpgrade() {
+    const run = helper.run;
+    if (
+      disposed ||
+      working ||
+      run?.status !== "paused" ||
+      !run.pendingUpgrade ||
+      now() < (run.nextPauseReconcileAt ?? 0)
+    )
+      return;
+    working = true;
+    run.pauseReconcileFailures = (run.pauseReconcileFailures ?? 0) + 1;
+    run.nextPauseReconcileAt =
+      now() + retryDelay(run.pauseReconcileFailures - 1);
+    changed();
+    try {
+      // advanceBusinessUpgrade takes its read-only reconciliation branch when
+      // pendingUpgrade exists. The false guard forbids a new upgrade POST.
+      await upgrade(run, () => false);
+    } catch {
+      // Preserve the checkpoint and retry deadline after a failed read.
+    } finally {
+      working = false;
+      if (running() && helper.run?.stopRequested && !helper.run.pendingUpgrade)
+        finish("stopped", "stopped");
+      else if (running() && armed) evaluate();
+    }
+  }
+  function resumeRun(checkpoint, unsafe = false) {
+    if (!running()) return;
+    armed = true;
+    if (unsafe) {
+      scheduleRetry();
+      return;
+    }
+    if (!withinTime()) {
+      finish("limited", "deadline");
+      return;
+    }
+    if (
+      helper.run.phase === "farming" &&
+      goal.getSnapshot()?.status === "active"
+    ) {
+      if (
+        !auto.start({ checkpoint: checkpoint ?? helper.run.pausedCheckpoint })
+      )
+        scheduleRetry();
+      else evaluate();
+    } else queue();
+  }
+  function tick() {
+    const run = helper.run;
+    if (
+      !working &&
+      run?.status === "paused" &&
+      run.resumeRequested &&
+      canResume()
+    ) {
+      run.status = "running";
+      run.resumeRequested = false;
+      run.reason = null;
+      generation++;
+      changed();
+      resumeRun(
+        run.pausedCheckpoint,
+        Boolean(run.pendingUpgrade || controller.getSnapshot().needsRefresh),
+      );
+      return;
+    }
+    if (run?.status === "paused" && run.pendingUpgrade)
+      void reconcilePausedUpgrade();
+    evaluate();
   }
   const unsubscribers = [controller, goal, auto].map((source) =>
     source.subscribe(evaluate),
@@ -399,9 +475,15 @@ export function createBusinessCollector({
     idleForPriority: () => !working && !helper.run?.pendingUpgrade,
     canStartBattle,
     withinTime,
-    tick: evaluate,
-    start(args) {
-      if (running() || working) throw new Error("business_run_active");
+    tick,
+    start(args, { queueId = null } = {}) {
+      if (
+        running() ||
+        helper.run?.status === "paused" ||
+        helper.run?.pendingUpgrade ||
+        working
+      )
+        throw new Error("business_run_active");
       const plan = businessPlan(helper, getCatalogue(), args.businessId);
       const config = plan.config;
       const expected = args.expectedPlan;
@@ -455,6 +537,7 @@ export function createBusinessCollector({
       generation++;
       helper.run = {
         id: randomUUID(),
+        ...(queueId ? { queueId } : {}),
         status: "running",
         phase: "preparing",
         businessId: plan.businessId,
@@ -481,7 +564,33 @@ export function createBusinessCollector({
       changed();
       queue();
     },
+    pause() {
+      if (!running()) return false;
+      const run = helper.run;
+      armed = false;
+      generation++;
+      clear();
+      run.pausedCheckpoint = auto.exportState?.() ?? null;
+      run.status = "paused";
+      run.resumeRequested = false;
+      run.reason = "На паузе.";
+      changed();
+      auto.stop();
+      return true;
+    },
+    resumePaused() {
+      if (helper.run?.status !== "paused") return false;
+      helper.run.resumeRequested = true;
+      helper.run.reason = "Продолжаем сбор.";
+      changed();
+      return true;
+    },
     stop() {
+      if (helper.run?.status === "paused") {
+        helper.run.status = "running";
+        armed = true;
+        generation++;
+      }
       if (running() && helper.run.pendingUpgrade) {
         helper.run.stopRequested = true;
         helper.run.reason =
@@ -517,25 +626,7 @@ export function createBusinessCollector({
       auto.stop();
       return true;
     },
-    resume(checkpoint, unsafe = false) {
-      if (!running()) return;
-      armed = true;
-      if (unsafe) {
-        scheduleRetry();
-        return;
-      }
-      if (!withinTime()) {
-        finish("limited", "deadline");
-        return;
-      }
-      if (
-        helper.run.phase === "farming" &&
-        goal.getSnapshot()?.status === "active"
-      ) {
-        if (!auto.start({ checkpoint })) scheduleRetry();
-        else evaluate();
-      } else queue();
-    },
+    resume: resumeRun,
     dispose() {
       disposed = true;
       generation++;

@@ -25,11 +25,13 @@ export function createFloorRunner({
   };
   return {
     getSnapshot: () => record,
+    hasStarted: (id) =>
+      record.queueId === id || (record.startReceipts ?? []).includes(id),
     dispose() {
       disposed = true;
       generation++;
     },
-    start() {
+    start({ queueId = null } = {}) {
       if (
         working ||
         record.status === "running" ||
@@ -44,8 +46,14 @@ export function createFloorRunner({
         lastCompleted: null,
         reason: null,
         startedAt: now(),
+        queueId,
         nextCheckAt: 0,
       });
+      if (queueId && !(record.startReceipts ?? []).includes(queueId))
+        record.startReceipts = [
+          ...(record.startReceipts ?? []).slice(-127),
+          queueId,
+        ];
       publish();
     },
     stop() {

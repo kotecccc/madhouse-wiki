@@ -21,18 +21,36 @@ export async function removeFriend({
   if (before !== "friend") throw fail(409, "friend_not_found");
   entry.friendRemoval = { pending: { playerId, commandId } };
   save(entry);
-  if (entry.storageFailed || !allowed())
-    throw fail(503, "automation_storage_unavailable");
-  const response = await fetcher(
-    `https://cargohustle.online/api/friends/${playerId}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: entry.credential, Accept: "application/json" },
-      redirect: "error",
-      signal: AbortSignal.timeout(20000),
-      canDispatch: allowed,
-    },
-  );
+  if (entry.storageFailed) throw fail(503, "automation_storage_unavailable");
+  if (!allowed()) {
+    entry.friendRemoval.pending = null;
+    save(entry);
+    throw Object.assign(fail(409, "friend_removal_cancelled"), {
+      notDispatched: true,
+    });
+  }
+  let response;
+  try {
+    response = await fetcher(
+      `https://cargohustle.online/api/friends/${playerId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: entry.credential,
+          Accept: "application/json",
+        },
+        redirect: "error",
+        signal: AbortSignal.timeout(20000),
+        canDispatch: allowed,
+      },
+    );
+  } catch (error) {
+    if (error?.notDispatched) {
+      entry.friendRemoval.pending = null;
+      save(entry);
+    }
+    throw error;
+  }
   if (!response.ok) throw fail(503, "friend_removal_uncertain");
   return reconcileFriendRemoval({ entry, fetcher, save });
 }

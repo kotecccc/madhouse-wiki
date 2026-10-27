@@ -96,7 +96,14 @@ export function createRaidSubscription({
       : null;
   return {
     getSnapshot: () => structuredClone(value),
-    start({ leaderPlayerId, bossId, leaderName, bossName, leaderUsername }) {
+    start({
+      leaderPlayerId,
+      bossId,
+      leaderName,
+      bossName,
+      leaderUsername,
+      queueId = null,
+    }) {
       if (
         value.enabled ||
         value.checkpoint ||
@@ -121,6 +128,15 @@ export function createRaidSubscription({
         offlineAt: null,
         lastAttemptedInvitationId: null,
         checkpoint: null,
+        queueId,
+        startReceipts: queueId
+          ? [
+              ...(value.startReceipts ?? [])
+                .filter((id) => id !== queueId)
+                .slice(-127),
+              queueId,
+            ]
+          : (value.startReceipts ?? []),
       });
       return true;
     },

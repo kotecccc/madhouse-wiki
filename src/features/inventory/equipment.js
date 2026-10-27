@@ -39,10 +39,11 @@ export async function sendInventoryCommand({
     post("/api/automation/commands", {
       id: makeId(),
       expectedVersion: state.version,
-      command: refreshOnly ? "inventory.refresh" : "inventory.action",
-      args,
+      command: refreshOnly ? "inventory.refresh" : "queue.enqueue",
+      args: refreshOnly ? args : { type: "inventory", action: args },
     }),
   );
+  if (!refreshOnly) return result;
   if (result.equipment?.pending) throw new Error("inventory_pending");
   const paths = result.equipment?.paths || [];
   for (const path of paths)

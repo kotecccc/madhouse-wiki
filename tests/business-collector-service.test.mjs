@@ -218,6 +218,19 @@ for (const [cap, restart, autoUpgrade, viaFloor] of [
           })),
         });
       }
+      if (cap === 5 && !restart && !autoUpgrade && !viaFloor) {
+        await command("business.run.pause", {});
+        assert.equal(
+          service.snapshot(entry).businessAssistant.run.status,
+          "paused",
+        );
+        await command("business.run.resume", {});
+        entry.collector.tick();
+        assert.equal(
+          service.snapshot(entry).businessAssistant.run.status,
+          "running",
+        );
+      }
       if (restart) {
         for (let i = 0; i < 2; i++) {
           const timer = timers.find((timer) => !timer.canceled && !timer.done);
@@ -228,10 +241,30 @@ for (const [cap, restart, autoUpgrade, viaFloor] of [
           await new Promise((resolve) => setImmediate(resolve));
         }
         assert.equal(starts, 1);
+        if (!autoUpgrade) {
+          await command("business.run.pause", {});
+          assert.equal(
+            service.snapshot(entry).businessAssistant.run.status,
+            "paused",
+          );
+        }
         service.close();
         service = createService();
         await service.boot();
         entry = await service.identify("Bearer collector.payload.sig");
+        if (!autoUpgrade) {
+          assert.equal(
+            service.snapshot(entry).businessAssistant.run.status,
+            "paused",
+          );
+          assert.equal(service.snapshot(entry).auto.enabled, false);
+          await command("business.run.resume", {});
+          entry.collector.tick();
+          assert.equal(
+            service.snapshot(entry).businessAssistant.run.status,
+            "running",
+          );
+        }
       }
       for (let i = 0; i < 30; i++) {
         const timer = timers.find((timer) => !timer.canceled && !timer.done);
@@ -273,7 +306,7 @@ for (const [cap, restart, autoUpgrade, viaFloor] of [
       );
       assert.equal(
         calls.filter((call) => call.path === "/api/me/bag").length,
-        cap === 1 ? 3 : autoUpgrade ? 5 : 4,
+        cap === 1 ? 3 : autoUpgrade || restart ? 5 : 4,
       );
     } finally {
       service.close();
@@ -379,6 +412,13 @@ for (const stop of [false, true])
       await step();
       assert.equal(posts, 1);
       assert.ok(service.snapshot(entry).businessAssistant.run.pendingUpgrade);
+      if (stop) {
+        await command("business.run.pause", {});
+        assert.equal(
+          service.snapshot(entry).businessAssistant.run.status,
+          "paused",
+        );
+      }
       service.close();
       service = createService();
       await service.boot();
@@ -389,8 +429,31 @@ for (const stop of [false, true])
         command("auto.start", {}),
         /business_upgrade_uncertain/,
       );
-      if (stop) await command("business.run.stop", {});
+      if (stop) {
+        assert.equal(
+          service.snapshot(entry).businessAssistant.run.status,
+          "paused",
+        );
+        entry.collector.tick();
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.ok(service.snapshot(entry).businessAssistant.run.pendingUpgrade);
+      }
       offline = false;
+      if (stop) {
+        now += 30000;
+        entry.collector.tick();
+        for (let i = 0; i < 5; i++)
+          await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(
+          service.snapshot(entry).businessAssistant.run.pendingUpgrade,
+          null,
+        );
+        assert.equal(
+          service.snapshot(entry).businessAssistant.run.status,
+          "paused",
+        );
+        await command("business.run.stop", {});
+      }
       for (let i = 0; i < 6; i++) await step();
       const run = service.snapshot(entry).businessAssistant.run;
       assert.equal(
@@ -499,6 +562,102 @@ test("business without a catalogue recipe advances using each fresh game require
     assert.equal(
       service.snapshot(entry).businessAssistant.run.status,
       "completed",
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("business collection can wait behind a raid and starts without replacing it", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "queued-business-run-"));
+  const store = createAutomationStateStore({ directory });
+  const fetcher = async (url) => {
+    const path = new URL(url).pathname;
+    if (path === "/api/me")
+      return Response.json({ playerId: 101, wallet: { gold: 1000 } });
+    if (path === "/api/combat") return Response.json({ activeBattle: null });
+    if (path === "/api/me/bag") return Response.json({ activityItems: [] });
+    if (path === "/api/businesses/7")
+      return Response.json({
+        id: 7,
+        level: 1,
+        maxLevel: 2,
+        canUpgrade: true,
+        requiredItems: materials.map((itemId) => ({
+          itemId,
+          requiredAmount: 1,
+          playerAmount: 0,
+        })),
+      });
+    if (path === "/api/bosses/invitations") return Response.json({ items: [] });
+    throw new Error(`unexpected ${path}`);
+  };
+  const service = createAutomationService({
+    store,
+    fetcher,
+    getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
+    getBusinessCatalogue: () => catalogue,
+    schedule: () => ({}),
+    cancel: () => {},
+    random: () => 0,
+  });
+  try {
+    const entry = await service.identify("Bearer queued.payload.sig");
+    let n = 0;
+    const command = (name, args) =>
+      service.command(entry, {
+        id: `business-queue-${++n}`,
+        command: name,
+        expectedVersion: service.snapshot(entry).version,
+        args,
+      });
+    await command("business.select", { businessId });
+    await command("business.save", {
+      businessId,
+      targetLevel: 2,
+      maxAttempts: 5,
+      durationHours: 1,
+      autoUpgrade: false,
+    });
+    await command("business.refresh", { businessId });
+    const plan = service.snapshot(entry).businessAssistant.plans[0];
+    assert.equal(entry.raidWorker.start(17), true);
+    entry.raidWorker.pause();
+    await service.boot();
+    await command("queue.enqueue", {
+      type: "business.start",
+      action: {
+        businessId,
+        expectedPlan: plan.config,
+        expectedMissing: plan.materials
+          .filter((item) => item.missingAmount > 0)
+          .map((item) => ({
+            itemId: item.entityId,
+            amount: item.missingAmount,
+          })),
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "queued");
+    assert.equal(service.snapshot(entry).raid.userPaused, true);
+    assert.equal(service.snapshot(entry).businessAssistant.run, null);
+    entry.raidWorker.stop();
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
+    assert.equal(
+      service.snapshot(entry).businessAssistant.run.status,
+      "running",
+    );
+    assert.equal(
+      service.snapshot(entry).businessAssistant.run.queueId,
+      "business-queue-4",
     );
   } finally {
     service.close();

@@ -397,9 +397,11 @@ export function LoginControl() {
                 ? floor.target
                   ? `Цель: ${floor.target.destination} · ${floor.target.kind === "work" ? "работа" : floor.target.kind === "boss" ? "босс" : "бизнес"}`
                   : "Ищем следующую цель"
-                : floor.status === "paused"
-                  ? "Приостановлена"
-                  : "Остановлена"}
+                : floor.queuedId
+                  ? "В очереди"
+                  : floor.status === "paused"
+                    ? "Приостановлена"
+                    : "Остановлена"}
             </CardDescription>
             <CardDescription size="xs">
               Ожидание энергии, рейды и собственные бои, улучшение бизнеса.
@@ -418,12 +420,16 @@ export function LoginControl() {
                 !floor.loaded || (floor.pending && floor.status !== "running")
               }
               onClick={() =>
-                void (floor.status === "running" || floor.phase === "launching"
+                void (floor.queuedId ||
+                floor.status === "running" ||
+                floor.phase === "launching"
                   ? floorAutomation.stop()
                   : floorAutomation.start())
               }
             >
-              {floor.status === "running" || floor.phase === "launching"
+              {floor.queuedId ||
+              floor.status === "running" ||
+              floor.phase === "launching"
                 ? "Остановить"
                 : "Запустить"}
             </Button>

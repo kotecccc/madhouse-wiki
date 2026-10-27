@@ -91,8 +91,12 @@ export function InventorySection({
       setEquipmentState({
         busy: false,
         needsCheck: false,
-        notice: refreshOnly ? "Экипировка проверена." : "Экипировка обновлена.",
+        notice: refreshOnly
+          ? "Экипировка проверена."
+          : "Действие добавлено в очередь.",
       });
+      if (!refreshOnly)
+        onNotice?.({ message: "Действие добавлено в очередь.", success: true });
     } catch (error) {
       const needsCheck = await inventoryNeedsCheck(getSessionJson);
       setEquipmentState({ busy: false, needsCheck, notice: null });

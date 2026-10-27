@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { characterUpgradeQuote } from "../../src/lib/character-stat-upgrades.js";
 import { characterUpgradeRejection } from "./character-stat-upgrade.mjs";
+import { retryDelay } from "./action-queue.mjs";
 
 // A batch is durable intent, executed one point at a time on the server. Each
 // confirmed point and its spend are committed with the cleared checkpoint.
@@ -14,18 +15,21 @@ export function createCharacterStatBatch({
   schedule = setTimeout,
   cancel = clearTimeout,
   now = Date.now,
+  random = Math.random,
 }) {
   let timer = null;
   let working = false;
   let disposed = false;
   let generation = 0;
   const running = () => state.run?.status === "running";
+  const recovering = () =>
+    Boolean(state.pending?.runId && state.pending.runId === state.run?.id);
   const save = () => {
     if (persist() === false)
       throw new Error("character_upgrade_storage_unavailable");
   };
   const queue = (delay = 0) => {
-    if (disposed || timer != null || !running()) return;
+    if (disposed || timer != null || (!running() && !recovering())) return;
     timer = schedule(() => {
       timer = null;
       // A failed durable write must not become an unhandled worker rejection.
@@ -39,8 +43,21 @@ export function createCharacterStatBatch({
     generation++;
     save();
   };
+  const wait = (reason, error) => {
+    const run = state.run;
+    run.phase = state.pending ? "reconciling" : "waiting";
+    run.reason = reason;
+    run.failures = (run.failures ?? 0) + 1;
+    const delay = Math.max(
+      retryDelay(run.failures - 1, random),
+      error?.retryAfterMs ?? 0,
+    );
+    run.nextRetryAt = now() + delay;
+    save();
+    queue(delay);
+  };
   async function tick() {
-    if (disposed || working || !running()) return;
+    if (disposed || working || (!running() && !recovering())) return;
     if (!lock()) {
       queue(1000);
       return;
@@ -49,13 +66,44 @@ export function createCharacterStatBatch({
     const run = state.run;
     const turn = generation;
     const allowed = () =>
-      !disposed && running() && state.run === run && generation === turn;
+      !disposed &&
+      (running() || recovering()) &&
+      state.run === run &&
+      generation === turn;
     try {
       if (state.pending) {
-        finish(
-          "uncertain",
-          "Необходимо проверить результат предыдущего улучшения.",
-        );
+        const pending = state.pending;
+        if (pending.runId !== run.id) {
+          finish(
+            "uncertain",
+            "Необходимо проверить результат предыдущего улучшения.",
+          );
+          return;
+        }
+        const profile = await read();
+        if (!allowed()) return;
+        const part = run.items ? run.items[run.index] : run;
+        if (
+          part.stat !== pending.stat ||
+          profile.characterStatsUpgrade?.resetAtUtc !== pending.resetAt ||
+          profile.characterStatsUpgrade?.[pending.stat]?.dailyUsed !==
+            pending.dailyUsed + 1 ||
+          profile.characterStats?.[pending.stat]?.base !== pending.base + 1 ||
+          profile.wallet?.[pending.currency] !== pending.balance - pending.price
+        ) {
+          wait("Проверяем результат улучшения.");
+          return;
+        }
+        run.completed++;
+        if (part !== run) part.completed++;
+        part.spent += pending.price;
+        state.pending = null;
+        run.phase = "ready";
+        run.reason = run.status === "stopped" ? "Прокачка остановлена." : null;
+        run.failures = 0;
+        run.nextRetryAt = null;
+        save();
+        if (running()) queue(0);
         return;
       }
       const part = run.items ? run.items[run.index] : run;
@@ -115,23 +163,33 @@ export function createCharacterStatBatch({
         finish("stopped", "Недостаточно средств или достигнут лимит расходов.");
         return;
       }
-      const result = await step(quote, allowed, (confirmed) => {
-        run.completed++;
-        if (part !== run) part.completed++;
-        part.spent += confirmed.nextCost;
-      });
+      const result = await step(
+        quote,
+        allowed,
+        (confirmed) => {
+          run.completed++;
+          if (part !== run) part.completed++;
+          part.spent += confirmed.nextCost;
+        },
+        run.id,
+      );
       if (!allowed()) return;
       if (result.status === "rejected") {
         finish("stopped", characterUpgradeRejection(result.reason));
         return;
       }
       if (result.status !== "confirmed") {
-        finish(
-          "uncertain",
-          "Результат улучшения не подтверждён; повторная отправка отключена.",
-        );
+        if (recovering()) wait("Проверяем результат улучшения.");
+        else
+          finish(
+            "uncertain",
+            "Результат улучшения не подтверждён; повторная отправка отключена.",
+          );
         return;
       }
+      run.failures = 0;
+      run.nextRetryAt = null;
+      run.phase = "ready";
       // A failed read cannot undo the durable confirmation or replay the POST.
       try {
         await read();
@@ -149,14 +207,27 @@ export function createCharacterStatBatch({
         }
       }
       queue(1500);
-    } catch {
-      if (allowed())
-        finish(
-          state.pending ? "uncertain" : "stopped",
-          state.pending
-            ? "Результат улучшения не подтверждён."
-            : "Не удалось продолжить прокачку. Обновите данные.",
-        );
+    } catch (error) {
+      if (allowed()) {
+        if (
+          [
+            "character_upgrade_quote_changed",
+            "character_upgrade_insufficient_funds",
+            "character_upgrade_invalid_operation",
+          ].includes(error.message)
+        )
+          finish(
+            "stopped",
+            "Стоимость или лимит изменились. Проверьте данные.",
+          );
+        else if (state.pending && !recovering())
+          finish("uncertain", "Результат улучшения не подтверждён.");
+        else
+          wait(
+            state.pending ? "Проверяем результат улучшения." : "Ожидаем игру.",
+            error,
+          );
+      }
     } finally {
       working = false;
       unlock();
@@ -242,15 +313,17 @@ export function createCharacterStatBatch({
       finish("stopped", "Прокачка остановлена.");
       if (timer != null) cancel(timer);
       timer = null;
+      if (recovering()) queue(0);
     },
     resume() {
-      if (running() && state.pending)
+      if (running() && state.pending && !recovering())
         finish(
           "uncertain",
           "Необходимо проверить результат предыдущего улучшения.",
         );
-      else queue();
+      else queue(Math.max(0, (state.run?.nextRetryAt ?? now()) - now()));
     },
+    recovering,
     dispose() {
       disposed = true;
       generation++;

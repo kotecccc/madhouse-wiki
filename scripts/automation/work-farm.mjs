@@ -1,5 +1,6 @@
 import { normalizeWorkStash } from "../../shared/work-stash.js";
 import { randomUUID } from "node:crypto";
+import { retryDelay } from "./action-queue.mjs";
 import {
   normalizeWorkState,
   normalizeEnergy,
@@ -22,10 +23,19 @@ export function createWorkFarm({
   cancel = clearTimeout,
   random = Math.random,
   available = () => true,
+  manualReconcileManaged = () => false,
 }) {
   let record = {
     view: saved.view ?? null,
     manualPending: saved.manualPending ?? null,
+    manualReceipts: Array.isArray(saved.manualReceipts)
+      ? saved.manualReceipts.slice(-128)
+      : [],
+    startReceipts: Array.isArray(saved.startReceipts)
+      ? saved.startReceipts.slice(-128)
+      : [],
+    manualRetryAt: saved.manualRetryAt ?? null,
+    manualFailures: saved.manualFailures ?? 0,
     run: saved.run ?? null,
     notice: saved.notice ?? null,
     configs: saved.configs ?? {},
@@ -36,18 +46,20 @@ export function createWorkFarm({
     generation = 0,
     working = false,
     suspended = false,
-    disposed = false;
+    disposed = false,
+    resumeAfterPause = false;
   const running = () => record.run?.status === "running";
   const canSuspend = () =>
-    !running() || (!working && !record.manualPending && !record.run.pending);
+    !working && !record.manualPending && !record.run?.pending;
   const publish = () => onChange?.();
   function clear() {
     if (timer != null) cancel(timer);
     timer = null;
   }
   function finish(status, reason) {
-    if (!running()) return;
+    if (!running() && record.run?.status !== "paused") return;
     generation++;
+    resumeAfterPause = false;
     suspended = false;
     runController.abort();
     clear();
@@ -117,7 +129,14 @@ export function createWorkFarm({
       (item) => item.type === pending.type,
     )?.count;
     if (count === pending.count - 1) {
+      if (typeof pending.commandId === "string")
+        record.manualReceipts = [
+          ...record.manualReceipts.slice(-127),
+          pending.commandId,
+        ];
       record.manualPending = null;
+      record.manualRetryAt = null;
+      record.manualFailures = 0;
       record.notice = null;
     } else {
       record.notice =
@@ -639,7 +658,100 @@ export function createWorkFarm({
       }
     } finally {
       working = false;
-      if (id === generation && running()) queue(delay);
+      if (resumeAfterPause && running()) {
+        resumeAfterPause = false;
+        queue(0);
+      } else if (id === generation && running()) queue(delay);
+    }
+  }
+  async function reconcileManualInBackground() {
+    const pending = record.manualPending;
+    if (
+      !pending ||
+      disposed ||
+      working ||
+      running() ||
+      manualReconcileManaged() ||
+      !available("wait") ||
+      now() < (record.manualRetryAt ?? 0)
+    )
+      return;
+    working = true;
+    record.manualFailures++;
+    record.manualRetryAt =
+      now() + retryDelay(record.manualFailures - 1, random);
+    publish();
+    try {
+      const view = await readView(pending.workId);
+      if (record.manualPending === pending) {
+        record.view = view;
+        reconcileManual(view);
+        publish();
+      }
+    } catch (error) {
+      // The pending operation remains durable; retry only the read.
+      if (
+        Number.isFinite(error.retryAfterMs) &&
+        record.manualPending === pending
+      ) {
+        record.manualRetryAt = Math.max(
+          record.manualRetryAt,
+          now() + error.retryAfterMs,
+        );
+        publish();
+      }
+    } finally {
+      working = false;
+    }
+  }
+  async function reconcileStopped() {
+    const run = record.run;
+    if (
+      disposed ||
+      working ||
+      !run?.pending ||
+      !["paused", "stopped"].includes(run.status) ||
+      now() < (run.nextReconcileAt ?? 0) ||
+      !available(run.config.mode)
+    )
+      return;
+    const id = generation;
+    working = true;
+    run.reconcileFailures = (run.reconcileFailures ?? 0) + 1;
+    run.nextReconcileAt =
+      now() +
+      Math.min(300000, 10000 * 2 ** Math.min(run.reconcileFailures - 1, 5));
+    publish();
+    try {
+      const confirmed = await reconcilePending(
+        run,
+        () =>
+          !disposed &&
+          id === generation &&
+          record.run === run &&
+          ["paused", "stopped"].includes(run.status),
+      );
+      if (confirmed) {
+        run.nextReconcileAt = null;
+        run.reconcileFailures = 0;
+        run.phase = run.status === "paused" ? "paused" : "stopped";
+        publish();
+      }
+    } catch (error) {
+      // A failed read retains the checkpoint and its persisted retry deadline.
+      if (Number.isFinite(error.retryAfterMs) && run.pending) {
+        run.nextReconcileAt = Math.max(
+          run.nextReconcileAt,
+          now() + error.retryAfterMs,
+        );
+        publish();
+      }
+    } finally {
+      working = false;
+      if (resumeAfterPause && running()) {
+        resumeAfterPause = false;
+        queue(0);
+      }
     }
   }
   function validate(args) {
@@ -661,10 +773,11 @@ export function createWorkFarm({
     running,
     getSnapshot: () => record,
     exportState: () => record,
-    async refresh(workId, { manual = false } = {}) {
+    async refresh(workId, { manual = false, queued = false } = {}) {
       // The active runner owns live reads. Reopening its progress must expose
       // that checkpoint without racing it or turning observation into an error.
-      if (running() && record.run.workId === workId) return;
+      if (running() && record.run.workId === workId && !(queued && suspended))
+        return;
       if (
         manual &&
         record.refreshRetryAt != null &&
@@ -673,7 +786,7 @@ export function createWorkFarm({
         const seconds = Math.ceil((record.refreshRetryAt - now()) / 1000);
         throw new Error(`Повторное обновление доступно через ${seconds} сек.`);
       }
-      if (running() || working)
+      if ((running() && !(queued && suspended)) || working)
         throw new Error(
           "Сначала остановите фарм и дождитесь текущего запроса.",
         );
@@ -696,15 +809,20 @@ export function createWorkFarm({
         publish();
       }
     },
-    async useBooster(workId, type) {
+    async useBooster(
+      workId,
+      type,
+      { canDispatch = () => true, queued = false, commandId = null } = {},
+    ) {
+      const permitted = () => canDispatch() && (queued || available("wait"));
       if (!positive(workId) || !["small", "full"].includes(type))
         throw new Error("Выберите дефибриллятор.");
       if (
-        running() ||
+        (running() && !(queued && suspended)) ||
         working ||
         record.run?.pending ||
         record.manualPending ||
-        !available("wait")
+        !permitted()
       )
         throw new Error("Дождитесь завершения текущего действия.");
       working = true;
@@ -712,7 +830,7 @@ export function createWorkFarm({
         const before = await readView(workId);
         const booster = before.boosters.find((item) => item.type === type);
         if (
-          !available("wait") ||
+          !permitted() ||
           !booster?.count ||
           before.energy.current >=
             Math.min(booster.restoreEnergy, before.energy.max)
@@ -726,17 +844,26 @@ export function createWorkFarm({
           type,
           count: booster.count,
           operationId: randomUUID(),
+          ...(commandId ? { commandId } : {}),
         };
         record.notice = null;
         publish();
-        const result = await request("POST", "/api/me/bag/boosters/use", {
-          type,
-        });
+        const result = await request(
+          "POST",
+          "/api/me/bag/boosters/use",
+          { type },
+          { canDispatch: permitted },
+        );
         if (result?.success === false)
           throw new Error("Применение дефибриллятора не подтверждено.");
         record.view = await readView(workId);
         reconcileManual(record.view);
       } catch (error) {
+        if (
+          error?.notDispatched &&
+          record.manualPending?.commandId === commandId
+        )
+          record.manualPending = null;
         record.notice = record.manualPending
           ? "Проверяем применение дефибриллятора. Повторный расход заблокирован."
           : error.message;
@@ -772,8 +899,14 @@ export function createWorkFarm({
         publish();
       }
     },
-    start(args) {
-      if (running() || working || record.manualPending)
+    start(args, { queueId = null } = {}) {
+      if (
+        running() ||
+        record.run?.status === "paused" ||
+        working ||
+        record.manualPending ||
+        record.run?.pending
+      )
         throw new Error("Фарм уже запущен или запрос ещё выполняется.");
       if (
         !positive(args.workId) ||
@@ -820,6 +953,7 @@ export function createWorkFarm({
       generation++;
       runController = new AbortController();
       record.run = {
+        queueId,
         workId: args.workId,
         title: view?.title ?? `Работёнка №${args.workId}`,
         targetCycles: args.targetCycles,
@@ -843,6 +977,8 @@ export function createWorkFarm({
         events: [],
         reason: null,
       };
+      if (queueId && !record.startReceipts.includes(queueId))
+        record.startReceipts = [...record.startReceipts.slice(-127), queueId];
       record.notice = null;
       publish();
       queue(0);
@@ -850,7 +986,45 @@ export function createWorkFarm({
     stop() {
       finish("stopped", "Фарм остановлен пользователем.");
     },
+    pause() {
+      if (!running()) return false;
+      generation++;
+      resumeAfterPause = false;
+      clear();
+      record.run.status = "paused";
+      record.run.phase = "paused";
+      record.run.reason = "На паузе.";
+      record.run.nextActionAt = null;
+      publish();
+      return true;
+    },
+    resumePaused() {
+      if (record.run?.status !== "paused") return false;
+      generation++;
+      record.run.status = "running";
+      record.run.phase = record.run.pending ? "reconciling" : "preparing";
+      record.run.reason = null;
+      suspended = false;
+      runController = new AbortController();
+      if (!checkTime()) return true;
+      publish();
+      if (working) resumeAfterPause = true;
+      else queue(0);
+      return true;
+    },
     canSuspend,
+    canSuspendForManual: () =>
+      !working && !record.run?.pending && (!running() || !suspended),
+    suspendForManual() {
+      if (!running()) return true;
+      if (working || record.run?.pending || suspended) return false;
+      suspended = true;
+      generation++;
+      clear();
+      return true;
+    },
+    canReconcileManual: () =>
+      !working && Boolean(record.manualPending) && !record.run?.pending,
     suspend() {
       if (!running()) return true;
       if (!canSuspend()) return false;
@@ -861,6 +1035,8 @@ export function createWorkFarm({
     },
     tick() {
       checkTime();
+      void reconcileStopped();
+      void reconcileManualInBackground();
     },
     resume() {
       if (!running()) return;

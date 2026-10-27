@@ -235,3 +235,94 @@ test("queued upgrade waits for a busy account and refuses a changed quote", asyn
   assert.equal(h.state.run.status, "stopped");
   batch.dispose();
 });
+
+test("preflight outage retains the goal and retries on the persisted backoff", async () => {
+  const h = setup();
+  const quote = characterUpgradeQuote(h.profile, "madness", 1);
+  const callbacks = [];
+  let offline = true,
+    now = 1000,
+    posts = 0;
+  const state = { pending: null };
+  const batch = createCharacterStatBatch({
+    state,
+    now: () => now,
+    random: () => 0,
+    read: async () => {
+      if (offline) throw new Error("offline");
+      return h.profile;
+    },
+    step: async (value, _allowed, confirm) => {
+      posts++;
+      confirm(value);
+      return { status: "confirmed" };
+    },
+    persist: () => true,
+    lock: () => true,
+    unlock: () => {},
+    schedule: (fn, delay) => {
+      callbacks.push({ fn, delay });
+      return fn;
+    },
+    cancel: () => {},
+  });
+  batch.start({ stat: "madness", amount: 1, quote, budget: quote.maxPrice });
+  callbacks.shift().fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.run.status, "running");
+  assert.equal(state.run.phase, "waiting");
+  assert.equal(state.run.nextRetryAt, 11000);
+  assert.equal(callbacks[0].delay, 10000);
+  assert.equal(posts, 0);
+  offline = false;
+  now = 11000;
+  callbacks.shift().fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.run.status, "completed");
+  assert.equal(posts, 1);
+});
+
+test("a stopped batch reconciles its submitted point without resuming or repeating", async () => {
+  const h = setup();
+  const quote = characterUpgradeQuote(h.profile, "madness", 1);
+  const state = { pending: null };
+  const callbacks = [];
+  const batch = createCharacterStatBatch({
+    state,
+    read: async () => h.profile,
+    persist: () => true,
+    lock: () => true,
+    unlock: () => {},
+    schedule: (fn) => {
+      callbacks.push(fn);
+      return fn;
+    },
+    cancel: () => {},
+    step: async (value, _allowed, _confirm, runId) => {
+      state.pending = {
+        id: "pending",
+        runId,
+        stat: "madness",
+        base: 1,
+        dailyUsed: 0,
+        resetAt: value.resetAt,
+        currency: "gold",
+        balance: 10000,
+        price: 500,
+      };
+      return { status: "uncertain" };
+    },
+  });
+  batch.start({ stat: "madness", amount: 1, quote, budget: quote.maxPrice });
+  await advance(callbacks);
+  assert.equal(state.run.phase, "reconciling");
+  batch.stop();
+  h.profile.characterStats.madness.base = 2;
+  h.profile.characterStatsUpgrade.madness.dailyUsed = 1;
+  h.profile.wallet.gold = 9500;
+  await advance(callbacks);
+  assert.equal(state.pending, null);
+  assert.equal(state.run.status, "stopped");
+  assert.equal(state.run.completed, 1);
+  assert.equal(state.run.spent, 500);
+});

@@ -78,6 +78,8 @@
   }
 }
 
+.app-content--queue > .app-screen--overview,
+.app-content--queue > .app-screen--raids,
 .app-content--friends > .app-screen--overview,
 .app-content--friends > .app-screen--raids,
 .app-content--raids > .app-screen--overview,

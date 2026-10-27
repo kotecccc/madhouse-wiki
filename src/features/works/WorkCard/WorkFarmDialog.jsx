@@ -97,7 +97,7 @@ export function WorkFarmDialog({
   }, []);
   const knownEnergy = latestWorkEnergy(view, profile, profileUpdatedAt);
   const run = state.run;
-  const running = run?.status === "running";
+  const running = ["running", "paused"].includes(run?.status);
   const active = running && run.workId === workId;
   const activeMode = run?.config?.mode ?? "wait";
   const [selectedOption, setSelectedOption] = useState(() =>
@@ -127,7 +127,10 @@ export function WorkFarmDialog({
     let timer;
     const refresh = async () => {
       const current = farmStore.getSnapshot();
-      if (!current.pending && current.run?.status !== "running") {
+      if (
+        !current.pending &&
+        !["running", "paused"].includes(current.run?.status)
+      ) {
         await farmStore.refresh(workId);
       }
       if (!disposed)
@@ -152,6 +155,8 @@ export function WorkFarmDialog({
       ? completed + count
       : Math.max(completed + 1, requested || completed + 1);
   const [launchError, setLaunchError] = useState(null);
+  const [boosterNotice, setBoosterNotice] = useState(null);
+  const [queueNotice, setQueueNotice] = useState(null);
   const remaining = Math.max(0, target - completed);
   const totalEnergy = useMemo(
     () =>
@@ -258,7 +263,7 @@ export function WorkFarmDialog({
     target > completed &&
     target - completed <= 1000 &&
     !state.pending &&
-    !running &&
+    !active &&
     state.loaded &&
     !state.manualPending,
   );
@@ -271,6 +276,7 @@ export function WorkFarmDialog({
       return;
     if (energyOnly) mode = "energy";
     setLaunchError(null);
+    setQueueNotice(null);
     const ok = await farmStore.start({
       workId,
       targetCycles: energyOnly ? completed + 1 : target,
@@ -291,16 +297,18 @@ export function WorkFarmDialog({
             "Запуск пока не подтверждён. Проверяем состояние задачи.",
         );
       }
-    }
+    } else setQueueNotice("Фарм добавлен в очередь.");
   }
   async function applyBooster(type) {
     setLaunchError(null);
+    setBoosterNotice(null);
     const ok = await farmStore.useBooster(workId, type);
     if (!ok)
       setLaunchError(
         farmStore.getSnapshot().notice ||
           "Применение пока не подтверждено. Проверяем состояние.",
       );
+    else setBoosterNotice("Дефибриллятор добавлен в очередь.");
   }
   const taskPreview = useMemo(
     () =>
@@ -355,7 +363,9 @@ export function WorkFarmDialog({
       refreshKey={`work-${workId}`}
       showCloseButton
       loading={
-        (!view && !state.error && !state.notice) || state.pending || active
+        (!view && !running && !state.error && !state.notice) ||
+        state.pending ||
+        active
       }
       boostersLoading={!view && !state.error && !state.notice}
       conditionDialog={condition}
@@ -363,7 +373,7 @@ export function WorkFarmDialog({
       footerStart={<Button onClick={onClose}>Закрыть</Button>}
       footer={
         <>
-          {running ? (
+          {active ? (
             <Button icon="stop" onClick={() => void farmStore.stop()}>
               Остановить
             </Button>
@@ -409,7 +419,7 @@ export function WorkFarmDialog({
       optionSelection={{
         value: effectiveOption,
         onChange: setSelectedOption,
-        disabled: running,
+        disabled: active,
       }}
       afterOptions={
         <>
@@ -498,8 +508,7 @@ export function WorkFarmDialog({
           ) : running ? (
             <BaseCard className="work-calculator-goal">
               <CardDescription title={run.reason}>
-                Другая работёнка уже выполняется. Остановите её, чтобы сменить
-                цель.
+                Другая работёнка выполняется. Новая цель будет ждать в очереди.
               </CardDescription>
             </BaseCard>
           ) : null}
@@ -513,7 +522,7 @@ export function WorkFarmDialog({
         maxToggle: {
           active: energyOnly,
           onToggle: () => setMaxMode((value) => !value),
-          disabled: running,
+          disabled: active,
           label: (
             <>
               MAX {energyBudget == null ? "—" : fmt(energyBudget)}{" "}
@@ -567,7 +576,13 @@ export function WorkFarmDialog({
             run?.workId === workId &&
             ["limited", "error"].includes(run.status) &&
             run.reason && <ErrorToast message={run.reason} />}
-          {!running && <ErrorToast message={launchError} />}
+          {boosterNotice && (
+            <CardDescription role="status">{boosterNotice}</CardDescription>
+          )}
+          {!active && <ErrorToast message={launchError} />}
+          {queueNotice && (
+            <CardDescription role="status">{queueNotice}</CardDescription>
+          )}
         </>
       }
     />

@@ -745,7 +745,7 @@ export function createBossBattleController({
             { battle, canStart: false, needsRefresh: false },
             version,
           );
-          return;
+          return { battleFinished: true };
         }
         // A confirmed strike already returns state. Never fetch the whole fight
         // again here; incomplete replies require an explicit user refresh.
@@ -820,6 +820,7 @@ export function createBossBattleController({
           },
           version,
         );
+        return { confirmed: complete };
       } else {
         publish({ battle });
         applyCurrent(await readCurrent(call, boss, battle.id, false), version);
@@ -891,11 +892,11 @@ export function createBossBattleController({
   }
   async function useMedicine(
     type,
-    { automatic = false, allowed = () => true } = {},
+    { automatic = false, queued = false, allowed = () => true } = {},
   ) {
     const eligible = (current) =>
       canUseMedicine(
-        automatic ? { ...current, medicineOpen: true } : current,
+        automatic || queued ? { ...current, medicineOpen: true } : current,
         type,
         now(),
       );
@@ -974,12 +975,13 @@ export function createBossBattleController({
   }
   async function buyMedicine({
     automatic = false,
+    queued = false,
     quote = state.purchase,
     allowed = () => true,
   } = {}) {
     const eligible = (current) =>
       canShopMedicines(
-        automatic ? { ...current, medicineOpen: true } : current,
+        automatic || queued ? { ...current, medicineOpen: true } : current,
         now(),
       );
     if (!quote || !eligible(state)) return;
@@ -1005,23 +1007,29 @@ export function createBossBattleController({
           notice:
             "Условия покупки изменились. Проверьте цену и подтвердите заново.",
         });
-        return;
+        return { rejected: "price_changed" };
       }
-      const walletBefore = automatic
-        ? (await call("GET", "/api/me"))?.wallet?.[quote.currency]
-        : null;
+      const walletBefore =
+        automatic || queued
+          ? (await call("GET", "/api/me"))?.wallet?.[quote.currency]
+          : null;
       if (
-        automatic &&
+        (automatic || queued) &&
         (!Number.isSafeInteger(walletBefore) || walletBefore < freshQuote.total)
       ) {
         applyCurrent(before, version, {
           notice: "Не удалось подтвердить достаточный баланс для покупки.",
           purchase: null,
         });
-        return;
+        return {
+          rejected: Number.isSafeInteger(walletBefore)
+            ? "insufficient_balance"
+            : "wallet_unknown",
+        };
       }
       const actionId = operationId();
-      if (!allowed(freshQuote, { operationId: actionId }, before)) return;
+      if (!allowed(freshQuote, { operationId: actionId }, before, walletBefore))
+        return;
       publish({ ...before, needsRefresh: true, purchase: null });
       // The successful purchase body is undocumented; verify stock using GET.
       await call("POST", "/api/me/bag/combat-items/buy", {
@@ -1037,13 +1045,14 @@ export function createBossBattleController({
       const quantity = after.medicines?.find(
         (m) => m.type === quote.type,
       )?.quantity;
-      const walletAfter = automatic
-        ? (await call("GET", "/api/me"))?.wallet?.[quote.currency]
-        : null;
+      const walletAfter =
+        automatic || queued
+          ? (await call("GET", "/api/me"))?.wallet?.[quote.currency]
+          : null;
       const confirmed =
         Number.isSafeInteger(quantity) &&
         quantity === previousQuantity + quote.quantity &&
-        (!automatic || walletAfter === walletBefore - quote.total);
+        (!(automatic || queued) || walletAfter === walletBefore - quote.total);
       applyCurrent(after, version, {
         purchaseUncertain: !confirmed,
         notice: confirmed
@@ -1165,6 +1174,7 @@ export function createBossBattleController({
     async acceptInvitation(
       boss,
       { invitationId, battleId, bossId, expiresAt } = {},
+      { beforeSend = () => true } = {},
     ) {
       const id = Number(boss?.numericId ?? boss?.apiId ?? boss?.id);
       if (
@@ -1200,10 +1210,15 @@ export function createBossBattleController({
           medicineOpen: false,
           purchase: null,
         });
+        const actionId = operationId();
+        if (!beforeSend({ operationId: actionId })) {
+          publish({ pendingInvitation: null, needsRefresh: true });
+          return;
+        }
         await call(
           "POST",
           `/api/bosses/invitations/${encodeURIComponent(invitationId)}/accept`,
-          { operationId: operationId() },
+          { operationId: actionId },
         );
         if (version !== generation) return;
         const current = await readInvitationBattle(
@@ -1219,6 +1234,11 @@ export function createBossBattleController({
           notice: "Приглашение принято. Подтверждено участие в бою.",
         });
       });
+    },
+    releaseUnsentInvitation(invitationId) {
+      if (state.pendingInvitation?.invitationId !== invitationId) return false;
+      publish({ pendingInvitation: null, needsRefresh: true });
+      return true;
     },
     adoptJoinedInvitation(boss, raw) {
       const id = Number(boss?.numericId ?? boss?.apiId ?? boss?.id);

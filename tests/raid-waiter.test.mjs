@@ -7,6 +7,7 @@ function setup({
   refresh,
   startSolo,
   priorityActive = () => false,
+  workPriority = () => false,
 } = {}) {
   let clock = 1000,
     locked = false,
@@ -43,6 +44,7 @@ function setup({
     },
     available: () => !priorityActive(),
     priorityActive,
+    workPriority,
     lock() {
       if (locked) return false;
       locked = true;
@@ -91,6 +93,26 @@ const invitation = {
   available: true,
   expiresAt: 999999,
 };
+
+test("a ready farm delays solo fights while a live invitation can still be accepted", async () => {
+  let soloStarts = 0;
+  const h = setup({
+    workPriority: () => true,
+    startSolo: async () => {
+      soloStarts++;
+    },
+  });
+  h.worker.start(7);
+  await h.worker.tick();
+  assert.equal(soloStarts, 0);
+  assert.equal(h.worker.getSnapshot().status, "waiting");
+  h.setItems([invitation]);
+  h.advance();
+  await h.worker.tick();
+  assert.equal(soloStarts, 0);
+  assert.ok(h.calls.includes("invite-7"));
+  assert.ok(h.calls.includes("auto.start"));
+});
 
 test("a waiting raid can be suspended and resumed without losing its intent", async () => {
   const ctx = setup();
@@ -364,4 +386,45 @@ test("raid waits through character priority and resumes its checks", async () =>
   ctx.advance(1000);
   await ctx.worker.tick();
   assert.deepEqual(ctx.calls, ["refresh"]);
+});
+
+test("user pause survives restart and resumes through a fresh read", async () => {
+  const first = setup();
+  first.worker.start(7);
+  assert.equal(first.worker.pause(), true);
+  const saved = structuredClone(first.worker.getSnapshot());
+  const restored = setup({ saved });
+  await restored.worker.tick();
+  assert.equal(restored.worker.getSnapshot().userPaused, true);
+  assert.deepEqual(restored.calls, []);
+  assert.equal(restored.worker.resumePaused(), true);
+  await restored.worker.tick();
+  assert.equal(restored.worker.getSnapshot().enabled, true);
+  assert.deepEqual(restored.calls, ["refresh"]);
+});
+
+test("resume waits for the read that was in flight when the raid was paused", async () => {
+  let release;
+  let first = true;
+  const ctx = setup({
+    refresh: () =>
+      first
+        ? ((first = false),
+          new Promise((resolve) => {
+            release = resolve;
+          }))
+        : undefined,
+  });
+  ctx.worker.start(7);
+  ctx.setItems([invitation]);
+  const tick = ctx.worker.tick();
+  assert.equal(ctx.worker.pause(), true);
+  assert.equal(ctx.worker.resumePaused(), true);
+  await ctx.worker.tick();
+  assert.equal(ctx.worker.getSnapshot().enabled, false);
+  release();
+  await tick;
+  assert.deepEqual(ctx.calls, ["refresh"]);
+  await ctx.worker.tick();
+  assert.deepEqual(ctx.calls, ["refresh", "refresh", "invite-7", "auto.start"]);
 });

@@ -1996,3 +1996,92 @@ test("restart finishes discarding floor-owned work after a stop interrupted duri
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("queued invitation captures server identity and joins once", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "queued-invitation-"));
+  const ctx = setup(directory);
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "queue-inv-read", "invitations.refresh");
+    await ctx.service.boot();
+    await issue(ctx.service, entry, "queue-inv-join", "queue.enqueue", {
+      type: "invitation.accept",
+      action: { invitationId: "invite-9", bossId: 999 },
+    });
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    const state = ctx.service.snapshot(entry);
+    assert.equal(state.queuedActions[0].status, "completed");
+    assert.equal(state.queuedActions[0].args.bossId, 7);
+    assert.equal(state.queuedActions[0].priority, 60);
+    assert.equal(state.battle.battle.id, "battle-9");
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("queued invitation with lost response is reconciled after restart without replay", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "queued-invitation-lost-"));
+  let ctx = setup(directory, { timeoutPost: true });
+  try {
+    let entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "queue-lost-read", "invitations.refresh");
+    await ctx.service.boot();
+    await issue(ctx.service, entry, "queue-lost-join", "queue.enqueue", {
+      type: "invitation.accept",
+      action: { invitationId: "invite-9" },
+    });
+    let end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "reconciling"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "reconciling",
+    );
+    assert.equal(ctx.store.read("101").manualBattle.pending.kind, "invitation");
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
+    ctx.close();
+    ctx = setup(directory, { now: now + 30000 });
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+    assert.equal(ctx.service.snapshot(entry).battle.battle.id, "battle-9");
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      0,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

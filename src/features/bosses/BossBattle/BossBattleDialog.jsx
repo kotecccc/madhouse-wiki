@@ -121,6 +121,9 @@ export function BossBattleDialog() {
       ? goal.status === "active" &&
         ["won", "lost", "expired", "surrendered"].includes(battle?.status)
       : isTerminalBossBattle(battle));
+  const queuedStart = state.queuedBattleActions?.some(
+    (job) => job.type === "battle.start",
+  );
   const goalPanel = (
     <BossBattleGoalPanel
       key={state.boss.id}
@@ -167,23 +170,17 @@ export function BossBattleDialog() {
                 <Button
                   variant="primary"
                   icon="combat"
-                  disabled={
-                    auto.enabled ||
-                    state.raid?.enabled ||
-                    Boolean(state.pending) ||
-                    state.needsRefresh ||
-                    state.purchaseUncertain ||
-                    Boolean(state.purchase) ||
-                    Boolean(goal && !goal.canContinue)
-                  }
+                  disabled={auto.enabled || state.raid?.enabled || queuedStart}
                   title={actionHint || state.notice}
                   onClick={() => void bossBattle.startNextBattle()}
                 >
-                  {state.pending === "restart"
-                    ? "Запуск…"
-                    : goal
-                      ? "Следующий бой"
-                      : "Напасть"}
+                  {queuedStart
+                    ? "В очереди"
+                    : state.pending === "restart"
+                      ? "Запуск…"
+                      : goal
+                        ? "Следующий бой"
+                        : "Напасть"}
                 </Button>
               )}
             </div>

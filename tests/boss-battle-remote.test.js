@@ -229,17 +229,32 @@ test("battle, medicine, purchase, auto, goal, and pvp actions map to command env
   const h = harness();
   await h.connect();
   const actions = [
-    [h.bossBattle.start, "start", {}],
-    [h.bossBattle.startNextBattle, "next", {}],
-    [h.bossBattle.attack, "attack", {}],
+    [
+      h.bossBattle.start,
+      "queue.enqueue",
+      { type: "battle.start", action: { bossId: 8 } },
+    ],
+    [
+      h.bossBattle.startNextBattle,
+      "queue.enqueue",
+      { type: "battle.start", action: { bossId: 8 } },
+    ],
+    [
+      h.bossBattle.attack,
+      "queue.enqueue",
+      { type: "battle.attack", action: { bossId: 8, battleId: "b-1" } },
+    ],
     [h.bossBattle.refresh, "refresh", {}],
     [h.bossBattle.hydrateDetails, "hydrate", {}],
     [h.bossBattle.openMedicines, "medicines.open", {}],
     [h.bossBattle.closeMedicines, "medicines.close", {}],
     [
       () => h.bossBattle.useMedicine("health"),
-      "medicine.use",
-      { type: "health" },
+      "queue.enqueue",
+      {
+        type: "battle.heal",
+        action: { bossId: 8, battleId: "b-1", type: "health" },
+      },
     ],
     [
       () => h.bossBattle.preparePurchase("health", "gold", 2),
@@ -247,7 +262,14 @@ test("battle, medicine, purchase, auto, goal, and pvp actions map to command env
       { type: "health", currency: "gold", quantity: 2 },
     ],
     [h.bossBattle.cancelPurchase, "purchase.cancel", {}],
-    [h.bossBattle.buyMedicine, "purchase.buy", {}],
+    [
+      h.bossBattle.buyMedicine,
+      "queue.enqueue",
+      {
+        type: "battle.buy",
+        action: { bossId: 8, battleId: "b-1", quote: null },
+      },
+    ],
     [h.bossBattle.acknowledgePurchase, "purchase.ack", {}],
     [h.bossBattleAuto.start, "auto.start", {}],
     [h.bossBattleAuto.stop, "auto.stop", {}],
@@ -270,8 +292,8 @@ test("battle, medicine, purchase, auto, goal, and pvp actions map to command env
     ],
     [
       () => h.businessAssistant.startRun({ businessId: "business:1" }),
-      "business.run.start",
-      { businessId: "business:1" },
+      "queue.enqueue",
+      { type: "business.start", action: { businessId: "business:1" } },
     ],
     [h.businessAssistant.stopRun, "business.run.stop", {}],
     [h.characterUpgrade.refresh, "character.refresh", {}],
@@ -289,8 +311,8 @@ test("battle, medicine, purchase, auto, goal, and pvp actions map to command env
     ],
     [
       () => h.workFarm.start({ workId: 7, targetCycles: 25 }),
-      "work.start",
-      { workId: 7, targetCycles: 25 },
+      "queue.enqueue",
+      { type: "work.start", action: { workId: 7, targetCycles: 25 } },
     ],
     [h.workFarm.stop, "work.stop", {}],
     [h.pvpBattle.refresh, "pvp.refresh", {}],
@@ -318,7 +340,11 @@ test("one mutation at a time; failed commands resolve and are never retried", as
   assert.equal(h.calls.filter(([method]) => method === "POST").length, 1);
   finish.reject(Object.assign(new Error("offline"), { status: 503 }));
   assert.equal(await first, false);
-  assert.equal(h.bossBattle.getSnapshot().needsRefresh, true);
+  assert.equal(h.bossBattle.getSnapshot().needsRefresh, false);
+  assert.equal(
+    h.bossBattle.getSnapshot().error,
+    "Не удалось добавить действие в очередь.",
+  );
   assert.equal(h.calls.filter(([method]) => method === "POST").length, 1);
 });
 
@@ -394,6 +420,25 @@ test("floor automation is server-owned and stop can interrupt a pending read", a
   assert.equal(h.floorAutomation.getSnapshot().status, "stopped");
   h.disconnect();
   assert.equal(h.floorAutomation.getSnapshot().loaded, false);
+});
+
+test("floor launch is queued and an awaiting launch can be stopped", async () => {
+  const state = {
+    ...initialState(),
+    floorRunner: { status: "stopped" },
+    queuedActions: [
+      { id: "floor-job-1", type: "floor.start", status: "queued", args: {} },
+    ],
+  };
+  const h = harness({ request: () => state });
+  await h.connect();
+  assert.equal(h.floorAutomation.getSnapshot().queuedId, "floor-job-1");
+  await h.floorAutomation.start();
+  assert.equal(h.calls.at(-1)[2].command, "queue.enqueue");
+  assert.equal(h.calls.at(-1)[2].args.type, "floor.start");
+  await h.floorAutomation.stop();
+  assert.equal(h.calls.at(-1)[2].command, "floor.stop");
+  h.disconnect();
 });
 
 test("an older in-flight poll response cannot overwrite a newer command snapshot", async () => {
@@ -478,6 +523,35 @@ test("subscription conflict shows feedback without replaying the command", async
   assert.equal(await h.raidSubscriptions.start(42, 8, "leader"), false);
   assert.match(h.raidSubscriptions.getSnapshot().error, /Состояние изменилось/);
   assert.equal(h.calls.filter(([method]) => method === "POST").length, 1);
+  h.disconnect();
+});
+
+test("subscription intent and cancellation use server queue commands", async () => {
+  const h = harness({
+    state: {
+      ...initialState(),
+      queuedActions: [
+        {
+          id: "subscription-01",
+          type: "subscription.start",
+          status: "waiting",
+          args: { leaderPlayerId: 42, bossId: 8 },
+        },
+      ],
+    },
+  });
+  await h.connect();
+  assert.equal(
+    h.raidSubscriptions.getSnapshot().queuedSubscriptions[0].id,
+    "subscription-01",
+  );
+  await h.raidSubscriptions.start(42, 8, "leader");
+  assert.deepEqual(h.calls.at(-1)[2].args, {
+    type: "subscription.start",
+    action: { leaderPlayerId: 42, bossId: 8, leaderUsername: "leader" },
+  });
+  await h.raidSubscriptions.stop("subscription-01");
+  assert.equal(h.calls.at(-1)[2].command, "queue.cancel");
   h.disconnect();
 });
 
@@ -888,8 +962,11 @@ test("invitations are server-backed and accepting opens only the confirmed joine
     request: async (method, path, body) => {
       if (method === "GET" || body.command === "invitations.refresh")
         return state;
-      assert.equal(body.command, "invitations.accept");
-      assert.deepEqual(body.args, { invitationId: "invite-1" });
+      assert.equal(body.command, "queue.enqueue");
+      assert.deepEqual(body.args, {
+        type: "invitation.accept",
+        action: { invitationId: "invite-1" },
+      });
       return {
         ...state,
         version: 8,
@@ -952,8 +1029,11 @@ test("raid intent comes from server state and start/stop send commands without l
   assert.equal([...h.tasks.values()][0].delay, 2000);
   const settings = { bossId: 8, kind: "battles", targetCount: 3 };
   await h.bossBattleAuto.startRaid(settings);
-  assert.equal(h.calls.at(-1)[2].command, "raid.start");
-  assert.deepEqual(h.calls.at(-1)[2].args, { settings });
+  assert.equal(h.calls.at(-1)[2].command, "queue.enqueue");
+  assert.deepEqual(h.calls.at(-1)[2].args, {
+    type: "raid.start",
+    action: { settings },
+  });
   await h.bossBattleAuto.stopRaid();
   assert.equal(h.calls.at(-1)[2].command, "raid.stop");
   h.disconnect();
@@ -977,5 +1057,68 @@ test("a failed live launch still exposes the saved work goal and its stop comman
   assert.equal(h.workFarm.getSnapshot().run.status, "running");
   assert.equal(await h.workFarm.stop(), true);
   assert.equal(h.calls.at(-1)[2].command, "work.stop");
+  h.disconnect();
+});
+
+test("booster intention can be queued while another command is still pending", async () => {
+  let finish;
+  const h = harness({
+    request: async (method, _path, body) => {
+      if (method === "GET") return initialState();
+      if (body.command === "queue.enqueue" && body.args.type === "work.start")
+        return new Promise((resolve) => {
+          finish = () => resolve({ ...initialState(), version: 8 });
+        });
+      assert.equal(body.command, "queue.enqueue");
+      assert.deepEqual(body.args, {
+        type: "work.booster",
+        action: { workId: 7, type: "small" },
+      });
+      return {
+        ...initialState(),
+        version: 9,
+        queuedActions: [{ id: "job", status: "queued" }],
+      };
+    },
+  });
+  await h.connect();
+  const running = h.workFarm.start({ workId: 7 });
+  assert.equal(await h.workFarm.useBooster(7, "small"), true);
+  finish();
+  assert.equal(await running, true);
+  assert.equal([...h.tasks.values()][0].delay, 2000);
+  h.disconnect();
+});
+
+test("battle view shows the queued strike only for its actual boss and battle", async () => {
+  const state = {
+    ...initialState(),
+    queuedActions: [
+      {
+        id: "hit-1",
+        type: "battle.attack",
+        status: "waiting",
+        args: { bossId: 8, battleId: "b-1" },
+      },
+      {
+        id: "other",
+        type: "battle.attack",
+        status: "waiting",
+        args: { bossId: 9, battleId: "b-2" },
+      },
+      {
+        id: "done",
+        type: "battle.attack",
+        status: "completed",
+        args: { bossId: 8, battleId: "b-1" },
+      },
+    ],
+  };
+  const h = harness({ state });
+  await h.connect();
+  assert.deepEqual(
+    h.bossBattle.getSnapshot().queuedBattleActions.map((job) => job.id),
+    ["hit-1"],
+  );
   h.disconnect();
 });

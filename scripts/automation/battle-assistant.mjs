@@ -153,6 +153,7 @@ export function createBattleAssistant({
   record.profiles ??= {};
   record.battles ??= {};
   record.spent ??= money();
+  record.queuedReceipts ??= [];
   // Older records stored healing preferences per boss. Keep the active boss's
   // preferences when possible; otherwise migrate the first saved profile.
   if (!record.healingSettings) {
@@ -317,7 +318,11 @@ export function createBattleAssistant({
   function allowed() {
     return !stopped && available();
   }
-  async function use(type, automatic = false) {
+  async function use(
+    type,
+    automatic = false,
+    { queueId, beforeReserve = () => true } = {},
+  ) {
     if (!types.includes(type)) throw new Error("invalid_medicine_type");
     const actionGeneration = generation;
     const config = settings();
@@ -330,6 +335,7 @@ export function createBattleAssistant({
       return stop("Лимит этой аптечки исчерпан.");
     const result = await controller.useMedicine(type, {
       automatic,
+      queued: Boolean(queueId),
       allowed: (operation, before) => {
         if (automatic && (stopped || generation !== actionGeneration))
           return false;
@@ -350,12 +356,30 @@ export function createBattleAssistant({
           ).type !== type
         )
           return false;
-        reserve({ kind: "heal", type, ...operation }, automatic);
+        if (!beforeReserve(operation, before)) return false;
+        reserve(
+          {
+            kind: "heal",
+            type,
+            ...operation,
+            ...(queueId
+              ? {
+                  queueId,
+                  beforeQuantity:
+                    before.medicines?.find((item) => item.type === type)
+                      ?.quantity ?? null,
+                }
+              : {}),
+          },
+          automatic,
+        );
         return true;
       },
     });
     if (result?.confirmed === true) {
       ledger.used[type]++;
+      if (queueId)
+        record.queuedReceipts = [...record.queuedReceipts.slice(-127), queueId];
       complete();
       return { kind: "heal" };
     }
@@ -363,13 +387,18 @@ export function createBattleAssistant({
       "Применение аптечки не подтверждено. Проверьте бой; автоматического повтора не будет.",
     );
   }
-  async function buy(quote, automatic = false) {
+  async function buy(
+    quote,
+    automatic = false,
+    { queueId, beforeReserve = () => true } = {},
+  ) {
     if (!quote) return stop("Цена аптечки неизвестна.");
     const actionGeneration = generation;
     const result = await controller.buyMedicine({
       automatic,
+      queued: Boolean(queueId),
       quote,
-      allowed: (fresh, operation, before) => {
+      allowed: (fresh, operation, before, walletBefore) => {
         if (automatic && (stopped || generation !== actionGeneration))
           return false;
         const config = settings();
@@ -398,15 +427,35 @@ export function createBattleAssistant({
           if (currentChoice.kind !== "buy" || currentChoice.type !== fresh.type)
             return false;
         }
-        reserve({ kind: "buy", quote: fresh, ...operation }, automatic);
+        if (!beforeReserve(operation, before)) return false;
+        reserve(
+          {
+            kind: "buy",
+            quote: fresh,
+            ...operation,
+            ...(queueId
+              ? {
+                  queueId,
+                  beforeQuantity:
+                    before.medicines?.find((item) => item.type === fresh.type)
+                      ?.quantity ?? null,
+                  walletBefore,
+                }
+              : {}),
+          },
+          automatic,
+        );
         return true;
       },
     });
     if (result?.confirmed === true) {
       record.spent[quote.currency] += quote.total;
+      if (queueId)
+        record.queuedReceipts = [...record.queuedReceipts.slice(-127), queueId];
       complete();
       return { kind: "buy" };
     }
+    if (result?.rejected) return { kind: "rejected", reason: result.rejected };
     return wait(
       "Покупка не подтверждена или недоступна. Проверьте запас и бюджет; повторной покупки не будет.",
     );
@@ -455,7 +504,7 @@ export function createBattleAssistant({
           "Действия приостановлены: предыдущее действие не подтверждено.",
       );
     if (!available() && priorityActive())
-      return wait("Ожидаем прокачку характеристик.", 1000);
+      return wait("Ожидаем приоритетное действие.", 1000);
     if (!available()) {
       try {
         await recover();
@@ -634,6 +683,7 @@ export function createBattleAssistant({
         state.needsRefresh ||
         state.error ||
         !record.pending ||
+        record.pending.queueId ||
         (record.pending.kind !== "start" &&
           !record.battles[record.pending.battleId])
       )
@@ -659,6 +709,77 @@ export function createBattleAssistant({
         return false;
       complete();
       return true;
+    },
+    queuedState() {
+      return {
+        pending: record.pending ? { ...record.pending } : null,
+        receipts: [...record.queuedReceipts],
+      };
+    },
+    async reconcileQueuedHeal(queueId) {
+      if (record.queuedReceipts.includes(queueId)) return true;
+      const pending = record.pending;
+      if (pending?.queueId !== queueId || pending.kind !== "heal") return false;
+      if (controller.getSnapshot().battle?.id !== pending.battleId)
+        return false;
+      await controller.loadMedicines();
+      const current = controller.getSnapshot();
+      const quantity = current.medicines?.find(
+        (item) => item.type === pending.type,
+      )?.quantity;
+      if (
+        current.needsRefresh ||
+        current.error ||
+        current.battle?.id !== pending.battleId ||
+        !integer(pending.beforeQuantity) ||
+        !integer(quantity) ||
+        quantity >= pending.beforeQuantity
+      )
+        return false;
+      const ledger = record.battles[pending.battleId];
+      if (!ledger) return false;
+      ledger.used[pending.type]++;
+      record.queuedReceipts = [...record.queuedReceipts.slice(-127), queueId];
+      record.waiting = null;
+      notice = null;
+      complete();
+      return true;
+    },
+    async reconcileQueuedPurchase(queueId, readWallet) {
+      const pending = record.pending;
+      if (record.queuedReceipts.includes(queueId)) {
+        if (controller.getSnapshot().purchaseUncertain) {
+          await controller.loadMedicines();
+          controller.acknowledgePurchase();
+        }
+        return !controller.getSnapshot().purchaseUncertain;
+      }
+      if (pending?.queueId !== queueId || pending.kind !== "buy") return false;
+      if (controller.getSnapshot().battle?.id !== pending.battleId)
+        return false;
+      await controller.loadMedicines();
+      const current = controller.getSnapshot();
+      const quantity = current.medicines?.find(
+        (item) => item.type === pending.quote.type,
+      )?.quantity;
+      if (
+        current.needsRefresh ||
+        current.error ||
+        current.battle?.id !== pending.battleId ||
+        !integer(pending.beforeQuantity) ||
+        quantity !== pending.beforeQuantity + pending.quote.quantity ||
+        !integer(pending.walletBefore)
+      )
+        return false;
+      const wallet = await readWallet(pending.quote.currency);
+      if (wallet !== pending.walletBefore - pending.quote.total) return false;
+      record.spent[pending.quote.currency] += pending.quote.total;
+      record.queuedReceipts = [...record.queuedReceipts.slice(-127), queueId];
+      record.waiting = null;
+      notice = null;
+      complete();
+      controller.acknowledgePurchase();
+      return !controller.getSnapshot().purchaseUncertain;
     },
     exportState: () => structuredClone(record),
     nextActionAt(attackAt) {

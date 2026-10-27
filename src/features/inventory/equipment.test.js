@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sendEquipmentCommand, sendInventoryCommand } from "./equipment.js";
-test("equipment client sends one versioned command and reads confirmed inventory", async () => {
+test("equipment client queues one versioned intention without a premature inventory read", async () => {
   const calls = [];
   const get = async (path) => {
     calls.push(path);
@@ -24,11 +24,13 @@ test("equipment client sends one versioned command and reads confirmed inventory
   assert.deepEqual(calls[1].body, {
     id: "receipt123",
     expectedVersion: 3,
-    command: "inventory.action",
-    args: { type: "weapon", id: 7, action: "unequip" },
+    command: "queue.enqueue",
+    args: {
+      type: "inventory",
+      action: { type: "weapon", id: 7, action: "unequip" },
+    },
   });
-  assert.ok(calls.includes("/api/clothing/by-category/1"));
-  assert.equal(calls.at(-1), "/api/me");
+  assert.equal(calls.length, 2);
 });
 test("new user action reaches server even when a previous operation is pending", async () => {
   const commands = [];
@@ -43,7 +45,7 @@ test("new user action reaches server even when a previous operation is pending",
   });
   assert.equal(commands.length, 1);
   assert.equal(commands[0].id, "new-command");
-  assert.equal(commands[0].command, "inventory.action");
+  assert.equal(commands[0].command, "queue.enqueue");
 });
 test("reports whether reconciliation failed at the command or later read", async () => {
   for (const stage of ["command", "inventory"]) {

@@ -43,8 +43,8 @@ export function BossInvitationsContent({
       )}
       {state.blocked && (
         <CardDescription>
-          Чтобы принять другое приглашение, завершите текущий бой и остановите
-          работающую автоматизацию.
+          Вступление дождётся завершения текущего боя и работающей
+          автоматизации.
         </CardDescription>
       )}
       {!state.loaded && (
@@ -68,13 +68,14 @@ export function BossInvitationsContent({
             variant="primary"
             disabled={
               state.pending ||
-              state.blocked ||
-              state.unresolved ||
+              state.queuedIds?.includes(item.invitationId) ||
               !item.available
             }
             onClick={() => onAccept(item.invitationId)}
           >
-            Принять и открыть бой
+            {state.queuedIds?.includes(item.invitationId)
+              ? "В очереди"
+              : "Принять и открыть бой"}
           </Button>
         </BaseCard>
       ))}

@@ -223,7 +223,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
         onScreenChange() {},
       }),
     );
-    assert.equal((navigationMarkup.match(/<button\b/g) || []).length, 2);
+    assert.equal((navigationMarkup.match(/<button\b/g) || []).length, 3);
+    assert.ok(navigationMarkup.includes('aria-controls="screen-queue"'));
     assert.ok(navigationMarkup.includes('aria-controls="screen-overview"'));
     assert.ok(navigationMarkup.includes('aria-controls="screen-raids"'));
     assert.ok(!navigationMarkup.includes('aria-label="Этажи"'));
@@ -1106,7 +1107,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(invitationsHtml.includes("Принять и открыть бой"));
     assert.ok(invitationsHtml.includes("Проверить вступление"));
     assert.ok(invitationsHtml.includes("Зовёт: Друг"));
-    assert.match(invitationsHtml, /disabled=""[^>]*>Принять и открыть бой/);
+    assert.doesNotMatch(
+      invitationsHtml,
+      /disabled=""[^>]*>Принять и открыть бой/,
+    );
     const settingsHtml = settingsPanel();
     assert.ok(settingsHtml.includes("Цель и условия боя"));
     assert.ok(settingsHtml.includes("ui-disclosure ui-disclosure--sm"));
@@ -1184,7 +1188,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!activePanel.includes("Последнее событие"));
     assert.ok(!activePanel.includes("Характеристики босса"));
     const waitingPanel = panel({ battle: { ...activeBattle, readyAt: 4000 } });
-    assert.match(waitingPanel, /disabled=""[^>]*>.*?Ударить · 3 с/s);
+    assert.match(waitingPanel, /Ударить · 3 с/);
+    assert.doesNotMatch(waitingPanel, /disabled=""[^>]*>.*?Ударить · 3 с/s);
     const wonPanel = panel({
       battle: {
         ...activeBattle,

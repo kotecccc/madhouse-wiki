@@ -7,4 +7,5 @@ test("floors links and default routes resolve to the combined home screen", () =
     assert.equal(screenFromHash(hash), "overview");
   assert.equal(screenFromHash("#raids"), "raids");
   assert.equal(screenFromHash("#inventory"), "inventory");
+  assert.equal(screenFromHash("#queue"), "queue");
 });

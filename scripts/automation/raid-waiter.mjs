@@ -11,6 +11,8 @@ export function createRaidWaiter({
   auto,
   available,
   priorityActive = () => false,
+  workPriority = () => false,
+  canResume = () => true,
   lock,
   unlock,
   refresh,
@@ -32,6 +34,8 @@ export function createRaidWaiter({
   const stop = (status = "stopped", notice = "Рейд остановлен.") => {
     publish({
       enabled: false,
+      userPaused: false,
+      resumeRequested: false,
       stopAfterBattle: false,
       status,
       notice,
@@ -55,10 +59,11 @@ export function createRaidWaiter({
     !running && !uncertain() && state().battle?.status !== "active";
   return {
     getSnapshot: () => value,
-    start(bossId) {
+    start(bossId, { queueId = null } = {}) {
       if (
         running ||
         value.enabled ||
+        value.userPaused ||
         state().pending ||
         state().pendingInvitation ||
         state().purchase ||
@@ -70,9 +75,12 @@ export function createRaidWaiter({
       ready = true;
       publish({
         enabled: true,
+        userPaused: false,
+        resumeRequested: false,
         stopAfterBattle: false,
         status: "waiting",
         bossId,
+        queueId,
         nextCheckAt: now(),
         postBattleUntil: null,
         notice: "Ждём приглашения на выбранного босса.",
@@ -103,6 +111,27 @@ export function createRaidWaiter({
       });
       goal.finishCurrentBattle?.();
       auto.finishCurrent?.();
+    },
+    pause() {
+      if (!value.enabled) return false;
+      // Persist the paused marker before stopping the strike engine. A restart
+      // must not revive the old enabled auto checkpoint in between these steps.
+      publish({
+        enabled: false,
+        userPaused: true,
+        resumeRequested: false,
+        status: "paused",
+        nextCheckAt: null,
+        notice: "Рейд на паузе.",
+      });
+      auto.stop();
+      ready = false;
+      return true;
+    },
+    resumePaused() {
+      if (!value.userPaused) return false;
+      publish({ resumeRequested: true, notice: "Продолжаем рейд." });
+      return true;
     },
     canSuspend,
     discardSuspended() {
@@ -137,6 +166,21 @@ export function createRaidWaiter({
       publish({ nextCheckAt: now() });
     },
     async tick() {
+      if (
+        !running &&
+        value.userPaused &&
+        value.resumeRequested &&
+        canResume()
+      ) {
+        ready = true;
+        publish({
+          enabled: true,
+          userPaused: false,
+          resumeRequested: false,
+          status: "waiting",
+          nextCheckAt: now(),
+        });
+      }
       if (!ready || !value.enabled || running) return;
       if (value.stopAfterBattle) {
         const current = state();
@@ -283,6 +327,13 @@ export function createRaidWaiter({
         );
         if (!invitation) {
           if (value.allowSolo && startSolo) {
+            if (workPriority()) {
+              publish({
+                status: "waiting",
+                notice: "Ожидаем выполнение работёнки.",
+              });
+              return;
+            }
             publish({
               status: "starting",
               notice:
@@ -295,6 +346,13 @@ export function createRaidWaiter({
                 goal.getSnapshot()?.status === "active",
             );
             if (!value.enabled || value.stopAfterBattle) return;
+            if (workPriority() && state().battle?.status !== "active") {
+              publish({
+                status: "waiting",
+                notice: "Ожидаем выполнение работёнки.",
+              });
+              return;
+            }
             if (!auto.start({ singleBattle: true }))
               throw new Error("solo_start_unconfirmed");
             publish({

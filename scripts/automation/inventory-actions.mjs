@@ -4,6 +4,19 @@ const root = "https://cargohustle.online";
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
 const nonnegative = (value) => Number.isFinite(value) && value >= 0;
+function readFailure(response, message) {
+  const status =
+    response.status >= 400 && response.status < 500 ? response.status : 503;
+  const error = fail(status, message);
+  const header = response.headers.get("Retry-After");
+  if (header) {
+    const delay = /^\d+$/.test(header)
+      ? Number(header) * 1000
+      : Date.parse(header) - Date.now();
+    if (Number.isFinite(delay) && delay >= 0) error.retryAfterMs = delay;
+  }
+  return error;
+}
 export const INVENTORY_ACTION_TYPES = {
   weapon: {
     path: "/api/clothing/by-category/1",
@@ -100,7 +113,8 @@ export async function inventoryRead({ entry, type, zoneId, fetcher }) {
     redirect: "error",
     signal: AbortSignal.timeout(20000),
   });
-  if (!response.ok || response.headers.get("X-Madhouse-Snapshot") === "stale")
+  if (!response.ok) throw readFailure(response, "inventory_unavailable");
+  if (response.headers.get("X-Madhouse-Snapshot") === "stale")
     throw fail(503, "inventory_unavailable");
   const text = await response.text();
   if (Buffer.byteLength(text) > 4 * 1024 * 1024)
@@ -122,7 +136,8 @@ export async function inventoryWallet({ entry, body, fetcher }) {
     redirect: "error",
     signal: AbortSignal.timeout(20000),
   });
-  if (!response.ok || response.headers.get("X-Madhouse-Snapshot") === "stale")
+  if (!response.ok) throw readFailure(response, "inventory_wallet_unavailable");
+  if (response.headers.get("X-Madhouse-Snapshot") === "stale")
     throw fail(503, "inventory_wallet_unavailable");
   const profile = await response.json();
   if (profile?.error || profile?.partial === true)
@@ -284,6 +299,7 @@ export async function inventoryAction({
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(20000),
+      canDispatch: allowed,
     });
     if (!response.ok) {
       if (response.status >= 400 && response.status < 500) {
@@ -311,6 +327,8 @@ export async function inventoryAction({
     entry.equipment = { pending: null, checked: true, paths: [current.path] };
     save(entry);
   } catch (error) {
+    // The account lane proves this request never reached the game.
+    if (error?.notDispatched) entry.equipment.pending = null;
     save(entry);
     throw error;
   }

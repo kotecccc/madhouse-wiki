@@ -68,6 +68,39 @@ test("battle header contains countdown, hides automation manual controls and kee
     const { BossBattlePanel, BossBattleDetails } = await server.ssrLoadModule(
       "/src/features/bosses/BossBattle/BossBattlePanel.jsx",
     );
+    const staleBattle = {
+      boss: { id: 7, name: "Босс", reference: {} },
+      needsRefresh: true,
+      errorStatus: 503,
+      battle: {
+        id: "battle-1",
+        status: "active",
+        playerHealth: 20,
+        playerMaxHealth: 100,
+        bossHealth: 80,
+        bossMaxHealth: 100,
+        readyAt: 3000,
+        expiresAt: null,
+        events: [],
+      },
+    };
+    const waitingAttack = renderToStaticMarkup(
+      createElement(BossBattlePanel, { state: staleBattle, now: 1000 }),
+    );
+    assert.match(waitingAttack, /Ударить · 2 с/);
+    assert.doesNotMatch(waitingAttack, /disabled=""[^>]*>.*?Ударить · 2 с/s);
+    const queuedAttack = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: {
+          ...staleBattle,
+          queuedBattleActions: [
+            { type: "battle.attack", args: { battleId: "battle-1" } },
+          ],
+        },
+        now: 1000,
+      }),
+    );
+    assert.match(queuedAttack, /disabled=""[^>]*>.*?В очереди/s);
     const finishedExample = {
       boss: { id: 7, name: "Boss" },
       battle: {
@@ -261,7 +294,10 @@ test("battle header contains countdown, hides automation manual controls and kee
       );
       assert.ok(!waitingSeries.includes("Начать автобой"));
       assert.ok(!waitingSeries.includes("Остановить рейд"));
-      assert.match(waitingSeries, /aria-label="Запустить рейд"[^>]*disabled/);
+      assert.doesNotMatch(
+        waitingSeries,
+        /aria-label="Запустить рейд"[^>]*disabled/,
+      );
     }
     const raidMarkup = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
@@ -282,7 +318,7 @@ test("battle header contains countdown, hides automation manual controls and kee
     assert.ok(raidMarkup.includes("2 из 3"));
     assert.ok(raidMarkup.includes("ui-pill--active"));
     assert.ok(!raidMarkup.includes("Ждём приглашений"));
-    assert.match(raidMarkup, /aria-label="Начать автобой"[^>]*disabled/);
+    assert.doesNotMatch(raidMarkup, /aria-label="Начать автобой"[^>]*disabled/);
 
     assert.ok(goalMarkup.includes('aria-label="Без ограничений"'));
     assert.ok(goalMarkup.includes("tabler-icon-infinity-2"));
@@ -312,6 +348,26 @@ test("battle header contains countdown, hides automation manual controls and kee
     );
     assert.ok(paused.includes("2 из 3"));
     assert.ok(paused.includes("ui-pill--active"));
+    const userPaused = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal,
+        auto: { enabled: false, userPaused: true },
+      }),
+    );
+    assert.ok(userPaused.includes("Остановить автобой"));
+    assert.doesNotMatch(userPaused, /aria-label="Запустить рейд"[^>]*disabled/);
+    const userPausedRaid = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: { ...settingsState, raid: { enabled: false, userPaused: true } },
+        goal,
+      }),
+    );
+    assert.ok(userPausedRaid.includes("Остановить рейд"));
+    assert.doesNotMatch(
+      userPausedRaid,
+      /aria-label="Начать автобой"[^>]*disabled/,
+    );
     const fightingRaid = renderToStaticMarkup(
       createElement(BossBattleGoalPanel, {
         state: {

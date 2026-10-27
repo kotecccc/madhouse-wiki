@@ -35,7 +35,7 @@ test("character action is account scoped, checkpointed, and never replayed after
     wallet: { gold: 10000, pills: 10000, dollar: 1234 },
     characterStats: { madness: { base: 20, total: 30 } },
     characterStatsUpgrade: {
-      resetAtUtc: "2026-10-27T21:00:00Z",
+      resetAtUtc: "2099-01-01T00:00:00Z",
       madness: {
         currency: "gold",
         costPerPoint: 500,
@@ -113,6 +113,12 @@ test("character action is account scoped, checkpointed, and never replayed after
     profile.wallet.gold -= 500;
     profile.characterStatsUpgrade.madness.dailyUsed = 1;
     profile.characterStatsUpgrade.madness.dailyRemaining = 17;
+    for (
+      let i = 0;
+      i < 100 && service.snapshot(entry).characterUpgrade.pending;
+      i++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
     const reconciled = await service.command(entry, {
       id: "refresh-2",
       command: "character.refresh",
@@ -120,7 +126,7 @@ test("character action is account scoped, checkpointed, and never replayed after
       args: {},
     });
     assert.equal(reconciled.characterUpgrade.pending, null);
-    assert.match(reconciled.characterUpgrade.notice, /показывает повышение/);
+    assert.equal(reconciled.characterUpgrade.run.completed, 1);
     assert.equal(posts, 1);
     profile.playerId = 202;
     await assert.rejects(
@@ -295,13 +301,13 @@ test("batch with a lost game response pauses across a server restart", async () 
     for (
       let i = 0;
       i < 100 &&
-      service.snapshot(entry).characterUpgrade.run.status === "running";
+      service.snapshot(entry).characterUpgrade.run.phase !== "reconciling";
       i++
     )
       await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(
-      service.snapshot(entry).characterUpgrade.run.status,
-      "uncertain",
+      service.snapshot(entry).characterUpgrade.run.phase,
+      "reconciling",
     );
     assert.ok(service.snapshot(entry).characterUpgrade.pending);
     assert.equal(posts, 1);
@@ -309,8 +315,8 @@ test("batch with a lost game response pauses across a server restart", async () 
     service = createAutomationService(options);
     entry = await service.identify("Bearer a.b.c");
     assert.equal(
-      service.snapshot(entry).characterUpgrade.run.status,
-      "uncertain",
+      service.snapshot(entry).characterUpgrade.run.phase,
+      "reconciling",
     );
     assert.ok(service.snapshot(entry).characterUpgrade.pending);
     await new Promise((resolve) => setTimeout(resolve, 30));

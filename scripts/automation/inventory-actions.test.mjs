@@ -395,3 +395,38 @@ test("another user command is not blocked by an old inventory checkpoint", async
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("a mutation cancelled in the account lane clears only its unsent checkpoint", async () => {
+  const entry = { credential: "Bearer fake", equipment: { pending: null } };
+  const game = inventoryGame();
+  let mutationAttempts = 0;
+  const fetcher = async (url, init) => {
+    if (init.method === "POST") {
+      mutationAttempts++;
+      assert.equal(typeof init.canDispatch, "function");
+      assert.equal(init.canDispatch(), true);
+      throw Object.assign(new Error("cancelled before dispatch"), {
+        notDispatched: true,
+      });
+    }
+    return game.fetcher(url, init);
+  };
+  await assert.rejects(
+    inventoryAction({
+      entry,
+      args: {
+        type: "weapon",
+        id: 1,
+        action: "buy",
+        price: { amount: 100, currency: "gold" },
+      },
+      commandId: "command123",
+      fetcher,
+      save: () => {},
+    }),
+    /cancelled before dispatch/,
+  );
+  assert.equal(mutationAttempts, 1);
+  assert.equal(entry.equipment.pending, null);
+  assert.equal(game.mutations().length, 0);
+});

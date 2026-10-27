@@ -41,6 +41,10 @@ export function RaidFriendAction({
       disabled={pending}
       onClick={() => onInspectFriend?.(friendTarget)}
     />
+  ) : !archive && authenticated && friendStatus === "queued" ? (
+    <Pill variant="unknown" size="xs" dot={false}>
+      В очереди
+    </Pill>
   ) : !archive && authenticated && friendStatus === "pending" ? (
     <Pill variant="unknown" size="xs" dot={false}>
       Заявка отправлена
@@ -102,6 +106,21 @@ export function RaidPost({
         aria-label={`Рейды на ${post.raidDateLabel}`}
       >
         {rows.map(({ key, raid, candidate, detected }) => {
+          const queued =
+            candidate &&
+            subscriptionState?.queuedSubscriptions?.find(
+              (job) =>
+                job.args.bossId === candidate.bossId &&
+                (candidate.leaderPlayerId != null
+                  ? job.args.leaderPlayerId === candidate.leaderPlayerId
+                  : !job.args.leaderPlayerId &&
+                    String(job.args.leaderUsername || "")
+                      .replace(/^@/, "")
+                      .toLowerCase() ===
+                      String(candidate.leaderUsername || "")
+                        .replace(/^@/, "")
+                        .toLowerCase()),
+            );
           const selected =
             candidate &&
             subscription?.leaderPlayerId === candidate.leaderPlayerId &&
@@ -126,13 +145,15 @@ export function RaidPost({
                 dropItems: [],
               })
             : undefined;
-          const actionLabel = selected
-            ? subscription?.enabled
-              ? "Отписаться"
-              : "Завершаем рейд"
-            : candidate
-              ? "Подписаться"
-              : "Ведущий не подтверждён";
+          const actionLabel = queued
+            ? "Отменить подписку в очереди"
+            : selected
+              ? subscription?.enabled
+                ? "Отписаться"
+                : "Завершаем рейд"
+              : candidate
+                ? "Подписаться"
+                : "Ведущий не подтверждён";
           const friendTarget = raidFriendTarget(raid, candidate);
           const friendStatus =
             subscriptionState?.friend?.statuses?.[raidFriendKey(friendTarget)];
@@ -150,7 +171,7 @@ export function RaidPost({
             !archive && authenticated ? (
               <Button
                 size="sm"
-                icon={selected ? "close" : "target"}
+                icon={selected || queued ? "close" : "target"}
                 iconOnly
                 title={actionLabel}
                 aria-label={actionLabel}
@@ -159,13 +180,14 @@ export function RaidPost({
                   subscriptionState?.pending ||
                   (selected && !subscription?.enabled) ||
                   (!selected &&
+                    !queued &&
                     (!candidate ||
                       subscription?.enabled ||
                       subscription?.hasSuspendedGoal))
                 }
                 onClick={() =>
-                  selected
-                    ? onUnsubscribe?.()
+                  selected || queued
+                    ? onUnsubscribe?.(queued?.id)
                     : onSubscribe?.(
                         candidate.leaderPlayerId,
                         candidate.bossId,

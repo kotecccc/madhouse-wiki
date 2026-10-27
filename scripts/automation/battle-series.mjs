@@ -15,6 +15,7 @@ export function createBattleSeries({
   schedule = setTimeout,
   cancel = clearTimeout,
   random = Math.random,
+  priorityActive = () => false,
 }) {
   let enabled = false,
     disposed = false,
@@ -28,6 +29,7 @@ export function createBattleSeries({
   let checkpoint = null;
   let singleBattle = false;
   let singleBattleId = null;
+  let queueId = null;
   const listeners = new Set();
   let cached = { enabled: false, nextAttackAt: null, pause: false, phase };
   const strike = createBossBattleAutoAttack({
@@ -49,6 +51,7 @@ export function createBattleSeries({
       phase,
       notice: current.notice ?? null,
       nextRecoveryAt,
+      queueId,
     };
     for (const listener of [...listeners]) listener(cached);
   }
@@ -141,12 +144,22 @@ export function createBattleSeries({
       waitForRecovery();
       return;
     }
+    if (priorityActive()) {
+      phase = "yielding";
+      nextBattleAt = now() + 1000;
+      timer = schedule(() => {
+        void advance(id);
+      }, 1000);
+      publish();
+      return;
+    }
     stepping = true;
     phase = "starting";
     publish();
     try {
-      if (!before.battle) await controller.start();
-      else await controller.startNextBattle({ allowed: () => eligible(id) });
+      const allowed = () => eligible(id) && !priorityActive();
+      if (!before.battle) await controller.start({ allowed });
+      else await controller.startNextBattle({ allowed });
     } catch {
       if (id === generation && enabled) waitForRecovery();
     } finally {
@@ -154,6 +167,16 @@ export function createBattleSeries({
     }
     if (!enabled || disposed || id !== generation) return;
     const state = controller.getSnapshot();
+    if (
+      priorityActive() &&
+      healthy(state) &&
+      !state.pending &&
+      state.battle?.id === before.battle?.id
+    ) {
+      phase = "ready";
+      evaluate();
+      return;
+    }
     // A refused start, lost POST reply, incomplete state or unknown cooldown is
     // a stop, never a loop that submits another start.
     if (
@@ -294,6 +317,7 @@ export function createBattleSeries({
       checkpoint: restored = null,
       resumeAt = null,
       singleBattle: single = false,
+      queueId: queuedId = null,
     } = {}) {
       if (enabled || disposed) return false;
       const state = controller.getSnapshot(),
@@ -318,6 +342,7 @@ export function createBattleSeries({
       if (state.battle?.status !== "active" && !goal.canStart()) return false;
       if (controller.beginAutomation?.() === false) return false;
       singleBattle = restored?.singleBattle ?? single;
+      queueId = restored?.queueId ?? queuedId;
       singleBattleId = singleBattle
         ? (restored?.singleBattleId ??
           (state.battle?.status === "active" ? state.battle.id : null))
