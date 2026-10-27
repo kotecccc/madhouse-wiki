@@ -71,6 +71,28 @@ test("does not relaunch a completed goal while the game's progress is stale", as
   assert.equal(h.launches(), 1);
   assert.match(h.runner.getSnapshot().reason, /подтверждения прогресса/);
 });
+test("a work batch stopped at its action limit waits for confirmed progress before replanning", async () => {
+  let current = 1;
+  const h = setup({
+    plan: async () => ({
+      status: "ready",
+      kind: "work",
+      apiId: 1,
+      current,
+      required: 20,
+    }),
+  });
+  h.runner.start();
+  await h.runner.tick();
+  h.setOutcome("partial");
+  h.advance();
+  await h.runner.tick();
+  assert.equal(h.launches(), 1);
+  current = 3;
+  for (let i = 0; i < 4; i++) h.advance();
+  await h.runner.tick();
+  assert.equal(h.launches(), 2);
+});
 test("never repeats a launch with an unknown outcome", async () => {
   let calls = 0;
   const h = setup({

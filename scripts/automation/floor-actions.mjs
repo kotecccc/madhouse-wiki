@@ -157,6 +157,12 @@ export function createFloorActions({
           run.targetCycles !== target.required
         )
           return "unknown";
+        if (
+          run.status === "limited" &&
+          !run.pending &&
+          run.completedCycles > target.current
+        )
+          return "partial";
         return run.status === "running"
           ? "running"
           : run.status === "completed"

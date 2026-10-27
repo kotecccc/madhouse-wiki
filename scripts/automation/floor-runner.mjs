@@ -79,14 +79,17 @@ export function createFloorRunner({
             publish();
             return;
           }
-          if (state !== "completed") {
+          if (state !== "completed" && state !== "partial") {
             record.status = "paused";
             record.reason =
               "Цель остановилась или её результат не подтверждён.";
             publish();
             return;
           }
-          record.lastCompleted = record.target;
+          record.lastCompleted =
+            state === "partial"
+              ? { ...record.target, required: record.target.current + 1 }
+              : record.target;
           record.phase = "planning";
           record.target = null;
           publish();

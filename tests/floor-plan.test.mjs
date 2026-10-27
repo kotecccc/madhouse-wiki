@@ -86,3 +86,11 @@ test("uses the next floor's live conditions after all departments are open", () 
   assert.equal(planFloorProgress(input).destination, "B");
   assert.equal(planFloorProgress(input).kind, "boss");
 });
+
+test("long work goals are split into bounded batches without changing the final condition", () => {
+  const input = structuredClone(fixture);
+  input.info.departments[1].requirements[0].required = 2005;
+  const target = planFloorProgress(input);
+  assert.equal(target.current, 2);
+  assert.equal(target.required, 1002);
+});

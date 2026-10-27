@@ -86,7 +86,10 @@ export function planFloorProgress({ floors, info, catalogue }) {
       entityId: matches[0].id,
       apiId: requirement[field],
       current: requirement.current,
-      required: requirement.required,
+      required:
+        kind === "business"
+          ? requirement.required
+          : Math.min(requirement.required, requirement.current + 1000),
     };
   }
   return { status: "waiting", reason: "Ожидаем подтверждения открытия." };
