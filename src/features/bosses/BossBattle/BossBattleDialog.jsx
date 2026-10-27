@@ -4,6 +4,7 @@ import {
   subscribeSession,
 } from "../../../../shared/auth-session.js";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { BossBattleReceivedDrops } from "./BossBattleReference.jsx";
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
@@ -202,6 +203,11 @@ export function BossBattleDialog() {
         )}
         <div className="boss-battle-column boss-battle-settings-column">
           {goalPanel}
+          {state.healing?.notice && (
+            <CardDescription role="status" title={state.healing.notice}>
+              {state.healing.notice}
+            </CardDescription>
+          )}
           <BossHealingSettings
             key={`healing-${state.boss.id}`}
             state={state}
