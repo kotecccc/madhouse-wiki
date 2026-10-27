@@ -3966,6 +3966,34 @@ export function createAutomationService({
         }
         for (const entry of actors.values()) {
           if (!booting) tryResumePausedAuto(entry);
+          const pendingInvite = entry.assistant.queuedState().pending;
+          if (
+            !booting &&
+            pendingInvite?.kind === "invite" &&
+            !pendingInvite.queueId &&
+            !entry.busy &&
+            !entry.inventoryBusy &&
+            !entry.storageFailed &&
+            entry.credential &&
+            accountHealth(entry.credential)?.status !== "credentials_invalid" &&
+            ["won", "lost", "expired", "surrendered"].includes(
+              entry.controller.getSnapshot().battle?.status,
+            ) &&
+            entry.collector.idleForPriority() &&
+            !characterPriorityActive(entry) &&
+            now() >= (entry.inviteRecoveryAt ?? 0)
+          ) {
+            entry.inviteRecoveryAt = now() + 30000;
+            entry.busy = true;
+            entry.inventoryBusy = true;
+            void entry.assistant
+              .recover()
+              .catch(() => {})
+              .finally(() => {
+                entry.inventoryBusy = false;
+                entry.busy = false;
+              });
+          }
           if (
             !booting &&
             entry.actionQueue.hasDue() &&

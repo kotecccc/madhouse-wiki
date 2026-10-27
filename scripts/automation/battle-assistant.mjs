@@ -248,14 +248,24 @@ export function createBattleAssistant({
             battle?.status === "active" &&
             Boolean(battle.id) &&
             battle.id !== pending.beforeBattleId
-          : pending.kind === "attack" &&
-            !current.needsRefresh &&
-            !current.error &&
-            battle?.id &&
-            (battle.id !== pending.battleId ||
-              (Number.isFinite(beforeDamage) &&
-                Number.isFinite(battle.totalDamage) &&
-                battle.totalDamage > beforeDamage));
+          : pending.kind === "invite" &&
+              !pending.queueId &&
+              !current.needsRefresh &&
+              !current.error &&
+              battle?.id === pending.battleId &&
+              ["won", "lost", "expired", "surrendered"].includes(
+                battle.status,
+              ) &&
+              Boolean(record.battles[pending.battleId])
+            ? (record.battles[pending.battleId].inviteBlocked = true)
+            : pending.kind === "attack" &&
+              !current.needsRefresh &&
+              !current.error &&
+              battle?.id &&
+              (battle.id !== pending.battleId ||
+                (Number.isFinite(beforeDamage) &&
+                  Number.isFinite(battle.totalDamage) &&
+                  battle.totalDamage > beforeDamage));
       if (!confirmed) return false;
       complete();
     }

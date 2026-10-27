@@ -327,6 +327,57 @@ test("unknown start state stays pending after discovery and never retries the st
   assert.deepEqual(controller.calls, [["refresh"]]);
 });
 
+test("a verified finished battle releases an uncertain invite without resending it", async () => {
+  const controller = fakeController(
+    baseState({ battle: { ...baseState().battle, status: "expired" } }),
+  );
+  const assistant = createBattleAssistant({
+    controller,
+    saved: {
+      pending: {
+        kind: "invite",
+        operationId: "invite-op",
+        battleId: "battle-1",
+      },
+      battles: {
+        "battle-1": {
+          used: { heal_10: 0, heal_full: 0 },
+          inviteBlocked: false,
+        },
+      },
+    },
+  });
+  assert.equal(await assistant.recover(), true);
+  assert.equal(assistant.projection().uncertain, false);
+  assert.equal(assistant.projection().invitation.blocked, true);
+  assert.equal(
+    controller.calls.some(([name]) => name === "invite"),
+    false,
+  );
+});
+
+test("an uncertain invite remains reserved if the battle is active or its refresh fails", async () => {
+  for (const patch of [
+    {},
+    { battle: { ...baseState().battle, status: "expired" }, error: "offline" },
+  ]) {
+    const controller = fakeController(baseState(patch));
+    const assistant = createBattleAssistant({
+      controller,
+      saved: {
+        pending: {
+          kind: "invite",
+          operationId: "invite-op",
+          battleId: "battle-1",
+        },
+        battles: { "battle-1": { used: { heal_10: 0, heal_full: 0 } } },
+      },
+    });
+    assert.equal(await assistant.recover(), false);
+    assert.equal(assistant.projection().uncertain, true);
+  }
+});
+
 test("battle use counts reset by battle identity; run budgets persist until a new goal", async () => {
   const controller = fakeController();
   controller.setSnapshot(
