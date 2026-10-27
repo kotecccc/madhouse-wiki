@@ -81,6 +81,10 @@ export function actionQueueCards(state, catalogue = {}) {
       buddy.enabled ? "buddy.stop" : null,
       buddy.enabled ? null : "Завершаем рейд",
     );
+  if (subscription?.suspendedAuto || buddy?.suspendedAuto)
+    addActor("auto", "Автобой", "auto.stop", "Ожидает рейд");
+  if (subscription?.suspendedStandaloneGoal || buddy?.suspendedStandaloneGoal)
+    addActor("goal", "Цель боя", "goal.stop", "Ожидает рейд");
   if (floor?.status === "running" || floor?.status === "paused")
     addActor(
       "floor",
@@ -106,13 +110,13 @@ export function actionQueueCards(state, catalogue = {}) {
       );
       if (subscription?.hasSuspendedGoal || buddy?.hasSuspendedGoal) {
         cards.at(-1).status = "Ожидает рейд";
-        cards.at(-1).command = null;
       } else if (!raid.resumeRequested && !raid.stopAfterBattle) {
         cards.at(-1).pauseCommand = raid.userPaused
           ? "raid.resume"
           : "raid.pause";
       }
-    } else if (["running", "paused"].includes(business?.status)) {
+    }
+    if (["running", "paused"].includes(business?.status)) {
       addActor(
         "business",
         business.name || "Прокачка бизнеса",
@@ -125,12 +129,19 @@ export function actionQueueCards(state, catalogue = {}) {
               ? "Ожидает игру"
               : null,
       );
-      if (!business.resumeRequested && !business.stopRequested)
+      if (subscription?.hasSuspendedGoal || buddy?.hasSuspendedGoal) {
+        cards.at(-1).status = "Ожидает рейд";
+      } else if (!business.resumeRequested && !business.stopRequested)
         cards.at(-1).pauseCommand =
           business.status === "paused"
             ? "business.run.resume"
             : "business.run.pause";
-    } else if (state.auto?.enabled || state.auto?.userPaused) {
+    } else if (
+      !(raid?.enabled || raid?.userPaused) &&
+      !subscription?.hasSuspendedGoal &&
+      !buddy?.hasSuspendedGoal &&
+      (state.auto?.enabled || state.auto?.userPaused)
+    ) {
       const boss = state.battle?.boss;
       const goal = state.goal;
       const progress =
@@ -158,7 +169,12 @@ export function actionQueueCards(state, catalogue = {}) {
         card.pauseCommand = state.auto?.userPaused
           ? "auto.resume"
           : "auto.pause";
-    } else if (state.goal?.status === "active") {
+    } else if (
+      !(raid?.enabled || raid?.userPaused) &&
+      !subscription?.hasSuspendedGoal &&
+      !buddy?.hasSuspendedGoal &&
+      state.goal?.status === "active"
+    ) {
       addActor("goal", "Цель боя", "goal.stop", "Ожидает запуска");
     }
     if (
@@ -196,7 +212,6 @@ export function actionQueueCards(state, catalogue = {}) {
         card.command = null;
       } else if (subscription?.hasSuspendedGoal || buddy?.hasSuspendedGoal) {
         card.status = "Ожидает рейд";
-        card.command = null;
       } else {
         card.pauseCommand =
           work.status === "paused" ? "work.resume" : "work.pause";

@@ -1021,10 +1021,13 @@ test("subscription persists and suspends an existing raid before an uncertain jo
     await entry.raidSubscription.tick();
     assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
     assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
-    await assert.rejects(
-      issue(ctx.service, entry, "subscribe-block-01", "raid.stop"),
-      /subscription_controls_automation/,
+    await issue(ctx.service, entry, "subscribe-stop-prior", "raid.stop");
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.raidEnabled,
+      false,
     );
+    assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
     await assert.rejects(
       issue(ctx.service, entry, "inventory-buy-01", "inventory.action", {
         type: "weapon",
@@ -1227,81 +1230,505 @@ test("after a subscribed battle and a quiet interval the saved raid goal resumes
   }
 });
 
-test("a subscribed raid pauses and resumes a work goal without repeating work", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "subscription-resume-work-"));
-  let status = "active",
-    invited = true,
-    progress = 0;
-  const timers = [];
-  const energy = {
-    current: 10,
-    max: 10,
-    regenIntervalSeconds: 60,
-    secondsToNext: 0,
-  };
-  const workState = () => ({
-    workId: 7,
-    title: "Work",
-    completedCycles: 0,
-    tasks: [
+test("a suspended autobattle can be stopped without interrupting the subscribed fight", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-stop-auto-"));
+  const ctx = setup(directory, {
+    invitations: () => [
       {
-        id: 1,
-        title: "Task",
-        required: 3,
-        progress,
-        energyCost: 1,
-        canPerform: true,
+        invitationId: "invite-9",
+        battleId: "battle-9",
+        bossId: 7,
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+        status: "pending",
+        battleStatus: "active",
+        expiresAtUtc: future,
+        battleExpiresAtUtc: future,
       },
     ],
-    energy,
-  });
-  const ctx = setup(directory, {
-    me: { energy, wallet: { dollar: 100 } },
-    catalogue: {
-      businesses: [],
-      businessUpgrades: [],
-      bosses: [],
-      works: [{ workId: 7, title: "Work" }],
-    },
-    battleStatus: () => status,
-    invitations: () =>
-      invited
-        ? [
-            {
-              invitationId: "invite-9",
-              battleId: "battle-9",
-              bossId: 7,
-              leaderPlayerId: 42,
-              inviterPlayerId: 42,
-              peerPlayerId: 42,
-              status: "pending",
-              battleStatus: "active",
-              expiresAtUtc: future,
-              battleExpiresAtUtc: future,
-            },
-          ]
-        : [],
-    schedule: (callback, delay) => {
-      const timer = { callback, delay, canceled: false };
-      timers.push(timer);
-      return timer;
-    },
-    cancel: (timer) => {
-      timer.canceled = true;
-    },
-    extraRoute: async (path) => {
-      if (path === "/api/works/open") return Response.json(workState());
-      if (path === "/api/me/bag") return Response.json({ boosters: {} });
-      if (path === "/api/works/tasks/perform") {
-        progress++;
-        return Response.json(workState());
-      }
-      return null;
-    },
   });
   try {
     const entry = await ctx.service.identify(token);
-    await issue(ctx.service, entry, "work-priority-start", "work.start", {
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "prior-auto-start", "auto.start", {
+      settings: raidSettings,
+    });
+    await issue(ctx.service, entry, "auto-subscribe", "subscription.start", {
+      leaderPlayerId: 42,
+      bossId: 7,
+    });
+    await entry.raidSubscription.tick();
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.suspendedAuto, true);
+    assert.equal(entry.auto.getSnapshot().enabled, true);
+    await issue(ctx.service, entry, "stop-prior-auto", "auto.stop");
+    const saved = ctx.store.read("101").raidSubscription.checkpoint;
+    assert.equal(saved.auto, null);
+    assert.equal(saved.goal, null);
+    assert.equal(entry.auto.getSnapshot().enabled, true);
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a suspended standalone boss goal can be stopped without interrupting the subscribed fight", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-stop-goal-"));
+  const ctx = setup(directory, {
+    invitations: () => [
+      {
+        invitationId: "invite-9",
+        battleId: "battle-9",
+        bossId: 7,
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+        status: "pending",
+        battleStatus: "active",
+        expiresAtUtc: future,
+        battleExpiresAtUtc: future,
+      },
+    ],
+  });
+  try {
+    const entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(
+      ctx.service,
+      entry,
+      "prior-goal-configure",
+      "goal.configure",
+      raidSettings,
+    );
+    await issue(ctx.service, entry, "goal-subscribe", "subscription.start", {
+      leaderPlayerId: 42,
+      bossId: 7,
+    });
+    await entry.raidSubscription.tick();
+    await entry.raidSubscription.tick();
+    assert.equal(
+      ctx.service.snapshot(entry).subscription.suspendedStandaloneGoal,
+      true,
+    );
+    assert.equal(entry.auto.getSnapshot().enabled, true);
+    await issue(ctx.service, entry, "stop-prior-goal", "goal.stop");
+    assert.equal(ctx.store.read("101").raidSubscription.checkpoint.goal, null);
+    assert.equal(entry.auto.getSnapshot().enabled, true);
+    assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const mode of ["raid", "auto"])
+  test(`a previously paused ${mode} can be stopped without interrupting a subscribed fight`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "subscription-stop-paused-"));
+    const ctx = setup(directory, {
+      invitations: () => [
+        {
+          invitationId: "invite-9",
+          battleId: "battle-9",
+          bossId: 7,
+          leaderPlayerId: 42,
+          inviterPlayerId: 42,
+          peerPlayerId: 42,
+          status: "pending",
+          battleStatus: "active",
+          expiresAtUtc: future,
+          battleExpiresAtUtc: future,
+        },
+      ],
+    });
+    try {
+      const entry = await ctx.service.identify(token);
+      await entry.controller.open({ numericId: 7, name: "Boss 7" });
+      await issue(ctx.service, entry, `paused-${mode}-start`, `${mode}.start`, {
+        settings: raidSettings,
+      });
+      await issue(ctx.service, entry, `paused-${mode}-pause`, `${mode}.pause`);
+      await issue(
+        ctx.service,
+        entry,
+        `paused-${mode}-subscription`,
+        "subscription.start",
+        { leaderPlayerId: 42, bossId: 7 },
+      );
+      await entry.raidSubscription.tick();
+      await entry.raidSubscription.tick();
+      assert.equal(entry.auto.getSnapshot().enabled, true);
+      await issue(ctx.service, entry, `paused-${mode}-stop`, `${mode}.stop`);
+      assert.equal(entry.auto.getSnapshot().enabled, true);
+      assert.equal(ctx.service.snapshot(entry).subscription.phase, "fighting");
+      if (mode === "raid")
+        assert.equal(ctx.service.snapshot(entry).raid.userPaused, false);
+      else assert.equal(ctx.service.snapshot(entry).auto.userPaused, false);
+    } finally {
+      ctx.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+for (const stopWork of [false, true])
+  test(`a subscribed raid safely ${stopWork ? "stops" : "resumes"} a work goal`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "subscription-resume-work-"));
+    let status = "active",
+      invited = true,
+      progress = 0;
+    const timers = [];
+    const energy = {
+      current: 10,
+      max: 10,
+      regenIntervalSeconds: 60,
+      secondsToNext: 0,
+    };
+    const workState = () => ({
+      workId: 7,
+      title: "Work",
+      completedCycles: 0,
+      tasks: [
+        {
+          id: 1,
+          title: "Task",
+          required: 3,
+          progress,
+          energyCost: 1,
+          canPerform: true,
+        },
+      ],
+      energy,
+    });
+    const ctx = setup(directory, {
+      me: { energy, wallet: { dollar: 100 } },
+      catalogue: {
+        businesses: [],
+        businessUpgrades: [],
+        bosses: [],
+        works: [{ workId: 7, title: "Work" }],
+      },
+      battleStatus: () => status,
+      invitations: () =>
+        invited
+          ? [
+              {
+                invitationId: "invite-9",
+                battleId: "battle-9",
+                bossId: 7,
+                leaderPlayerId: 42,
+                inviterPlayerId: 42,
+                peerPlayerId: 42,
+                status: "pending",
+                battleStatus: "active",
+                expiresAtUtc: future,
+                battleExpiresAtUtc: future,
+              },
+            ]
+          : [],
+      schedule: (callback, delay) => {
+        const timer = { callback, delay, canceled: false };
+        timers.push(timer);
+        return timer;
+      },
+      cancel: (timer) => {
+        timer.canceled = true;
+      },
+      extraRoute: async (path) => {
+        if (path === "/api/works/open") return Response.json(workState());
+        if (path === "/api/me/bag") return Response.json({ boosters: {} });
+        if (path === "/api/works/tasks/perform") {
+          progress++;
+          return Response.json(workState());
+        }
+        return null;
+      },
+    });
+    try {
+      const entry = await ctx.service.identify(token);
+      await issue(ctx.service, entry, "work-priority-start", "work.start", {
+        workId: 7,
+        targetCycles: 1,
+        maxActions: 10,
+        durationHours: null,
+        mode: "wait",
+        maxBoosters: 0,
+        allowPurchase: false,
+        maxDollar: 0,
+      });
+      const before = structuredClone(ctx.service.snapshot(entry).workFarm.run);
+      await issue(
+        ctx.service,
+        entry,
+        "work-subscribe-start",
+        "subscription.start",
+        { leaderPlayerId: 42, bossId: 7 },
+      );
+      await entry.raidSubscription.tick();
+      assert.equal(
+        ctx.store.read("101").raidSubscription.checkpoint.workRunning,
+        true,
+      );
+      assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
+      if (stopWork) {
+        await issue(ctx.service, entry, "stop-suspended-work", "work.stop");
+        assert.equal(
+          ctx.store.read("101").raidSubscription.checkpoint.workRunning,
+          false,
+        );
+        assert.equal(
+          ctx.service.snapshot(entry).workFarm.run.status,
+          "stopped",
+        );
+        assert.equal(
+          ctx.service.snapshot(entry).subscription.phase,
+          "fighting",
+        );
+      }
+      status = "won";
+      invited = false;
+      await entry.controller.refresh();
+      await entry.raidSubscription.tick();
+      ctx.setNow(now + 601_000);
+      await issue(
+        ctx.service,
+        entry,
+        "work-subscribe-read",
+        "invitations.refresh",
+      );
+      await entry.raidSubscription.tick();
+      const resumed = ctx.service.snapshot(entry).workFarm.run;
+      assert.equal(resumed.status, stopWork ? "stopped" : "running");
+      assert.deepEqual(resumed.config, before.config);
+      assert.equal(resumed.actionsDone, 0);
+      if (stopWork) {
+        assert.equal(progress, 0);
+        assert.equal(
+          ctx.calls.filter((call) => call.path === "/api/works/tasks/perform")
+            .length,
+          0,
+        );
+        return;
+      }
+      const timer = timers.find((item) => !item.canceled);
+      assert.ok(timer);
+      timer.canceled = true;
+      timer.callback();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(progress, 1);
+      assert.equal(
+        ctx.calls.filter((call) => call.path === "/api/works/tasks/perform")
+          .length,
+        1,
+      );
+    } finally {
+      ctx.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+for (const stopBusiness of [false, true, "paused"])
+  test(`a subscribed raid safely ${stopBusiness ? "stops" : "resumes"} a business goal`, async () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "subscription-resume-business-"),
+    );
+    let status = "active",
+      invited = true;
+    const timers = [];
+    const catalogue = {
+      businesses: [
+        { id: "business:7", apiId: "7", title: "Workshop", maxLevel: 2 },
+      ],
+      businessUpgrades: [
+        {
+          businessId: "business:7",
+          items: [{ entityId: 55, name: "Item", levels: [1, 1] }],
+        },
+      ],
+      bosses: [
+        {
+          numericId: 7,
+          name: "Boss 7",
+          possibleDrops: [
+            { type: "activity_item", entityId: 55, name: "Item" },
+          ],
+        },
+      ],
+    };
+    const ctx = setup(directory, {
+      catalogue,
+      getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
+      battleStatus: () => status,
+      invitations: () =>
+        invited
+          ? [
+              {
+                invitationId: "invite-9",
+                battleId: "battle-9",
+                bossId: 7,
+                leaderPlayerId: 42,
+                inviterPlayerId: 42,
+                peerPlayerId: 42,
+                status: "pending",
+                battleStatus: "active",
+                expiresAtUtc: future,
+                battleExpiresAtUtc: future,
+              },
+            ]
+          : [],
+      schedule: (callback, delay) => {
+        const timer = { callback, delay, canceled: false };
+        timers.push(timer);
+        return timer;
+      },
+      cancel: (timer) => {
+        timer.canceled = true;
+      },
+      extraRoute: async (path) => {
+        if (path === "/api/me/bag") return Response.json({ activityItems: [] });
+        if (path === "/api/businesses/7")
+          return Response.json({
+            id: 7,
+            level: 1,
+            maxLevel: 2,
+            nextUpgradePrice: 100,
+            nextUpgradeCurrency: "gold",
+          });
+        return null;
+      },
+    });
+    try {
+      const entry = await ctx.service.identify(token);
+      await issue(ctx.service, entry, "business-select-01", "business.select", {
+        businessId: "business:7",
+      });
+      await issue(ctx.service, entry, "business-save-001", "business.save", {
+        businessId: "business:7",
+        targetLevel: 2,
+        maxAttempts: 5,
+        durationHours: null,
+      });
+      await issue(ctx.service, entry, "business-read-001", "business.refresh", {
+        businessId: "business:7",
+      });
+      const plan = ctx.service.snapshot(entry).businessAssistant.plans[0];
+      await issue(
+        ctx.service,
+        entry,
+        "business-start-01",
+        "business.run.start",
+        {
+          businessId: "business:7",
+          expectedPlan: plan.config,
+          expectedMissing: plan.materials.map((item) => ({
+            itemId: item.entityId,
+            amount: item.missingAmount,
+          })),
+        },
+      );
+      const before = structuredClone(
+        ctx.service.snapshot(entry).businessAssistant.run,
+      );
+      if (stopBusiness === "paused")
+        await issue(
+          ctx.service,
+          entry,
+          "pause-before-subscription",
+          "business.run.pause",
+        );
+      await issue(
+        ctx.service,
+        entry,
+        "business-sub-start",
+        "subscription.start",
+        { leaderPlayerId: 42, bossId: 7 },
+      );
+      await entry.raidSubscription.tick();
+      assert.equal(
+        ctx.store.read("101").raidSubscription.checkpoint.businessRunning,
+        stopBusiness !== "paused",
+      );
+      if (stopBusiness === "paused")
+        assert.equal(
+          ctx.store.read("101").raidSubscription.checkpoint.businessPaused,
+          true,
+        );
+      assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
+      if (stopBusiness) {
+        if (stopBusiness === "paused") {
+          await entry.raidSubscription.tick();
+          assert.equal(entry.auto.getSnapshot().enabled, true);
+        }
+        await issue(
+          ctx.service,
+          entry,
+          "stop-suspended-business",
+          "business.run.stop",
+        );
+        assert.equal(
+          ctx.store.read("101").raidSubscription.checkpoint.businessRunning,
+          false,
+        );
+        assert.equal(
+          ctx.service.snapshot(entry).businessAssistant.run.status,
+          "stopped",
+        );
+        assert.equal(
+          ctx.service.snapshot(entry).subscription.phase,
+          "fighting",
+        );
+        if (stopBusiness === "paused")
+          assert.equal(entry.auto.getSnapshot().enabled, true);
+      }
+      status = "won";
+      invited = false;
+      await entry.controller.refresh();
+      await entry.raidSubscription.tick();
+      ctx.setNow(now + 601_000);
+      await issue(
+        ctx.service,
+        entry,
+        "business-sub-read",
+        "invitations.refresh",
+      );
+      await entry.raidSubscription.tick();
+      const resumed = ctx.service.snapshot(entry).businessAssistant.run;
+      assert.equal(resumed.status, stopBusiness ? "stopped" : "running");
+      assert.equal(resumed.battlesStarted, before.battlesStarted);
+      assert.equal(resumed.maxBattles, before.maxBattles);
+      assert.equal(
+        ctx.service.snapshot(entry).subscription.phase,
+        "monitoring",
+      );
+      if (stopBusiness) {
+        assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
+        assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+        return;
+      }
+      const timer = timers.find((item) => !item.canceled);
+      assert.ok(timer);
+      timer.canceled = true;
+      timer.callback();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        ctx.service.snapshot(entry).businessAssistant.run.phase,
+        "farming",
+      );
+      assert.equal(entry.auto.getSnapshot().enabled, true);
+    } finally {
+      ctx.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+test("restart applies a durable stop to a suspended work goal", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "subscription-stop-work-crash-"),
+  );
+  let ctx = setup(directory, { invitations: () => [] });
+  try {
+    let entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "work-before-crash", "work.start", {
       workId: 7,
       targetCycles: 1,
       maxActions: 10,
@@ -1311,181 +1738,195 @@ test("a subscribed raid pauses and resumes a work goal without repeating work", 
       allowPurchase: false,
       maxDollar: 0,
     });
-    const before = structuredClone(ctx.service.snapshot(entry).workFarm.run);
-    await issue(
-      ctx.service,
-      entry,
-      "work-subscribe-start",
-      "subscription.start",
-      { leaderPlayerId: 42, bossId: 7 },
-    );
-    await entry.raidSubscription.tick();
-    assert.equal(
-      ctx.store.read("101").raidSubscription.checkpoint.workRunning,
-      true,
-    );
-    assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
-    status = "won";
-    invited = false;
-    await entry.controller.refresh();
-    await entry.raidSubscription.tick();
-    ctx.setNow(now + 601_000);
-    await issue(
-      ctx.service,
-      entry,
-      "work-subscribe-read",
-      "invitations.refresh",
-    );
-    await entry.raidSubscription.tick();
-    const resumed = ctx.service.snapshot(entry).workFarm.run;
-    assert.equal(resumed.status, "running");
-    assert.deepEqual(resumed.config, before.config);
-    assert.equal(resumed.actionsDone, 0);
-    const timer = timers.find((item) => !item.canceled);
-    assert.ok(timer);
-    timer.canceled = true;
-    timer.callback();
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(progress, 1);
-    assert.equal(
-      ctx.calls.filter((call) => call.path === "/api/works/tasks/perform")
-        .length,
-      1,
-    );
+    const saved = ctx.store.read("101");
+    saved.raidSubscription = {
+      enabled: true,
+      mode: "subscription",
+      phase: "waiting",
+      leaderPlayerId: 42,
+      bossId: 7,
+      checkpoint: { workRunning: false, workCancelled: true },
+    };
+    ctx.store.write("101", saved);
+    ctx.close();
+    ctx = setup(directory, { invitations: () => [] });
+    entry = await ctx.service.identify(token);
+    assert.equal(ctx.service.snapshot(entry).workFarm.run.status, "stopped");
+    assert.equal(ctx.store.read("101").workFarm.run.status, "stopped");
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test("a subscribed raid preserves the business collection plan and resumes it", async () => {
-  const directory = mkdtempSync(
-    join(tmpdir(), "subscription-resume-business-"),
-  );
-  let status = "active",
-    invited = true;
-  const timers = [];
-  const catalogue = {
-    businesses: [
-      { id: "business:7", apiId: "7", title: "Workshop", maxLevel: 2 },
-    ],
-    businessUpgrades: [
-      {
-        businessId: "business:7",
-        items: [{ entityId: 55, name: "Item", levels: [1, 1] }],
-      },
-    ],
-    bosses: [
-      {
-        numericId: 7,
-        name: "Boss 7",
-        possibleDrops: [{ type: "activity_item", entityId: 55, name: "Item" }],
-      },
-    ],
-  };
-  const ctx = setup(directory, {
-    catalogue,
-    getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
-    battleStatus: () => status,
-    invitations: () =>
-      invited
-        ? [
-            {
-              invitationId: "invite-9",
-              battleId: "battle-9",
-              bossId: 7,
-              leaderPlayerId: 42,
-              inviterPlayerId: 42,
-              peerPlayerId: 42,
-              status: "pending",
-              battleStatus: "active",
-              expiresAtUtc: future,
-              battleExpiresAtUtc: future,
-            },
-          ]
-        : [],
-    schedule: (callback, delay) => {
-      const timer = { callback, delay, canceled: false };
-      timers.push(timer);
-      return timer;
-    },
-    cancel: (timer) => {
-      timer.canceled = true;
-    },
-    extraRoute: async (path) => {
-      if (path === "/api/me/bag") return Response.json({ activityItems: [] });
-      if (path === "/api/businesses/7")
-        return Response.json({
-          id: 7,
-          level: 1,
-          maxLevel: 2,
-          nextUpgradePrice: 100,
-          nextUpgradeCurrency: "gold",
-        });
-      return null;
-    },
-  });
-  try {
-    const entry = await ctx.service.identify(token);
-    await issue(ctx.service, entry, "business-select-01", "business.select", {
-      businessId: "business:7",
-    });
-    await issue(ctx.service, entry, "business-save-001", "business.save", {
-      businessId: "business:7",
-      targetLevel: 2,
-      maxAttempts: 5,
-      durationHours: null,
-    });
-    await issue(ctx.service, entry, "business-read-001", "business.refresh", {
-      businessId: "business:7",
-    });
-    const plan = ctx.service.snapshot(entry).businessAssistant.plans[0];
-    await issue(ctx.service, entry, "business-start-01", "business.run.start", {
-      businessId: "business:7",
-      expectedPlan: plan.config,
-      expectedMissing: plan.materials.map((item) => ({
-        itemId: item.entityId,
-        amount: item.missingAmount,
-      })),
-    });
-    const before = structuredClone(
-      ctx.service.snapshot(entry).businessAssistant.run,
+for (const paused of [false, true])
+  test(`restart applies a durable stop to a ${paused ? "paused" : "running"} suspended business goal`, async () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "subscription-stop-business-crash-"),
     );
+    let ctx = setup(directory, { invitations: () => [] });
+    try {
+      await ctx.service.identify(token);
+      const saved = ctx.store.read("101");
+      saved.businessHelper.run = {
+        status: paused ? "paused" : "running",
+        phase: "farming",
+        pendingUpgrade: null,
+      };
+      saved.raidSubscription = {
+        enabled: true,
+        mode: "subscription",
+        phase: "waiting",
+        leaderPlayerId: 42,
+        bossId: 7,
+        checkpoint: { businessRunning: false, businessCancelled: true },
+      };
+      ctx.store.write("101", saved);
+      ctx.close();
+      ctx = setup(directory, { invitations: () => [] });
+      await ctx.service.identify(token);
+      assert.equal(ctx.store.read("101").businessHelper.run.status, "stopped");
+    } finally {
+      ctx.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+test("restart clears a paused autobattle after a durable stop", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "subscription-stop-auto-crash-"),
+  );
+  let ctx = setup(directory, { invitations: () => [] });
+  try {
+    let entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await issue(ctx.service, entry, "auto-before-crash", "auto.start", {
+      settings: raidSettings,
+    });
+    await issue(ctx.service, entry, "auto-pause-before-crash", "auto.pause");
+    const saved = ctx.store.read("101");
+    assert.ok(saved.pausedAuto);
+    saved.raidSubscription = {
+      enabled: true,
+      mode: "subscription",
+      phase: "waiting",
+      leaderPlayerId: 42,
+      bossId: 7,
+      checkpoint: { auto: null, autoCancelled: true },
+    };
+    ctx.store.write("101", saved);
+    ctx.close();
+    ctx = setup(directory, { invitations: () => [] });
+    entry = await ctx.service.identify(token);
+    assert.equal(ctx.service.snapshot(entry).auto.userPaused, false);
+    assert.equal(ctx.store.read("101").pausedAuto, null);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const paused of [false, true])
+  test(`restart applies a durable stop to a ${paused ? "paused" : "running"} suspended raid goal`, async () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "subscription-stop-raid-crash-"),
+    );
+    let ctx = setup(directory, { invitations: () => [] });
+    try {
+      let entry = await ctx.service.identify(token);
+      await entry.controller.open({ numericId: 7, name: "Boss 7" });
+      await issue(ctx.service, entry, "raid-before-crash", "raid.start", {
+        settings: raidSettings,
+      });
+      if (paused)
+        await issue(
+          ctx.service,
+          entry,
+          "raid-pause-before-crash",
+          "raid.pause",
+        );
+      const saved = ctx.store.read("101");
+      saved.raidSubscription = {
+        enabled: true,
+        mode: "subscription",
+        phase: "waiting",
+        leaderPlayerId: 42,
+        bossId: 7,
+        checkpoint: { raidEnabled: false, raidCancelled: true },
+      };
+      ctx.store.write("101", saved);
+      ctx.close();
+      ctx = setup(directory, { invitations: () => [] });
+      entry = await ctx.service.identify(token);
+      assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
+      assert.equal(ctx.service.snapshot(entry).raid.userPaused, false);
+      assert.equal(ctx.store.read("101").raid.enabled, false);
+    } finally {
+      ctx.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+test("stopping a suspended business during restoration cannot revive its old goal", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "subscription-stop-business-race-"),
+  );
+  let holdBoss = false;
+  let releaseBoss;
+  const options = {
+    invitations: () => [],
+    getBoss: (id) =>
+      holdBoss
+        ? new Promise((resolve) => {
+            releaseBoss = () => resolve({ numericId: id, name: "Boss" });
+          })
+        : { numericId: id, name: "Boss" },
+  };
+  let ctx = setup(directory, options);
+  try {
+    await ctx.service.identify(token);
+    const saved = ctx.store.read("101");
+    saved.businessHelper.run = {
+      status: "running",
+      phase: "farming",
+      pendingUpgrade: null,
+      ownsGoal: true,
+    };
+    saved.raidSubscription = {
+      enabled: false,
+      mode: "subscription",
+      phase: "restoring",
+      leaderPlayerId: 42,
+      bossId: 7,
+      checkpoint: {
+        bossId: 7,
+        goal: { status: "active" },
+        auto: { enabled: true },
+        businessRunning: true,
+        raidEnabled: false,
+      },
+    };
+    ctx.store.write("101", saved);
+    ctx.close();
+    ctx = setup(directory, options);
+    const entry = await ctx.service.identify(token);
+    holdBoss = true;
+    const restoring = entry.raidSubscription.tick();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(typeof releaseBoss, "function");
     await issue(
       ctx.service,
       entry,
-      "business-sub-start",
-      "subscription.start",
-      { leaderPlayerId: 42, bossId: 7 },
+      "stop-business-restoring",
+      "business.run.stop",
     );
-    await entry.raidSubscription.tick();
-    assert.equal(
-      ctx.store.read("101").raidSubscription.checkpoint.businessRunning,
-      true,
-    );
-    assert.equal(timers.filter((timer) => !timer.canceled).length, 0);
-    status = "won";
-    invited = false;
-    await entry.controller.refresh();
-    await entry.raidSubscription.tick();
-    ctx.setNow(now + 601_000);
-    await issue(ctx.service, entry, "business-sub-read", "invitations.refresh");
-    await entry.raidSubscription.tick();
-    const resumed = ctx.service.snapshot(entry).businessAssistant.run;
-    assert.equal(resumed.status, "running");
-    assert.equal(resumed.battlesStarted, before.battlesStarted);
-    assert.equal(resumed.maxBattles, before.maxBattles);
-    assert.equal(ctx.service.snapshot(entry).subscription.phase, "monitoring");
-    const timer = timers.find((item) => !item.canceled);
-    assert.ok(timer);
-    timer.canceled = true;
-    timer.callback();
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(
-      ctx.service.snapshot(entry).businessAssistant.run.phase,
-      "farming",
-    );
-    assert.equal(entry.auto.getSnapshot().enabled, true);
+    releaseBoss();
+    await restoring;
+    const checkpoint = ctx.store.read("101").raidSubscription.checkpoint;
+    assert.equal(checkpoint.businessRunning, false);
+    assert.equal(checkpoint.goal, null);
+    assert.equal(ctx.store.read("101").businessHelper.run.status, "stopped");
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });

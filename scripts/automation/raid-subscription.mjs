@@ -194,6 +194,95 @@ export function createRaidSubscription({
         },
       });
     },
+    discardWorkCheckpoint() {
+      if (!value.checkpoint?.workRunning) return false;
+      commit({
+        checkpoint: {
+          ...value.checkpoint,
+          workRunning: false,
+          workCancelled: true,
+        },
+      });
+      return true;
+    },
+    discardBusinessCheckpoint({ ownsGoal = false, paused = false } = {}) {
+      if (!value.checkpoint?.businessRunning && !(value.checkpoint && paused))
+        return false;
+      const clearGoal =
+        ownsGoal &&
+        !value.checkpoint.raidEnabled &&
+        !value.checkpoint.raidPaused;
+      commit({
+        checkpoint: {
+          ...value.checkpoint,
+          businessRunning: false,
+          businessPaused: false,
+          businessCancelled: true,
+          ...(clearGoal ? { bossId: null, goal: null, auto: null } : {}),
+        },
+      });
+      return true;
+    },
+    discardRaidCheckpoint({ paused = false } = {}) {
+      if (!value.checkpoint?.raidEnabled && !(value.checkpoint && paused))
+        return false;
+      const clearGoal =
+        !value.checkpoint.businessRunning && !value.checkpoint.businessPaused;
+      commit({
+        checkpoint: {
+          ...value.checkpoint,
+          raidEnabled: false,
+          raidPaused: false,
+          raidCancelled: true,
+          ...(clearGoal ? { bossId: null, goal: null, auto: null } : {}),
+        },
+      });
+      return true;
+    },
+    discardAutoCheckpoint({ paused = false } = {}) {
+      const checkpoint = value.checkpoint;
+      if (
+        (!checkpoint?.auto?.enabled && !(checkpoint && paused)) ||
+        checkpoint.raidEnabled ||
+        checkpoint.raidPaused ||
+        checkpoint.businessRunning ||
+        checkpoint.businessPaused
+      )
+        return false;
+      commit({
+        checkpoint: {
+          ...checkpoint,
+          bossId: null,
+          goal: null,
+          auto: null,
+          autoPaused: false,
+          autoCancelled: true,
+        },
+      });
+      return true;
+    },
+    discardGoalCheckpoint() {
+      const checkpoint = value.checkpoint;
+      if (
+        !checkpoint?.goal ||
+        checkpoint.auto?.enabled ||
+        checkpoint.autoPaused ||
+        checkpoint.raidEnabled ||
+        checkpoint.raidPaused ||
+        checkpoint.businessRunning ||
+        checkpoint.businessPaused
+      )
+        return false;
+      commit({
+        checkpoint: {
+          ...checkpoint,
+          bossId: null,
+          goal: null,
+          goalCancelled: true,
+        },
+      });
+      return true;
+    },
     stop() {
       if (!value.enabled && !value.checkpoint) return;
       candidate = null;

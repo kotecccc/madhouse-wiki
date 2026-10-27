@@ -605,10 +605,11 @@ export function createBusinessCollector({
     canSuspend,
     discardSuspended() {
       if (armed || working || helper.run?.pendingUpgrade) return false;
-      if (running()) {
+      if (running() || helper.run?.status === "paused") {
         generation++;
         clear();
         helper.run.status = "stopped";
+        helper.run.resumeRequested = false;
         helper.run.reason = reasons.stopped;
         helper.run.phase = "stopped";
         changed();

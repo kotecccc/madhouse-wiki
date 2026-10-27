@@ -135,9 +135,12 @@ export function createRaidWaiter({
     },
     canSuspend,
     discardSuspended() {
-      if (ready || running) return false;
+      if ((ready && !value.userPaused) || running) return false;
+      ready = false;
       publish({
         enabled: false,
+        userPaused: false,
+        resumeRequested: false,
         stopAfterBattle: false,
         status: "stopped",
         notice: "Рейд остановлен.",

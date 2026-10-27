@@ -562,7 +562,36 @@ export function createAutomationService({
         if (subscription.mode === "buddy")
           return { enabled: false, phase: "idle", hasSuspendedGoal: false };
         const { checkpoint, ...publicState } = subscription;
-        return { ...publicState, hasSuspendedGoal: Boolean(checkpoint) };
+        return {
+          ...publicState,
+          hasSuspendedGoal: Boolean(checkpoint),
+          suspendedAuto: Boolean(
+            (checkpoint?.auto?.enabled ||
+              checkpoint?.autoPaused ||
+              (checkpoint && entry.pausedAuto)) &&
+            !checkpoint.raidEnabled &&
+            !checkpoint.raidPaused &&
+            !entry.raidWorker.getSnapshot().userPaused &&
+            !checkpoint.businessRunning &&
+            !checkpoint.businessPaused &&
+            entry.businessHelper.run?.status !== "paused" &&
+            !checkpoint.floorOwned,
+          ),
+          suspendedStandaloneGoal: Boolean(
+            checkpoint?.goal &&
+            !checkpoint.goal.stopped &&
+            !checkpoint.auto?.enabled &&
+            !checkpoint.autoPaused &&
+            !entry.pausedAuto &&
+            !checkpoint.raidEnabled &&
+            !checkpoint.raidPaused &&
+            !entry.raidWorker.getSnapshot().userPaused &&
+            !checkpoint.businessRunning &&
+            !checkpoint.businessPaused &&
+            entry.businessHelper.run?.status !== "paused" &&
+            !checkpoint.floorOwned,
+          ),
+        };
       })(),
       buddy: (() => {
         const value = entry.raidSubscription.getSnapshot();
@@ -575,6 +604,32 @@ export function createAutomationService({
           friendIds: value.friendIds ?? [],
           activeFriendId: value.activeFriendId ?? null,
           hasSuspendedGoal: Boolean(value.checkpoint),
+          suspendedAuto: Boolean(
+            (value.checkpoint?.auto?.enabled ||
+              value.checkpoint?.autoPaused ||
+              (value.checkpoint && entry.pausedAuto)) &&
+            !value.checkpoint.raidEnabled &&
+            !value.checkpoint.raidPaused &&
+            !entry.raidWorker.getSnapshot().userPaused &&
+            !value.checkpoint.businessRunning &&
+            !value.checkpoint.businessPaused &&
+            entry.businessHelper.run?.status !== "paused" &&
+            !value.checkpoint.floorOwned,
+          ),
+          suspendedStandaloneGoal: Boolean(
+            value.checkpoint?.goal &&
+            !value.checkpoint.goal.stopped &&
+            !value.checkpoint.auto?.enabled &&
+            !value.checkpoint.autoPaused &&
+            !entry.pausedAuto &&
+            !value.checkpoint.raidEnabled &&
+            !value.checkpoint.raidPaused &&
+            !entry.raidWorker.getSnapshot().userPaused &&
+            !value.checkpoint.businessRunning &&
+            !value.checkpoint.businessPaused &&
+            entry.businessHelper.run?.status !== "paused" &&
+            !value.checkpoint.floorOwned,
+          ),
           log: value.log ?? [],
         };
       })(),
@@ -1195,6 +1250,9 @@ export function createAutomationService({
         return checkpoint
           ? {
               ...checkpoint,
+              businessPaused: entry.businessHelper.run?.status === "paused",
+              raidPaused: Boolean(entry.raidWorker.getSnapshot().userPaused),
+              autoPaused: Boolean(entry.pausedAuto),
               floorOwned: entry.floorRunner?.getSnapshot().status === "running",
               floorTarget: entry.floorRunner?.getSnapshot().target ?? null,
             }
@@ -1291,6 +1349,11 @@ export function createAutomationService({
         if (checkpoint.bossId) {
           const boss = await getBoss(checkpoint.bossId);
           if (!boss) return false;
+          if (
+            entry.raidSubscription.getSnapshot().checkpoint?.bossId !==
+            checkpoint.bossId
+          )
+            return false;
           await entry.controller.open(boss);
           const state = entry.controller.getSnapshot();
           if (
@@ -1302,6 +1365,14 @@ export function createAutomationService({
           )
             return false;
         }
+        const currentCheckpoint =
+          entry.raidSubscription.getSnapshot().checkpoint;
+        if (
+          !currentCheckpoint ||
+          currentCheckpoint.bossId !== checkpoint.bossId
+        )
+          return false;
+        checkpoint = currentCheckpoint;
         if (checkpoint.goal) entry.goal.restoreState(checkpoint.goal);
         else entry.goal.reset();
         if (checkpoint.raidEnabled) entry.raidWorker.resume();
@@ -1698,6 +1769,26 @@ export function createAutomationService({
     // A crash after floor.stop was persisted but before its suspended workers
     // were discarded must not revive that floor-owned work after Buddy exits.
     const savedCheckpoint = entry.raidSubscription.getSnapshot().checkpoint;
+    if (savedCheckpoint?.autoCancelled && entry.pausedAuto) {
+      entry.pausedAuto = null;
+      save(entry);
+    }
+    if (savedCheckpoint?.workCancelled && entry.workFarm.running())
+      entry.workFarm.stop();
+    if (
+      savedCheckpoint?.businessCancelled &&
+      (entry.collector.running() ||
+        entry.businessHelper.run?.status === "paused") &&
+      !entry.collector.discardSuspended()
+    )
+      entry.storageFailed = true;
+    if (
+      savedCheckpoint?.raidCancelled &&
+      (entry.raidWorker.getSnapshot().enabled ||
+        entry.raidWorker.getSnapshot().userPaused) &&
+      !entry.raidWorker.discardSuspended()
+    )
+      entry.storageFailed = true;
     if (
       savedCheckpoint?.floorOwned &&
       entry.floorRunner.getSnapshot().status !== "running"
@@ -2621,6 +2712,11 @@ export function createAutomationService({
         "buddy.order",
         "buddy.configure",
         "buddy.resolve",
+        "work.stop",
+        "business.run.stop",
+        "raid.stop",
+        "auto.stop",
+        "goal.stop",
         "invitations.refresh",
         "friends.reconcile",
         "inventory.refresh",
@@ -3397,7 +3493,15 @@ export function createAutomationService({
           entry.raidWorker.resumePaused();
           break;
         case "raid.stop":
-          if (entry.raidWorker.getSnapshot().userPaused) {
+          if (entry.raidSubscription.getSnapshot().checkpoint) {
+            const phase = entry.raidSubscription.getSnapshot().phase;
+            entry.raidSubscription.discardRaidCheckpoint({
+              paused: entry.raidWorker.getSnapshot().userPaused,
+            });
+            if (phase === "suspending") entry.raidWorker.stop();
+            else if (!entry.raidWorker.discardSuspended())
+              throw failure(409, "raid_action_pending");
+          } else if (entry.raidWorker.getSnapshot().userPaused) {
             entry.raidWorker.stop();
             entry.goal.stop({ clearProgress: true });
           } else entry.raidWorker.finishAfterCurrent();
@@ -3423,6 +3527,7 @@ export function createAutomationService({
           await entry.workFarm.useBooster(args.workId, args.type);
           break;
         case "work.stop":
+          entry.raidSubscription.discardWorkCheckpoint();
           entry.workFarm.stop();
           break;
         case "work.pause":
@@ -3568,6 +3673,21 @@ export function createAutomationService({
           }
           break;
         case "auto.stop":
+          if (entry.raidSubscription.getSnapshot().checkpoint) {
+            const checkpoint = entry.raidSubscription.getSnapshot().checkpoint;
+            if (
+              !entry.raidSubscription.discardAutoCheckpoint({
+                paused: Boolean(entry.pausedAuto),
+              }) &&
+              !checkpoint.autoCancelled
+            )
+              throw failure(409, "subscription_controls_automation");
+            if (entry.pausedAuto) {
+              entry.pausedAuto = null;
+              save(entry);
+            }
+            break;
+          }
           entry.pausedAuto = null;
           if (
             entry.raidWorker.getSnapshot().enabled ||
@@ -3587,6 +3707,22 @@ export function createAutomationService({
           break;
         }
         case "goal.stop":
+          if (entry.raidSubscription.getSnapshot().checkpoint) {
+            const checkpoint = entry.raidSubscription.getSnapshot().checkpoint;
+            if (
+              !checkpoint.goalCancelled &&
+              (entry.businessHelper.run?.status === "paused" ||
+                entry.raidWorker.getSnapshot().userPaused ||
+                entry.pausedAuto)
+            )
+              throw failure(409, "subscription_controls_automation");
+            if (
+              !entry.raidSubscription.discardGoalCheckpoint() &&
+              !checkpoint.goalCancelled
+            )
+              throw failure(409, "subscription_controls_automation");
+            break;
+          }
           entry.pausedAuto = null;
           if (
             entry.raidWorker.getSnapshot().enabled ||
@@ -3612,7 +3748,16 @@ export function createAutomationService({
           entry.collector.resumePaused();
           break;
         case "business.run.stop":
-          entry.collector.stop();
+          if (entry.raidSubscription.getSnapshot().checkpoint) {
+            const phase = entry.raidSubscription.getSnapshot().phase;
+            entry.raidSubscription.discardBusinessCheckpoint({
+              ownsGoal: Boolean(entry.businessHelper.run?.ownsGoal),
+              paused: entry.businessHelper.run?.status === "paused",
+            });
+            if (phase === "suspending") entry.collector.stop();
+            else if (!entry.collector.discardSuspended())
+              throw failure(409, "business_action_pending");
+          } else entry.collector.stop();
           break;
         case "business.run.start":
           try {

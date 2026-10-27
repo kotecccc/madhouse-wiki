@@ -90,6 +90,65 @@ test("a stopped subscription stays visible while its raid finishes", () => {
   assert.equal(cards[0].command, null);
 });
 
+test("a raid interruption does not hide a suspended business goal", () => {
+  const cards = actionQueueCards({
+    buddy: { enabled: true, hasSuspendedGoal: true },
+    raid: { enabled: true },
+    businessAssistant: { run: { status: "running", name: "Мастерская" } },
+  });
+  assert.deepEqual(
+    cards.map((card) => card.id),
+    ["buddy", "raid", "business"],
+  );
+  assert.equal(cards[2].status, "Ожидает рейд");
+  assert.equal(cards[2].command, "business.run.stop");
+  assert.equal(cards[1].command, "raid.stop");
+  assert.equal(cards[0].command, "buddy.stop");
+});
+
+test("a suspended work goal remains independently stoppable", () => {
+  const cards = actionQueueCards({
+    subscription: { enabled: true, hasSuspendedGoal: true },
+    workFarm: { run: { status: "running", workId: 7 } },
+  });
+  const card = cards.find((item) => item.id === "work");
+  assert.equal(card.status, "Ожидает рейд");
+  assert.equal(card.command, "work.stop");
+  assert.equal(card.pauseCommand, undefined);
+});
+
+test("a suspended autobattle is distinct from the subscribed fight", () => {
+  const cards = actionQueueCards({
+    subscription: {
+      enabled: true,
+      hasSuspendedGoal: true,
+      suspendedAuto: true,
+    },
+    auto: { enabled: true },
+  });
+  assert.deepEqual(
+    cards.map((card) => card.id),
+    ["subscription", "auto"],
+  );
+  assert.equal(cards[1].status, "Ожидает рейд");
+  assert.equal(cards[1].command, "auto.stop");
+});
+
+test("a standalone suspended goal remains visible and stoppable", () => {
+  const cards = actionQueueCards({
+    buddy: {
+      enabled: true,
+      hasSuspendedGoal: true,
+      suspendedStandaloneGoal: true,
+    },
+  });
+  assert.deepEqual(
+    cards.map((card) => card.id),
+    ["buddy", "goal"],
+  );
+  assert.equal(cards[1].command, "goal.stop");
+});
+
 test("paused work exposes resume and stopped uncertain work stays visible", () => {
   const paused = actionQueueCards({
     workFarm: { run: { workId: 1, status: "paused" } },
