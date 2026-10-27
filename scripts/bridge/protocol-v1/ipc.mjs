@@ -174,6 +174,7 @@ export function parseIpcResponse(response) {
       ]);
       assertEnum(response.pairingStatus, [
         "not_paired",
+        "pending",
         "approved",
         "unavailable",
       ]);
@@ -185,6 +186,7 @@ export function parseIpcResponse(response) {
         "update_required",
       ]);
       assertEnum(response.gameStatus, [
+        "unknown",
         "not_connected",
         "checking",
         "ready",
