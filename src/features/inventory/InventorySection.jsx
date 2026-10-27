@@ -291,16 +291,14 @@ export function InventorySection({
         </div>
       </div>
       {equipmentState.needsCheck && (
-        <>
-          <ErrorToast message={equipmentState.notice} />
-          <Button
-            disabled={equipmentState.busy}
-            onClick={() => void equip(null, null, true)}
-          >
-            Проверить экипировку
-          </Button>
-        </>
+        <ErrorToast message={equipmentState.notice} />
       )}
+      <Button
+        disabled={equipmentState.busy}
+        onClick={() => void equip(null, null, true)}
+      >
+        Проверить экипировку
+      </Button>
       {SHOW_FILTERS && (
         <BaseCard className="inventory-filters">
           <Input
