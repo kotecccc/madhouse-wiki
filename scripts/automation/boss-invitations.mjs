@@ -7,7 +7,7 @@ const identifier = (value) =>
 const text = (value) =>
   typeof value === "string" ? value.trim().slice(0, 80) : "";
 
-// Private account projection. Never store raw invitations or player identifiers.
+// Private account projection. Keep only validated identifiers needed by automation.
 export async function projectBossInvitations(raw, getBoss, now = Date.now()) {
   if (!Array.isArray(raw?.items))
     throw new TypeError("invalid_boss_invitations");
@@ -40,6 +40,11 @@ export async function projectBossInvitations(raw, getBoss, now = Date.now()) {
       battleId: item.battleId,
       bossId: item.bossId,
       bossName: text(boss?.name) || `Босс №${item.bossId}`,
+      ...(Number.isSafeInteger(item.inviterPlayerId) &&
+      item.inviterPlayerId > 0 &&
+      item.peerPlayerId === item.inviterPlayerId
+        ? { inviterPlayerId: item.inviterPlayerId }
+        : {}),
       ...(leaderVerified ? { leaderPlayerId: item.leaderPlayerId } : {}),
       ...(leaderVerified && text(item.peerUsername)
         ? { leaderUsername: text(item.peerUsername) }

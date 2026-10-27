@@ -209,17 +209,9 @@ export function BusinessAssistantDialog({
       loading={Boolean(busy || (!state.loaded && !state.error))}
       width="var(--page-max-width)"
       onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>Закрыть</Button>
-          <Button
-            disabled={busy || !state.loaded}
-            onClick={() => void assistantStore.refresh(business.id)}
-          >
-            Обновить игровые данные
-          </Button>
-        </>
-      }
+      onRefresh={() => assistantStore.refresh(business.id)}
+      refreshKey={`business-${business.id}`}
+      footer={<Button onClick={onClose}>Закрыть</Button>}
     >
       <ErrorToast message={state.error} />
       <ErrorToast message={state.notice} />

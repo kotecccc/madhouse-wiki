@@ -21,7 +21,8 @@ export function createFloorActions({
       entry.collector.running() ||
       entry.auto.getSnapshot().enabled ||
       entry.raidWorker.getSnapshot().enabled ||
-      entry.raidSubscription.getSnapshot().enabled ||
+      (entry.raidSubscription.getSnapshot().enabled &&
+        entry.raidSubscription.getSnapshot().mode !== "buddy") ||
       entry.raidSubscription.getSnapshot().checkpoint ||
       entry.goal.getSnapshot()?.status === "active" ||
       state.battle?.status === "active" ||
@@ -202,6 +203,26 @@ export function createFloorActions({
       return "unknown";
     },
     stopOwned(target) {
+      if (entry.raidSubscription.getSnapshot().checkpoint?.floorOwned) {
+        if (
+          target?.kind === "work" &&
+          entry.workFarm.getSnapshot().run?.workId === target.apiId
+        )
+          entry.workFarm.stop();
+        if (
+          target?.kind === "business" &&
+          entry.businessHelper.run?.businessId === target.entityId &&
+          !entry.collector.discardSuspended()
+        )
+          throw new Error("floor_suspended_stop_unavailable");
+        if (
+          target?.kind === "boss" &&
+          entry.raidWorker.getSnapshot().bossId === target.apiId &&
+          !entry.raidWorker.discardSuspended()
+        )
+          throw new Error("floor_suspended_stop_unavailable");
+        return;
+      }
       if (
         target?.kind === "work" &&
         entry.workFarm.getSnapshot().run?.workId === target.apiId

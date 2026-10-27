@@ -351,6 +351,8 @@ export function WorkFarmDialog({
   );
   return (
     <RequirementCalculatorDialog
+      onRefresh={() => farmStore.refresh(workId)}
+      refreshKey={`work-${workId}`}
       showCloseButton
       loading={
         (!view && !state.error && !state.notice) || state.pending || active

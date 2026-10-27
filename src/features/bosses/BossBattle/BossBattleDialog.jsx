@@ -142,6 +142,8 @@ export function BossBattleDialog() {
       width="var(--page-max-width)"
       contentVariant="inset"
       onClose={bossBattle.close}
+      onRefresh={() => bossBattle.refresh()}
+      refreshKey={`boss-${state.boss.id}`}
       footer={<div className="boss-battle-footer" ref={setActionsTarget} />}
     >
       <div

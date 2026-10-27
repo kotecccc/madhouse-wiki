@@ -1,11 +1,20 @@
+import { Icon } from "../Icon/Icon.jsx";
 import "./Input.css";
 
-export function Input({ size = "md", className = "", ...props }) {
+export function Input({ size = "md", className = "", icon, ...props }) {
   const safeSize = ["sm", "md", "lg"].includes(size) ? size : "md";
-  return (
+  const input = (
     <input
-      className={`input-control input-control--${safeSize} ${className}`.trim()}
+      className={`input-control input-control--${safeSize} ${icon ? "input-control--with-icon" : ""} ${className}`.trim()}
       {...props}
     />
+  );
+  return icon ? (
+    <span className="input-icon-wrap">
+      <Icon type={icon} size="small" className="input-leading-icon" />
+      {input}
+    </span>
+  ) : (
+    input
   );
 }

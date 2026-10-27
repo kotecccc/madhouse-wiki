@@ -260,6 +260,8 @@ export function createRemoteBattleSession({
       raidsVisible ||
       server?.auto?.enabled ||
       server?.raid?.enabled ||
+      server?.buddy?.enabled ||
+      server?.buddy?.hasSuspendedGoal ||
       server?.subscription?.enabled ||
       server?.subscription?.hasSuspendedGoal ||
       server?.goal?.status === "running" ||

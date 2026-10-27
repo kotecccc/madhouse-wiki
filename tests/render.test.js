@@ -1296,11 +1296,20 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     );
     const business = kb.businesses[0];
     const lockedBusinessMarkup = renderToStaticMarkup(
-      createElement(BusinessCard, { business, locked: true }),
+      createElement(BusinessCard, {
+        business,
+        locked: true,
+        onUpgradeSelect: () => {},
+        goalAction: createElement("button", null, "Цель"),
+      }),
     );
     assert.match(
       lockedBusinessMarkup,
       /class="lock-indicator lock-indicator--locked"[^>]*aria-label="Бизнес недоступен"/,
+    );
+    assert.doesNotMatch(
+      lockedBusinessMarkup,
+      /role="button"|business-upgrade-open|>Цель<|aria-haspopup="dialog"/,
     );
     const listedBusinessMarkup = renderToStaticMarkup(
       createElement(BusinessCard, {

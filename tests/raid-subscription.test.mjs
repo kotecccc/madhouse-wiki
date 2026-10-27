@@ -297,3 +297,104 @@ test("stop while joining still reconciles an uncertain result before restoration
   assert.deepEqual(calls, ["restore"]);
   assert.equal(state.phase, "idle");
 });
+
+test("Buddy selects verified inviters in priority order across all bosses", async () => {
+  const h = harness();
+  assert.equal(h.worker.setBuddyFriends([42, 43]), true);
+  h.worker.observe(
+    [
+      h.invitation({ inviterPlayerId: 43, bossId: 8, invitationId: "second" }),
+      h.invitation({ inviterPlayerId: 42, bossId: 9, invitationId: "first" }),
+      h.invitation({
+        leaderPlayerId: 42,
+        inviterPlayerId: null,
+        invitationId: "unknown",
+      }),
+    ],
+    true,
+  );
+  await h.worker.tick();
+  assert.deepEqual(h.calls.at(-1), ["join", "first", "joining"]);
+  assert.equal(h.getSaved().bossId, 9);
+  assert.equal(h.getSaved().activeFriendId, 42);
+});
+
+test("Buddy selection survives restart and disabling does not interrupt a battle", async () => {
+  const h = harness();
+  h.worker.setBuddyFriends([42, 43]);
+  h.worker.observe([h.invitation({ inviterPlayerId: 42 })], true);
+  await h.worker.tick();
+  const restored = harness(h.getSaved());
+  assert.deepEqual(restored.getSaved().friendIds, [42, 43]);
+  restored.setBattle("active");
+  assert.equal(restored.worker.setBuddyFriends([]), true);
+  await restored.worker.tick();
+  assert.equal(restored.getSaved().phase, "fighting");
+  restored.setBattle("finished");
+  await restored.worker.tick();
+  assert.equal(restored.getSaved().phase, "idle");
+});
+
+test("Buddy remembers attempted invitations and gives another friend a turn", async () => {
+  const h = harness();
+  h.worker.setBuddyFriends([42, 43]);
+  const first = h.invitation({
+    inviterPlayerId: 42,
+    invitationId: "one",
+    battleId: "one-battle",
+  });
+  const again = h.invitation({
+    inviterPlayerId: 42,
+    invitationId: "two",
+    battleId: "two-battle",
+  });
+  const other = h.invitation({
+    inviterPlayerId: 43,
+    invitationId: "three",
+    battleId: "three-battle",
+  });
+  h.worker.observe([first], true);
+  await h.worker.tick();
+  h.setBattle("finished");
+  h.worker.observe([first, again, other], true);
+  await h.worker.tick();
+  assert.equal(h.calls.filter((call) => call[0] === "join").at(-1)[1], "three");
+  const restored = harness(h.getSaved());
+  restored.setBattle("finished");
+  restored.worker.observe([first, again, other], true);
+  await restored.worker.tick();
+  assert.equal(
+    restored.calls.filter((call) => call[0] === "join").at(-1)[1],
+    "two",
+  );
+});
+
+test("stopping floor automation while Buddy is fighting clears the saved floor-owned work", async () => {
+  const saved = {
+    mode: "buddy",
+    enabled: true,
+    phase: "fighting",
+    friendIds: [42],
+    battleId: "battle",
+    bossId: 7,
+    lastReadAt: 1000000,
+    lastSeenAt: 1000000,
+    offlineAt: null,
+    checkpoint: {
+      floorOwned: true,
+      bossId: 7,
+      goal: { status: "active" },
+      auto: { enabled: true },
+      raidEnabled: true,
+      businessRunning: false,
+      workRunning: false,
+    },
+  };
+  const h = harness(saved);
+  h.worker.discardFloorCheckpoint();
+  assert.equal(h.getSaved().checkpoint.floorOwned, false);
+  assert.equal(h.getSaved().checkpoint.raidEnabled, false);
+  assert.equal(h.getSaved().checkpoint.goal, null);
+  assert.equal(h.getSaved().checkpoint.auto, null);
+  assert.equal(h.getSaved().phase, "fighting");
+});

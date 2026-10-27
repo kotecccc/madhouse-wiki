@@ -494,6 +494,18 @@ export function createBusinessCollector({
       finish("stopped", "stopped");
     },
     canSuspend,
+    discardSuspended() {
+      if (armed || working || helper.run?.pendingUpgrade) return false;
+      if (running()) {
+        generation++;
+        clear();
+        helper.run.status = "stopped";
+        helper.run.reason = reasons.stopped;
+        helper.run.phase = "stopped";
+        changed();
+      }
+      return true;
+    },
     suspend() {
       if (!running()) return true;
       if (!canSuspend()) return false;

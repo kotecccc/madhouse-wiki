@@ -44,6 +44,7 @@ export function BusinessCard({
       ? `Уровень ${fmt(current.level)}`
       : "Уровень неизвестен";
   const openLevels = () => {
+    if (locked || typeof onUpgradeSelect !== "function") return;
     trackProductEvent("business_upgrades_open", {
       section: "businesses",
       feature: "business_upgrades",
@@ -52,7 +53,7 @@ export function BusinessCard({
     onUpgradeSelect({ business, upgrade });
   };
   const { mobile, cardProps } = useMobileCardAction({
-    enabled: typeof onUpgradeSelect === "function",
+    enabled: !locked && typeof onUpgradeSelect === "function",
     label: `Уровни бизнеса: ${business.title}`,
     onActivate: openLevels,
   });
@@ -69,7 +70,7 @@ export function BusinessCard({
         variant="floor-data"
         state={locked ? "locked" : targeted ? "target" : undefined}
         as="li"
-        className={`floor-business-card${mobile ? " floor-business-card--mobile-action" : ""}`}
+        className={`floor-business-card${mobile && !locked && typeof onUpgradeSelect === "function" ? " floor-business-card--mobile-action" : ""}`}
         {...cardProps}
       >
         <ImageCard
@@ -118,7 +119,7 @@ export function BusinessCard({
           </CardDescription>
           {children}
         </EditableLayout>
-        {!mobile && (
+        {!mobile && !locked && (
           <div className="floor-business-actions">
             <Button
               editKey="action"

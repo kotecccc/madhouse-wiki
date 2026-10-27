@@ -1,3 +1,4 @@
+import { FriendsSection } from "../../features/friends/FriendsSection.jsx";
 import { ToastTargetContext } from "../../components/ui/Toast/ToastContext.jsx";
 import {
   inventoryCategories,
@@ -22,6 +23,7 @@ import {
   subscribeSessionData,
   getSessionJson,
 } from "../../../shared/session-api.js";
+import { BorderLoader } from "../../components/ui/BorderLoader/BorderLoader.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
 import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
@@ -67,12 +69,17 @@ export function App() {
       : screenFromHash(window.location.hash),
   );
   const visibleScreen =
-    activeScreen === "inventory" && !authenticated ? "overview" : activeScreen;
+    ["inventory", "friends"].includes(activeScreen) && !authenticated
+      ? "overview"
+      : activeScreen;
   const [departmentState, setDepartmentState] = useState(null);
   const [floorContentLoading, setFloorContentLoading] = useState(false);
   const [floorFocusCode, setFloorFocusCode] = useState(null);
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
   const [inventoryRefresh, setInventoryRefresh] = useState(0);
+  const [friendsRefresh, setFriendsRefresh] = useState(0);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const lastPull = useRef(0);
   const [sessionGeneration, setSessionGeneration] = useState(0);
   const [inventoryResponses, setInventoryResponses] = useState({});
   const [inventoryDirty, setInventoryDirty] = useState([]);
@@ -169,8 +176,17 @@ export function App() {
     const ready = pullStart.current?.ready;
     pullStart.current = null;
     setPullReady(false);
-    if (!ready) return;
-    if (visibleScreen === "inventory") {
+    if (
+      !ready ||
+      Date.now() - lastPull.current < 10000 ||
+      refreshing ||
+      friendsLoading
+    )
+      return;
+    lastPull.current = Date.now();
+    if (visibleScreen === "friends") {
+      setFriendsRefresh((value) => value + 1);
+    } else if (visibleScreen === "inventory") {
       setInventoryRefresh((value) => value + 1);
     } else if (visibleScreen === "raids") {
       raidSchedule.retry();
@@ -263,6 +279,9 @@ export function App() {
             setPullReady(false);
           }}
         >
+          {(refreshing || (visibleScreen === "friends" && friendsLoading)) && (
+            <BorderLoader label="Обновление данных" />
+          )}
           {pullReady && (
             <CardDescription role="status">
               Отпустите, чтобы обновить
@@ -324,6 +343,18 @@ export function App() {
                 onRetry={raidSchedule.retry}
               />
             </div>
+            {authenticated && visibleScreen === "friends" && (
+              <div
+                id="screen-friends"
+                className="app-screen app-screen--friends"
+              >
+                <FriendsSection
+                  active
+                  refreshGeneration={friendsRefresh}
+                  onRefreshState={setFriendsLoading}
+                />
+              </div>
+            )}
             {authenticated && (
               <div
                 id="screen-inventory"
