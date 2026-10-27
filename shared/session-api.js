@@ -289,7 +289,7 @@ export function createSessionApi({
           if (path === "/api/automation/commands") {
             const failure = await response.json().catch(() => null);
             if (
-              /^(inventory_[a-z_]+|automation_[a-z_]+|weapon_equipment_uncertain)$/.test(
+              /^(inventory_[a-z_]+|automation_[a-z_]+|weapon_equipment_uncertain|subscription_controls_automation|character_upgrade_uncertain|character_batch_running|work_booster_uncertain|floor_automation_controls_resources|business_upgrade_uncertain)$/.test(
                 failure?.inventoryReason || "",
               )
             )
