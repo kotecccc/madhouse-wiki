@@ -42,6 +42,19 @@ export function ActionQueueSection({
                       В очереди: {card.position}
                     </CardDescription>
                   )}
+                  {card.retryAt != null && (
+                    <CardDescription>
+                      {card.retryIsReconciliation
+                        ? "Следующая проверка не раньше "
+                        : "Следующая попытка не раньше "}
+                      <time dateTime={new Date(card.retryAt).toISOString()}>
+                        {new Intl.DateTimeFormat("ru-RU", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        }).format(card.retryAt)}
+                      </time>
+                    </CardDescription>
+                  )}
                 </div>
                 {card.destination && (
                   <Button size="sm" onClick={() => onOpen(card)}>

@@ -120,6 +120,40 @@ test("a failed prerequisite is shown even when the session needs login", () => {
   assert.equal(card.status, "Предыдущее действие не выполнено");
 });
 
+test("retry deadlines are shown only when a future attempt or reconciliation is scheduled", () => {
+  const base = {
+    type: "inventory",
+    priority: 0,
+    createdAt: 1,
+    args: { action: "buy" },
+  };
+  const cards = actionQueueCards({
+    serverTime: 1000,
+    queuedActions: [
+      { ...base, id: "retry", status: "waiting", nextAt: 2000 },
+      { ...base, id: "reconcile", status: "reconciling", nextAt: 3000 },
+      { ...base, id: "past", status: "waiting", nextAt: 1000 },
+      { ...base, id: "unknown", status: "waiting", nextAt: null },
+      {
+        ...base,
+        id: "dependent",
+        status: "waiting",
+        nextAt: 3000,
+        blockedBy: "dependency",
+      },
+      { ...base, id: "invalid", status: "waiting", nextAt: 9e15 },
+      { ...base, id: "done", status: "completed", nextAt: 3000 },
+    ],
+  });
+  const byId = Object.fromEntries(cards.map((card) => [card.id, card]));
+  assert.equal(byId.retry.retryAt, 2000);
+  assert.equal(byId.retry.retryIsReconciliation, false);
+  assert.equal(byId.reconcile.retryAt, 3000);
+  assert.equal(byId.reconcile.retryIsReconciliation, true);
+  for (const id of ["past", "unknown", "dependent", "invalid", "done"])
+    assert.equal(byId[id].retryAt, null);
+});
+
 test("shows floor and character progress using authoritative actor state", () => {
   const cards = actionQueueCards({
     floorRunner: { status: "paused" },

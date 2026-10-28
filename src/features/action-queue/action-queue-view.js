@@ -501,6 +501,17 @@ export function actionQueueCards(state, catalogue = {}) {
           : job.cancelRequested
             ? null
             : "queue.cancel",
+      retryAt:
+        ["waiting", "reconciling"].includes(job.status) &&
+        Number.isFinite(job.nextAt) &&
+        job.nextAt > time &&
+        job.nextAt <= 8_640_000_000_000_000 &&
+        !["credentials", "storage", "dependency"].includes(job.blockedBy) &&
+        job.reason !== "game_session_required" &&
+        state.gameHealth?.status !== "credentials_invalid"
+          ? job.nextAt
+          : null,
+      retryIsReconciliation: job.status === "reconciling",
       position: ready(job) ? ++position : null,
       actor: false,
     });
