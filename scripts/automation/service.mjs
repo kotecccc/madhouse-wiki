@@ -918,12 +918,7 @@ export function createAutomationService({
         headers: { Authorization: entry.credential },
       }),
       fetcher: async (url, init) => {
-        if (
-          closed ||
-          entry.restoring ||
-          entry.storageFailed ||
-          !entry.credential
-        )
+        if (closed || entry.storageFailed || !entry.credential)
           throw failure(503, "automation_stopped");
         // The controller has already published pending; this sync commit precedes POST.
         if (init.method === "POST") {
@@ -1216,7 +1211,12 @@ export function createAutomationService({
           (work) => Number(work.workId ?? work.numericId ?? work.apiId) === id,
         ),
       request: async (method, path, body, { signal, canDispatch } = {}) => {
-        if (closed || entry.storageFailed || !entry.credential)
+        if (
+          closed ||
+          entry.restoring ||
+          entry.storageFailed ||
+          !entry.credential
+        )
           throw failure(503, "automation_stopped");
         save(entry);
         if (entry.storageFailed)
