@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
 import { createActionQueue } from "../../scripts/automation/action-queue.mjs";
 import { createAccountQueue } from "../../scripts/automation/account-queue.mjs";
+import { queuedFriendResponseAdapter } from "../../scripts/automation/queued-friend-response.mjs";
 
 test("only the matching queued attempt receives one permission", async () => {
   const gate = createQueueActionGate();
@@ -184,4 +185,56 @@ test("account serialization preserves only the waiting attempt's permission", as
   release();
   assert.equal((await first).status, 200);
   assert.equal((await second).status, 200);
+});
+
+test("a lost friend response is reconciled without a second send", async () => {
+  const gate = createQueueActionGate();
+  const authorization = "Bearer fake";
+  const entry = { credential: authorization };
+  let now = 1;
+  let saved = [];
+  let accepted = false;
+  let sends = 0;
+  const fetcher = async (url, init) => {
+    const path = new URL(url).pathname;
+    if (init.method === "POST") {
+      assert.equal(
+        gate.claim({ authorization, method: init.method, path }),
+        true,
+      );
+      sends++;
+      accepted = true;
+      throw new Error("lost response");
+    }
+    const items =
+      (path === "/api/friends" && accepted) ||
+      (path === "/api/friends/requests/incoming" && !accepted)
+        ? [{ player: { playerId: 42 } }]
+        : [];
+    return Response.json({ items, nextCursor: null });
+  };
+  const adapter = queuedFriendResponseAdapter({
+    entry,
+    fetcher,
+    save: () => {},
+  });
+  const queue = createActionQueue({
+    adapters: { "friend.response": adapter },
+    persist: (value) => {
+      saved = value;
+    },
+    now: () => now,
+    runInContext: (job, reconcile, run, _reservation, canDispatch) =>
+      gate.run(job, reconcile, authorization, run, canDispatch),
+  });
+  queue.add({
+    id: "test-job-1",
+    type: "friend.response",
+    args: { playerId: 42, decision: "accept" },
+  });
+  await queue.tick();
+  now += 60000;
+  await queue.tick();
+  assert.equal(sends, 1);
+  assert.equal(saved[0].status, "completed");
 });
