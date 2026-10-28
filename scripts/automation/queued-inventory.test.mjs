@@ -450,6 +450,81 @@ test("a purchase Retry-After defers background friend reads across restart", asy
   }
 });
 
+test("a newer account reservation blocks an older attempt before its next request", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "queue-two-accounts-"));
+  const store = createAutomationStateStore({ directory });
+  const firstGame = inventoryGame(),
+    secondGame = inventoryGame();
+  let clock = 1_000_000,
+    release,
+    firstRead;
+  const waiting = new Promise((resolve) => {
+    firstRead = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fetcher = async (url, init = {}) => {
+    const authorization = new Headers(init.headers).get("authorization");
+    if (
+      authorization === "Bearer first" &&
+      new URL(url).pathname === "/api/clothing/by-category/1"
+    ) {
+      firstRead();
+      await gate;
+    }
+    return (authorization === "Bearer first" ? firstGame : secondGame).fetcher(
+      url,
+      init,
+    );
+  };
+  const service = createAutomationService({
+    store,
+    fetcher,
+    identifyPlayer: async (auth) => ({
+      playerId: auth === "Bearer first" ? 1 : 2,
+    }),
+    getBoss: () => null,
+    now: () => clock,
+    random: () => 0,
+  });
+  try {
+    const first = await service.identify("Bearer first");
+    const second = await service.identify("Bearer second");
+    for (const [entry, id] of [
+      [first, "purchase-first"],
+      [second, "purchase-second"],
+    ])
+      await service.command(entry, {
+        id,
+        command: "queue.enqueue",
+        expectedVersion: service.snapshot(entry).version,
+        args: { type: "inventory", action: purchase },
+      });
+    const firstTick = first.actionQueue.tick();
+    await waiting;
+    clock += 1000;
+    await second.actionQueue.tick();
+    assert.equal(secondGame.mutations().length, 1);
+    clock += 1;
+    release();
+    await firstTick;
+    assert.equal(firstGame.mutations().length, 0);
+    assert.equal(first.actionQueue.snapshot()[0].status, "waiting");
+    assert.ok(first.actionQueue.snapshot()[0].nextAt >= clock + 999);
+  } finally {
+    release?.();
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("cooldown storage failure stops further game mutations", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");

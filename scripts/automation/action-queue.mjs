@@ -275,11 +275,15 @@ export function createActionQueue({
         eligible(entry) &&
         dependenciesConfirmed(entry) &&
         !entry.cancelRequested;
-      onAttempt();
-      const result = await runInContext(entry, reconcile, () =>
-        reconcile
-          ? adapter.reconcile(clone(entry), { canDispatch })
-          : adapter.execute(clone(entry), { canDispatch }),
+      const reservation = onAttempt();
+      const result = await runInContext(
+        entry,
+        reconcile,
+        () =>
+          reconcile
+            ? adapter.reconcile(clone(entry), { canDispatch })
+            : adapter.execute(clone(entry), { canDispatch }),
+        reservation,
       );
       if (
         !result ||

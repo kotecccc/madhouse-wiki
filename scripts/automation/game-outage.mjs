@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { retryDelay } from "./action-queue.mjs";
+export const outageProbe = Symbol("outageProbe");
 
 // Evidence contains hashes only: paths can include account or entity IDs.
 const WINDOW_MS = 60_000;
@@ -122,6 +123,7 @@ export function createGameOutageFetch({
     try {
       const response = await fetcher(new URL("/api/me", url).toString(), {
         method: "GET",
+        [outageProbe]: true,
         headers: { Authorization: authorization, Accept: "application/json" },
         cache: "no-store",
         redirect: "error",

@@ -5,7 +5,11 @@ import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
-import { createGameOutageFetch, emptyGameOutage } from "./game-outage.mjs";
+import {
+  createGameOutageFetch,
+  emptyGameOutage,
+  outageProbe,
+} from "./game-outage.mjs";
 import {
   AUTOMATION_STATE_SCHEMA_VERSION,
   migrateAutomationState,
@@ -225,6 +229,7 @@ export function createAutomationService({
   };
   let actionQueueReadyAt = savedQueueCooldown.readyAt;
   let actionQueueFailures = savedQueueCooldown.failures;
+  let currentReservation = null;
   const owner = randomUUID();
   function ensureLease() {
     if (closed || !store.acquireLease(owner, now(), 15000))
@@ -258,8 +263,22 @@ export function createAutomationService({
       requestPriority: requestPriority.current,
       captureRequestContext: requestPriority.capture,
       beforeDispatch: (_url, _init, isQueuedAttempt) => {
-        if (isQueuedAttempt()) return;
-        const deadline = queueNotBefore(null);
+        const overallDeadline = queueNotBefore(null);
+        const deadline =
+          overallDeadline == null
+            ? null
+            : _init[outageProbe]
+              ? actionQueueReadyAt
+              : overallDeadline;
+        const reservation = isQueuedAttempt();
+        if (
+          deadline != null &&
+          reservation &&
+          reservation === currentReservation &&
+          deadline <= reservation.until &&
+          (_init[outageProbe] || currentGameOutage().readyAt <= now())
+        )
+          return;
         if (deadline == null || now() < deadline)
           throw Object.assign(new Error("game_outage_wait"), {
             notDispatched: true,
@@ -1778,6 +1797,8 @@ export function createAutomationService({
                                 "active",
       onAttempt: () => {
         actionQueueReadyAt = now() + 1000;
+        currentReservation = { until: actionQueueReadyAt };
+        return currentReservation;
       },
       runInContext: requestPriority.run,
       onResult: (result) => {

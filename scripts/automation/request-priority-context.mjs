@@ -11,10 +11,14 @@ export function createRequestPriorityContext() {
     },
     capture() {
       const context = storage.getStore();
-      return () => Boolean(context?.active);
+      return () => (context?.active ? context.reservation : null);
     },
-    async run(job, reconcile, callback) {
-      const context = { active: true, priority: reconcile ? 60 : job.priority };
+    async run(job, reconcile, callback, reservation) {
+      const context = {
+        active: true,
+        priority: reconcile ? 60 : job.priority,
+        reservation,
+      };
       try {
         return await storage.run(context, callback);
       } finally {
