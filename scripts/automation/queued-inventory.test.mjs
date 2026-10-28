@@ -364,6 +364,92 @@ test("worker honors a shared cooldown restored from storage", async () => {
   }
 });
 
+test("a purchase Retry-After defers background friend reads across restart", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "queue-cooldown-friends-"));
+  const store = createAutomationStateStore({ directory });
+  const game = inventoryGame();
+  let clock = 1_000_000,
+    friendReads = 0;
+  const fetcher = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (path.startsWith("/api/friends")) {
+      friendReads++;
+      return Response.json({ items: [], nextCursor: null });
+    }
+    if (path === "/api/bosses/invitations") return Response.json({ items: [] });
+    if (path === "/api/combat") return Response.json({ activeBattle: null });
+    const response = await game.fetcher(url, init);
+    return init.method === "POST"
+      ? new Response(null, { status: 429, headers: { "Retry-After": "120" } })
+      : response;
+  };
+  const makeService = () =>
+    createAutomationService({
+      store,
+      fetcher,
+      identifyPlayer: async () => ({ playerId: 1 }),
+      getBoss: () => null,
+      now: () => clock,
+      random: () => 0,
+    });
+  let service = makeService();
+  try {
+    let entry = await service.identify("Bearer fake");
+    entry.raidFriendWatch[7] = "alice";
+    entry.friendSnapshot.enabled = true;
+    await service.command(entry, {
+      id: "purchase-background-cooldown",
+      command: "queue.enqueue",
+      expectedVersion: service.snapshot(entry).version,
+      args: { type: "inventory", action: purchase },
+    });
+    await service.boot();
+    let end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      service.snapshot(entry).queuedActions[0].status !== "reconciling"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(service.snapshot(entry).queueNotBefore, clock + 120000);
+    assert.equal(game.mutations().length, 1);
+    service.close();
+    clock += 60000;
+    const before = friendReads;
+    service = makeService();
+    await service.boot();
+    entry = await service.identify("Bearer fake");
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    assert.equal(friendReads, before);
+    assert.equal(
+      service.snapshot(entry).queuedActions[0].status,
+      "reconciling",
+    );
+    clock += 60001;
+    end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
+    assert.equal(game.mutations().length, 1);
+    clock += 1001;
+    end = Date.now() + 3000;
+    while (Date.now() < end && friendReads === before)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.ok(friendReads > before);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("cooldown storage failure stops further game mutations", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");

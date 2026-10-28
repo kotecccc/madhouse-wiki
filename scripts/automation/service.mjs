@@ -2109,6 +2109,10 @@ export function createAutomationService({
       throw wrapped;
     }
   }
+  function backgroundReadDeferred(entry) {
+    const deadline = queueNotBefore(entry);
+    return deadline == null || now() < deadline;
+  }
   function queuedFriendReadPending(entry) {
     return entry.actionQueue
       .snapshot()
@@ -2138,6 +2142,7 @@ export function createAutomationService({
       entry.busy ||
       entry.inventoryBusy ||
       entry.raidFriendRefreshing ||
+      backgroundReadDeferred(entry) ||
       queuedFriendReadPending(entry) ||
       now() < entry.raidFriendRefreshAt ||
       (!["pending", "uncertain"].includes(entry.raidFriend.status) &&
@@ -2166,6 +2171,7 @@ export function createAutomationService({
       entry.busy ||
       entry.inventoryBusy ||
       entry.actionQueue.hasDue() ||
+      backgroundReadDeferred(entry) ||
       queuedFriendReadPending(entry) ||
       entry.characterBatch.running() ||
       !entry.collector.idleForPriority() ||
@@ -2220,6 +2226,7 @@ export function createAutomationService({
       entry.busy ||
       entry.inventoryBusy ||
       entry.friendRemovalRefreshing ||
+      backgroundReadDeferred(entry) ||
       now() < (entry.friendRemoval.nextCheckAt ?? 0) ||
       accountHealth(entry.credential)?.status === "credentials_invalid" ||
       entry.actionQueue
@@ -2268,6 +2275,7 @@ export function createAutomationService({
       entry.inventoryBusy ||
       state.pending ||
       state.pendingInvitation ||
+      backgroundReadDeferred(entry) ||
       now() < entry.invitationDiscoveryAt ||
       accountHealth(entry.credential)?.status === "credentials_invalid"
     )
