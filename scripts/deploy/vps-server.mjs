@@ -67,7 +67,7 @@ if (role === "wiki") {
       ),
     ),
   );
-  if (expectedBootstrap) {
+  if (expectedBootstrap && process.env.MADHOUSE_BRIDGE_LAB !== "1") {
     if (process.env.MADHOUSE_BRIDGE_PRODUCTION !== "1")
       throw new Error("bridge_production_required");
     verifyBridgeRelease(

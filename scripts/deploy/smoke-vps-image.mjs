@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { VERSION } from "../../connector/protocol.js";
 
 const [wikiOrigin, connectorOrigin, expectedCommit] = process.argv.slice(2);
+const expectedWikiOrigin =
+  process.env.SMOKE_WIKI_ORIGIN || "https://madhouse-wiki.ru";
+const expectedConnectorOrigin =
+  process.env.SMOKE_CONNECTOR_ORIGIN || "https://connect.madhouse-wiki.ru";
 if (
   !wikiOrigin ||
   !connectorOrigin ||
@@ -42,7 +46,7 @@ assert.equal(wikiRelease.body.sourceCommit, expectedCommit);
 assert.equal(wikiRelease.body.telegramConnector?.protocolVersion, VERSION);
 assert.equal(
   wikiRelease.body.telegramConnector?.origin,
-  "https://connect.madhouse-wiki.ru",
+  expectedConnectorOrigin,
 );
 const wikiPage = await fetchReady(`${wikiOrigin}/`);
 assert.equal(wikiPage.status, 200);
@@ -66,17 +70,15 @@ assert.equal(connectorRelease.response.status, 200);
 assert.equal(connectorRelease.body.provider, "VPS");
 assert.equal(connectorRelease.body.sourceCommit, expectedCommit);
 assert.equal(connectorRelease.body.protocolVersion, VERSION);
-assert.equal(connectorRelease.body.wikiOrigin, "https://madhouse-wiki.ru");
-assert.equal(
-  connectorRelease.body.connectorOrigin,
-  "https://connect.madhouse-wiki.ru",
-);
+assert.equal(connectorRelease.body.wikiOrigin, expectedWikiOrigin);
+assert.equal(connectorRelease.body.connectorOrigin, expectedConnectorOrigin);
 const connectorPage = await fetchReady(`${connectorOrigin}/`);
 assert.equal(connectorPage.status, 200);
 assert.match(connectorPage.headers.get("content-type") || "", /text\/html/u);
-assert.match(
-  connectorPage.headers.get("content-security-policy") || "",
-  /frame-ancestors https:\/\/madhouse-wiki\.ru https:\/\/web\.telegram\.org/u,
+assert.ok(
+  (connectorPage.headers.get("content-security-policy") || "").includes(
+    `frame-ancestors ${expectedWikiOrigin} https://web.telegram.org`,
+  ),
 );
 const connectorConfig = await getJson(`${connectorOrigin}/api/config`);
 assert.equal(connectorConfig.response.status, 503);
