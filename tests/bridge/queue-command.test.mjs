@@ -32,6 +32,12 @@ test("only the supported durable queue command is admitted", async () => {
   );
   assert.equal(
     await isAllowedBridgeQueueCommand(
+      request({ command: "work.plan", args: { workId: 7 } }),
+    ),
+    true,
+  );
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
       request({
         command: "queue.enqueue",
         args: { type: "work.start", action: { mode: "energy" } },
@@ -55,6 +61,7 @@ test("only the supported durable queue command is admitted", async () => {
     { command: "friends.respond", args: { playerId: 42 } },
     { command: "work.start", args: { mode: "energy" } },
     { command: "work.refresh", args: { workId: -1 } },
+    { command: "work.plan", args: { workId: 0 } },
     { command: "queue.enqueue", args: { type: "battle.attack" } },
     {
       command: "queue.enqueue",
