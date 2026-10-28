@@ -24,26 +24,41 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Validate and build the Linux amd64 VPS image
+        env:
+          BRIDGE_BOOTSTRAP_SHA256: ${{ vars.MADHOUSE_BRIDGE_BOOTSTRAP_SHA256 }}
         run: |
+          if [[ -n "${BRIDGE_BOOTSTRAP_SHA256}" && ! "${BRIDGE_BOOTSTRAP_SHA256}" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "Invalid bridge bootstrap SHA-256" >&2
+            exit 1
+          fi
           docker build --pull --platform linux/amd64 \
             --file Dockerfile.vps \
             --tag "madhouse-wiki:vps-${GITHUB_SHA}" \
             --build-arg "MADHOUSE_RELEASE_SHA=${GITHUB_SHA}" \
             --build-arg "VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru" \
+            --build-arg "VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=${BRIDGE_BOOTSTRAP_SHA256}" \
             .
 
       - name: Validate VPS Compose configuration
         run: |
           config_root="$(mktemp -d)"
-          for name in storage.env wiki.env connector.env raid.env; do
+          for name in storage.env wiki.env connector.env raid.env bridge.env; do
             : > "${config_root}/${name}"
           done
           sed "s|/opt/madhouse-wiki|${config_root}|g" \
             scripts/deploy/vps-compose.yml > "${config_root}/vps-compose.yml"
+          sed "s|/opt/madhouse-wiki|${config_root}|g" \
+            scripts/deploy/vps-bridge-compose.yml > "${config_root}/vps-bridge-compose.yml"
           printf 'MADHOUSE_RELEASE_SHA=%040d\n' 0 > "${config_root}/release.env"
           docker compose \
             --project-name madhouse-wiki \
             --file "${config_root}/vps-compose.yml" \
+            --env-file "${config_root}/release.env" \
+            config --quiet
+          docker compose \
+            --project-name madhouse-wiki \
+            --file "${config_root}/vps-compose.yml" \
+            --file "${config_root}/vps-bridge-compose.yml" \
             --env-file "${config_root}/release.env" \
             config --quiet
 
