@@ -162,6 +162,14 @@ export function readGameOverBridge(options = {}) {
   return requestGameOverBridge({ ...options, method: options.method || "GET" });
 }
 
+export function isBattleActionRoute(method, path) {
+  return (
+    method === "POST" &&
+    (/^\/api\/bosses\/[1-9][0-9]*\/battles$/.test(path) ||
+      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/attack$/.test(path))
+  );
+}
+
 export function isInventoryActionRoute(method, path) {
   if (method === "POST" && path === "/api/weapons/repair") return true;
   return Object.values(INVENTORY_ACTION_TYPES).some(
@@ -184,6 +192,7 @@ export function sendFriendResponseOverBridge(options = {}) {
     typeof path !== "string" ||
     !(
       isInventoryActionRoute(method, path) ||
+      isBattleActionRoute(method, path) ||
       (method === "POST" &&
         ([
           "/api/friends/requests",
@@ -198,17 +207,18 @@ export function sendFriendResponseOverBridge(options = {}) {
     throw new TypeError("invalid_queued_action");
   return requestGameOverBridge({
     ...options,
-    body: isInventoryActionRoute(method, path)
-      ? options.body
-      : method === "POST"
-        ? [
-            "/api/friends/requests",
-            "/api/me/bag/boosters/use",
-            "/api/me/bag/boosters/buy",
-          ].includes(path)
-          ? options.body
-          : "{}"
-        : undefined,
+    body:
+      isInventoryActionRoute(method, path) || isBattleActionRoute(method, path)
+        ? options.body
+        : method === "POST"
+          ? [
+              "/api/friends/requests",
+              "/api/me/bag/boosters/use",
+              "/api/me/bag/boosters/buy",
+            ].includes(path)
+            ? options.body
+            : "{}"
+          : undefined,
   });
 }
 

@@ -442,3 +442,36 @@ test("rejects a truncated profile rather than treating it as a result", async ()
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("queued battle action forwards its exact operation through TLS", async () => {
+  let seen;
+  const server = createServer({ cert, key }, async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    seen = { path: req.url, body: JSON.parse(Buffer.concat(chunks)) };
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const validateTunnel = () => true;
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await sendFriendResponseOverBridge({
+      authorization: "Bearer fake-token",
+      method: "POST",
+      path: "/api/bosses/battles/battle-1/attack",
+      body: JSON.stringify({ operationId: "op" }),
+      validateTunnel,
+      connector,
+    });
+    assert.deepEqual(seen, {
+      path: "/api/bosses/battles/battle-1/attack",
+      body: { operationId: "op" },
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

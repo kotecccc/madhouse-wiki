@@ -91,7 +91,7 @@ test("only the supported durable queue command is admitted", async () => {
     { command: "work.start", args: { mode: "energy" } },
     { command: "work.refresh", args: { workId: -1 } },
     { command: "work.plan", args: { workId: 0 } },
-    { command: "queue.enqueue", args: { type: "battle.attack" } },
+    { command: "queue.enqueue", args: { type: "battle.heal" } },
     {
       command: "queue.enqueue",
       args: { type: "work.booster", action: { mode: "energy" } },

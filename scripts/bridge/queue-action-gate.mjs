@@ -51,6 +51,55 @@ export function createQueueActionGate() {
         return (
           context.workPermit({ authorization, method, path, body }) === true
         );
+      if (["battle.start", "battle.attack"].includes(context?.job?.type)) {
+        const job = context.job;
+        if (
+          !context.active ||
+          context.used ||
+          context.reconcile ||
+          job.status !== "running" ||
+          !job.id ||
+          authorization !== context.authorization ||
+          method !== "POST" ||
+          typeof body !== "string" ||
+          body.length > 512 ||
+          typeof context.canDispatch !== "function" ||
+          typeof context.checkpoint !== "function"
+        )
+          return false;
+        let value, pending;
+        try {
+          value = JSON.parse(body);
+          pending = context.checkpoint();
+        } catch {
+          return false;
+        }
+        const expected =
+          job.type === "battle.start"
+            ? `/api/bosses/${job.args?.bossId}/battles`
+            : `/api/bosses/battles/${job.args?.battleId}/attack`;
+        if (
+          path !== expected ||
+          pending?.id !== job.id ||
+          pending.bossId !== job.args?.bossId ||
+          (job.type === "battle.attack" &&
+            (pending.kind !== "attack" ||
+              pending.battleId !== job.args?.battleId)) ||
+          !value ||
+          Object.keys(value).join(",") !== "operationId" ||
+          typeof value.operationId !== "string" ||
+          !value.operationId ||
+          value.operationId !== pending.operationId
+        )
+          return false;
+        try {
+          if (context.canDispatch() !== true) return false;
+        } catch {
+          return false;
+        }
+        context.used = true;
+        return true;
+      }
       if (context?.job?.type === "inventory") {
         const job = context.job;
         if (

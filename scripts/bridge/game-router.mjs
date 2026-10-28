@@ -3,6 +3,7 @@ import {
   isAllowedGameRead,
   isAllowedWorkView,
   isInventoryActionRoute,
+  isBattleActionRoute,
 } from "./profile-client.mjs";
 const fail = (code) => Object.assign(new Error(code), { code });
 
@@ -168,7 +169,8 @@ export function createGameRouter({
     } else if (
       typeof bridgeAction === "function" &&
       !parsed.search &&
-      ((isInventoryActionRoute(method, path) &&
+      (((isInventoryActionRoute(method, path) ||
+        isBattleActionRoute(method, path)) &&
         (init.body == null || typeof init.body === "string")) ||
         (method === "POST" &&
           [

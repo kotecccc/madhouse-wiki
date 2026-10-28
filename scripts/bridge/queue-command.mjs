@@ -34,6 +34,8 @@ export async function isAllowedBridgeQueueCommand(request) {
           "friend.buddy",
           "energy.booster",
           "inventory",
+          "battle.start",
+          "battle.attack",
         ].includes(input.args?.type) ||
           (input.args?.type === "work.start" &&
             input.args?.action?.mode === "energy" &&
