@@ -623,6 +623,36 @@ test("history pruning retains a completed prerequisite while it is still referen
   );
 });
 
+test("history pruning retains an old intention that completed recently", () => {
+  const saved = Array.from({ length: 129 }, (_, index) => ({
+    id: `done-${String(index).padStart(4, "0")}`,
+    type: "buy",
+    args: { id: index },
+    status: "completed",
+    priority: 0,
+    createdAt: index + 1,
+    finishedAt: index === 0 ? 1000 : index + 1,
+    attempts: 0,
+    nextAt: null,
+  }));
+  const queue = createActionQueue({
+    saved,
+    persist: () => true,
+    adapters: { buy: { validate: (args) => args } },
+  });
+  queue.add({ id: "another-01", type: "buy", args: { id: 200 } });
+  assert.ok(queue.snapshot().some((entry) => entry.id === "done-0000"));
+  assert.ok(!queue.snapshot().some((entry) => entry.id === "done-0001"));
+});
+
+test("completion time is persisted after confirmed execution", async () => {
+  const h = setup();
+  h.queue.add({ id: "action-finished", type: "buy", args: { id: 1 } });
+  h.advance(9000);
+  await h.queue.tick();
+  assert.equal(h.stored()[0].finishedAt, 10000);
+});
+
 test("terminal history stays bounded while uncertain checkpoints remain", async () => {
   // Simulate a checkpoint recovered after an interrupted submission.
   const paused = createActionQueue({

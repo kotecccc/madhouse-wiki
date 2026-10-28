@@ -81,6 +81,25 @@ test("completed actions can be dismissed and handoffs do not claim the goal fini
   assert.equal(handoff.command, "queue.dismiss");
 });
 
+test("recent completions are selected by completion time, not creation order", () => {
+  const completed = Array.from({ length: 6 }, (_, index) => ({
+    id: `done-${index}`,
+    type: "inventory",
+    status: "completed",
+    priority: 0,
+    createdAt: index + 1,
+    finishedAt: index === 0 ? 100 : index + 10,
+    args: { action: "buy" },
+  }));
+  const ids = actionQueueCards({
+    serverTime: 200,
+    queuedActions: completed,
+  }).map((card) => card.id);
+  assert.ok(ids.includes("done-0"));
+  assert.ok(!ids.includes("done-1"));
+  assert.equal(ids.length, 5);
+});
+
 test("a dependent action explains that it waits for confirmation", () => {
   const [card] = actionQueueCards({
     serverTime: 1000,

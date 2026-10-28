@@ -102,6 +102,7 @@ export function createActionQueue({
         if (!["running", "reconciling"].includes(item.status)) {
           item.status = "cancelled";
           item.nextAt = null;
+          item.finishedAt = now();
         }
       }
     }
@@ -120,6 +121,9 @@ export function createActionQueue({
     // storage cannot fill up during normal long-term use.
     const terminal = entries
       .filter((item) => !active.has(item.status))
+      .sort(
+        (a, b) => (a.finishedAt ?? a.createdAt) - (b.finishedAt ?? b.createdAt),
+      )
       .slice(-128);
     const retained = new Set(terminal);
     const referenced = new Set([
@@ -172,6 +176,7 @@ export function createActionQueue({
     if (entry.status !== "running" && entry.status !== "reconciling") {
       entry.status = pause ? "paused" : "cancelled";
       entry.nextAt = null;
+      if (!pause) entry.finishedAt = now();
     }
     commit();
     return true;
@@ -236,6 +241,7 @@ export function createActionQueue({
       failed.status = "failed";
       failed.reason = "dependency_failed";
       failed.nextAt = null;
+      failed.finishedAt = now();
       commit();
       return;
     }
@@ -283,14 +289,17 @@ export function createActionQueue({
       onResult(result);
       if (result.status === "completed") {
         entry.status = "completed";
+        entry.finishedAt = now();
         entry.nextAt = null;
         entry.reason = null;
       } else if (result.status === "failed") {
         entry.status = "failed";
+        entry.finishedAt = now();
         entry.nextAt = null;
         entry.reason = result.reason ?? null;
       } else if (result.status === "retry" && entry.cancelRequested) {
         entry.status = entry.pauseRequested ? "paused" : "cancelled";
+        if (!entry.pauseRequested) entry.finishedAt = now();
         entry.nextAt = null;
       } else {
         // A retry result is permitted only when the adapter has proved that
@@ -309,6 +318,7 @@ export function createActionQueue({
     } catch {
       // An exception can arise after dispatch. Do not assume it was unsent.
       entry.status = "reconciling";
+      delete entry.finishedAt;
       entry.reason = null;
       entry.nextAt = now() + retryDelay(entry.attempts++, random);
       commit();

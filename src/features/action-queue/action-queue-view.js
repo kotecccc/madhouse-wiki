@@ -287,6 +287,9 @@ export function actionQueueCards(state, catalogue = {}) {
   const recentCompleted = new Set(
     (state.queuedActions || [])
       .filter((job) => job.status === "completed" && !job.dismissed)
+      .sort(
+        (a, b) => (a.finishedAt ?? a.createdAt) - (b.finishedAt ?? b.createdAt),
+      )
       .slice(-5)
       .map((job) => job.id),
   );
