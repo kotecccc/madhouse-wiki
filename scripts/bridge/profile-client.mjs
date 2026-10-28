@@ -24,6 +24,30 @@ export function isAllowedGameRead(path) {
   );
 }
 
+// The existing work UI uses this POST to read the work view; accept no other
+// fields so this exception cannot become a generic mutation transport.
+export function isAllowedWorkView(method, path, body) {
+  if (
+    method !== "POST" ||
+    path !== "/api/works/open" ||
+    typeof body !== "string" ||
+    body.length > 256
+  )
+    return false;
+  try {
+    const value = JSON.parse(body);
+    return (
+      value &&
+      Object.keys(value).sort().join(",") === "locale,workId" &&
+      value.locale === "ru" &&
+      Number.isSafeInteger(value.workId) &&
+      value.workId > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Selected read-only game data over an authenticated tunnel. */
 function requestGameOverBridge({
   authorization,
@@ -114,9 +138,16 @@ function requestGameOverBridge({
 }
 
 export function readGameOverBridge(options = {}) {
-  if (!isAllowedGameRead(options.path))
+  if (
+    !(
+      (options.method == null || options.method === "GET") &&
+      options.body == null &&
+      isAllowedGameRead(options.path)
+    ) &&
+    !isAllowedWorkView(options.method, options.path, options.body)
+  )
     throw new TypeError("invalid_profile_request");
-  return requestGameOverBridge({ ...options, method: "GET", body: undefined });
+  return requestGameOverBridge({ ...options, method: options.method || "GET" });
 }
 
 /** Only the queue may supply the handshake-time permission for this action. */

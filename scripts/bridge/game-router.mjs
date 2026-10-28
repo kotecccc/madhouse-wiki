@@ -1,5 +1,5 @@
 const GAME_ORIGIN = "https://cargohustle.online";
-import { isAllowedGameRead } from "./profile-client.mjs";
+import { isAllowedGameRead, isAllowedWorkView } from "./profile-client.mjs";
 const fail = (code) => Object.assign(new Error(code), { code });
 
 const MAX_DIRECT_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -82,7 +82,7 @@ export function createGameRouter({
       return withDirectLease(
         verifiedIdentity,
         route.epoch,
-        async (markDispatched) => {
+        async (markDispatched, markReadFinished) => {
           let current;
           try {
             current = await resolveRoute(verifiedIdentity);
@@ -100,6 +100,10 @@ export function createGameRouter({
           const response = await drainDirectResponse(
             await directFetch(parsed.href, { ...init, redirect: "manual" }),
           );
+          if (
+            ["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
+          )
+            markReadFinished?.();
           // A proxy may have collapsed an uncertain upstream failure into 5xx.
           // Keep the lease until it is reconciled rather than assuming failure.
           if (
@@ -138,6 +142,15 @@ export function createGameRouter({
           throw fail("bridge_operation_not_supported");
         result = await bridgeRead(route.owner, path, { signal: init.signal });
       }
+    } else if (
+      isAllowedWorkView(method, path, init.body) &&
+      typeof bridgeRead === "function"
+    ) {
+      result = await bridgeRead(route.owner, path, {
+        signal: init.signal,
+        method,
+        body: init.body,
+      });
     } else if (
       typeof bridgeAction === "function" &&
       !parsed.search &&

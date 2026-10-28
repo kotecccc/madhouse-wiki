@@ -103,6 +103,29 @@ test("queued mutation requires a matching live one-use permission", async () => 
   }
 });
 
+test("work-view method and body reach the bound device transport", async () => {
+  const body = JSON.stringify({ workId: 7, locale: "ru" });
+  const f = fixture(goodProfile, async (request) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.path, "/api/works/open");
+    assert.equal(request.body, body);
+    assert.equal(request.validateTunnel(), true);
+    return { status: 200, body: Buffer.from("{}") };
+  });
+  try {
+    f.pair("101");
+    await f.service.bind("101", "Bearer private-test-token");
+    assert.equal(
+      (await f.service.read("101", "/api/works/open", { method: "POST", body }))
+        .status,
+      200,
+    );
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
+
 test("game reads use the stored account and reject a revoked device", async () => {
   let release;
   const pending = new Promise((resolve) => {
