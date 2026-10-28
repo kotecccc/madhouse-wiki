@@ -1,3 +1,5 @@
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+
 // The start checkpoint is written before POST; a lost result is read back,
 // never submitted again until a previous request is proven unsent.
 export function queuedBattleStartAdapter({ entry, getBoss, save }) {
@@ -75,7 +77,12 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
         await entry.controller.refresh({ discover: true });
         let current = state();
         if (current.needsRefresh || current.error)
-          return { status: "retry", reason: "Ожидаем игру." };
+          return (
+            terminalBattlePreflight(current.errorStatus) ?? {
+              status: "retry",
+              reason: "Ожидаем игру.",
+            }
+          );
         if (
           current.battle?.status === "active" ||
           !current.canStart ||

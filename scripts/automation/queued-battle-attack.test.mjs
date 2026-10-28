@@ -94,6 +94,30 @@ const add = (queue) =>
     args: { bossId: 7, battleId: "battle-1" },
   });
 
+test("attack classifies rejected preflight without submitting a strike", async () => {
+  for (const [status, expected] of [
+    [401, "failed"],
+    [403, "failed"],
+    [400, "failed"],
+    [429, "waiting"],
+    [503, "waiting"],
+  ]) {
+    const h = harness();
+    h.entry.controller.refresh = async () => {
+      Object.assign(h.current, {
+        error: "unavailable",
+        errorStatus: status,
+        needsRefresh: true,
+      });
+    };
+    const queue = h.make();
+    add(queue);
+    await queue.tick();
+    assert.equal(h.state()[0].status, expected);
+    assert.equal(h.hits(), 0);
+  }
+});
+
 test("manual strike waits for a fresh read and executes once", async () => {
   const h = harness({ offline: true }),
     queue = h.make();

@@ -83,6 +83,30 @@ function add(queue) {
   });
 }
 
+test("start classifies rejected preflight without submitting a battle", async () => {
+  for (const [status, expected] of [
+    [401, "failed"],
+    [403, "failed"],
+    [400, "failed"],
+    [429, "waiting"],
+    [503, "waiting"],
+  ]) {
+    const h = harness();
+    h.entry.controller.refresh = async () => {
+      Object.assign(h.entry.controller.getSnapshot(), {
+        error: "unavailable",
+        errorStatus: status,
+        needsRefresh: true,
+      });
+    };
+    const queue = h.create();
+    add(queue);
+    await queue.tick();
+    assert.equal(h.state()[0].status, expected);
+    assert.equal(h.posts(), 0);
+  }
+});
+
 test("battle start waits for a fresh preflight and submits once after recovery", async () => {
   const h = harness({ offline: true }),
     queue = h.create();

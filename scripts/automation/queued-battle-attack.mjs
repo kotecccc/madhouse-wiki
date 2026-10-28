@@ -1,4 +1,5 @@
 import { canAttackBattle } from "../../src/features/bosses/BossBattle/boss-battle-controller.js";
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
 // A queued strike is tied to one battle. A lost response is reconciled only
 // through the player's confirmed damage; a missing increase never proves that
@@ -79,7 +80,12 @@ export function queuedBattleAttackAdapter({ entry, save, now = Date.now }) {
         await entry.controller.refresh();
         current = state();
         if (current.needsRefresh || current.error)
-          return { status: "retry", reason: "Ожидаем игру." };
+          return (
+            terminalBattlePreflight(current.errorStatus) ?? {
+              status: "retry",
+              reason: "Ожидаем игру.",
+            }
+          );
         if (
           current.battle?.id !== job.args.battleId ||
           current.battle?.status !== "active"
