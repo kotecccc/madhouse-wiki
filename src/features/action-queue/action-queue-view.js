@@ -256,14 +256,17 @@ export function actionQueueCards(state, catalogue = {}) {
   }
   if (
     character?.status === "running" ||
+    character?.status === "uncertain" ||
     (character?.status === "stopped" &&
       state.characterUpgrade?.pending?.runId === character?.id)
   )
     addActor(
       "character",
       "Прокачка характеристик",
-      character.status === "stopped" ? null : "character.stop",
-      character.phase === "reconciling"
+      ["stopped", "uncertain"].includes(character.status)
+        ? null
+        : "character.stop",
+      character.status === "uncertain" || character.phase === "reconciling"
         ? "Проверяем результат"
         : character.phase === "waiting"
           ? "Ожидает игру"

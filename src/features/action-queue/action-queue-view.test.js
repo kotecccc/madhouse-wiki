@@ -134,6 +134,35 @@ test("shows floor and character progress using authoritative actor state", () =>
   assert.deepEqual(cards[1].progress, { value: 2, max: 5 });
 });
 
+test("an uncertain character upgrade remains visible without promising cancellation", () => {
+  const cards = actionQueueCards({
+    characterUpgrade: {
+      run: {
+        id: "run-1",
+        queueId: "upgrade-1",
+        status: "uncertain",
+        completed: 1,
+        target: 2,
+      },
+      pending: { runId: "older-run" },
+    },
+    queuedActions: [
+      {
+        id: "upgrade-1",
+        type: "character.start",
+        status: "completed",
+        priority: 20,
+        createdAt: 1,
+        args: {},
+      },
+    ],
+  });
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].status, "Проверяем результат");
+  assert.equal(cards[0].command, null);
+  assert.deepEqual(cards[0].progress, { value: 1, max: 2 });
+});
+
 test("Buddy remains separately stoppable while floor automation is active", () => {
   const cards = actionQueueCards({
     floorRunner: { status: "running" },
