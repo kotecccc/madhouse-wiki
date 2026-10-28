@@ -26,6 +26,23 @@ test("only the supported durable queue command is admitted", async () => {
     ),
     true,
   );
+  for (const input of [
+    { command: "buddy.set", args: { playerId: 42, enabled: true } },
+    { command: "friends.favorite", args: { playerId: 42, enabled: false } },
+    { command: "buddy.order", args: { friendIds: [42, 43] } },
+    {
+      command: "queue.enqueue",
+      args: {
+        type: "friend.favorite",
+        action: { playerId: 42, enabled: true },
+      },
+    },
+    {
+      command: "queue.enqueue",
+      args: { type: "friend.buddy", action: { playerId: 42, enabled: true } },
+    },
+  ])
+    assert.equal(await isAllowedBridgeQueueCommand(request(input)), true);
   const original = request(allowed);
   assert.equal(await isAllowedBridgeQueueCommand(original), true);
   assert.deepEqual(await original.json(), allowed);
@@ -67,6 +84,9 @@ test("only the supported durable queue command is admitted", async () => {
     true,
   );
   for (const input of [
+    { command: "buddy.set", args: { playerId: 0, enabled: true } },
+    { command: "buddy.order", args: { friendIds: [0] } },
+    { command: "friends.favorite", args: { playerId: 42, enabled: "yes" } },
     { command: "friends.respond", args: { playerId: 42 } },
     { command: "work.start", args: { mode: "energy" } },
     { command: "work.refresh", args: { workId: -1 } },

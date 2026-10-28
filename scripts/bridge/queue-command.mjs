@@ -26,7 +26,12 @@ export async function isAllowedBridgeQueueCommand(request) {
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     return (
       (input?.command === "queue.enqueue" &&
-        (["friend.response", "friend.remove"].includes(input.args?.type) ||
+        ([
+          "friend.response",
+          "friend.remove",
+          "friend.favorite",
+          "friend.buddy",
+        ].includes(input.args?.type) ||
           (input.args?.type === "work.start" &&
             input.args?.action?.mode === "energy" &&
             input.args?.action?.collectStash !== true))) ||
@@ -37,6 +42,16 @@ export async function isAllowedBridgeQueueCommand(request) {
         Number.isSafeInteger(input.args?.workId) &&
         input.args.workId > 0) ||
       input?.command === "work.stop" ||
+      (["buddy.set", "friends.favorite"].includes(input?.command) &&
+        Number.isSafeInteger(input.args?.playerId) &&
+        input.args.playerId > 0 &&
+        typeof input.args.enabled === "boolean") ||
+      (input?.command === "buddy.order" &&
+        Array.isArray(input.args?.friendIds) &&
+        input.args.friendIds.length <= 100 &&
+        input.args.friendIds.every(
+          (id) => Number.isSafeInteger(id) && id > 0,
+        )) ||
       (["queue.cancel", "queue.dismiss"].includes(input?.command) &&
         typeof input.args?.id === "string")
     );
