@@ -219,11 +219,6 @@ export function ActiveBattleControl({ children }) {
     : auto.enabled
       ? "Автобой"
       : "Бой";
-  const bossModeIcon = boss.raid?.enabled
-    ? "combat"
-    : auto.enabled
-      ? "robot"
-      : "combat";
   const bossHealthKnown =
     Number.isFinite(boss.battle?.bossHealth) &&
     Number.isFinite(boss.battle?.bossMaxHealth) &&
@@ -282,7 +277,7 @@ export function ActiveBattleControl({ children }) {
               </div>
               <div className="active-battle-mobile">
                 <ProgressButton
-                  icon={bossModeIcon}
+                  icon="combat"
                   label={`${bossMode}: ${boss.boss.name}. ${bossExecutionStatus(boss, auto)?.label ?? ""}`}
                   value={
                     boss.battle?.status === "active"

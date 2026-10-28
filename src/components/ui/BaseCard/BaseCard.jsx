@@ -58,7 +58,7 @@ export function BaseCard({
           motionBorder >= 1 &&
           motionBorder <= 8 &&
           `base-card--motion-border-${motionBorder}`,
-        ["blue", "green", "gold"].includes(motionColor) &&
+        ["blue", "green", "gold", "red"].includes(motionColor) &&
           `base-card--motion-border-${motionColor}`,
         paddingClass,
         inlinePaddingClass,

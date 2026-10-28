@@ -20,6 +20,8 @@ import { queuedStashCraftAdapter } from "./queued-stash-craft.mjs";
 import { queuedFriendRemovalAdapter } from "./queued-friend-removal.mjs";
 import { queuedFriendSettingAdapter } from "./queued-friend-setting.mjs";
 import { queuedFriendRequestAdapter } from "./queued-friend-request.mjs";
+import { queuedFriendResponseAdapter } from "./queued-friend-response.mjs";
+import { queuedEnergyBoosterAdapter } from "./queued-energy-booster.mjs";
 import { queuedWorkBoosterAdapter } from "./queued-work-booster.mjs";
 import { queuedWorkRunAdapter } from "./queued-work-run.mjs";
 import { queuedCharacterRunAdapter } from "./queued-character-run.mjs";
@@ -49,6 +51,7 @@ import {
   resolveBossGoal,
   restoredShopDropGoal,
 } from "../../src/features/bosses/BossBattle/boss-goal-options.js";
+import { raidDropOutcome } from "./raid-drop-outcome.mjs";
 import { createBossBattleGoal } from "../../src/features/bosses/BossBattle/boss-battle-goal.js";
 import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
 import { createWorkFarm } from "./work-farm.mjs";
@@ -125,6 +128,8 @@ const safeCommands = new Set([
   "business.refresh",
 ]);
 const commands = new Set([
+  "energy.booster.use",
+  "friends.respond",
   "queue.enqueue",
   "queue.cancel",
   "queue.dismiss",
@@ -430,8 +435,10 @@ export function createAutomationService({
       pvp: entry.pvp,
       equipment: entry.equipment,
       stashCraft: entry.stashCraft,
+      energyBooster: entry.energyBooster,
       buddyHelp: entry.buddyHelp,
       friendRemoval: entry.friendRemoval,
+      friendResponse: entry.friendResponse,
       friendSnapshot: entry.friendSnapshot,
       raidFriend: entry.raidFriend,
       raidFriendReceipts: entry.raidFriendReceipts,
@@ -531,7 +538,8 @@ export function createAutomationService({
     return Boolean(
       entry.characterUpgrade?.pending ||
       entry.characterBatch?.running() ||
-      entry.stashCraft?.pending,
+      entry.stashCraft?.pending ||
+      entry.energyBooster?.pending,
     );
   }
   function workPriorityActive(entry) {
@@ -784,6 +792,7 @@ export function createAutomationService({
         log: entry.buddyHelp.log ?? [],
       },
       friendRemoval: entry.friendRemoval,
+      friendResponse: entry.friendResponse,
       raidFriend: {
         playerId:
           entry.raidFriend.pending?.playerId ??
@@ -830,6 +839,7 @@ export function createAutomationService({
       player: saved?.player ?? null,
       equipment: saved?.equipment ?? { pending: null, checked: false },
       stashCraft: saved?.stashCraft ?? { pending: null, receipts: [] },
+      energyBooster: saved?.energyBooster ?? { pending: null, receipts: [] },
       buddyHelp: {
         boostersEnabled: false,
         fullBoosterReserve: 1,
@@ -843,6 +853,8 @@ export function createAutomationService({
       },
       buddyHelpNextAt: 0,
       friendRemoval: saved?.friendRemoval ?? { pending: null },
+      friendResponse: saved?.friendResponse ?? { pending: null },
+      friendResponseNextCheck: 0,
       friendSnapshot: saved?.friendSnapshot ?? {
         items: null,
         updatedAt: null,
@@ -1150,6 +1162,7 @@ export function createAutomationService({
         !entry.raidPolling &&
         !entry.inventoryBusy &&
         !entry.stashCraft?.pending &&
+        !entry.energyBooster?.pending &&
         !entry.equipment?.pending &&
         !entry.characterUpgrade.pending &&
         (!entry.characterBatch?.running() ||
@@ -1438,7 +1451,12 @@ export function createAutomationService({
           return state.battle.id === subscription.battleId
             ? "active"
             : "uncertain";
-        return "finished";
+        const outcome = raidDropOutcome(subscription, state.battle);
+        if (outcome === "reward_unknown") {
+          await entry.controller.refresh();
+          return "uncertain";
+        }
+        return outcome;
       },
       fight: async () => {
         if (!entry.auto.getSnapshot().enabled)
@@ -1587,6 +1605,7 @@ export function createAutomationService({
         "stash.craft",
         "friend.remove",
         "friend.request",
+        "friend.response",
         "friend.favorite",
         "friend.buddy",
         "subscription.start",
@@ -1607,7 +1626,17 @@ export function createAutomationService({
         return "storage";
       }
       if (startedQueueActor(job)) return null;
+      if (
+        entry.energyBooster.pending &&
+        entry.energyBooster.pending.id !== job.id
+      )
+        return "action";
       if (entry.stashCraft.pending && entry.stashCraft.pending.id !== job.id)
+        return "action";
+      if (
+        entry.friendResponse.pending &&
+        entry.friendResponse.pending.id !== job.id
+      )
         return "action";
       if (entry.busy || entry.inventoryBusy) return "action";
       if (
@@ -1632,6 +1661,7 @@ export function createAutomationService({
         return actionQueueFailures ? "game" : "rate";
       return null;
     };
+    entry.priorityActionBlockedBy = queueBlockedBy;
     entry.actionQueue = createActionQueue({
       saved: entry.queuedActions,
       adapters: {
@@ -1651,6 +1681,11 @@ export function createAutomationService({
           kind: "buddy",
         }),
         "friend.request": queuedFriendRequestAdapter({ entry, fetcher, save }),
+        "friend.response": queuedFriendResponseAdapter({
+          entry,
+          fetcher,
+          save,
+        }),
         "battle.start": queuedBattleStartAdapter({ entry, getBoss, save }),
         "battle.attack": queuedBattleAttackAdapter({ entry, save, now }),
         "battle.heal": queuedBattleHealAdapter({ entry }),
@@ -1689,6 +1724,7 @@ export function createAutomationService({
             (await gameJson(entry.credential, "/api/me"))?.wallet?.[currency],
         }),
         "work.booster": queuedWorkBoosterAdapter({ entry }),
+        "energy.booster": queuedEnergyBoosterAdapter({ entry, fetcher, save }),
         "work.start": queuedWorkRunAdapter({ entry }),
         "character.start": queuedCharacterRunAdapter({ entry }),
         "subscription.start": queuedSubscriptionAdapter({
@@ -1821,6 +1857,7 @@ export function createAutomationService({
                             : job.status === "reconciling" ||
                               job.type === "friend.remove" ||
                               job.type === "friend.request" ||
+                              job.type === "friend.response" ||
                               job.type === "friend.favorite" ||
                               job.type === "friend.buddy" ||
                               job.type === "subscription.start" ||
@@ -1836,6 +1873,18 @@ export function createAutomationService({
       },
       runInContext: requestPriority.run,
       onResult: (result) => {
+        const refill = entry.energyBooster.pending;
+        if (
+          refill?.phase === "purchased" &&
+          entry.queuedActions.some(
+            (job) => job.id === refill.id && job.cancelRequested,
+          )
+        ) {
+          entry.energyBooster.pending = null;
+          save(entry);
+          if (entry.storageFailed)
+            throw failure(503, "automation_storage_unavailable");
+        }
         if (Number.isFinite(result.retryAfterMs) && result.retryAfterMs > 0)
           actionQueueReadyAt = Math.max(
             actionQueueReadyAt,
@@ -1884,6 +1933,8 @@ export function createAutomationService({
           Boolean(entry.credential) &&
           (!entry.stashCraft.pending ||
             entry.stashCraft.pending.id === job.id) &&
+          (!entry.energyBooster.pending ||
+            entry.energyBooster.pending.id === job.id) &&
           accountHealth(entry.credential)?.status !== "credentials_invalid" &&
           entry.collector.idleForPriority() &&
           (!entry.assistant.projection().uncertain ||
@@ -2658,6 +2709,108 @@ export function createAutomationService({
     ensureLease();
     if (entry.storageFailed)
       throw failure(503, "automation_storage_unavailable");
+    if (input.command === "friends.respond") {
+      if (input.expectedVersion !== entry.version)
+        throw failure(409, "automation_state_changed");
+      if (entry.receipts.includes(input.id))
+        throw failure(409, "automation_command_already_received");
+      const adapter = queuedFriendResponseAdapter({ entry, fetcher, save });
+      let args;
+      try {
+        args = adapter.validate(input.args);
+      } catch {
+        throw failure(400, "invalid_friend_request_response");
+      }
+      if (
+        entry.friendResponse.pending ||
+        entry.actionQueue
+          .snapshot()
+          .some(
+            (job) =>
+              job.type === "friend.response" &&
+              job.args?.playerId === args.playerId &&
+              ["queued", "waiting", "running", "reconciling"].includes(
+                job.status,
+              ),
+          )
+      )
+        throw failure(409, "friend_response_pending");
+      const job = { id: input.id, args };
+      const blocked = entry.priorityActionBlockedBy(job);
+      if (blocked && blocked !== "rate")
+        throw failure(409, "automation_action_pending");
+      entry.busy = true;
+      entry.friendResponse.pending = job;
+      entry.receipts = [...entry.receipts.slice(-127), input.id];
+      save(entry);
+      try {
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        const result = await adapter.execute(job, {
+          canDispatch: () => !closed && !entry.storageFailed,
+        });
+        if (
+          result.status === "completed" ||
+          result.status === "failed" ||
+          result.status === "retry"
+        ) {
+          entry.friendResponse.pending = null;
+          save(entry);
+        }
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        if (result.status !== "completed")
+          throw failure(409, result.reason || "friend_response_unavailable");
+        return snapshot(entry);
+      } finally {
+        entry.busy = false;
+      }
+    }
+    if (input.command === "energy.booster.use") {
+      if (input.expectedVersion !== entry.version)
+        throw failure(409, "automation_state_changed");
+      if (entry.receipts.includes(input.id))
+        throw failure(409, "automation_command_already_received");
+      const adapter = queuedEnergyBoosterAdapter({ entry, fetcher, save });
+      let args;
+      try {
+        args = adapter.validate(input.args);
+      } catch {
+        throw failure(400, "invalid_energy_booster");
+      }
+      const pending = entry.energyBooster.pending;
+      if (pending && pending.type !== args.type)
+        throw failure(409, "energy_booster_pending");
+      const id = pending?.id ?? input.id;
+      const job = { id, args };
+      const blocked = entry.priorityActionBlockedBy(job);
+      if (blocked && blocked !== "rate")
+        throw failure(409, "automation_action_pending");
+      entry.busy = true;
+      entry.receipts = [...entry.receipts.slice(-127), input.id];
+      save(entry);
+      try {
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        let result = pending
+          ? await adapter.reconcile(job)
+          : await adapter.execute(job, {
+              canDispatch: () => !closed && !entry.storageFailed,
+            });
+        if (
+          result.status === "retry" &&
+          entry.energyBooster.pending?.phase === "purchased"
+        )
+          result = await adapter.execute(job, {
+            canDispatch: () => !closed && !entry.storageFailed,
+          });
+        if (result.status !== "completed")
+          throw failure(409, result.reason || "energy_booster_unavailable");
+        return snapshot(entry);
+      } finally {
+        entry.busy = false;
+      }
+    }
     if (input.command === "queue.enqueue") {
       if (
         ![
@@ -2667,7 +2820,9 @@ export function createAutomationService({
           "friend.favorite",
           "friend.buddy",
           "friend.request",
+          "friend.response",
           "work.booster",
+          "energy.booster",
           "work.start",
           "character.start",
           "subscription.start",
@@ -2783,6 +2938,15 @@ export function createAutomationService({
       return snapshot(entry);
     }
     if (input.command === "queue.cancel") {
+      if (
+        entry.energyBooster.pending?.id === input.args?.id &&
+        entry.energyBooster.pending.phase === "purchased"
+      ) {
+        entry.energyBooster.pending = null;
+        save(entry);
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+      }
       if (typeof input.args?.id !== "string")
         throw failure(400, "invalid_queue_id");
       try {
@@ -3364,6 +3528,19 @@ export function createAutomationService({
             const index = ids.indexOf(args.playerId);
             if (index !== -1) ids.splice(index, 1);
           }
+          for (const job of entry.actionQueue.snapshot())
+            if (
+              job.type === "friend.buddy" &&
+              job.args.playerId === args.playerId &&
+              [
+                "queued",
+                "waiting",
+                "paused",
+                "running",
+                "reconciling",
+              ].includes(job.status)
+            )
+              entry.actionQueue.stop(job.id);
           if (!entry.raidSubscription.setBuddyFriends(ids))
             throw failure(409, "buddy_unavailable");
           break;
@@ -3518,6 +3695,7 @@ export function createAutomationService({
             amount: args.amount,
             quote,
             budget: expected.maxPrice,
+            bulk: true,
           });
           break;
         }
@@ -4220,6 +4398,20 @@ export function createAutomationService({
     launch,
     snapshot,
     command,
+    async refreshFriends(entry, authorization) {
+      if (
+        entry.credential !== authorization ||
+        accountHealth(authorization)?.status === "credentials_invalid"
+      )
+        throw failure(401, "game_session_required");
+      entry.friendSnapshot.enabled = true;
+      if (!entry.friendSnapshot.failures) entry.friendSnapshot.nextAt = 0;
+      save(entry);
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
+      await refreshFriendSnapshot(entry);
+      return { scheduled: true };
+    },
     friends(entry, authorization) {
       if (
         entry.credential !== authorization ||
@@ -4331,12 +4523,38 @@ export function createAutomationService({
                 entry.busy = false;
               });
           }
+          if (
+            !entry.busy &&
+            !entry.inventoryBusy &&
+            entry.credential &&
+            !entry.storageFailed &&
+            entry.friendResponse.pending &&
+            now() >= entry.friendResponseNextCheck
+          ) {
+            const pending = entry.friendResponse.pending;
+            entry.friendResponseNextCheck = now() + 15000;
+            entry.busy = true;
+            void queuedFriendResponseAdapter({ entry, fetcher, save })
+              .reconcile(pending)
+              .then((result) => {
+                if (
+                  result.status === "completed" &&
+                  entry.friendResponse.pending?.id === pending.id
+                ) {
+                  entry.friendResponse.pending = null;
+                  save(entry);
+                }
+              })
+              .catch(() => {})
+              .finally(() => {
+                entry.busy = false;
+              });
+          }
           void refreshPendingFriendRemoval(entry);
           void refreshFriendSnapshot(entry);
           discoverInvitations(entry);
           void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});
-          const buddy = entry.raidSubscription.getSnapshot();
           if (
             !entry.busy &&
             !entry.inventoryBusy &&
@@ -4346,13 +4564,7 @@ export function createAutomationService({
             !entry.storageFailed &&
             entry.credential &&
             now() >= entry.buddyHelpNextAt &&
-            (entry.buddyHelp.pending ||
-              entry.buddyHelp.stashPending ||
-              (buddy.mode === "buddy" &&
-                buddy.enabled &&
-                !buddy.checkpoint &&
-                (entry.buddyHelp.boostersEnabled ||
-                  entry.buddyHelp.stashEnabled)))
+            (entry.buddyHelp.pending || entry.buddyHelp.stashPending)
           ) {
             entry.buddyHelpNextAt = now() + 30000;
             entry.busy = true;
@@ -4366,22 +4578,8 @@ export function createAutomationService({
                 (!entry.buddyHelp.boostersEnabled ||
                   entry.buddyHelp.turn === "stash"));
             entry.buddyHelp.turn = chooseStash ? "booster" : "stash";
-            const allowed = () => {
-              ensureLease();
-              const current = entry.raidSubscription.getSnapshot();
-              return (
-                !closed &&
-                !entry.storageFailed &&
-                current.mode === "buddy" &&
-                current.enabled &&
-                accountHealth(entry.credential)?.status !==
-                  "credentials_invalid" &&
-                !current.checkpoint &&
-                (chooseStash
-                  ? entry.buddyHelp.stashEnabled
-                  : entry.buddyHelp.boostersEnabled)
-              );
-            };
+            // Existing gift checkpoints may be reconciled, but Buddy no longer sends gifts.
+            const allowed = () => false;
             const run = chooseStash ? tickBuddyStash : tickBuddyBooster;
             void run({ entry, fetcher, save, now, allowed })
               .catch(() => {

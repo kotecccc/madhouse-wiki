@@ -29,3 +29,7 @@
 .raid-event-list > li {
   min-width: 0;
 }
+
+.raid-floor-heading {
+  padding-top: var(--space-4);
+}

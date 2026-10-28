@@ -4,6 +4,8 @@ import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.js
 import { useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { Pill } from "../../../components/ui/Pill/Pill.jsx";
+import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 import { BossCardVariant } from "../../bosses/BossCard/BossCardVariant.jsx";
 import {
   departmentById,
@@ -12,6 +14,7 @@ import {
 import {
   getRaidDisplayZone,
   getRaidStatus,
+  RAID_STATUS_INFO,
 } from "../../../lib/raid-schedule.js";
 import "./RaidEventCard.css";
 
@@ -136,6 +139,13 @@ export function RaidEventCard({
   floorAvailability = {},
   bossOverride,
   goalAction,
+  readOnly = false,
+  leaderLabel = "Ведущий",
+  showStatus = true,
+  collectionIndicator,
+  friendIndicator,
+  menuDropCount,
+  children,
 }) {
   const name = String(raid?.boss || "Босс не указан").trim();
   const boss = bossOverride ||
@@ -149,9 +159,11 @@ export function RaidEventCard({
   const referenceBoss = useBossRewardReference(boss);
   const status = statusOverride || getRaidStatus(raid);
   const zone = getRaidDisplayZone(raid) || "—";
-  const floorCode = String(raid?.zone || "")
-    .trim()
-    .match(/^[A-Z]/i)?.[0];
+  const floorCode =
+    String(getRaidDisplayZone(raid) || "")
+      .trim()
+      .match(/^[A-Z]/i)?.[0] ||
+    (bossOverride ? getBossFloorCode(bossOverride) : null);
   const floorLocked =
     floorCode && floorAvailability[floorCode.toUpperCase()] === false;
 
@@ -166,13 +178,35 @@ export function RaidEventCard({
           ...field,
           content: (
             <span className="raid-leader-group">
-              <span>Ведущий:</span>
-              <RaidLeader leader={raid?.leader} />
+              <span>{leaderLabel}:</span>
+              {readOnly || leaderLabel !== "Ведущий" ? (
+                <span>{raid?.leader || "—"}</span>
+              ) : (
+                <RaidLeader leader={raid?.leader} />
+              )}
             </span>
           ),
         }
       : field,
   );
+  const announcementStatus = readOnly && (raid?.time || raid?.duration);
+  const statusInfo =
+    RAID_STATUS_INFO[
+      ["scheduled", "active", "completed"].includes(status)
+        ? status
+        : "scheduled"
+    ];
+  const announcementIndicator = announcementStatus ? (
+    <Pill
+      variant={statusInfo.color}
+      size="xs"
+      aria-label={`${statusInfo.label}: ${[raid.time && `время ${raid.time}`, raid.duration && `длительность ${raid.duration}`].filter(Boolean).join(", ")}`}
+    >
+      {raid.time}
+      {raid.time && raid.duration && <span aria-hidden="true"> • </span>}
+      {raid.duration}
+    </Pill>
+  ) : null;
   return (
     <CardEditScope scope="raid">
       <BossCardVariant
@@ -181,13 +215,43 @@ export function RaidEventCard({
         as="article"
         variant="raid"
         titleAs="h3"
+        titleSize="sm"
         className="raid-card"
         displayFields={displayFields}
+        {...(readOnly
+          ? {
+              descriptionFields: ["leader", "drop"],
+              descriptionBreakBefore: [],
+            }
+          : {})}
         raid={raid}
         status={status}
-        availabilityLocked={Boolean(floorLocked)}
+        cardState={floorLocked ? "locked" : undefined}
+        showStatus={showStatus && !announcementStatus}
+        collectionIndicator={
+          announcementIndicator ||
+          collectionIndicator ||
+          friendIndicator ||
+          floorLocked ? (
+            <>
+              {floorLocked && (
+                <span className="raid-lock-spacing">
+                  <LockIndicator variant="locked" label="Этаж недоступен" />
+                </span>
+              )}
+              {announcementIndicator || collectionIndicator}
+              {friendIndicator}
+            </>
+          ) : null
+        }
+        availabilityLocked={false}
+        menuDropCount={menuDropCount}
         goalAction={goalAction}
-      />
+        disableMenu={readOnly && !goalAction}
+        action={readOnly ? false : undefined}
+      >
+        {children}
+      </BossCardVariant>
     </CardEditScope>
   );
 }

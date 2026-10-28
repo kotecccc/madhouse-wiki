@@ -94,3 +94,22 @@ export function characterUpgradeQuote(profile, stat, amount) {
     maxPrice: amount === 1 ? config.nextCost : maxPrice,
   };
 }
+
+// Use the largest safely quoted amount that fits the current balance.
+export function affordableCharacterUpgradeQuote(profile, stat) {
+  const remaining = profile?.characterStatsUpgrade?.[stat]?.dailyRemaining;
+  if (!Number.isSafeInteger(remaining) || remaining < 1) return null;
+  let low = 1;
+  let high = remaining;
+  let best = null;
+  while (low <= high) {
+    const amount = low + Math.floor((high - low) / 2);
+    const quote = characterUpgradeQuote(profile, stat, amount);
+    if (!quote) return null;
+    if (quote.maxPrice <= quote.balance) {
+      best = quote;
+      low = amount + 1;
+    } else high = amount - 1;
+  }
+  return best;
+}

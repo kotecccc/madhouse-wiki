@@ -2,7 +2,6 @@ import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
-import { ContentSection } from "../../components/ui/ContentSection/ContentSection.jsx";
 import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
 import { ProgressBar } from "../../components/ui/ProgressBar/ProgressBar.jsx";
 import { actionQueueCards } from "./action-queue-view.js";
@@ -18,7 +17,7 @@ export function ActionQueueSection({
 }) {
   const cards = actionQueueCards(state, catalogue);
   return (
-    <ContentSection>
+    <section className="action-queue-section">
       {!authenticated ? (
         <CardDescription>Войдите, чтобы увидеть свои действия.</CardDescription>
       ) : !state ? (
@@ -87,11 +86,14 @@ export function ActionQueueSection({
                   </Button>
                 )}
               </div>
+              {card.progressLabel && (
+                <CardDescription>{card.progressLabel}</CardDescription>
+              )}
               {card.progress && (
                 <ProgressBar
                   value={card.progress.value}
                   max={card.progress.max}
-                  label="Прогресс"
+                  label={card.progressLabel || "Прогресс"}
                   valueText={`${card.progress.value} из ${card.progress.max}`}
                 />
               )}
@@ -99,6 +101,6 @@ export function ActionQueueSection({
           ))}
         </div>
       )}
-    </ContentSection>
+    </section>
   );
 }

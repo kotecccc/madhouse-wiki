@@ -114,6 +114,10 @@
   min-width: 0;
 }
 
+.boss-card-view--raid .boss-card-heading {
+  min-height: var(--space-24);
+}
+
 .boss-card-heading-title {
   flex: 1;
   min-width: 0;

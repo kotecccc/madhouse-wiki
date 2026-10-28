@@ -337,7 +337,7 @@ export function WorkFarmDialog({
         {run.reason ? (
           run.reason
         ) : collecting ? (
-          `Фарм набора · ${progress.max == null ? "—" : `${fmt(progress.value)} из ${fmt(progress.max)} частей`}`
+          `Фарм набора · ${progress.percent == null ? "—" : `${progress.percent}% энергии`}`
         ) : energyOnly ? (
           `Работа идёт · ${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
         ) : (
@@ -353,14 +353,14 @@ export function WorkFarmDialog({
           max={progress.max}
           label={
             collecting
-              ? "Части набора"
+              ? "Расход энергии"
               : energyOnly
                 ? "Расход энергии"
                 : "Прогресс фарма"
           }
           valueText={
             collecting
-              ? `${fmt(progress.value)} из ${fmt(progress.max)} частей`
+              ? `${fmt(progress.value)} из ${fmt(progress.max)} энергии`
               : energyOnly
                 ? `${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
                 : `${fmt(progress.value)} из ${fmt(progress.max)} энергии до цели`

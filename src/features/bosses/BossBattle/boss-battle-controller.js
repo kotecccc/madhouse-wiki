@@ -203,6 +203,9 @@ export function normalizeBattle(
     ),
     grantedDrops: grantedBattleDrops(reward),
     rewardKnown: Array.isArray(reward?.drops),
+    rewardFlagsKnown:
+      Array.isArray(reward?.drops) &&
+      reward.drops.every((drop) => typeof drop?.granted === "boolean"),
     attackCount: null,
     totalDamage: personalDamage,
     dropDamageRequired: number(raw.dropDamageRequired),
@@ -307,6 +310,7 @@ function mergeBattleReply(previous, raw, bossId, now, identity = null) {
     next.currencyRewards = previous.currencyRewards;
     next.grantedDrops = previous.grantedDrops;
     next.rewardKnown = previous.rewardKnown;
+    next.rewardFlagsKnown = previous.rewardFlagsKnown;
   }
   return next;
 }

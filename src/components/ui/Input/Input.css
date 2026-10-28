@@ -21,6 +21,10 @@
       var(--control-transition-easing);
 }
 
+.input-control--card {
+  background: var(--card-background);
+}
+
 .input-control--sm {
   --input-height: var(--control-height-sm);
 }

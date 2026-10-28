@@ -1,4 +1,6 @@
 .raid-schedule-section {
+  display: grid;
+  gap: var(--space-12);
   border-top: 1px solid var(--line);
   padding-top: var(--space-24);
   padding-inline: 0;
@@ -9,16 +11,16 @@
 }
 
 .raid-feed-state {
+  position: fixed;
+  inset: 0;
   display: flex;
-  min-height: 10rem;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
   gap: var(--space-16);
-  margin: 0;
-  color: var(--card-description-color);
-  line-height: 1.7;
+  padding-inline: var(--page-gutter);
   text-align: center;
+  pointer-events: none;
 }
 
 .raid-post-list {
@@ -32,4 +34,10 @@
     border-top: 0;
     padding: 0;
   }
+}
+
+.raid-invitation-floor {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-8);
 }

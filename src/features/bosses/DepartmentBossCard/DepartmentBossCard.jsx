@@ -1,4 +1,7 @@
 import { remainingBossWins } from "./boss-target-status.js";
+import { useSyncExternalStore } from "react";
+import { bossBattle } from "../BossBattle/boss-battle-session.js";
+import { activeBattleForBoss } from "../BossCard/boss-card-battle-status.js";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { BossCollectionStatus } from "../collection/BossCollectionStatus.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
@@ -21,12 +24,22 @@ export function DepartmentBossCard({
 }) {
   const levelStatus = bossLevelStatus(boss, playerLevel);
   const remainingWins = remainingBossWins(goalTargets);
+  const battleState = useSyncExternalStore(
+    bossBattle.subscribe,
+    bossBattle.getSnapshot,
+    bossBattle.getSnapshot,
+  );
+  const inBattle = Boolean(
+    activeBattleForBoss(battleState, Number(boss.numericId ?? boss.apiId)),
+  );
   return (
     <CardEditScope scope={`boss:${boss.id}`}>
       <BossCardVariant
         preset="boss-main"
         boss={boss}
         cardState={locked ? "locked" : targeted ? "target" : undefined}
+        motionBorder={inBattle ? 3 : undefined}
+        motionColor={inBattle ? "blue" : undefined}
         openingRequirements={goalTargets}
         currencyRewardUnavailable={levelStatus?.kind === "overlevel"}
         {...(prefixDepartment

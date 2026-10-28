@@ -4,6 +4,7 @@ import {
   postSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
+import { workCollectionCompleted } from "./work-collection-completed.js";
 import { stashCraftCompleted } from "./stash-craft-refresh.js";
 import { syncBattleSession } from "../bosses/BossBattle/boss-battle-session.js";
 
@@ -21,6 +22,7 @@ export function useActionQueue(
   authenticated,
   sessionGeneration,
   onFriendCompleted,
+  onWorkCollectionCompleted,
 ) {
   const [state, setState] = useState(null);
   const [pending, setPending] = useState(false);
@@ -34,6 +36,8 @@ export function useActionQueue(
     let cancelled = false;
     let timer;
     let previousWork = null;
+    const observedCollectionJobs = new Set();
+    const notifiedCollections = new Set();
     let queueInitialized = false;
     const update = (next) => {
       if (cancelled || !next || !Array.isArray(next.queuedActions)) return;
@@ -49,14 +53,41 @@ export function useActionQueue(
           revalidate: false,
         }).catch(() => {});
       }
+      const completedWorkKey =
+        work?.queueId ||
+        (Number.isFinite(work?.startedAt)
+          ? `${work.workId}:${work.startedAt}`
+          : null);
+      const observedQueuedCompletion =
+        work?.status === "completed" &&
+        work.config?.collectStash &&
+        work.queueId &&
+        observedCollectionJobs.has(work.queueId);
+      if (
+        completedWorkKey &&
+        !notifiedCollections.has(completedWorkKey) &&
+        (workCollectionCompleted(previousWork, work) ||
+          observedQueuedCompletion)
+      ) {
+        notifiedCollections.add(completedWorkKey);
+        onWorkCollectionCompleted?.(work);
+      }
       previousWork = work
         ? {
             status: work.status,
             queueId: work.queueId,
+            workId: work.workId,
+            startedAt: work.startedAt,
             collectStash: work.config?.collectStash,
           }
         : null;
       for (const job of next.queuedActions) {
+        if (
+          job.type === "work.start" &&
+          job.args?.collectStash &&
+          pendingStatus.has(job.status)
+        )
+          observedCollectionJobs.add(job.id);
         const before = prior.current.get(job.id);
         if (stashCraftCompleted(job, before, queueInitialized)) {
           void getSessionJson("/api/stash/sets", {
@@ -89,7 +120,7 @@ export function useActionQueue(
           }).catch(() => {});
         }
         if (
-          job.type === "work.booster" &&
+          ["work.booster", "energy.booster"].includes(job.type) &&
           before &&
           before !== "completed" &&
           job.status === "completed"
@@ -121,6 +152,9 @@ export function useActionQueue(
     const unsubscribe = subscribeSessionData((event) => {
       if (event.cleared) {
         prior.current.clear();
+        observedCollectionJobs.clear();
+        notifiedCollections.clear();
+        previousWork = null;
         queueInitialized = false;
         setState(null);
       } else if (
@@ -154,7 +188,12 @@ export function useActionQueue(
       clearTimeout(timer);
       unsubscribe();
     };
-  }, [authenticated, sessionGeneration, onFriendCompleted]);
+  }, [
+    authenticated,
+    sessionGeneration,
+    onFriendCompleted,
+    onWorkCollectionCompleted,
+  ]);
   async function command(card) {
     if (!state || pending) return;
     setPending(true);

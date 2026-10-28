@@ -152,3 +152,26 @@ export function summarizeBossCollection(boss, responses) {
     complete: total > 0 && known === total && collected === total,
   };
 }
+
+// Count only explicit ownership; an unlock for purchase is not an owned item.
+export function summarizeBossOwnedDrops(boss, responses) {
+  const drops = getBossCollectibleDrops(boss);
+  let owned = 0;
+  let known = 0;
+  for (const drop of drops) {
+    const path = requestPath(drop);
+    if (!path) continue;
+    const matches = responseItems(drop, responseAt(responses, path)).filter(
+      (item) => itemId(drop, item) === drop.id,
+    );
+    const states = new Set(
+      matches.map((item) =>
+        typeof item.owned === "boolean" ? item.owned : null,
+      ),
+    );
+    if (states.size !== 1 || states.has(null)) continue;
+    known++;
+    if (states.has(true)) owned++;
+  }
+  return { owned, known, total: drops.length };
+}

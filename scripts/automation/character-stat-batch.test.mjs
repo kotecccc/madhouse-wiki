@@ -326,3 +326,37 @@ test("a stopped batch reconciles its submitted point without resuming or repeati
   assert.equal(state.run.completed, 1);
   assert.equal(state.run.spent, 500);
 });
+
+test("a lost bulk response reconciles all confirmed points without resubmission", async () => {
+  const h = setup();
+  const quote = characterUpgradeQuote(h.profile, "madness", 3);
+  h.batch.start({
+    stat: "madness",
+    amount: 3,
+    quote,
+    budget: quote.maxPrice,
+    bulk: true,
+  });
+  h.state.pending = {
+    id: "operation",
+    runId: h.state.run.id,
+    stat: "madness",
+    amount: 3,
+    base: 1,
+    dailyUsed: 0,
+    resetAt: quote.resetAt,
+    currency: "gold",
+    balance: 10000,
+    price: quote.maxPrice,
+  };
+  h.profile.characterStats.madness.base = 4;
+  h.profile.characterStatsUpgrade.madness.dailyUsed = 3;
+  h.profile.wallet.gold = 7500;
+  await advance(h.callbacks);
+  assert.equal(h.state.run.completed, 3);
+  assert.equal(h.state.run.spent, 2500);
+  assert.equal(h.state.pending, null);
+  await advance(h.callbacks);
+  assert.equal(h.state.run.status, "completed");
+  assert.equal(h.posts(), 0);
+});

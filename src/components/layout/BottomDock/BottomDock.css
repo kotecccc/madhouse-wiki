@@ -8,7 +8,8 @@
   align-items: end;
   justify-content: flex-end;
   gap: var(--space-8);
-  max-width: calc(100% - 2 * var(--page-gutter));
+  max-width: min(var(--page-max-width), calc(100% - 2 * var(--page-gutter)));
+  margin-inline: auto;
 }
 
 @media (max-width: 650px) {
@@ -21,6 +22,7 @@
     min-width: 0;
     min-height: 0;
     max-width: none;
+    margin-inline: 0;
     padding-inline: var(--page-gutter);
     margin-bottom: calc(var(--space-16) + env(safe-area-inset-bottom, 0px));
     overflow: visible;

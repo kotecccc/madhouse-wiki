@@ -42,6 +42,8 @@ import { WorkCalculatorDialog } from "./WorkCalculatorDialog.jsx";
 import { normalizeActiveStashBuffs } from "../../auth/profile.js";
 import { effectTimeLeft } from "../../../lib/stash-buff-time.js";
 import { workFarmCardState } from "./work-farm-card-state.js";
+import { workMaxStartArgs } from "./work-max-start.js";
+import { previewWorkTasks } from "../WorkFarm/work-farm-presentation.js";
 import "./WorkCard.css";
 
 export function WorkCard({
@@ -60,6 +62,11 @@ export function WorkCard({
   const [menuError, setMenuError] = useState(null);
   const [menuPending, setMenuPending] = useState(false);
   const [stashData, setStashData] = useState(null);
+  const sessionStatus = useSyncExternalStore(
+    subscribeSession,
+    () => readSession().status,
+    () => "empty",
+  );
   const farmState = useSyncExternalStore(
     workFarm.subscribe,
     workFarm.getSnapshot,
@@ -117,6 +124,45 @@ export function WorkCard({
   const editing = useContext(CardEditingContext);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuClosing, setMenuClosing] = useState(false);
+  const [menuEnergy, setMenuEnergy] = useState(null);
+  const menuWorkId = Number(work?.workId ?? work?.numericId ?? work?.apiId);
+  useEffect(() => {
+    if (
+      !menuAnchor ||
+      !Number.isSafeInteger(menuWorkId) ||
+      menuWorkId <= 0 ||
+      sessionStatus !== "ready" ||
+      locked
+    )
+      return undefined;
+    let alive = true;
+    setMenuEnergy(null);
+    const update = async () => {
+      const current = workFarm.getSnapshot();
+      if (
+        !current.loaded ||
+        current.pending ||
+        ["running", "paused"].includes(current.run?.status)
+      )
+        return;
+      if (!(await workFarm.refresh(menuWorkId)) || !alive) return;
+      const view = workFarm.getSnapshot().view;
+      if (
+        view?.workId !== menuWorkId ||
+        !Number.isSafeInteger(view.energy?.current)
+      )
+        return;
+      const preview = previewWorkTasks(view, {
+        mode: "energy",
+        energyBudget: view.energy.current,
+      });
+      if (alive) setMenuEnergy(preview?.energy ?? null);
+    };
+    void update();
+    return () => {
+      alive = false;
+    };
+  }, [menuAnchor, menuWorkId, sessionStatus, locked, farmState.loaded]);
   useEffect(() => {
     if (!menuAnchor) return undefined;
     setEffectNow(Date.now());
@@ -180,7 +226,7 @@ export function WorkCard({
     setOpen(true);
   };
   const craftSet = async () => {
-    if (menuPending || farmCard.test) return;
+    if (menuPending || farmCard.test || activeSet) return;
     setMenuPending(true);
     setMenuError(null);
     try {
@@ -200,6 +246,27 @@ export function WorkCard({
       closeMenu();
     } catch {
       setMenuError("Не удалось добавить сборку. Проверьте очередь.");
+    } finally {
+      setMenuPending(false);
+    }
+  };
+  const spendEnergy = async () => {
+    if (menuPending || farmCard.test || locked || menuEnergy === 0) return;
+    const args = workMaxStartArgs(
+      Number(work.workId ?? work.numericId ?? work.apiId),
+      workFarm.getSnapshot().view,
+    );
+    if (!args) {
+      setMenuError("Не удалось определить работёнку.");
+      return;
+    }
+    setMenuPending(true);
+    setMenuError(null);
+    try {
+      if (!(await workFarm.start(args))) throw new Error("work_start_failed");
+      closeMenu();
+    } catch {
+      setMenuError("Не удалось запустить работу. Проверьте очередь.");
     } finally {
       setMenuPending(false);
     }
@@ -415,6 +482,21 @@ export function WorkCard({
               </>
             )}
             {menuError && <MenuItem informational>{menuError}</MenuItem>}
+            <MenuItem
+              icon="energy"
+              value={menuEnergy == null ? "—" : `≈ ${fmt(menuEnergy)}`}
+              disabled={
+                locked ||
+                farmCard.test ||
+                menuPending ||
+                menuEnergy === 0 ||
+                sessionStatus !== "ready" ||
+                ["running", "paused"].includes(farmState.run?.status)
+              }
+              onClick={() => void spendEnergy()}
+            >
+              Потратить энергию
+            </MenuItem>
             {parts.length > 0 && partsReady && activeEffects.length > 0 ? (
               <ApprovableButton
                 variant="menu-item"
@@ -426,6 +508,7 @@ export function WorkCard({
                 disabled={
                   farmCard.test ||
                   menuPending ||
+                  Boolean(activeSet) ||
                   personalStash?.canCraft !== true
                 }
                 onClick={() => void craftSet()}
@@ -441,7 +524,8 @@ export function WorkCard({
                     farmCard.test ||
                     menuPending ||
                     !progress ||
-                    (partsReady && personalStash?.canCraft !== true)
+                    (partsReady &&
+                      (Boolean(activeSet) || personalStash?.canCraft !== true))
                   }
                   onClick={() => void (partsReady ? craftSet() : farmSet())}
                 >

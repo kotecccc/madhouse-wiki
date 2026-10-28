@@ -1,3 +1,4 @@
+import { progressPercent } from "../../../lib/progress-percent.js";
 import { Icon } from "../Icon/Icon.jsx";
 import "./ProgressButton.css";
 
@@ -14,7 +15,7 @@ export function ProgressButton({
 }) {
   const known = Number.isFinite(max) && max > 0 && Number.isFinite(value);
   const current = known ? Math.min(max, Math.max(0, value)) : 0;
-  const percent = known ? Math.floor((current / max) * 100) : null;
+  const percent = progressPercent(value, max);
   return (
     <div className="ui-progress-button">
       <button

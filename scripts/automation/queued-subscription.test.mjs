@@ -244,3 +244,42 @@ test("service preserves the game's Retry-After for invitation discovery", async 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("queued drop goal saves only verified collectible drop identities", async () => {
+  let input;
+  const entry = {
+    raidSubscription: {
+      getSnapshot: () => ({}),
+      start: (value) => {
+        input = value;
+        return true;
+      },
+    },
+  };
+  const adapter = queuedSubscriptionAdapter({
+    entry,
+    now: () => 1000,
+    refresh: async () => {},
+    getBoss: async () => ({
+      numericId: 7,
+      name: "Босс",
+      possibleDrops: [
+        { type: "weapon", itemId: 12 },
+        { type: "mutagen", mutagenType: "I", mutagenLevel: 1 },
+        { type: "activity_item", itemId: 8 },
+      ],
+    }),
+  });
+  const args = adapter.validate({
+    bossId: 7,
+    leaderUsername: "leader",
+    untilDrop: true,
+  });
+  const result = await adapter.execute(
+    { id: "drop-start", args },
+    { canDispatch: () => true },
+  );
+  assert.equal(result.status, "completed");
+  assert.deepEqual(input.dropKeys, ["weapon:12"]);
+  assert.equal(input.queueId, "drop-start");
+});

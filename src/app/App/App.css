@@ -1,10 +1,12 @@
 .site-shell {
   width: min(calc(100% - 2 * var(--page-gutter)), var(--page-max-width));
   margin: 0 auto;
+  padding-bottom: var(--space-64);
 }
 
 #top {
   padding-top: var(--layout-gap-section);
+  padding-bottom: var(--space-24);
 }
 
 .app-scroll-region {
@@ -21,6 +23,7 @@
 
   .site-shell {
     width: 100%;
+    padding-bottom: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     height: 100vh;

@@ -84,17 +84,71 @@ test("cancelling a page load stops pagination without cancelling a shared reques
   assert.equal(calls, 1);
 });
 
-test("Buddy sorting follows explicit priority and puts other friends last", async () => {
-  const { normalizeFriend, selectFriends } = await import("./friends.js");
+test("Buddy filter shows only selected friends", async () => {
+  const { selectFriends } = await import("./friends.js");
   const friends = [
-    { playerId: 1, nickname: "А" },
-    { playerId: 2, nickname: "Б" },
-    { playerId: 3, nickname: "В" },
-  ].map(normalizeFriend);
+    { playerId: 1, nickname: "А", username: "" },
+    { playerId: 2, nickname: "Б", username: "" },
+  ];
   assert.deepEqual(
-    selectFriends(friends, { sort: "buddy", buddyFriends: [3, 1] }).map(
+    selectFriends(friends, { filter: "buddy", buddyFriends: [2] }).map(
+      (friend) => friend.playerId,
+    ),
+    [2],
+  );
+});
+
+test("priority sorting follows Buddy order and places other friends last", async () => {
+  const { selectFriends } = await import("./friends.js");
+  const friends = [
+    { playerId: 1, nickname: "А", username: "" },
+    { playerId: 2, nickname: "Б", username: "" },
+    { playerId: 3, nickname: "В", username: "" },
+  ];
+  assert.deepEqual(
+    selectFriends(friends, { sort: "priority", buddyFriends: [3, 1] }).map(
       (friend) => friend.playerId,
     ),
     [3, 1, 2],
+  );
+  assert.deepEqual(
+    selectFriends(friends, {
+      filter: "buddy",
+      sort: "priority",
+      buddyFriends: [3, 1],
+    }).map((friend) => friend.playerId),
+    [3, 1],
+  );
+});
+
+test("online sorting orders online first, then recent offline, then unknown", async () => {
+  const { selectFriends } = await import("./friends.js");
+  const friends = [
+    {
+      playerId: 1,
+      nickname: "А",
+      username: "",
+      isOnline: false,
+      lastSeenAt: 10,
+    },
+    { playerId: 2, nickname: "Б", username: "", isOnline: true, lastSeenAt: 1 },
+    {
+      playerId: 3,
+      nickname: "В",
+      username: "",
+      isOnline: false,
+      lastSeenAt: 20,
+    },
+    {
+      playerId: 4,
+      nickname: "Г",
+      username: "",
+      isOnline: null,
+      lastSeenAt: null,
+    },
+  ];
+  assert.deepEqual(
+    selectFriends(friends, { sort: "online" }).map((friend) => friend.playerId),
+    [2, 3, 1, 4],
   );
 });

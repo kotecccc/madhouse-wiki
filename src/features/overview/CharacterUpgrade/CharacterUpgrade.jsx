@@ -24,7 +24,11 @@ const stats = [
 ];
 const amountText = (value) => (Number.isSafeInteger(value) ? fmt(value) : "—");
 
-export function CharacterUpgrade({ onClose, profileWallet = [] }) {
+export function CharacterUpgrade({
+  onClose,
+  profileWallet = [],
+  selectedStat = null,
+}) {
   const state = useSyncExternalStore(
     characterUpgrade.subscribe,
     characterUpgrade.getSnapshot,
@@ -148,6 +152,7 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
       loading={state.busy}
       footerStart={<Button onClick={onClose}>Закрыть</Button>}
       footer={
+        selectedStat ||
         allCharacterUpgradesComplete(profile?.characterStatsUpgrade) ? (
           <></>
         ) : (
@@ -204,106 +209,112 @@ export function CharacterUpgrade({ onClose, profileWallet = [] }) {
           />
         </BaseCard>
       )}
-      {stats.map(([stat, label, icon, description]) => {
-        const info = profile?.characterStatsUpgrade?.[stat];
-        const quote = characterUpgradeQuote(profile, stat, 1);
-        const maximum = characterUpgradeQuote(
-          profile,
-          stat,
-          info?.dailyRemaining,
-        );
-        return (
-          <BaseCard key={stat} padding="12" className="character-upgrade-card">
-            <div className="character-upgrade-heading">
-              <ImageCard size={48}>
-                <Icon type={icon} size="large" />
-              </ImageCard>
-              <div className="character-upgrade-copy">
-                <CardTitle>
-                  {label} ({description})
-                </CardTitle>
+      {stats
+        .filter(([stat]) => !selectedStat || stat === selectedStat)
+        .map(([stat, label, icon, description]) => {
+          const info = profile?.characterStatsUpgrade?.[stat];
+          const quote = characterUpgradeQuote(profile, stat, 1);
+          const maximum = characterUpgradeQuote(
+            profile,
+            stat,
+            info?.dailyRemaining,
+          );
+          return (
+            <BaseCard
+              key={stat}
+              padding="12"
+              className="character-upgrade-card"
+            >
+              <div className="character-upgrade-heading">
+                <ImageCard size={48}>
+                  <Icon type={icon} size="large" />
+                </ImageCard>
+                <div className="character-upgrade-copy">
+                  <CardTitle>
+                    {label} ({description})
+                  </CardTitle>
+                  <CardDescription>
+                    <span className="character-upgrade-projection">
+                      {amountText(profile?.characterStats?.[stat]?.total)}
+                      <Icon type="arrow-right" size="text" />
+                      <span className="sr-only">до</span>
+                      {amountText(
+                        Number.isSafeInteger(
+                          profile?.characterStats?.[stat]?.total,
+                        ) && Number.isSafeInteger(info?.dailyRemaining)
+                          ? profile.characterStats[stat].total +
+                              info.dailyRemaining
+                          : null,
+                      )}
+                    </span>
+                  </CardDescription>
+                </div>
                 <CardDescription>
-                  <span className="character-upgrade-projection">
-                    {amountText(profile?.characterStats?.[stat]?.total)}
-                    <Icon type="arrow-right" size="text" />
-                    <span className="sr-only">до</span>
-                    {amountText(
-                      Number.isSafeInteger(
-                        profile?.characterStats?.[stat]?.total,
-                      ) && Number.isSafeInteger(info?.dailyRemaining)
-                        ? profile.characterStats[stat].total +
-                            info.dailyRemaining
-                        : null,
-                    )}
-                  </span>
+                  Сегодня: {amountText(info?.dailyUsed)} /{" "}
+                  {amountText(info?.dailyLimit)}
                 </CardDescription>
               </div>
-              <CardDescription>
-                Сегодня: {amountText(info?.dailyUsed)} /{" "}
-                {amountText(info?.dailyLimit)}
-              </CardDescription>
-            </div>
-            {info?.dailyRemaining !== 0 && (
-              <div className="character-upgrade-actions">
-                <Button
-                  variant={
-                    isArmed(`single:${stat}`, quote) ? "warning" : "primary"
-                  }
-                  disabled={
-                    state.busy ||
-                    blocked ||
-                    running ||
-                    pending ||
-                    !quote ||
-                    quote.balance < quote.nextCost
-                  }
-                  onClick={() => void activate(`single:${stat}`, quote)}
-                >
-                  {isArmed(`single:${stat}`, quote) ? "Точно · " : "+1 · "}
-                  {quote ? (
-                    <>
-                      {fmt(quote.nextCost)}{" "}
-                      <Icon
-                        type={quote.currency === "gold" ? "coin" : "pill"}
-                        size="small"
-                      />
-                    </>
-                  ) : (
-                    "Нет данных"
-                  )}
-                </Button>
-                <Button
-                  variant={
-                    isArmed(`max:${stat}`, maximum) ? "warning" : "primary"
-                  }
-                  disabled={
-                    state.busy ||
-                    blocked ||
-                    running ||
-                    pending ||
-                    !maximum ||
-                    maximum.balance < maximum.maxPrice
-                  }
-                  onClick={() => void activate(`max:${stat}`, maximum)}
-                >
-                  {isArmed(`max:${stat}`, maximum) ? "Точно · " : "+MAX · "}
-                  {maximum ? (
-                    <>
-                      до {fmt(maximum.maxPrice)}{" "}
-                      <Icon
-                        type={maximum.currency === "gold" ? "coin" : "pill"}
-                        size="small"
-                      />
-                    </>
-                  ) : (
-                    "Нет данных"
-                  )}
-                </Button>
-              </div>
-            )}
-          </BaseCard>
-        );
-      })}
+              {info?.dailyRemaining !== 0 && (
+                <div className="character-upgrade-actions">
+                  <Button
+                    variant={
+                      isArmed(`single:${stat}`, quote) ? "warning" : "primary"
+                    }
+                    disabled={
+                      state.busy ||
+                      blocked ||
+                      running ||
+                      pending ||
+                      !quote ||
+                      quote.balance < quote.nextCost
+                    }
+                    onClick={() => void activate(`single:${stat}`, quote)}
+                  >
+                    {isArmed(`single:${stat}`, quote) ? "Точно · " : "+1 · "}
+                    {quote ? (
+                      <>
+                        {fmt(quote.nextCost)}{" "}
+                        <Icon
+                          type={quote.currency === "gold" ? "coin" : "pill"}
+                          size="small"
+                        />
+                      </>
+                    ) : (
+                      "Нет данных"
+                    )}
+                  </Button>
+                  <Button
+                    variant={
+                      isArmed(`max:${stat}`, maximum) ? "warning" : "primary"
+                    }
+                    disabled={
+                      state.busy ||
+                      blocked ||
+                      running ||
+                      pending ||
+                      !maximum ||
+                      maximum.balance < maximum.maxPrice
+                    }
+                    onClick={() => void activate(`max:${stat}`, maximum)}
+                  >
+                    {isArmed(`max:${stat}`, maximum) ? "Точно · " : "+MAX · "}
+                    {maximum ? (
+                      <>
+                        до {fmt(maximum.maxPrice)}{" "}
+                        <Icon
+                          type={maximum.currency === "gold" ? "coin" : "pill"}
+                          size="small"
+                        />
+                      </>
+                    ) : (
+                      "Нет данных"
+                    )}
+                  </Button>
+                </div>
+              )}
+            </BaseCard>
+          );
+        })}
     </Modal>
   );
 }

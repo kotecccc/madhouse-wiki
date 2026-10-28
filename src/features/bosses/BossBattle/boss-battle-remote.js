@@ -943,10 +943,15 @@ export function createRemoteBattleSession({
       raidsVisible = Boolean(value);
       if (connected) schedulePoll(0);
     },
-    start: (leaderPlayerId, bossId, leaderUsername) =>
+    start: (leaderPlayerId, bossId, leaderUsername, untilDrop = false) =>
       send("queue.enqueue", {
         type: "subscription.start",
-        action: { leaderPlayerId, bossId, leaderUsername },
+        action: {
+          leaderPlayerId,
+          bossId,
+          leaderUsername,
+          ...(untilDrop ? { untilDrop: true } : {}),
+        },
       }),
     stop: (queueId) =>
       queueId

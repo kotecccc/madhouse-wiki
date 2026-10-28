@@ -1,0 +1,15 @@
+.menu-select {
+  position: relative;
+  min-width: 0;
+}
+
+.menu-select-trigger {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.menu-select-value {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+}

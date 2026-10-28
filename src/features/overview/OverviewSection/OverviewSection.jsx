@@ -1,3 +1,11 @@
+import {
+  getSessionJson,
+  postSessionJson,
+} from "../../../../shared/session-api.js";
+import { normalizeBoosters } from "../../works/WorkFarm/work-farm-plan.js";
+import { CardActionMenu } from "../../../components/ui/CardActionMenu/CardActionMenu.jsx";
+import { ApprovableButton } from "../../../components/ui/ConfirmButton/ConfirmButton.jsx";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { useEffect, useState } from "react";
@@ -23,9 +31,8 @@ import {
   orderedFloors,
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
-import { allCharacterUpgradesComplete } from "../../../lib/character-stat-upgrades.js";
 import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
-import { CharacterUpgrade } from "../CharacterUpgrade/CharacterUpgrade.jsx";
+import { ProfileStatsMenu } from "./ProfileStatsMenu.jsx";
 import { getProfileStatDisplay } from "../../auth/profile.js";
 import { effectTimeLeft } from "../../../lib/stash-buff-time.js";
 import "./OverviewSection.css";
@@ -180,7 +187,73 @@ function PlayerAvatar({ profile }) {
 
 function ProfileSummary({ state }) {
   const [now, setNow] = useState(() => Date.now());
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const [boosterQuotes, setBoosterQuotes] = useState([]);
+  const [boosterError, setBoosterError] = useState(null);
+  const [boosterPending, setBoosterPending] = useState(false);
+  const [boosterQueued, setBoosterQueued] = useState(false);
+  useEffect(() => {
+    if (!menuAnchor) return undefined;
+    let alive = true;
+    setBoosterQuotes([]);
+    setBoosterError(null);
+    getSessionJson("/api/me/bag", {
+      fresh: true,
+      serverRefresh: "live",
+      afterPending: true,
+      revalidate: false,
+    })
+      .then((bag) => {
+        if (alive) setBoosterQuotes(normalizeBoosters(bag));
+      })
+      .catch(() => {
+        if (alive) setBoosterError("Не удалось проверить дефибрилляторы.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [menuAnchor]);
+  const finishMenu = () => {
+    setMenuAnchor(null);
+    setMenuClosing(false);
+  };
+  const closeMenu = () => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+      finishMenu();
+    else setMenuClosing(true);
+  };
+  const submitBooster = async (booster) => {
+    setBoosterPending(true);
+    setBoosterError(null);
+    try {
+      const current = await getSessionJson("/api/automation/state", {
+        fresh: true,
+        revalidate: false,
+      });
+      await postSessionJson("/api/automation/commands", {
+        id: crypto.randomUUID(),
+        expectedVersion: current.version,
+        command: "energy.booster.use",
+        args: {
+          type: booster.type,
+          maxPrice: booster.count ? null : booster.costDollar,
+        },
+      });
+      setBoosterQueued(true);
+      closeMenu();
+      void getSessionJson("/api/me", {
+        fresh: true,
+        serverRefresh: "live",
+      }).catch(() => {});
+    } catch {
+      setBoosterError(
+        "Не удалось применить дефибриллятор. Проверьте состояние и попробуйте снова.",
+      );
+    } finally {
+      setBoosterPending(false);
+    }
+  };
   const profile = state.profile;
   const identity = state.identity;
   const energy = profile?.energy;
@@ -189,14 +262,6 @@ function ProfileSummary({ state }) {
     Number.isFinite(energy?.max) &&
     energy.max > 0;
   const displayedEnergy = energyKnown ? energyAtTime(energy, now) : null;
-  const upgradeResetAt = Date.parse(profile?.characterStatsUpgrade?.resetAtUtc);
-  useEffect(() => {
-    const delay = upgradeResetAt - Date.now();
-    if (!Number.isFinite(delay) || delay <= 0 || delay > 2147483647)
-      return undefined;
-    const timer = setTimeout(() => setNow(Date.now()), delay + 1);
-    return () => clearTimeout(timer);
-  }, [upgradeResetAt]);
   const shouldTickEnergy =
     !!displayedEnergy && displayedEnergy.current < energy.max;
   const activeBuff = profile?.stashBuffs?.reduce(
@@ -307,11 +372,62 @@ function ProfileSummary({ state }) {
     profile.experience.current >= 0 &&
     Number.isSafeInteger(profile.experience?.toNextLevel) &&
     profile.experience.toNextLevel > 0;
+  const energyContent = (
+    <div className="overview-energy" role="group" aria-label="Энергия">
+      <div className="overview-energy-heading">
+        <span className="overview-energy-label">
+          <Icon type="energy" size="small" className="overview-energy-icon" />
+          Энергия
+        </span>
+        <CardTitle as="span" size="sm" aria-hidden="true">
+          {displayedEnergy
+            ? `${numberFormat.format(displayedEnergy.current)} / ${numberFormat.format(energy.max)}`
+            : "Нет данных"}
+        </CardTitle>
+      </div>
+      <ProgressBar
+        value={displayedEnergy?.current}
+        max={energy?.max}
+        size="sm"
+        label="Запас энергии"
+        valueText={
+          displayedEnergy
+            ? `${fmt(displayedEnergy.current)} из ${fmt(energy.max)} энергии${nextEnergy ? `, ${nextEnergy}` : ""}`
+            : "Нет данных об энергии"
+        }
+      />
+      {nextEnergy && <small>{nextEnergy}</small>}
+    </div>
+  );
   return (
     <BaseCard
       as="article"
       variant="floor-data"
       className="overview-card overview-player-card"
+      state={menuAnchor ? "menu-active" : undefined}
+      role="button"
+      tabIndex={0}
+      aria-haspopup="dialog"
+      aria-expanded={Boolean(menuAnchor)}
+      aria-label="Действия профиля"
+      onClick={(event) => {
+        const interactive = event.target.closest?.(
+          "button, a, input, select, textarea, summary, dialog, [role=button], [role=dialog]",
+        );
+        if (interactive && interactive !== event.currentTarget) return;
+        if (menuAnchor) closeMenu();
+        else setMenuAnchor(event.currentTarget);
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.target !== event.currentTarget ||
+          !["Enter", " "].includes(event.key)
+        )
+          return;
+        event.preventDefault();
+        if (menuAnchor) closeMenu();
+        else setMenuAnchor(event.currentTarget);
+      }}
     >
       <div className="overview-player-heading">
         <div className="overview-player-summary">
@@ -343,23 +459,7 @@ function ProfileSummary({ state }) {
               {!Number.isSafeInteger(profile.playerLevel) &&
                 state.levelStatus === "loading" && <Skeleton variant="text" />}
             </div>
-            {!experienceKnown && state.levelStatus === "loading" && (
-              <div
-                className="overview-level-progress"
-                aria-label="Загрузка опыта"
-              >
-                <div className="overview-level-heading">
-                  <span className="overview-energy-label">
-                    <Icon type="sparkles-2" size="small" />
-                    <CardDescription as="span" size="xs">
-                      Опыт
-                    </CardDescription>
-                  </span>
-                  <Skeleton variant="text" />
-                </div>
-                <Skeleton variant="progress" />
-              </div>
-            )}
+            {!experienceKnown && energyContent}
             {Number.isSafeInteger(profile.playerLevel) && experienceKnown && (
               <div
                 className="overview-level-progress"
@@ -395,35 +495,7 @@ function ProfileSummary({ state }) {
             )}
           </div>
         </div>
-        <div className="overview-energy" role="group" aria-label="Энергия">
-          <div className="overview-energy-heading">
-            <span className="overview-energy-label">
-              <Icon
-                type="energy"
-                size="small"
-                className="overview-energy-icon"
-              />
-              Энергия
-            </span>
-            <CardTitle as="span" size="sm" aria-hidden="true">
-              {displayedEnergy
-                ? `${numberFormat.format(displayedEnergy.current)} / ${numberFormat.format(energy.max)}`
-                : "Нет данных"}
-            </CardTitle>
-          </div>
-          <ProgressBar
-            value={displayedEnergy?.current}
-            max={energy?.max}
-            size="sm"
-            label="Запас энергии"
-            valueText={
-              displayedEnergy
-                ? `${fmt(displayedEnergy.current)} из ${fmt(energy.max)} энергии${nextEnergy ? `, ${nextEnergy}` : ""}`
-                : "Нет данных об энергии"
-            }
-          />
-          {nextEnergy && <small>{nextEnergy}</small>}
-        </div>
+        {experienceKnown && energyContent}
       </div>
       <dl className="overview-stats">
         {profile.stats.map(([name, value, derived, unit]) => {
@@ -497,18 +569,64 @@ function ProfileSummary({ state }) {
           );
         })}
       </dl>
-      {!allCharacterUpgradesComplete(profile.characterStatsUpgrade, now) && (
-        <Button onClick={() => setUpgradeOpen(true)}>
-          Прокачать характеристики
-        </Button>
-      )}
-      {upgradeOpen && (
-        <CharacterUpgrade
-          onClose={() => setUpgradeOpen(false)}
-          profileWallet={profile.wallet}
-        />
-      )}
       <Wallet entries={profile.wallet} />
+      {boosterQueued && (
+        <Toast
+          floating
+          success
+          title="Готово"
+          onDismiss={() => setBoosterQueued(false)}
+        >
+          Дефибриллятор применён.
+        </Toast>
+      )}
+      {menuAnchor && (
+        <CardActionMenu
+          anchor={menuAnchor}
+          label="Действия профиля"
+          onClose={closeMenu}
+          closing={menuClosing}
+          onClosed={finishMenu}
+          preferFit
+          scrollable
+        >
+          {boosterError && <ErrorToast message={boosterError} />}
+          <ProfileStatsMenu />
+          {["small", "full"].map((type) => {
+            const booster = boosterQuotes.find((item) => item.type === type);
+            const label =
+              type === "small"
+                ? "Применить малый деф."
+                : "Применить большой деф.";
+            const buy = booster?.count === 0;
+            return (
+              <ApprovableButton
+                key={type}
+                variant="menu-item"
+                icon={
+                  type === "small"
+                    ? "defibrillator-small"
+                    : "defibrillator-large"
+                }
+                liftOnHover={false}
+                menuValue={booster ? fmt(booster.count) : "—"}
+                confirmationKey={`${type}:${booster?.count}:${booster?.costDollar}`}
+                confirmationLabel={
+                  buy ? `Точно? · ${fmt(booster.costDollar)} купюр` : "Точно?"
+                }
+                disabled={
+                  !booster ||
+                  boosterPending ||
+                  (buy && booster.maxPurchaseQuantity < 1)
+                }
+                onClick={() => void submitBooster(booster)}
+              >
+                {label}
+              </ApprovableButton>
+            );
+          })}
+        </CardActionMenu>
+      )}
     </BaseCard>
   );
 }

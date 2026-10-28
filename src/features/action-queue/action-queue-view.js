@@ -41,6 +41,9 @@ const failureMessages = {
   inventory_weapon_broken: "Оружие сломано",
   inventory_action_failed: "Игра отклонила действие",
   work_booster_unavailable: "Дефибриллятор недоступен",
+  energy_already_full: "Энергия уже восстановлена",
+  energy_booster_quote_changed:
+    "Цена, баланс или запас изменились — подтвердите действие заново",
   friend_leader_unverified: "Ведущий не подтверждён",
   too_many_friend_requests: "Слишком много заявок",
   unknown_boss: "Босс недоступен",
@@ -243,6 +246,8 @@ export function actionQueueCards(state, catalogue = {}) {
         ref?.image,
       );
       const card = cards.at(-1);
+      if (work.config?.collectStash && progress?.max != null)
+        card.progressLabel = "Расход энергии";
       card.work = ref;
       if (work.status === "stopped") {
         card.status = "Проверяем результат";
@@ -306,9 +311,14 @@ export function actionQueueCards(state, catalogue = {}) {
       return null;
     return actor;
   };
-  const recentCompleted = new Set(
+  const recentHandoffs = new Set(
     (state.queuedActions || [])
-      .filter((job) => job.status === "completed" && !job.dismissed)
+      .filter(
+        (job) =>
+          job.status === "completed" &&
+          handoffTypes.has(job.type) &&
+          !job.dismissed,
+      )
       .sort(
         (a, b) => (a.finishedAt ?? a.createdAt) - (b.finishedAt ?? b.createdAt),
       )
@@ -325,9 +335,10 @@ export function actionQueueCards(state, catalogue = {}) {
         visible.has(job.status) &&
         !job.dismissed &&
         (job.status !== "completed" ||
-          recentCompleted.has(job.id) ||
-          currentBattleHandoff(job) ||
-          terminalActor(job)) &&
+          (terminalActor(job)
+            ? terminalActor(job).status !== "completed"
+            : handoffTypes.has(job.type) &&
+              (recentHandoffs.has(job.id) || currentBattleHandoff(job)))) &&
         !(
           job.type === "auto.start" &&
           state.auto?.queueId === job.id &&
@@ -439,11 +450,15 @@ export function actionQueueCards(state, catalogue = {}) {
                                       : "Ведущий рейда"
                                     : [
                                           "friend.remove",
+                                          "friend.response",
                                           "friend.favorite",
                                           "friend.buddy",
                                         ].includes(job.type)
                                       ? job.args.name || "Друг"
-                                      : job.type === "work.booster"
+                                      : [
+                                            "work.booster",
+                                            "energy.booster",
+                                          ].includes(job.type)
                                         ? "Дефибриллятор"
                                         : item?.name ||
                                           actions[job.args?.action] ||
@@ -521,27 +536,31 @@ export function actionQueueCards(state, catalogue = {}) {
             ? job.args.leaderUsername
               ? `@${job.args.leaderUsername}`
               : null
-            : job.type === "friend.request"
-              ? "Заявка в друзья"
-              : job.type === "friend.favorite"
-                ? job.args.enabled
-                  ? "В избранное"
-                  : "Убрать из избранного"
-                : job.type === "friend.buddy"
+            : job.type === "friend.response"
+              ? job.args.decision === "accept"
+                ? "Принятие заявки"
+                : "Отклонение заявки"
+              : job.type === "friend.request"
+                ? "Заявка в друзья"
+                : job.type === "friend.favorite"
                   ? job.args.enabled
-                    ? "Добавить в Buddy"
-                    : "Убрать из Buddy"
-                  : job.type === "friend.remove"
-                    ? "Удаление друга"
-                    : job.type === "work.booster"
-                      ? job.args.type === "full"
-                        ? "Полный"
-                        : "Малый"
-                      : queuedBoss?.name
-                        ? queuedBoss.name
-                        : item?.name
-                          ? actions[job.args?.action]
-                          : null,
+                    ? "В избранное"
+                    : "Убрать из избранного"
+                  : job.type === "friend.buddy"
+                    ? job.args.enabled
+                      ? "Добавить в Buddy"
+                      : "Убрать из Buddy"
+                    : job.type === "friend.remove"
+                      ? "Удаление друга"
+                      : job.type === "work.booster"
+                        ? job.args.type === "full"
+                          ? "Полный"
+                          : "Малый"
+                        : queuedBoss?.name
+                          ? queuedBoss.name
+                          : item?.name
+                            ? actions[job.args?.action]
+                            : null,
       image: queuedWork?.image || queuedBoss?.image || item?.image,
       destination: job.type,
       inventoryTarget:
@@ -567,6 +586,7 @@ export function actionQueueCards(state, catalogue = {}) {
             : null,
       friendTarget: [
         "friend.remove",
+        "friend.response",
         "friend.favorite",
         "friend.buddy",
       ].includes(job.type)

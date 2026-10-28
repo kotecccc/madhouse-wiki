@@ -12,7 +12,10 @@ import {
 import { InventorySection } from "../../features/inventory/InventorySection.jsx";
 import { BossBattleDialog } from "../../features/bosses/BossBattle/BossBattleDialog.jsx";
 import { BossInvitationsDialog } from "../../features/bosses/BossInvitations/BossInvitations.jsx";
-import { bossBattle } from "../../features/bosses/BossBattle/boss-battle-session.js";
+import {
+  bossBattle,
+  bossInvitations,
+} from "../../features/bosses/BossBattle/boss-battle-session.js";
 import { CharacterUpgrade } from "../../features/overview/CharacterUpgrade/CharacterUpgrade.jsx";
 import { WorkFarmDialog } from "../../features/works/WorkCard/WorkFarmDialog.jsx";
 import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/ActiveBattleDock.jsx";
@@ -30,6 +33,7 @@ import {
   readSessionRefreshState,
   subscribeSessionData,
   getSessionJson,
+  postSessionJson,
 } from "../../../shared/session-api.js";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
@@ -90,15 +94,21 @@ export function App() {
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
   const [queueFocus, setQueueFocus] = useState(null);
   const [friendsRefresh, setFriendsRefresh] = useState(0);
+  const [inventoryRefresh, setInventoryRefresh] = useState(0);
+  const [workCollectionNotice, setWorkCollectionNotice] = useState(null);
   const [sessionGeneration, setSessionGeneration] = useState(0);
   const onFriendCompleted = useCallback(
     () => setFriendsRefresh((value) => value + 1),
     [],
   );
+  const onWorkCollectionCompleted = useCallback((run) => {
+    setWorkCollectionNotice(run.title || "Работёнка");
+  }, []);
   const actionQueue = useActionQueue(
     authenticated,
     sessionGeneration,
     onFriendCompleted,
+    onWorkCollectionCompleted,
   );
   const [inventoryResponses, setInventoryResponses] = useState({});
   const [inventoryDirty, setInventoryDirty] = useState([]);
@@ -158,8 +168,34 @@ export function App() {
   ).reduce((sum, option) => sum + (option.count || 0), 0);
   const pull = usePullRefresh({
     regionRef: scrollRegionRef,
-    enabled: visibleScreen === "overview",
+    enabled: ["overview", "raids", "friends", "inventory"].includes(
+      visibleScreen,
+    ),
     onRefresh: async () => {
+      if (visibleScreen === "friends") {
+        try {
+          await postSessionJson("/api/automation/friends/refresh", {});
+        } catch {
+          setInventoryNotice({
+            message: "Не удалось обновить друзей.",
+            success: false,
+          });
+        } finally {
+          setFriendsRefresh((value) => value + 1);
+        }
+        return;
+      }
+      if (visibleScreen === "inventory") {
+        setInventoryRefresh((value) => value + 1);
+        return;
+      }
+      if (visibleScreen === "raids") {
+        await Promise.allSettled([
+          raidSchedule.refresh(),
+          ...(authenticated ? [bossInvitations.refresh()] : []),
+        ]);
+        return;
+      }
       floorAvailability.retry();
       if (!authenticated) return;
       const paths = new Set([
@@ -314,13 +350,6 @@ export function App() {
           data-page-scroll
         >
           <PullRefresh {...pull} />
-          <MobileNavigation
-            desktop
-            inventoryCount={inventoryCount}
-            authenticated={authenticated}
-            activeScreen={visibleScreen}
-            onScreenChange={changeScreen}
-          />
           <main
             id="top"
             className={`app-content app-content--${visibleScreen}`}
@@ -417,6 +446,7 @@ export function App() {
               >
                 <InventorySection
                   active={visibleScreen === "inventory"}
+                  refreshGeneration={inventoryRefresh}
                   responses={inventoryResponses}
                   dirtyPaths={inventoryDirty}
                   playerLevel={profileState.profile?.playerLevel}
@@ -431,6 +461,16 @@ export function App() {
             <FeedbackWidget screen={activeScreen} />
           </SiteFooter>
         </div>
+        {workCollectionNotice && (
+          <Toast
+            floating
+            success
+            title="Части набора собраны"
+            onDismiss={() => setWorkCollectionNotice(null)}
+          >
+            {workCollectionNotice}
+          </Toast>
+        )}
         <BottomDock toastRef={setToastTarget}>
           {inventoryNotice ? (
             <Toast

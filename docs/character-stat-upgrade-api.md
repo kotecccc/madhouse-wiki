@@ -33,12 +33,14 @@ client behavior, not an independently published server contract.
 The 59 aggression points remaining after one upgrade total 49,350 gold.
 These observations are client-visible game data, not a published API contract.
 The implementation checks the current game quote and daily limits against the
-schedule; mismatches use a conservative upper bound. Each point still requires
-a fresh quote and a durable operation checkpoint before dispatch.
+schedule; mismatches use a conservative upper bound. MAX uses a fresh quote and a durable operation checkpoint before dispatch.
 
 The server persists each requested single or multi-point upgrade as a priority
-run. It waits for any in-flight game action to finish or be reconciled, checks
-the confirmed quote again, and executes one point per durable checkpoint. While
+run. It waits for any in-flight game action to finish or be reconciled and checks
+the confirmed quote again. New MAX runs submit the requested amount in one
+checkpointed operation; previously saved per-point runs retain their original
+execution mode. Multi-point server behavior and pricing have not yet been
+verified with a live game mutation. While
 this run is active, work, battle, business and raid workers retain their intent
 and defer new mutations. They continue when the run finishes. An uncertain
 character operation keeps other mutations paused until a read reconciles it;

@@ -128,6 +128,22 @@ test("a complete friend snapshot stays account-isolated through a partial outage
       () => service.friends(a, "Bearer account-b"),
       /game_session_required/,
     );
+    clock += 1000;
+    const refresh = await handle(
+      new Request("https://example.test/api/automation/friends/refresh", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer account-a",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }),
+    );
+    assert.equal(refresh.status, 200);
+    await waitFor(
+      () => service.friends(a, "Bearer account-a").updatedAt === clock,
+    );
+    assert.notEqual(service.friends(b, "Bearer account-b").updatedAt, clock);
     partial = true;
     clock += 300000;
     await waitFor(

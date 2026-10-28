@@ -71,6 +71,7 @@ test("invitation projection filters invalid records, deduplicates and limits pub
       bossName: "Boss 8",
       sender: "Отправитель не указан",
       expiresAt: now + 60_000,
+      battleExpiresAt: now + 60_000,
       available: true,
     },
   ]);
@@ -79,6 +80,28 @@ test("invitation projection filters invalid records, deduplicates and limits pub
     projectBossInvitations({}, () => null, now),
     /invalid_boss_invitations/,
   );
+});
+
+test("keeps battle expiry separate from the shorter invitation expiry", async () => {
+  const [item] = await projectBossInvitations(
+    {
+      items: [
+        {
+          invitationId: "invite",
+          battleId: "battle",
+          bossId: 7,
+          status: "pending",
+          battleStatus: "active",
+          expiresAtUtc: future,
+          battleExpiresAtUtc: new Date(now + 120_000).toISOString(),
+        },
+      ],
+    },
+    () => ({ name: "Boss" }),
+    now,
+  );
+  assert.equal(item.expiresAt, now + 60_000);
+  assert.equal(item.battleExpiresAt, now + 120_000);
 });
 
 test("leader identity is exposed only when inviter and peer identify the leader", async () => {
@@ -2182,7 +2205,7 @@ test("Buddy follows a verified friend who is not the leader and survives restart
   }
 });
 
-test("Buddy booster worker continues without browser and saves reserve and pending before sending", async () => {
+test("Buddy does not send boosters even when legacy settings are enabled", async () => {
   const directory = mkdtempSync(join(tmpdir(), "buddy-booster-worker-"));
   let observedPending = null;
   let ctx;
@@ -2240,14 +2263,13 @@ test("Buddy booster worker continues without browser and saves reserve and pendi
     );
     await ctx.service.boot();
     await new Promise((resolve) => setTimeout(resolve, 2700));
-    assert.equal(observedPending?.requestId, "buddy-req");
+    assert.equal(observedPending, null);
     assert.equal(ctx.store.read("101").buddyHelp.pending, null);
-    assert.equal(ctx.store.read("101").buddyHelp.log[0].result, "confirmed");
     assert.equal(
       ctx.calls.filter(
         (call) => call.method === "POST" && call.path.includes("/fulfill"),
       ).length,
-      1,
+      0,
     );
   } finally {
     ctx.close();
@@ -2255,7 +2277,7 @@ test("Buddy booster worker continues without browser and saves reserve and pendi
   }
 });
 
-test("Buddy stash worker sends only above reserve after restart without a browser", async () => {
+test("Buddy does not send stash items after restart with legacy settings", async () => {
   const directory = mkdtempSync(join(tmpdir(), "buddy-stash-worker-"));
   let pendingAtPost = null;
   let ctx;
@@ -2296,15 +2318,14 @@ test("Buddy stash worker sends only above reserve after restart without a browse
     ctx = setup(directory, options);
     await ctx.service.boot();
     await new Promise((resolve) => setTimeout(resolve, 2700));
-    assert.equal(pendingAtPost?.ingredientId, 2);
+    assert.equal(pendingAtPost, null);
     assert.equal(ctx.store.read("101").buddyHelp.stashPending, null);
-    assert.equal(ctx.store.read("101").buddyHelp.log[0].result, "confirmed");
     assert.equal(
       ctx.calls.filter(
         (call) =>
           call.method === "POST" && call.path === "/api/stash/help-gifts",
       ).length,
-      1,
+      0,
     );
   } finally {
     ctx.close();

@@ -15,7 +15,11 @@ import {
   retainProfileProgress,
   applyWorkFarmEnergy,
 } from "./profile.js";
-import { workFarm } from "../bosses/BossBattle/boss-battle-session.js";
+import {
+  characterUpgrade,
+  workFarm,
+} from "../bosses/BossBattle/boss-battle-session.js";
+import { hasNewCharacterUpgradeProgress } from "./character-upgrade-progress.js";
 
 function playerProfile(data, previous) {
   const normalized = normalizePlayerProfile(data);
@@ -68,11 +72,13 @@ export function usePlayerProfile() {
     };
     let identity = sessionIdentity();
     let workStatus = workFarm.getSnapshot().run?.status;
+    let characterRun = characterUpgrade.getSnapshot().run;
     let profileRevision = null;
     let profileRefreshTimer = null;
     let profileRefreshRunning = false;
     let profileRefreshQueued = false;
     const refreshChangedProfile = async () => {
+      clearTimeout(profileRefreshTimer);
       profileRefreshTimer = null;
       if (profileRefreshRunning) {
         profileRefreshQueued = true;
@@ -81,7 +87,11 @@ export function usePlayerProfile() {
       if (sessionIdentity() !== identity || !identity) return;
       profileRefreshRunning = true;
       try {
-        await getSessionJson("/api/me", { fresh: true });
+        await getSessionJson("/api/me", {
+          fresh: true,
+          serverRefresh: "live",
+          afterPending: true,
+        });
       } catch {
         // Keep the last confirmed profile when the game is unavailable.
       } finally {
@@ -120,6 +130,7 @@ export function usePlayerProfile() {
       // Clear only for an account change; revalidation keeps the current view.
       if (changed) {
         profileRevision = null;
+        characterRun = null;
         clearTimeout(profileRefreshTimer);
         profileRefreshTimer = null;
         profileRefreshQueued = false;
@@ -326,6 +337,13 @@ export function usePlayerProfile() {
       workStatus = status;
       if (finished) void load();
     });
+    const unsubscribeCharacter = characterUpgrade.subscribe(() => {
+      if (!identity || sessionIdentity() !== identity) return;
+      const run = characterUpgrade.getSnapshot().run;
+      if (hasNewCharacterUpgradeProgress(characterRun, run))
+        void refreshChangedProfile();
+      characterRun = run ? { id: run.id, completed: run.completed } : null;
+    });
     void load();
     const unsubscribe = subscribeSession(load);
     return () => {
@@ -338,6 +356,7 @@ export function usePlayerProfile() {
       unsubscribe();
       unsubscribeData();
       unsubscribeWork();
+      unsubscribeCharacter();
     };
   }, []);
 

@@ -26,10 +26,9 @@ test("detects three different battles only for a currently invited leader and bo
   );
   assert.equal(detectedRaids(history, [invitation("two")], base + 1).length, 0);
   history = observeRaids(history, [invitation("three")], base + 2);
-  assert.equal(
-    detectedRaids(history, [invitation("three")], base + 2)[0].count,
-    3,
-  );
+  const detected = detectedRaids(history, [invitation("three")], base + 2)[0];
+  assert.equal(detected.count, 3);
+  assert.equal(detected.windowMs, 2 * 60 * 60 * 1000);
   assert.equal(
     detectedRaids(
       history,

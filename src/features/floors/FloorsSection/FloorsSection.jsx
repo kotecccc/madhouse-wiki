@@ -4,12 +4,19 @@ import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { progressionTargets } from "../progression-targets.js";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
 import "./FloorsSection.css";
 import {
   orderedFloors,
   departmentById,
+  getBossFloorCode,
 } from "../../../model/knowledge-base.js";
 import { FloorGroup } from "../FloorGroup/FloorGroup.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
@@ -23,6 +30,8 @@ import {
   readSession,
   subscribeSession,
 } from "../../../../shared/auth-session.js";
+import { bossBattle } from "../../bosses/BossBattle/boss-battle-session.js";
+import { activeBattleForBoss } from "../../bosses/BossCard/boss-card-battle-status.js";
 import { trackProductEvent } from "../../analytics/analytics-client.js";
 export function FloorsSection({
   availability,
@@ -39,6 +48,24 @@ export function FloorsSection({
   isAuthenticated = false,
   playerLevel,
 }) {
+  const battleState = useSyncExternalStore(
+    bossBattle.subscribe,
+    bossBattle.getSnapshot,
+    bossBattle.getSnapshot,
+  );
+  const activeBossId =
+    battleState.boss?.numericId ??
+    battleState.boss?.apiId ??
+    battleState.boss?.id;
+  const activeBoss = knowledgeBase.bosses.find(
+    (boss) => String(boss.numericId ?? boss.apiId) === String(activeBossId),
+  );
+  const battleFloor =
+    isAuthenticated &&
+    activeBoss &&
+    activeBattleForBoss(battleState, battleState.boss?.id)
+      ? getBossFloorCode(activeBoss)
+      : null;
   const [category, setCategory] = useState("work");
   const [confirmedDepartmentState, setConfirmedDepartmentState] =
     useState(null);
@@ -283,6 +310,7 @@ export function FloorsSection({
               aria-label={[
                 `Этаж ${floor.code}`,
                 floor.id === selectedFloor?.id ? "выбран" : null,
+                floor.code === battleFloor ? "идёт бой с боссом" : null,
                 targetFloorIds.has(floor.id)
                   ? "есть задача для открытия"
                   : null,
@@ -306,8 +334,19 @@ export function FloorsSection({
                 <span className="floor-selector-dash">–</span>
                 <span>{floor.code}</span>
                 {(availability[floor.code] === false ||
-                  targetFloorIds.has(floor.id)) && (
+                  targetFloorIds.has(floor.id) ||
+                  floor.code === battleFloor) && (
                   <span className="floor-selector-indicators">
+                    {floor.code === battleFloor && (
+                      <span role="img" aria-label="Идёт бой с боссом">
+                        <Icon
+                          type="combat"
+                          size="medium"
+                          motion="pulse"
+                          className="ui-icon--sparkles-2"
+                        />
+                      </span>
+                    )}
                     {targetFloorIds.has(floor.id) && (
                       <span role="img" aria-label="Задача для открытия">
                         <Icon type="star" size="medium" />

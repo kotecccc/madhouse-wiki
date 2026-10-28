@@ -18,6 +18,10 @@
   --border-motion-color: var(--status-business);
 }
 
+.base-card--motion-border-red {
+  --border-motion-color: var(--red-bright);
+}
+
 .base-card--motion-border::after,
 .base-card--motion-border-5::before {
   content: "";

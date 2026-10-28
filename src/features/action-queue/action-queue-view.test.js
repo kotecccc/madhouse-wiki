@@ -50,7 +50,7 @@ test("projects server actors and prioritized queued intentions without duplicate
   assert.equal(cards[3].position, 2);
 });
 
-test("completed actions can be dismissed and handoffs do not claim the goal finished", () => {
+test("completed actions disappear while handoffs do not claim the goal finished", () => {
   const cards = actionQueueCards({
     serverTime: 1000,
     queuedActions: [
@@ -74,9 +74,7 @@ test("completed actions can be dismissed and handoffs do not claim the goal fini
   });
   const done = cards.find((card) => card.id === "done");
   const handoff = cards.find((card) => card.id === "handoff");
-  assert.equal(done.status, "Выполнено");
-  assert.equal(done.command, "queue.dismiss");
-  assert.equal(done.position, null);
+  assert.equal(done, undefined);
   assert.equal(handoff.status, "Передано исполнителю");
   assert.equal(handoff.command, "queue.dismiss");
 });
@@ -145,7 +143,7 @@ test("a stopped current handoff remains visible beyond the five recent completio
   }
 });
 
-test("recent completions are selected by completion time, not creation order", () => {
+test("completed one-off actions are hidden regardless of completion time", () => {
   const completed = Array.from({ length: 6 }, (_, index) => ({
     id: `done-${index}`,
     type: "inventory",
@@ -159,9 +157,7 @@ test("recent completions are selected by completion time, not creation order", (
     serverTime: 200,
     queuedActions: completed,
   }).map((card) => card.id);
-  assert.ok(ids.includes("done-0"));
-  assert.ok(!ids.includes("done-1"));
-  assert.equal(ids.length, 5);
+  assert.deepEqual(ids, []);
 });
 
 test("a finished long-running actor reports its own outcome and can be dismissed", () => {
@@ -186,9 +182,13 @@ test("a finished long-running actor reports its own outcome and can be dismissed
         },
       ],
     });
-    assert.equal(cards.length, 1);
-    assert.equal(cards[0].status, expected);
-    assert.equal(cards[0].command, "queue.dismiss");
+    if (status === "completed") {
+      assert.deepEqual(cards, []);
+    } else {
+      assert.equal(cards.length, 1);
+      assert.equal(cards[0].status, expected);
+      assert.equal(cards[0].command, "queue.dismiss");
+    }
   }
 });
 
@@ -336,8 +336,9 @@ test("retry deadlines are shown only when a future attempt or reconciliation is 
   assert.equal(byId.retry.retryIsReconciliation, false);
   assert.equal(byId.reconcile.retryAt, 3000);
   assert.equal(byId.reconcile.retryIsReconciliation, true);
-  for (const id of ["past", "unknown", "dependent", "invalid", "done"])
+  for (const id of ["past", "unknown", "dependent", "invalid"])
     assert.equal(byId[id].retryAt, null);
+  assert.equal(byId.done, undefined);
 });
 
 test("the retry lower bound includes the shared cooldown without promising dependency readiness", () => {

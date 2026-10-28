@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import {
+  affordableCharacterUpgradeQuote,
   allCharacterUpgradesComplete,
   characterUpgradeQuote,
 } from "./character-stat-upgrades.js";
@@ -123,4 +124,16 @@ test("all stats are complete only with valid unexpired daily limits", () => {
     ),
     false,
   );
+});
+
+test("maximum upgrade respects the wallet and the daily limit", () => {
+  const p = profile();
+  assert.equal(affordableCharacterUpgradeQuote(p, "madness").amount, 18);
+  p.wallet.gold = 1265;
+  assert.equal(affordableCharacterUpgradeQuote(p, "madness").amount, 2);
+  p.wallet.gold = 499;
+  assert.equal(affordableCharacterUpgradeQuote(p, "madness"), null);
+  p.wallet.gold = 100000;
+  p.characterStatsUpgrade.madness.dailyRemaining = 0;
+  assert.equal(affordableCharacterUpgradeQuote(p, "madness"), null);
 });

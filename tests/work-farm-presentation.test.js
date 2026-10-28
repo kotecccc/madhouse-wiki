@@ -19,23 +19,29 @@ const view = {
   tasks: [task(1, 8, 4, 1), task(2, 3, 1)],
 };
 
-test("collection progress counts confirmed parts, not the safety cycle limit", () => {
+test("collection progress measures energy spent in this run, not owned parts", () => {
   const run = {
     workId: 7,
-    config: { collectStash: true },
-    stashVerifiedCycle: 25,
+    config: { collectStash: true, mode: "energy" },
+    energySpent: 0,
+    energyBudget: 100,
   };
   const current = {
     ...view,
     stash: { ingredients: [{ quantity: 2 }, { quantity: 0 }, { quantity: 1 }] },
   };
   assert.deepEqual(workFarmProgress(run, current), {
-    value: 2,
-    max: 3,
-    percent: 66,
+    value: 0,
+    max: 100,
+    percent: 0,
+  });
+  assert.deepEqual(workFarmProgress({ ...run, energySpent: 25 }, current), {
+    value: 25,
+    max: 100,
+    percent: 25,
   });
   assert.equal(
-    workFarmProgress(run, { ...current, completedCycles: 26 }).max,
+    workFarmProgress({ ...run, energyBudget: null }, current).percent,
     null,
   );
 });

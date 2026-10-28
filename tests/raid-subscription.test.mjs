@@ -398,3 +398,34 @@ test("stopping floor automation while Buddy is fighting clears the saved floor-o
   assert.equal(h.getSaved().checkpoint.auto, null);
   assert.equal(h.getSaved().phase, "fighting");
 });
+
+test("drop goal stops after a confirmed reward and restores the suspended work", async () => {
+  const h = harness();
+  h.worker.start({ leaderPlayerId: 42, bossId: 7, dropKeys: ["weapon:7"] });
+  h.worker.observe([h.invitation()], true);
+  await h.worker.tick();
+  assert.deepEqual(h.getSaved().dropKeys, ["weapon:7"]);
+  h.setBattle("uncertain");
+  await h.worker.tick();
+  assert.equal(h.getSaved().enabled, true);
+  assert.equal(h.getSaved().phase, "fighting");
+  h.setBattle("finished_drop");
+  await h.worker.tick();
+  assert.equal(h.getSaved().enabled, false);
+  assert.equal(h.getSaved().dropCompleted, true);
+  assert.equal(h.calls.filter(([name]) => name === "join").length, 1);
+  assert.equal(h.calls.at(-1)[0], "restore");
+});
+
+test("drop goal is retained after restart and never starts another fight while reward is uncertain", async () => {
+  const h = harness();
+  h.worker.start({ leaderPlayerId: 42, bossId: 7, dropKeys: ["weapon:7"] });
+  h.worker.observe([h.invitation()], true);
+  await h.worker.tick();
+  const resumed = harness(h.getSaved());
+  resumed.setBattle("uncertain");
+  await resumed.worker.tick();
+  assert.deepEqual(resumed.getSaved().dropKeys, ["weapon:7"]);
+  assert.equal(resumed.worker.getSnapshot().phase, "fighting");
+  assert.equal(resumed.calls.length, 0);
+});

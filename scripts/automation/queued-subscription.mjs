@@ -1,3 +1,7 @@
+import {
+  goalDropOptions,
+  isShopGoalDrop,
+} from "../../src/features/bosses/BossBattle/boss-goal-options.js";
 import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
@@ -20,6 +24,7 @@ export function queuedSubscriptionAdapter({ entry, getBoss, refresh, now }) {
         throw new Error("invalid_subscription");
       return {
         bossId: args.bossId,
+        untilDrop: args.untilDrop === true,
         leaderPlayerId: positive(args.leaderPlayerId)
           ? args.leaderPlayerId
           : null,
@@ -52,6 +57,18 @@ export function queuedSubscriptionAdapter({ entry, getBoss, refresh, now }) {
           )
             return { status: "failed", reason: "unknown_boss" };
         }
+        let dropKeys = [];
+        if (job.args.untilDrop) {
+          boss = boss ?? (await getBoss(job.args.bossId));
+          dropKeys = goalDropOptions(boss?.reference ?? boss)
+            .filter(isShopGoalDrop)
+            .map((item) => item.key);
+          if (!dropKeys.length)
+            return {
+              status: "failed",
+              reason: "Нет подтверждённого списка дропа босса.",
+            };
+        }
         if (!canDispatch()) return { status: "retry" };
         if (
           !entry.raidSubscription.start({
@@ -61,6 +78,7 @@ export function queuedSubscriptionAdapter({ entry, getBoss, refresh, now }) {
             bossName: matching?.bossName ?? boss?.name,
             leaderUsername: matching?.leaderUsername ?? job.args.leaderUsername,
             queueId: job.id,
+            dropKeys,
           })
         )
           return { status: "retry", reason: "Ожидаем другие действия." };

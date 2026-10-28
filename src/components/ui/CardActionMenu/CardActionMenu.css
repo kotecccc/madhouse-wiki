@@ -18,3 +18,12 @@
     min-width: 0;
   }
 }
+
+.card-action-menu--scrollable {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.card-action-menu--full-width {
+  width: 100%;
+}

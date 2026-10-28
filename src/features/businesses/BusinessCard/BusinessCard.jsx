@@ -1,7 +1,6 @@
 import { useBusinessState } from "../state/useBusinessState.js";
 import { fmt } from "../../../lib/format.js";
 import { renderDisplayFields } from "../../../components/ui/CardEditing/DisplayFields.jsx";
-import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
 import { CardEditScope } from "../../../components/ui/CardEditing/CardEditing.jsx";
 import "./BusinessCard.css";
@@ -9,10 +8,8 @@ import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
-import { Button } from "../../../components/ui/Button/Button.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
-import { trackProductEvent } from "../../analytics/analytics-client.js";
 import {
   businessIncomeField,
   normalizeBusinessState,
@@ -21,11 +18,8 @@ import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 
 export function BusinessCard({
   business,
-  upgrade,
-  onUpgradeSelect,
   children,
   targeted = false,
-  goalAction,
   department,
   locked = false,
   businessState: listedState,
@@ -43,20 +37,6 @@ export function BusinessCard({
     current?.level != null
       ? `Уровень ${fmt(current.level)}`
       : "Уровень неизвестен";
-  const openLevels = () => {
-    if (locked || typeof onUpgradeSelect !== "function") return;
-    trackProductEvent("business_upgrades_open", {
-      section: "businesses",
-      feature: "business_upgrades",
-      subject: business.id,
-    });
-    onUpgradeSelect({ business, upgrade });
-  };
-  const { mobile, cardProps } = useMobileCardAction({
-    enabled: !locked && typeof onUpgradeSelect === "function",
-    label: `Уровни бизнеса: ${business.title}`,
-    onActivate: openLevels,
-  });
   const fields = [
     { id: "block", label: "Отделение", value: department?.code || "" },
     { id: "name", label: "Название бизнеса", value: business.title },
@@ -72,8 +52,7 @@ export function BusinessCard({
         data-entity-id={business.id}
         state={locked ? "locked" : targeted ? "target" : undefined}
         as="li"
-        className={`floor-business-card${mobile && !locked && typeof onUpgradeSelect === "function" ? " floor-business-card--mobile-action" : ""}`}
-        {...cardProps}
+        className="floor-business-card"
       >
         <ImageCard
           editKey="image"
@@ -121,22 +100,6 @@ export function BusinessCard({
           </CardDescription>
           {children}
         </EditableLayout>
-        {!mobile && !locked && (
-          <div className="floor-business-actions">
-            <Button
-              editKey="action"
-              variant="card-action"
-              icon="levels"
-              title="Уровни бизнеса"
-              className="business-upgrade-open"
-              aria-label={`Требования по предметам для бизнеса «${business.title}»`}
-              onClick={openLevels}
-            >
-              Уровни
-            </Button>
-            {goalAction}
-          </div>
-        )}
       </BaseCard>
     </CardEditScope>
   );

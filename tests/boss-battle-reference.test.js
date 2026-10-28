@@ -175,3 +175,12 @@ test("received mutagen levels use the canonical asset route even outside the bos
   );
   assert.ok(rows.every((row) => row.received));
 });
+
+test("reward grant flags are known only when every drop has an explicit result", () => {
+  assert.equal(normalizeBattle(raw([]), 7).rewardFlagsKnown, true);
+  assert.equal(normalizeBattle(raw([receipt()]), 7).rewardFlagsKnown, true);
+  assert.equal(
+    normalizeBattle(raw([receipt({ granted: undefined })]), 7).rewardFlagsKnown,
+    false,
+  );
+});

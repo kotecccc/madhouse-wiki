@@ -4,33 +4,45 @@ import {
   postSessionJson,
 } from "../../../shared/session-api.js";
 import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
+import { CardActionMenu } from "../../components/ui/CardActionMenu/CardActionMenu.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
+import { Divider } from "../../components/ui/Divider/Divider.jsx";
 import { CardTitle } from "../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { Skeleton } from "../../components/ui/Skeleton/Skeleton.jsx";
 import { ErrorToast } from "../../components/ui/ErrorToast/ErrorToast.jsx";
-import { NumberField } from "../../components/ui/NumberField/NumberField.jsx";
 import { Input } from "../../components/ui/Input/Input.jsx";
-import { SelectField } from "../../components/ui/SelectField/SelectField.jsx";
+import { MenuSelect } from "../../components/ui/MenuSelect/MenuSelect.jsx";
 import { SegmentedControl } from "../../components/ui/SegmentedControl/SegmentedControl.jsx";
 import { ImageCard } from "../../components/ui/ImageCard/ImageCard.jsx";
 import { Icon } from "../../components/ui/Icon/Icon.jsx";
+import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { authorizeRequest } from "../../../shared/auth-session.js";
 import { sendFriendCommand } from "./friend-commands.js";
 import { selectFriends } from "./friends.js";
+import { FriendsRequests } from "./FriendsRequests.jsx";
 import "../../components/ui/StatusList/StatusList.css";
 import "./FriendsSection.css";
 
 const PAGE_SIZE = 20;
 const options = [
-  ["name", "По имени"],
-  ["buddy", "По приоритету Buddy"],
-  ["lastSeenAt", "По последнему посещению"],
-  ["level", "По уровню"],
-  ["madness", "По безумию"],
-  ["aggression", "По агрессии"],
-  ["rage", "По ярости"],
-].map(([value, label]) => ({ id: value, value, label }));
+  { value: "name", label: "По имени", icon: "character" },
+  { value: "priority", label: "По приоритету", icon: "sort" },
+  { value: "online", label: "По онлайну", icon: "timer" },
+  { value: "level", label: "По уровню", icon: "sparkles-2" },
+  { value: "madness", label: "По безумию", icon: "madness" },
+  { value: "aggression", label: "По агрессии", icon: "aggression" },
+  { value: "rage", label: "По ярости", icon: "rage" },
+];
+function buddyStatus(buddy, playerId) {
+  if (buddy?.activeFriendId !== playerId) return "Ждёт";
+  return (
+    { fighting: "Идёт бой", joining: "Вступает", confirming: "Проверка" }[
+      buddy.phase
+    ] ?? "Ждёт"
+  );
+}
+
 const format = (value) =>
   value == null ? "—" : new Intl.NumberFormat("ru-RU").format(value);
 
@@ -60,14 +72,12 @@ export function FriendsSection({
   const [actionError, setActionError] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const [reload, setReload] = useState(0);
-  const touch = useRef(null);
+  const [menu, setMenu] = useState(null);
+  const [menuClosing, setMenuClosing] = useState(false);
   const actionLock = useRef(false);
   const friendFocusRef = useRef(null);
   const friendFocusPending = useRef(null);
-  const buddyFocusRef = useRef(null);
-  const [reserve, setReserve] = useState("1");
-  const [stashReserve, setStashReserve] = useState("1");
-  const [settingsError, setSettingsError] = useState("");
+  const defaultBuddyTab = useRef(false);
   const [resolveConfirm, setResolveConfirm] = useState(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -84,8 +94,6 @@ export function FriendsSection({
       .then((value) => {
         if (!controller.signal.aborted) {
           setAutomation(value);
-          setReserve(String(value.buddyHelp?.fullBoosterReserve ?? 1));
-          setStashReserve(String(value.buddyHelp?.stashReserve ?? 1));
         }
       })
       .catch(() => {});
@@ -175,9 +183,26 @@ export function FriendsSection({
       setReload((value) => value + 1);
     previousRemoval.current = current;
   }, [automation?.friendRemoval?.pending?.playerId]);
-  const favorites = automation?.preferences?.favoriteFriendIds ?? [];
   const buddy = automation?.buddy?.mode === "buddy" ? automation.buddy : null;
   const buddyFriends = buddy?.friendIds ?? [];
+  const hasBuddy = Boolean(buddy?.enabled && buddyFriends.length);
+  useEffect(() => {
+    if (!active) {
+      defaultBuddyTab.current = false;
+      return;
+    }
+    if (!automation) return;
+    if (!defaultBuddyTab.current) {
+      defaultBuddyTab.current = true;
+      setFilter(hasBuddy ? "buddy" : "all");
+      setSort(hasBuddy ? "priority" : "name");
+      setPage(0);
+    } else if (!hasBuddy && filter === "buddy") {
+      setFilter("all");
+      setSort((current) => (current === "priority" ? "name" : current));
+      setPage(0);
+    }
+  }, [active, automation, hasBuddy, filter]);
   async function executeAction(target) {
     if (!target || actionLock.current) return;
     actionLock.current = true;
@@ -185,9 +210,12 @@ export function FriendsSection({
     setAction(target);
     setActionError("");
     try {
-      const command = ["remove", "buddy", "favorite"].includes(target.kind)
-        ? "queue.enqueue"
-        : "buddy.order";
+      const command =
+        target.kind === "remove"
+          ? "queue.enqueue"
+          : target.kind === "buddy"
+            ? "buddy.set"
+            : "buddy.order";
       const result = await sendCommand(command, (current) =>
         target.kind === "remove"
           ? {
@@ -200,43 +228,19 @@ export function FriendsSection({
             }
           : target.kind === "order"
             ? { friendIds: target.friendIds }
-            : (() => {
-                const type = `friend.${target.kind}`;
-                const pending = (current.queuedActions ?? [])
-                  .filter(
-                    (job) =>
-                      job.type === type &&
-                      job.args.playerId === target.player.playerId &&
-                      !job.cancelRequested &&
-                      ["queued", "waiting", "running", "reconciling"].includes(
-                        job.status,
-                      ),
-                  )
-                  .at(-1);
-                const selected =
-                  pending?.args.enabled ??
-                  (target.kind === "buddy"
-                    ? current.buddy?.mode === "buddy" &&
-                      current.buddy.friendIds?.includes(target.player.playerId)
-                    : (current.preferences?.favoriteFriendIds ?? []).includes(
-                        target.player.playerId,
-                      ));
-                return {
-                  type,
-                  action: {
-                    playerId: target.player.playerId,
-                    name:
-                      target.player.nickname ||
-                      target.player.username ||
-                      "Игрок",
-                    enabled: !selected,
-                  },
-                };
-              })(),
+            : {
+                playerId: target.player.playerId,
+                enabled: !(
+                  current.buddy?.mode === "buddy" &&
+                  current.buddy.friendIds?.includes(target.player.playerId)
+                ),
+              },
       );
       setAutomation(result);
       setAction(null);
-      if (target.kind !== "order")
+      setMenu(null);
+      setMenuClosing(false);
+      if (target.kind === "remove")
         onNotice?.({ success: true, message: "Действие добавлено в очередь." });
     } catch {
       try {
@@ -256,44 +260,6 @@ export function FriendsSection({
       setActionBusy(false);
     }
   }
-  async function configureBuddy(
-    boostersEnabled,
-    stashEnabled = Boolean(automation?.buddyHelp?.stashEnabled),
-  ) {
-    const amount = Number(reserve);
-    const stashAmount = Number(stashReserve);
-    if (
-      !Number.isSafeInteger(amount) ||
-      amount < 0 ||
-      amount > 10000 ||
-      reserve.trim() === "" ||
-      !Number.isSafeInteger(stashAmount) ||
-      stashAmount < 0 ||
-      stashAmount > 10000 ||
-      stashReserve.trim() === ""
-    ) {
-      setSettingsError("Укажите целый резерв от 0 до 10000.");
-      return;
-    }
-    if (actionLock.current) return;
-    actionLock.current = true;
-    setActionBusy(true);
-    setSettingsError("");
-    try {
-      const result = await sendCommand("buddy.configure", {
-        boostersEnabled,
-        fullBoosterReserve: amount,
-        stashEnabled,
-        stashReserve: stashAmount,
-      });
-      setAutomation(result);
-    } catch {
-      setSettingsError("Не удалось сохранить настройки Buddy.");
-    } finally {
-      actionLock.current = false;
-      setActionBusy(false);
-    }
-  }
   async function resolveBuddy(kind) {
     if (resolveConfirm !== kind) {
       setResolveConfirm(kind);
@@ -302,39 +268,36 @@ export function FriendsSection({
     if (actionLock.current) return;
     actionLock.current = true;
     setActionBusy(true);
-    setSettingsError("");
+    setActionError("");
     try {
       const next = await sendCommand("buddy.resolve", { kind });
       setAutomation(next);
       setResolveConfirm(null);
     } catch {
-      setSettingsError("Не удалось проверить просьбу. Попробуйте позже.");
+      setActionError("Не удалось проверить просьбу. Попробуйте позже.");
     } finally {
       actionLock.current = false;
       setActionBusy(false);
     }
   }
-  function startSwipe(event, player) {
-    if (
-      event.touches.length !== 1 ||
-      event.target.closest("button, input, select, a")
-    )
-      return;
-    touch.current = {
-      player,
-      x: event.touches[0].clientX,
-      y: event.touches[0].clientY,
-    };
-  }
-  function endSwipe(event) {
-    const start = touch.current;
-    touch.current = null;
-    if (!start || event.changedTouches.length !== 1) return;
-    const dx = event.changedTouches[0].clientX - start.x;
-    const dy = event.changedTouches[0].clientY - start.y;
-    if (Math.abs(dx) < 80 || Math.abs(dx) <= Math.abs(dy) * 1.3) return;
+  function closeMenu() {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setMenu(null);
+      setMenuClosing(false);
+    } else setMenuClosing(true);
+    setAction(null);
     setActionError("");
-    setAction({ player: start.player, kind: dx > 0 ? "remove" : "favorite" });
+  }
+  function openMenu(event, player) {
+    if (event.target.closest("button, input, select, a, [role=dialog]")) return;
+    if (menu?.playerId === player.playerId) {
+      closeMenu();
+      return;
+    }
+    setAction(null);
+    setActionError("");
+    setMenuClosing(false);
+    setMenu({ playerId: player.playerId, anchor: event.currentTarget });
   }
   const items = selectFriends(state.items, {
     search,
@@ -365,15 +328,19 @@ export function FriendsSection({
         onQueueFocusHandled?.("friend");
       }
     } else if (queueFocus.kind === "buddy") {
-      if (buddyFocusRef.current) {
-        buddyFocusRef.current.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-        onQueueFocusHandled?.("buddy");
-      }
+      setFilter(hasBuddy ? "buddy" : "all");
+      setSort(hasBuddy ? "priority" : "name");
+      setPage(0);
+      onQueueFocusHandled?.("buddy");
     }
-  }, [active, state.status, state.items, queueFocus, onQueueFocusHandled]);
+  }, [
+    active,
+    state.status,
+    state.items,
+    queueFocus,
+    onQueueFocusHandled,
+    hasBuddy,
+  ]);
   useEffect(() => {
     const playerId = friendFocusPending.current;
     if (
@@ -405,6 +372,7 @@ export function FriendsSection({
         <div className="friends-list" aria-busy="true" role="status">
           <span className="sr-only">Ждём список друзей</span>
           <Skeleton variant="control" />
+          <Skeleton variant="control" />
           <div className="friends-filters">
             <Skeleton variant="control" />
             <Skeleton variant="control" />
@@ -421,65 +389,6 @@ export function FriendsSection({
               Показываем сохранённый список друзей.
             </CardDescription>
           )}
-          {buddyFriends.length > 0 && (
-            <BaseCard>
-              <div className="friends-card-content">
-                <CardTitle>Buddy · {buddyFriends.length}</CardTitle>
-                {buddyFriends.map((playerId, index) => {
-                  const player = state.items.find(
-                    (item) => item.playerId === playerId,
-                  );
-                  return (
-                    <div className="friends-card-heading" key={playerId}>
-                      <CardDescription>
-                        {index + 1}.{" "}
-                        {player?.nickname ||
-                          (player?.username && `@${player.username}`) ||
-                          `Игрок №${playerId}`}
-                        {buddy?.activeFriendId === playerId &&
-                        buddy?.phase === "fighting"
-                          ? " · в рейде"
-                          : ""}
-                      </CardDescription>
-                      <div className="friends-identity">
-                        {[-1, 1].map((direction) => (
-                          <Button
-                            key={direction}
-                            size="sm"
-                            variant="secondary"
-                            disabled={
-                              actionBusy ||
-                              index + direction < 0 ||
-                              index + direction >= buddyFriends.length
-                            }
-                            aria-label={
-                              direction < 0
-                                ? "Повысить приоритет"
-                                : "Понизить приоритет"
-                            }
-                            onClick={() => {
-                              const ids = [...buddyFriends];
-                              [ids[index], ids[index + direction]] = [
-                                ids[index + direction],
-                                ids[index],
-                              ];
-                              void executeAction({
-                                kind: "order",
-                                player: { playerId },
-                                friendIds: ids,
-                              });
-                            }}
-                          >
-                            {direction < 0 ? "↑" : "↓"}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </BaseCard>
-          )}
           {automation?.friendRemoval?.pending &&
             !state.items.some(
               (player) =>
@@ -489,204 +398,71 @@ export function FriendsSection({
                 Проверяем удаление друга.
               </CardDescription>
             )}
-          {(buddyFriends.length > 0 || automation?.buddyHelp?.hasPending) && (
+          {automation?.buddyHelp?.hasPending && (
             <BaseCard>
-              <div className="friends-card-content" ref={buddyFocusRef}>
-                <CardTitle>Помощь Buddy</CardTitle>
-                <CardDescription>
-                  Рейды включены для выбранных друзей. Предметы отправляются
-                  только сверх резерва.
-                </CardDescription>
-                <NumberField
-                  id="buddy-booster-reserve"
-                  label="Резерв полных препаратов"
-                  min="0"
-                  max="10000"
-                  value={reserve}
-                  onChange={(event) => setReserve(event.target.value)}
-                  spacing="none"
-                />
-                <NumberField
-                  id="buddy-stash-reserve"
-                  label="Резерв каждого ингредиента"
-                  min="0"
-                  max="10000"
-                  value={stashReserve}
-                  onChange={(event) => setStashReserve(event.target.value)}
-                  spacing="none"
-                />
-                <div className="friends-actions">
-                  <Button
-                    size="sm"
-                    variant="toggle"
-                    aria-pressed={Boolean(
-                      automation?.buddyHelp?.boostersEnabled,
-                    )}
-                    disabled={actionBusy}
-                    onClick={() =>
-                      void configureBuddy(
-                        !automation?.buddyHelp?.boostersEnabled,
-                      )
-                    }
-                  >
-                    {automation?.buddyHelp?.boostersEnabled
-                      ? "Препараты включены"
-                      : "Включить препараты"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="toggle"
-                    aria-pressed={Boolean(automation?.buddyHelp?.stashEnabled)}
-                    disabled={actionBusy}
-                    onClick={() =>
-                      void configureBuddy(
-                        Boolean(automation?.buddyHelp?.boostersEnabled),
-                        !automation?.buddyHelp?.stashEnabled,
-                      )
-                    }
-                  >
-                    {automation?.buddyHelp?.stashEnabled
-                      ? "Заначки включены"
-                      : "Включить заначки"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={actionBusy}
-                    onClick={() =>
-                      void configureBuddy(
-                        Boolean(automation?.buddyHelp?.boostersEnabled),
-                      )
-                    }
-                  >
-                    Сохранить резерв
-                  </Button>
-                </div>
-                {automation?.buddyHelp?.hasPending && (
-                  <>
-                    <CardDescription>
-                      Результат отправки неизвестен. Проверьте его в игре. После
-                      снятия блокировки повтор препарата исключён; такой
-                      ингредиент этому другу больше автоматически не отправится.
-                    </CardDescription>
-                    {automation.buddyHelp.pendingBooster && (
-                      <CardDescription>
-                        Препарат ·{" "}
-                        {state.items.find(
-                          (friend) =>
-                            friend.playerId ===
-                            automation.buddyHelp.pendingBooster.playerId,
-                        )?.nickname ||
-                          `Игрок №${automation.buddyHelp.pendingBooster.playerId}`}
-                      </CardDescription>
-                    )}
-                    {automation.buddyHelp.pendingStash && (
-                      <CardDescription>
-                        Заначка ·{" "}
-                        {state.items.find(
-                          (friend) =>
-                            friend.playerId ===
-                            automation.buddyHelp.pendingStash.playerId,
-                        )?.nickname ||
-                          `Игрок №${automation.buddyHelp.pendingStash.playerId}`}{" "}
-                        · набор №{automation.buddyHelp.pendingStash.setId},
-                        ингредиент №
-                        {automation.buddyHelp.pendingStash.ingredientId}
-                      </CardDescription>
-                    )}
-                    {automation.buddyHelp.pendingBooster && (
-                      <Button
-                        size="sm"
-                        variant={
-                          resolveConfirm === "booster" ? "warning" : "secondary"
-                        }
-                        disabled={actionBusy}
-                        onClick={() => void resolveBuddy("booster")}
-                      >
-                        {resolveConfirm === "booster"
-                          ? "Подтвердить проверку препарата"
-                          : "Я проверил препарат"}
-                      </Button>
-                    )}
-                    {automation.buddyHelp.pendingStash && (
-                      <Button
-                        size="sm"
-                        variant={
-                          resolveConfirm === "stash" ? "warning" : "secondary"
-                        }
-                        disabled={actionBusy}
-                        onClick={() => void resolveBuddy("stash")}
-                      >
-                        {resolveConfirm === "stash"
-                          ? "Подтвердить проверку заначки"
-                          : "Я проверил заначку"}
-                      </Button>
-                    )}
-                  </>
-                )}
-                {automation?.buddyHelp?.notice && (
-                  <CardDescription role="status">
-                    {automation.buddyHelp.notice}
-                  </CardDescription>
-                )}
-                {settingsError && (
-                  <CardDescription role="alert">
-                    {settingsError}
-                  </CardDescription>
-                )}
-                {(buddy?.log?.length > 0 ||
-                  automation?.buddyHelp?.log?.length > 0) && (
-                  <>
-                    <CardTitle size="sm">Последние действия</CardTitle>
-                    {[
-                      ...(buddy?.log ?? []),
-                      ...(automation?.buddyHelp?.log ?? []),
-                    ]
-                      .sort((a, b) => b.at - a.at)
-                      .slice(0, 8)
-                      .map((item, index) => {
-                        const friend = state.items.find(
-                          (player) => player.playerId === item.playerId,
-                        );
-                        const name =
-                          friend?.nickname || friend?.username || "Друг";
-                        const type =
-                          item.type === "raid"
-                            ? "Рейд"
-                            : item.type === "stash"
-                              ? "Заначка"
-                              : "Препарат";
-                        const result =
-                          {
-                            joined: "вступили",
-                            finished: "бой завершён",
-                            uncertain: "нужна проверка",
-                            confirmed: "отправлено",
-                            resolved: "статус изменился",
-                            acknowledged:
-                              "результат неизвестен; проверено вручную",
-                          }[item.result] || "статус неизвестен";
-                        return (
-                          <CardDescription
-                            key={`${item.type}-${item.at}-${index}`}
-                          >
-                            {name} · {type} · {result}
-                          </CardDescription>
-                        );
-                      })}
-                  </>
-                )}
-              </div>
+              <CardDescription role="status">
+                Результат прежней отправки предмета не подтверждён. Проверьте
+                его в игре.
+              </CardDescription>
+              {automation.buddyHelp.pendingBooster && (
+                <Button
+                  size="sm"
+                  variant={
+                    resolveConfirm === "booster" ? "warning" : "secondary"
+                  }
+                  disabled={actionBusy}
+                  onClick={() => void resolveBuddy("booster")}
+                >
+                  {resolveConfirm === "booster"
+                    ? "Подтвердить проверку препарата"
+                    : "Я проверил препарат"}
+                </Button>
+              )}
+              {automation.buddyHelp.pendingStash && (
+                <Button
+                  size="sm"
+                  variant={resolveConfirm === "stash" ? "warning" : "secondary"}
+                  disabled={actionBusy}
+                  onClick={() => void resolveBuddy("stash")}
+                >
+                  {resolveConfirm === "stash"
+                    ? "Подтвердить проверку заначки"
+                    : "Я проверил заначку"}
+                </Button>
+              )}
+              {actionError && (
+                <CardDescription role="alert">{actionError}</CardDescription>
+              )}
             </BaseCard>
           )}
+          <FriendsRequests
+            active={active}
+            refreshGeneration={refreshGeneration}
+            automation={automation}
+            onAutomation={setAutomation}
+            onNotice={onNotice}
+          />
           <div className="friends-filter-scroll">
             <SegmentedControl
               label="Статус друзей"
               value={filter}
               onChange={(value) => {
                 setFilter(value);
+                if (value === "buddy" && filter !== "buddy")
+                  setSort("priority");
+                else if (value !== "buddy" && sort === "priority")
+                  setSort("name");
                 setPage(0);
               }}
               options={[
+                ...(hasBuddy
+                  ? [
+                      {
+                        value: "buddy",
+                        label: `Buddy · ${buddyFriends.length}`,
+                      },
+                    ]
+                  : []),
                 { value: "all", label: `Все · ${state.items.length}` },
                 { value: "online", label: `В сети · ${onlineCount}` },
                 { value: "offline", label: `Не в сети · ${offlineCount}` },
@@ -697,6 +473,7 @@ export function FriendsSection({
             <Input
               type="search"
               icon="search"
+              surface="card"
               aria-label="Найти друга"
               placeholder="Ник или @username"
               value={search}
@@ -705,15 +482,12 @@ export function FriendsSection({
                 setPage(0);
               }}
             />
-            <SelectField
-              id="friends-sort"
-              icon="sort"
-              aria-label="Сортировка"
-              spacing="none"
+            <MenuSelect
+              label="Сортировка"
               options={options}
               value={sort}
-              onChange={(event) => {
-                setSort(event.target.value);
+              onChange={(value) => {
+                setSort(value);
                 setPage(0);
               }}
             />
@@ -731,10 +505,23 @@ export function FriendsSection({
                 as="article"
                 padding="12"
                 key={player.playerId}
-                onTouchStart={(event) => startSwipe(event, player)}
-                onTouchEnd={endSwipe}
-                onTouchCancel={() => {
-                  touch.current = null;
+                state={
+                  menu?.playerId === player.playerId ? "menu-active" : undefined
+                }
+                role="button"
+                tabIndex={0}
+                aria-haspopup="dialog"
+                aria-expanded={menu?.playerId === player.playerId}
+                aria-label={`Действия: ${player.nickname || player.username || "Игрок"}`}
+                onClick={(event) => openMenu(event, player)}
+                onKeyDown={(event) => {
+                  if (
+                    event.target !== event.currentTarget ||
+                    !["Enter", " "].includes(event.key)
+                  )
+                    return;
+                  event.preventDefault();
+                  openMenu(event, player);
                 }}
               >
                 <div
@@ -775,18 +562,45 @@ export function FriendsSection({
                         <CardTitle>
                           {player.nickname || player.username || "Игрок"}
                         </CardTitle>
-                        {(player.username || player.level != null) && (
-                          <CardDescription>
-                            {[
-                              player.username && `@${player.username}`,
-                              player.level != null &&
-                                `Ур. ${format(player.level)}`,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </CardDescription>
+                        {player.username && (
+                          <CardDescription>@{player.username}</CardDescription>
                         )}
                       </div>
+                    </div>
+                    <div className="friends-statuses">
+                      {buddyFriends.includes(player.playerId) && (
+                        <Pill
+                          variant={
+                            buddy?.activeFriendId === player.playerId &&
+                            buddy?.phase === "fighting"
+                              ? "active"
+                              : "scheduled"
+                          }
+                          size="xs"
+                          dot={false}
+                        >
+                          <Icon
+                            type="heart-handshake"
+                            size="small"
+                            motion={
+                              buddy?.activeFriendId === player.playerId &&
+                              buddy?.phase === "fighting"
+                                ? "pulse"
+                                : undefined
+                            }
+                          />
+                          <span>
+                            Приоритет{" "}
+                            {buddyFriends.indexOf(player.playerId) + 1} ·{" "}
+                            {buddyStatus(buddy, player.playerId)}
+                          </span>
+                        </Pill>
+                      )}
+                      {player.level != null && (
+                        <Pill size="xs" dot={false}>
+                          {format(player.level)} ур.
+                        </Pill>
+                      )}
                     </div>
                   </div>
                   <div className="friends-stats">
@@ -805,58 +619,92 @@ export function FriendsSection({
                       </CardDescription>
                     ))}
                   </div>
-                  {buddyFriends.includes(player.playerId) && (
-                    <CardDescription>
-                      Buddy · приоритет{" "}
-                      {buddyFriends.indexOf(player.playerId) + 1}
-                      {buddy?.activeFriendId === player.playerId &&
-                      buddy?.phase === "fighting"
-                        ? " · в рейде"
-                        : buddy?.activeFriendId === player.playerId &&
-                            buddy?.phase === "confirming"
-                          ? " · нужна проверка"
-                          : buddy?.activeFriendId === player.playerId &&
-                              buddy?.phase === "joining"
-                            ? " · вступает в рейд"
-                            : " · ожидает"}
+                  {action?.player.playerId === player.playerId &&
+                    actionError && (
+                      <CardDescription role="alert">
+                        {actionError}
+                      </CardDescription>
+                    )}
+                  {automation?.friendRemoval?.pending?.playerId ===
+                    player.playerId && (
+                    <CardDescription role="status">
+                      Проверяем удаление.
                     </CardDescription>
                   )}
-                  <div className="friends-actions">
+                </div>
+                {menu?.playerId === player.playerId && (
+                  <CardActionMenu
+                    anchor={menu.anchor}
+                    preferFit
+                    label={`Действия: ${player.nickname || player.username || "Игрок"}`}
+                    onClose={closeMenu}
+                    closing={menuClosing}
+                    onClosed={() => {
+                      setMenu(null);
+                      setMenuClosing(false);
+                    }}
+                  >
                     <Button
-                      size="sm"
-                      icon="group"
+                      variant="menu-item"
+                      icon="heart-handshake"
+                      menuValue={
+                        buddyFriends.includes(player.playerId)
+                          ? buddyStatus(buddy, player.playerId)
+                          : "Выключен"
+                      }
                       disabled={actionBusy || !automation}
-                      aria-pressed={buddyFriends.includes(player.playerId)}
                       onClick={() =>
                         void executeAction({ player, kind: "buddy" })
                       }
                     >
                       {buddyFriends.includes(player.playerId)
-                        ? "Buddy включён"
+                        ? "Выключить Buddy"
                         : "Включить Buddy"}
                     </Button>
+                    {buddyFriends.includes(player.playerId) &&
+                      buddyFriends.length > 1 &&
+                      [
+                        ["arrow-up", "Повысить приоритет", -1],
+                        ["arrow-down", "Понизить приоритет", 1],
+                      ].map(([icon, label, direction]) => (
+                        <Button
+                          key={icon}
+                          variant="menu-item"
+                          icon={icon}
+                          disabled={
+                            actionBusy ||
+                            buddyFriends.indexOf(player.playerId) + direction <
+                              0 ||
+                            buddyFriends.indexOf(player.playerId) + direction >=
+                              buddyFriends.length
+                          }
+                          onClick={() => {
+                            const ids = [...buddyFriends];
+                            const index = ids.indexOf(player.playerId);
+                            [ids[index], ids[index + direction]] = [
+                              ids[index + direction],
+                              ids[index],
+                            ];
+                            void executeAction({
+                              player,
+                              kind: "order",
+                              friendIds: ids,
+                            });
+                          }}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    <Divider menu />
                     <Button
-                      size="sm"
-                      icon="star"
-                      disabled={actionBusy || !automation}
-                      aria-pressed={favorites.includes(player.playerId)}
-                      onClick={() =>
-                        void executeAction({ player, kind: "favorite" })
-                      }
-                    >
-                      {favorites.includes(player.playerId)
-                        ? "В избранном"
-                        : "В избранное"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      icon="close"
-                      variant={
+                      variant="menu-item"
+                      tone={
                         action?.kind === "remove" &&
                         action.player.playerId === player.playerId
                           ? "warning"
-                          : "secondary"
+                          : undefined
                       }
+                      icon="close"
                       disabled={actionBusy || !automation}
                       onClick={() => {
                         if (
@@ -872,75 +720,11 @@ export function FriendsSection({
                     >
                       {action?.kind === "remove" &&
                       action.player.playerId === player.playerId
-                        ? "Подтвердить"
-                        : "Удалить"}
+                        ? "Подтвердить удаление"
+                        : "Удалить из друзей"}
                     </Button>
-                  </div>
-                  {buddyFriends.includes(player.playerId) &&
-                    buddyFriends.length > 1 && (
-                      <div className="friends-actions">
-                        <Button
-                          size="sm"
-                          icon="arrow-up"
-                          disabled={
-                            actionBusy ||
-                            buddyFriends.indexOf(player.playerId) === 0
-                          }
-                          onClick={() => {
-                            const ids = [...buddyFriends];
-                            const index = ids.indexOf(player.playerId);
-                            [ids[index - 1], ids[index]] = [
-                              ids[index],
-                              ids[index - 1],
-                            ];
-                            void executeAction({
-                              player,
-                              kind: "order",
-                              friendIds: ids,
-                            });
-                          }}
-                        >
-                          Выше
-                        </Button>
-                        <Button
-                          size="sm"
-                          icon="arrow-down"
-                          disabled={
-                            actionBusy ||
-                            buddyFriends.indexOf(player.playerId) ===
-                              buddyFriends.length - 1
-                          }
-                          onClick={() => {
-                            const ids = [...buddyFriends];
-                            const index = ids.indexOf(player.playerId);
-                            [ids[index + 1], ids[index]] = [
-                              ids[index],
-                              ids[index + 1],
-                            ];
-                            void executeAction({
-                              player,
-                              kind: "order",
-                              friendIds: ids,
-                            });
-                          }}
-                        >
-                          Ниже
-                        </Button>
-                      </div>
-                    )}
-                  {action?.player.playerId === player.playerId &&
-                    actionError && (
-                      <CardDescription role="alert">
-                        {actionError}
-                      </CardDescription>
-                    )}
-                  {automation?.friendRemoval?.pending?.playerId ===
-                    player.playerId && (
-                    <CardDescription role="status">
-                      Проверяем удаление.
-                    </CardDescription>
-                  )}
-                </div>
+                  </CardActionMenu>
+                )}
               </BaseCard>
             ))}
           </div>

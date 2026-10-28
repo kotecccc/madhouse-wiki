@@ -1,29 +1,14 @@
 .mobile-navigation {
-  display: none;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  container-type: inline-size;
 }
 
 .mobile-navigation-items {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: var(--space-4);
-}
-
-@media (max-width: 650px) {
-  .mobile-navigation {
-    display: block;
-    flex: 1 1 auto;
-    min-width: 0;
-    container-type: inline-size;
-  }
-}
-
-.desktop-navigation {
-  margin-block: var(--space-16);
-}
-@media (max-width: 650px) {
-  .desktop-navigation {
-    display: none;
-  }
 }
 
 .mobile-navigation-count {

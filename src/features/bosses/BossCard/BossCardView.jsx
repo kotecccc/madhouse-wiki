@@ -10,6 +10,11 @@ import {
 import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { BossStatus } from "./BossStatus.jsx";
 import { BossBattleStatus } from "./BossBattleStatus.jsx";
+import {
+  activeBattleForBoss,
+  bossHealthPercent,
+} from "./boss-card-battle-status.js";
+import { bossBattle } from "../BossBattle/boss-battle-session.js";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { bossDisplayFields } from "../../../lib/card-display-fields.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
@@ -89,6 +94,8 @@ export function BossCardView({
   as = "article",
   variant,
   cardState,
+  motionBorder,
+  motionColor,
   titleAs = "strong",
   title = boss.name,
   className = "",
@@ -129,9 +136,11 @@ export function BossCardView({
   showAvailability = false,
   showBattleStatus = false,
   collectionIndicator,
+  menuDropCount,
   currencyRewardUnavailable = false,
   status = "unknown",
   raid,
+  disableMenu = false,
 }) {
   const cardRef = useRef(null);
   const editing = useContext(CardEditingContext);
@@ -139,6 +148,7 @@ export function BossCardView({
   const [menuClosing, setMenuClosing] = useState(false);
   const customMenuAction = isValidElement(action) && action.type === Button;
   const menuEnabled =
+    !disableMenu &&
     !onSelectPart &&
     !editing &&
     (!action || customMenuAction) &&
@@ -160,6 +170,15 @@ export function BossCardView({
     subscribeSession,
     () => readSession().status === "ready",
     () => false,
+  );
+  const activeBattle = useSyncExternalStore(
+    bossBattle.subscribe,
+    () =>
+      activeBattleForBoss(
+        bossBattle.getSnapshot(),
+        Number(boss.numericId ?? boss.apiId),
+      ),
+    () => null,
   );
   const { mobile, cardProps: mobileActionProps } = useMobileCardAction({
     enabled:
@@ -282,6 +301,8 @@ export function BossCardView({
       data-department-id={boss.departmentId}
       data-entity-id={boss.id}
       state={menuAnchor ? "menu-active" : cardState}
+      motionBorder={motionBorder}
+      motionColor={motionColor}
       padding={cardPadding}
       className={cardClass}
       tabIndex={onSelectPart ? 0 : undefined}
@@ -469,18 +490,24 @@ export function BossCardView({
         >
           {showBattleAction && sessionReady && (
             <MenuItem
-              icon="combat"
+              icon={activeBattle ? "eye" : "combat"}
+              value={
+                bossHealthPercent(activeBattle) == null
+                  ? undefined
+                  : `HP ${bossHealthPercent(activeBattle)}%`
+              }
               onClick={() => {
                 closeMenu();
                 openBossBattle(referenceBoss, openingRequirements);
               }}
             >
-              Бой
+              {activeBattle ? "Смотреть бой" : "Бой"}
             </MenuItem>
           )}
           {!customMenuAction && (action !== false || raid) && (
             <MenuItem
               icon="loot"
+              value={menuDropCount}
               onClick={() => {
                 closeMenu();
                 trackProductEvent("boss_details_open", {

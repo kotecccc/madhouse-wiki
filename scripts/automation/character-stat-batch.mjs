@@ -83,20 +83,25 @@ export function createCharacterStatBatch({
         const profile = await read();
         if (!allowed()) return;
         const part = run.items ? run.items[run.index] : run;
+        const amount = pending.amount ?? 1;
+        const charge = pending.balance - profile.wallet?.[pending.currency];
         if (
           part.stat !== pending.stat ||
           profile.characterStatsUpgrade?.resetAtUtc !== pending.resetAt ||
           profile.characterStatsUpgrade?.[pending.stat]?.dailyUsed !==
-            pending.dailyUsed + 1 ||
-          profile.characterStats?.[pending.stat]?.base !== pending.base + 1 ||
-          profile.wallet?.[pending.currency] !== pending.balance - pending.price
+            pending.dailyUsed + amount ||
+          profile.characterStats?.[pending.stat]?.base !==
+            pending.base + amount ||
+          !Number.isSafeInteger(charge) ||
+          charge < 0 ||
+          (amount === 1 ? charge !== pending.price : charge > pending.price)
         ) {
           wait("Проверяем результат улучшения.");
           return;
         }
-        run.completed++;
-        if (part !== run) part.completed++;
-        part.spent += pending.price;
+        run.completed += amount;
+        if (part !== run) part.completed += amount;
+        part.spent += charge;
         state.pending = null;
         run.phase = "ready";
         run.reason = run.status === "stopped" ? "Прокачка остановлена." : null;
@@ -117,7 +122,8 @@ export function createCharacterStatBatch({
       }
       const profile = await read();
       if (!allowed()) return;
-      const quote = characterUpgradeQuote(profile, part.stat, 1);
+      const amount = run.bulk ? part.target - part.completed : 1;
+      const quote = characterUpgradeQuote(profile, part.stat, amount);
       if (part.expected && part.completed === 0) {
         const current = characterUpgradeQuote(profile, part.stat, part.target);
         const fields = [
@@ -157,8 +163,8 @@ export function createCharacterStatBatch({
       }
       if (
         quote.currency !== part.currency ||
-        quote.nextCost > part.budget - part.spent ||
-        quote.balance < quote.nextCost
+        quote.maxPrice > part.budget - part.spent ||
+        quote.balance < quote.maxPrice
       ) {
         finish("stopped", "Недостаточно средств или достигнут лимит расходов.");
         return;
@@ -166,10 +172,10 @@ export function createCharacterStatBatch({
       const result = await step(
         quote,
         allowed,
-        (confirmed) => {
-          run.completed++;
-          if (part !== run) part.completed++;
-          part.spent += confirmed.nextCost;
+        (confirmed, charge = confirmed.nextCost) => {
+          run.completed += confirmed.amount;
+          if (part !== run) part.completed += confirmed.amount;
+          part.spent += charge;
         },
         run.id,
       );
@@ -235,7 +241,7 @@ export function createCharacterStatBatch({
   }
   return {
     running,
-    start({ stat, amount, quote, budget, queueId = null }) {
+    start({ stat, amount, quote, budget, queueId = null, bulk = false }) {
       if (
         disposed ||
         running() ||
@@ -255,6 +261,7 @@ export function createCharacterStatBatch({
         id: randomUUID(),
         queueId,
         stat,
+        ...(bulk && amount > 1 ? { bulk: true } : {}),
         target: amount,
         expected: structuredClone(quote),
         completed: 0,

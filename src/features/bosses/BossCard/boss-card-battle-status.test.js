@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeBattleForBoss } from "./boss-card-battle-status.js";
+import {
+  activeBattleForBoss,
+  bossHealthPercent,
+} from "./boss-card-battle-status.js";
 
 test("card battle status is scoped to its boss and active battle", () => {
   const battle = { id: "battle-1", status: "active" };
@@ -21,4 +24,11 @@ test("terminal battle states never produce the active card indicator", () => {
       null,
     );
   }
+});
+
+test("boss health percentage uses current battle health and handles missing data", () => {
+  assert.equal(bossHealthPercent({ bossHealth: 725, bossMaxHealth: 1000 }), 72);
+  assert.equal(bossHealthPercent({ bossHealth: 110, bossMaxHealth: 100 }), 100);
+  assert.equal(bossHealthPercent({ bossHealth: 0, bossMaxHealth: 0 }), null);
+  assert.equal(bossHealthPercent(null), null);
 });

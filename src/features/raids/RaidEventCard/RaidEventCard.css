@@ -30,3 +30,8 @@
     max-width: 160px;
   }
 }
+
+.raid-lock-spacing {
+  display: inline-flex;
+  padding-right: var(--space-4);
+}

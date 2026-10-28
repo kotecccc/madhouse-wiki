@@ -3,6 +3,7 @@ import {
   getBossCollectibleDrops,
   getCollectionRequests,
   summarizeBossCollection,
+  summarizeBossOwnedDrops,
 } from "../../src/features/bosses/collection/boss-collection.js";
 
 const GAME_ORIGIN = "https://cargohustle.online";
@@ -123,6 +124,7 @@ export function createBossCardsHttp({
         bosses: bosses.map((boss) => ({
           ...boss,
           collection: summarizeBossCollection(boss, responses),
+          ownedDrops: summarizeBossOwnedDrops(boss, responses),
         })),
         gameHealth: snapshots.health(credential),
       });

@@ -10,6 +10,8 @@ export function CardActionMenu({
   closing,
   onClosed,
   preferFit = false,
+  scrollable = false,
+  fullWidth = false,
   children,
 }) {
   const menu = useRef(null);
@@ -109,7 +111,7 @@ export function CardActionMenu({
     <BaseCard
       ref={menu}
       variant="glass-menu"
-      className="card-action-menu"
+      className={`card-action-menu${scrollable ? " card-action-menu--scrollable" : ""}${fullWidth ? " card-action-menu--full-width" : ""}`}
       role="dialog"
       tabIndex={-1}
       data-motion={closing ? "closing" : "opening"}

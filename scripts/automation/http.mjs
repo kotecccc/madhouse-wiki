@@ -19,6 +19,7 @@ export function createAutomationHttp({
         "/api/automation/commands",
         "/api/automation/launch",
         "/api/automation/friends",
+        "/api/automation/friends/refresh",
       ].includes(url.pathname) ||
       url.search
     )
@@ -73,9 +74,14 @@ export function createAutomationHttp({
           ? url.pathname.endsWith("/friends")
             ? service.friends(entry, request.headers.get("authorization"))
             : service.snapshot(entry)
-          : url.pathname.endsWith("/launch")
-            ? await service.launch(entry, input?.activeBossBattle)
-            : await service.command(entry, input),
+          : url.pathname.endsWith("/friends/refresh")
+            ? await service.refreshFriends(
+                entry,
+                request.headers.get("authorization"),
+              )
+            : url.pathname.endsWith("/launch")
+              ? await service.launch(entry, input?.activeBossBattle)
+              : await service.command(entry, input),
       );
     } catch (error) {
       const status =

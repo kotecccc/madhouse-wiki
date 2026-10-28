@@ -157,3 +157,40 @@ test("stopping Buddy cancels pending additions and disables existing friends", a
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("direct Buddy change cancels an older queued change for the same friend", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "buddy-direct-"));
+  const store = createAutomationStateStore({ directory });
+  const service = createAutomationService({
+    store,
+    fetcher: async () => {
+      throw new Error("offline");
+    },
+    identifyPlayer: async () => ({ playerId: 17 }),
+    getBoss: (id) => ({ numericId: id }),
+  });
+  try {
+    const entry = await service.identify("Bearer fake-token");
+    entry.raidSubscription.setBuddyFriends([7]);
+    await service.command(entry, {
+      id: "buddy-queue-02",
+      command: "queue.enqueue",
+      expectedVersion: 0,
+      args: { type: "friend.buddy", action: { playerId: 7, enabled: true } },
+    });
+    await service.command(entry, {
+      id: "buddy-direct-02",
+      command: "buddy.set",
+      expectedVersion: service.snapshot(entry).version,
+      args: { playerId: 7, enabled: false },
+    });
+    const snapshot = service.snapshot(entry);
+    assert.deepEqual(snapshot.buddy.friendIds, []);
+    assert.equal(snapshot.queuedActions.length, 1);
+    assert.equal(snapshot.queuedActions[0].status, "cancelled");
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -156,7 +156,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       );
     assert.match(renderFriendAction("none"), /Добавить ведущего в друзья/);
     assert.match(renderFriendAction("pending"), /Заявка отправлена/);
-    assert.match(renderFriendAction("friend"), /В друзьях/);
+    assert.doesNotMatch(renderFriendAction("friend"), /В друзьях/);
     assert.doesNotMatch(
       renderFriendAction("friend"),
       /Добавить ведущего в друзья/,

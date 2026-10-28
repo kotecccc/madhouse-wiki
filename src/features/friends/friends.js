@@ -76,6 +76,8 @@ export function selectFriends(
   const name = (friend) =>
     friend.nickname || friend.username || `Игрок №${friend.playerId}`;
   const selected = friends.filter((friend) => {
+    if (filter === "buddy" && !buddyFriends.includes(friend.playerId))
+      return false;
     if (filter === "online" && friend.isOnline !== true) return false;
     if (filter === "offline" && friend.isOnline !== false) return false;
     return (
@@ -86,11 +88,25 @@ export function selectFriends(
     );
   });
   return selected.sort((a, b) => {
-    if (sort === "buddy") {
-      const aRank = buddyFriends.indexOf(a.playerId);
-      const bRank = buddyFriends.indexOf(b.playerId);
-      if (aRank !== bRank)
-        return (aRank < 0 ? Infinity : aRank) - (bRank < 0 ? Infinity : bRank);
+    if (sort === "priority") {
+      const left = buddyFriends.indexOf(a.playerId);
+      const right = buddyFriends.indexOf(b.playerId);
+      const leftRank = left < 0 ? Infinity : left;
+      const rightRank = right < 0 ? Infinity : right;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+    } else if (sort === "online") {
+      const rank = (friend) =>
+        friend.isOnline === true ? 0 : friend.isOnline === false ? 1 : 2;
+      const difference = rank(a) - rank(b);
+      if (difference) return difference;
+      if (a.lastSeenAt == null && b.lastSeenAt != null) return 1;
+      if (b.lastSeenAt == null && a.lastSeenAt != null) return -1;
+      if (
+        a.lastSeenAt != null &&
+        b.lastSeenAt != null &&
+        a.lastSeenAt !== b.lastSeenAt
+      )
+        return b.lastSeenAt - a.lastSeenAt;
     } else if (sort !== "name") {
       const left = a[sort],
         right = b[sort];

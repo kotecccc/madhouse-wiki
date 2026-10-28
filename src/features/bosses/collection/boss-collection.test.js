@@ -4,6 +4,7 @@ import {
   getBossCollectibleDrops,
   getCollectionRequests,
   summarizeBossCollection,
+  summarizeBossOwnedDrops,
 } from "./boss-collection.js";
 
 test("collectible extraction whitelists collectible types and deduplicates by type and ID", () => {
@@ -199,5 +200,34 @@ test("missing collectible identities prevent a false complete collection", () =>
     collected: 1,
     known: 1,
     complete: false,
+  });
+});
+
+test("owned drop count excludes materials and does not treat an unlock as ownership", () => {
+  const boss = {
+    possibleDrops: [
+      { type: "weapon", itemId: 7, mode: "grant" },
+      { type: "room", itemId: 9, mode: "unlock_for_purchase" },
+      { type: "mutagen", itemId: 10 },
+      { type: "activity_item", itemId: 11 },
+    ],
+  };
+  const responses = {
+    "/api/clothing/by-category/1": {
+      items: [{ id: 7, kind: "weapon", owned: true }],
+    },
+    "/api/rooms": {
+      catalog: { rooms: [{ id: 9, unlocked: true, owned: false }] },
+    },
+  };
+  assert.deepEqual(summarizeBossOwnedDrops(boss, responses), {
+    total: 2,
+    owned: 1,
+    known: 2,
+  });
+  assert.deepEqual(summarizeBossOwnedDrops(boss, {}), {
+    total: 2,
+    owned: 0,
+    known: 0,
   });
 });

@@ -63,6 +63,7 @@
   display: grid;
   place-items: center;
   flex: 0 0 auto;
+  margin-inline-end: var(--space-4);
   transition: transform 0.18s ease;
 }
 
@@ -82,24 +83,6 @@
 
 .login-control {
   position: relative;
-}
-
-.profile-session {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + var(--space-8));
-  right: 0;
-  width: min(240px, calc(100vw - var(--space-32)));
-  display: grid;
-  gap: var(--card-content-gap);
-}
-
-.profile-session p {
-  margin: 0;
-}
-
-.profile-session-expiry span {
-  display: block;
 }
 
 .login-modal-actions {

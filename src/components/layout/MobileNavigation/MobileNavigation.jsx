@@ -8,7 +8,7 @@ const screens = [
   { id: "queue", label: "Очередь", icon: "robot" },
   { id: "raids", label: "Рейды", icon: "boss" },
   { id: "overview", label: "Главная", icon: "character" },
-  { id: "friends", label: "Друзья", icon: "character" },
+  { id: "friends", label: "Друзья", icon: "group" },
   { id: "inventory", label: "Инвентарь", icon: "loot" },
 ];
 
@@ -16,14 +16,10 @@ export function MobileNavigation({
   activeScreen,
   onScreenChange,
   authenticated = false,
-  desktop = false,
   inventoryCount = 0,
 }) {
   return (
-    <BaseCard
-      variant="glass-nav"
-      className={desktop ? "desktop-navigation" : "mobile-navigation"}
-    >
+    <BaseCard variant="glass-nav" className="mobile-navigation">
       <nav className="mobile-navigation-items" aria-label="Разделы Wiki">
         {screens
           .filter(

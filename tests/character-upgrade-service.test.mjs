@@ -147,7 +147,7 @@ test("character action is account scoped, checkpointed, and never replayed after
   }
 });
 
-test("server executes a batch with an idle battle, fresh prices and a spending limit", async () => {
+test("server executes MAX as one bounded multi-point request", async () => {
   const directory = mkdtempSync(join(tmpdir(), "character-batch-"));
   const store = createAutomationStateStore({ directory });
   const profile = {
@@ -174,10 +174,10 @@ test("server executes a batch with an idle battle, fresh prices and a spending l
     if (path === "/api/character-stats/upgrade") {
       const body = JSON.parse(init.body);
       posts.push(body);
-      profile.wallet.gold -= profile.characterStatsUpgrade.madness.nextCost;
-      profile.characterStats.madness.base++;
-      profile.characterStatsUpgrade.madness.dailyUsed++;
-      profile.characterStatsUpgrade.madness.dailyRemaining--;
+      profile.wallet.gold -= 2500;
+      profile.characterStats.madness.base += body.amount;
+      profile.characterStatsUpgrade.madness.dailyUsed += body.amount;
+      profile.characterStatsUpgrade.madness.dailyRemaining -= body.amount;
       profile.characterStatsUpgrade.madness.nextCost = 1000;
       profile.characterStatsUpgrade.madness.costPerPoint = 1000;
       return Response.json({
@@ -233,9 +233,9 @@ test("server executes a batch with an idle battle, fresh prices and a spending l
     assert.equal(current.run.status, "completed");
     assert.equal(current.run.completed, 3);
     assert.equal(current.run.spent, 2500);
-    assert.equal(posts.length, 3);
-    assert.ok(posts.every((p) => p.amount === 1 && p.stat === "madness"));
-    assert.equal(new Set(posts.map((p) => p.operationId)).size, 3);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].amount, 3);
+    assert.equal(posts[0].stat, "madness");
   } finally {
     service.close();
     store.close();

@@ -9,8 +9,7 @@ import {
   peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { floorAutomation } from "../../bosses/BossBattle/boss-battle-session.js";
+import { useEffect, useRef, useState } from "react";
 import {
   readSession,
   authorizeRequest,
@@ -21,8 +20,8 @@ import {
 } from "../../../../shared/auth-session.js";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { CardActionMenu } from "../../../components/ui/CardActionMenu/CardActionMenu.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
-import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -61,15 +60,9 @@ function shouldRestoreTelegramSession() {
 }
 
 export function LoginControl() {
-  const floor = useSyncExternalStore(
-    floorAutomation.subscribe,
-    floorAutomation.getSnapshot,
-    floorAutomation.getSnapshot,
-  );
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
-  const [queueNotice, setQueueNotice] = useState(false);
-  const [buddyCount, setBuddyCount] = useState(0);
+  const [menuClosing, setMenuClosing] = useState(false);
   const [loginMethod, setLoginMethod] = useState("choose");
   const [token, setToken] = useState("");
   const [tokenHelpDevice, setTokenHelpDevice] = useState("computer");
@@ -86,59 +79,10 @@ export function LoginControl() {
     const cached = peekSessionJson("/api/me", { allowStale: true });
     return cached ? normalizePlayerProfile(cached) : null;
   });
-  const controlRef = useRef(null);
+  const profileRef = useRef(null);
   const refreshProfileRef = useRef(() => {});
   const progressAttempts = useRef(new Set());
   const authenticated = session.status === "ready";
-  useEffect(() => {
-    let cancelled = false;
-    let generation = 0;
-    const loadBuddy = async () => {
-      const current = ++generation;
-      if (readSession().status !== "ready") {
-        setBuddyCount(0);
-        return;
-      }
-      try {
-        const value = await getSessionJson("/api/automation/state", {
-          fresh: true,
-          revalidate: false,
-        });
-        if (!cancelled && current === generation)
-          setBuddyCount(
-            value.buddy?.mode === "buddy" && value.buddy.enabled
-              ? (value.buddy.friendIds?.length ?? 0)
-              : 0,
-          );
-      } catch {
-        if (!cancelled && current === generation) setBuddyCount(0);
-      }
-    };
-    const unsubscribe = subscribeSession(() => {
-      setBuddyCount(0);
-      void loadBuddy();
-    });
-    const unsubscribeData = subscribeSessionData((event) => {
-      if (event.cleared) setBuddyCount(0);
-      else if (event.path === "/api/automation/state") {
-        const buddy = event.data?.buddy;
-        setBuddyCount(
-          buddy?.mode === "buddy" && buddy.enabled
-            ? (buddy.friendIds?.length ?? 0)
-            : 0,
-        );
-      }
-    });
-    void loadBuddy();
-    const timer = window.setInterval(loadBuddy, 10000);
-    return () => {
-      cancelled = true;
-      generation++;
-      window.clearInterval(timer);
-      unsubscribe();
-      unsubscribeData();
-    };
-  }, []);
   useEffect(() => {
     const changed = (event) => {
       if (
@@ -154,24 +98,6 @@ export function LoginControl() {
     window.addEventListener("storage", changed);
     return () => window.removeEventListener("storage", changed);
   }, []);
-  useEffect(() => {
-    if (!open || !authenticated) return;
-    const outside = (event) => {
-      if (!controlRef.current?.contains(event.target)) setOpen(false);
-    };
-    const escape = (event) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        controlRef.current?.querySelector("button")?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open, authenticated]);
   useEffect(() => {
     let controller;
     const sessionIdentity = () => {
@@ -274,6 +200,7 @@ export function LoginControl() {
   }, []);
   const close = () => {
     setOpen(false);
+    setMenuClosing(false);
     setToken("");
     setError("");
     setConnectionOpen(false);
@@ -332,7 +259,7 @@ export function LoginControl() {
   };
   return (
     <>
-      <div className="login-control" ref={controlRef}>
+      <div className="login-control">
         {restoring && !profile ? (
           <div role="status" aria-label="Загружаем профиль" aria-busy="true">
             <Skeleton variant="profile" />
@@ -340,16 +267,15 @@ export function LoginControl() {
         ) : activeProfile ? (
           <BaseCard
             as="button"
+            ref={profileRef}
             type="button"
             padding="4"
             className="profile-control"
             aria-label={`Профиль: ${activeProfile.name}`}
             aria-expanded={authenticated ? open : undefined}
-            aria-controls={
-              authenticated && open ? "profile-session" : undefined
-            }
             onClick={() => {
               if (authenticated && !open) refreshProfileRef.current();
+              setMenuClosing(false);
               setOpen((value) => !value);
             }}
           >
@@ -391,95 +317,28 @@ export function LoginControl() {
           </Button>
         )}
         {open && authenticated && (
-          <BaseCard
-            variant="popover"
-            className="profile-session"
-            id="profile-session"
-            role="region"
-            aria-label="Сеанс пользователя"
+          <CardActionMenu
+            anchor={profileRef.current}
+            label="Сеанс пользователя"
+            closing={menuClosing}
+            fullWidth
+            onClose={() => {
+              if (
+                window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+              ) {
+                setOpen(false);
+                setMenuClosing(false);
+              } else setMenuClosing(true);
+            }}
+            onClosed={() => {
+              setOpen(false);
+              setMenuClosing(false);
+            }}
           >
-            {buddyCount > 0 && (
-              <>
-                <CardTitle size="xs">Buddy активен · {buddyCount}</CardTitle>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    window.location.hash = "friends";
-                    setOpen(false);
-                  }}
-                >
-                  Открыть друзей
-                </Button>
-              </>
-            )}
-            <CardTitle size="xs">Автопрокачка</CardTitle>
-            <CardDescription size="xs">
-              {floor.status === "running"
-                ? floor.target
-                  ? `Цель: ${floor.target.destination} · ${floor.target.kind === "work" ? "работа" : floor.target.kind === "boss" ? "босс" : "бизнес"}`
-                  : "Ищем следующую цель"
-                : floor.queuedId
-                  ? "Запускается"
-                  : floor.status === "paused"
-                    ? "Приостановлена"
-                    : "Остановлена"}
-            </CardDescription>
-            <CardDescription size="xs">
-              Ожидание энергии, рейды и собственные бои, улучшение бизнеса.
-            </CardDescription>
-            {floor.reason && (
-              <CardDescription size="xs">{floor.reason}</CardDescription>
-            )}
-            {floor.error && (
-              <CardDescription size="xs" role="alert">
-                {floor.error}
-              </CardDescription>
-            )}
-            <Button
-              variant="secondary"
-              disabled={
-                !floor.loaded || (floor.pending && floor.status !== "running")
-              }
-              onClick={() => {
-                if (
-                  floor.queuedId ||
-                  floor.status === "running" ||
-                  floor.phase === "launching"
-                ) {
-                  void floorAutomation.stop();
-                } else {
-                  void floorAutomation.start().then((ok) => {
-                    if (ok) setQueueNotice(true);
-                  });
-                }
-              }}
-            >
-              {floor.queuedId ||
-              floor.status === "running" ||
-              floor.phase === "launching"
-                ? "Остановить"
-                : "Запустить"}
-            </Button>
-            <CardDescription className="profile-session-expiry">
-              {label.split(" • ").map((line) => (
-                <span key={line}>{line}</span>
-              ))}
-            </CardDescription>
-            <ErrorToast message={error} />
-            {queueNotice && (
-              <Toast
-                floating
-                success
-                title="В очереди"
-                onDismiss={() => setQueueNotice(false)}
-              >
-                Автопрокачка добавлена в очередь.
-              </Toast>
-            )}
-            <Button variant="secondary" onClick={logout}>
+            <Button variant="menu-item" icon="door" onClick={logout}>
               Выйти
             </Button>
-          </BaseCard>
+          </CardActionMenu>
         )}
       </div>
       {!authenticated && !connectionOpen && <ErrorToast message={error} />}

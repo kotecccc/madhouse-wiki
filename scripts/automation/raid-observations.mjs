@@ -70,6 +70,7 @@ export function detectedRaids(observations, invitations, now) {
         sender: item.sender,
         ...(item.leaderUsername ? { leaderUsername: item.leaderUsername } : {}),
         count: counts.get(key),
+        windowMs: WINDOW_MS,
       });
   }
   return [...detected.values()];

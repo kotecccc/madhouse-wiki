@@ -224,22 +224,12 @@ export function BossBattleDialog() {
                 : bossBattle.configureHealing(settings)
             }
           />
-          {state.medicineOpen ? (
+          {state.medicineOpen && (
             <BossMedicinePanel
               state={state}
               now={Math.max(now, Date.now())}
               onClose={() => bossBattle.closeMedicines()}
             />
-          ) : (
-            showBattleDetails && (
-              <Button
-                icon="medical-cross"
-                disabled={Boolean(state.pending)}
-                onClick={() => void bossBattle.openMedicines()}
-              >
-                Аптечки
-              </Button>
-            )
           )}
         </div>
       </div>

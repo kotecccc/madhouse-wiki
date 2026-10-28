@@ -103,6 +103,7 @@ export function createRaidSubscription({
       bossName,
       leaderUsername,
       queueId = null,
+      dropKeys = [],
     }) {
       if (
         value.enabled ||
@@ -115,6 +116,8 @@ export function createRaidSubscription({
       commit({
         enabled: true,
         mode: "subscription",
+        dropKeys: [...dropKeys],
+        dropCompleted: false,
         phase: "monitoring",
         leaderPlayerId: positive(leaderPlayerId) ? leaderPlayerId : null,
         bossId,
@@ -386,9 +389,17 @@ export function createRaidSubscription({
             await fight(value);
             return;
           }
-          if (current !== "finished") return;
+          if (current !== "finished" && current !== "finished_drop") return;
           commit({
-            phase: value.enabled ? "waiting" : "restoring",
+            ...(current === "finished_drop"
+              ? { enabled: false, dropCompleted: true }
+              : {}),
+            phase:
+              current === "finished_drop"
+                ? "restoring"
+                : value.enabled
+                  ? "waiting"
+                  : "restoring",
             ...(value.mode === "buddy" ? { log: eventLog("finished") } : {}),
           });
         }

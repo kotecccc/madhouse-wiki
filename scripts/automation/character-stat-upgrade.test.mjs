@@ -162,3 +162,64 @@ test("a changed quote or a failed durable save never dispatches", async () => {
   );
   assert.equal(posts, 0);
 });
+
+test("multi-point request is checkpointed and confirms the actual bounded charge", async () => {
+  const before = profile();
+  before.wallet.gold = 10000;
+  const quote = characterUpgradeQuote(before, "madness", 3);
+  const state = {};
+  let confirmed;
+  const result = await upgradeCharacterPoint({
+    state,
+    stat: "madness",
+    expected: quote,
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => true,
+    onConfirmed: (q, charge) => {
+      confirmed = { amount: q.amount, charge };
+    },
+    post: async (body) => {
+      assert.equal(body.amount, 3);
+      assert.equal(state.pending.amount, 3);
+      return {
+        success: true,
+        balance: { gold: 7706 },
+        characterStats: { madness: { base: 15 } },
+        characterStatsUpgrade: {
+          resetAtUtc: before.characterStatsUpgrade.resetAtUtc,
+          madness: { dailyUsed: 3 },
+        },
+      };
+    },
+  });
+  assert.equal(result.status, "confirmed");
+  assert.deepEqual(confirmed, { amount: 3, charge: 2294 });
+  assert.equal(state.pending, null);
+});
+
+test("a lost multi-point response cannot be dispatched again", async () => {
+  const before = profile();
+  before.wallet.gold = 10000;
+  const state = {};
+  let posts = 0;
+  const args = {
+    state,
+    stat: "madness",
+    expected: characterUpgradeQuote(before, "madness", 3),
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => true,
+    post: async () => {
+      posts++;
+      throw new Error("timeout");
+    },
+  };
+  assert.equal((await upgradeCharacterPoint(args)).status, "uncertain");
+  assert.equal(state.pending.amount, 3);
+  await assert.rejects(
+    upgradeCharacterPoint(args),
+    /character_upgrade_uncertain/,
+  );
+  assert.equal(posts, 1);
+});

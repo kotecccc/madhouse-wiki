@@ -6,6 +6,7 @@ const variants = new Set([
   "text-tag",
   "primary",
   "secondary",
+  "field",
   "locked",
   "warning",
   "card-action",

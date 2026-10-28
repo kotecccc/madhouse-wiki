@@ -27,18 +27,20 @@ export function Disclosure({
   countLabel,
   description,
   size = "md",
+  separated = false,
   titleSize,
   descriptionSize,
   leading,
   status,
   defaultOpen = false,
+  footer,
   children,
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <BaseCard
       as="details"
-      className={`ui-disclosure${size === "sm" ? " ui-disclosure--sm" : ""}`}
+      className={`ui-disclosure${size === "sm" ? " ui-disclosure--sm" : ""}${separated ? " ui-disclosure--separated" : ""}`}
       padding={size === "sm" ? "12" : undefined}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
@@ -88,6 +90,7 @@ export function Disclosure({
         </span>
       </summary>
       {open && <div className="ui-disclosure-content">{children}</div>}
+      {open && footer && <div className="ui-disclosure-footer">{footer}</div>}
     </BaseCard>
   );
 }

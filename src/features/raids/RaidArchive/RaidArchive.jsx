@@ -80,6 +80,7 @@ function ArchivePages({ cursor, floorAvailability }) {
           key={post.sourceMessageId}
           post={post}
           archive
+          readOnly
           floorAvailability={floorAvailability}
         />
       ))}

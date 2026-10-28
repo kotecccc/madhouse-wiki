@@ -22,7 +22,7 @@ export function characterUpgradeRejection(reason) {
   );
 }
 
-// One point per operation: the next point is quoted again from a fresh profile.
+// Each operation is quoted again from a fresh profile before dispatch.
 // A pending operation is durable before dispatch and is never submitted again.
 export async function upgradeCharacterPoint({
   state,
@@ -38,7 +38,7 @@ export async function upgradeCharacterPoint({
 }) {
   if (state.pending) throw new Error("character_upgrade_uncertain");
   const profile = await getProfile();
-  const quote = characterUpgradeQuote(profile, stat, 1);
+  const quote = characterUpgradeQuote(profile, stat, expected?.amount ?? 1);
   if (
     !quote ||
     !expected ||
@@ -46,10 +46,12 @@ export async function upgradeCharacterPoint({
     quote.currency !== expected.currency ||
     quote.dailyUsed !== expected.dailyUsed ||
     quote.resetAt !== expected.resetAt ||
-    quote.base !== expected.base
+    quote.base !== expected.base ||
+    quote.amount !== expected.amount ||
+    quote.maxPrice !== expected.maxPrice
   )
     throw new Error("character_upgrade_quote_changed");
-  if (quote.balance < quote.nextCost)
+  if (quote.balance < quote.maxPrice)
     throw new Error("character_upgrade_insufficient_funds");
   if (!allowed()) throw new Error("character_upgrade_cancelled");
   const id = operationId();
@@ -66,7 +68,8 @@ export async function upgradeCharacterPoint({
     resetAt: quote.resetAt,
     currency: quote.currency,
     balance: quote.balance,
-    price: quote.nextCost,
+    price: quote.maxPrice,
+    ...(quote.amount > 1 ? { amount: quote.amount } : {}),
     ...(runId ? { runId } : {}),
   };
   if (persist() === false)
@@ -79,7 +82,7 @@ export async function upgradeCharacterPoint({
   }
   let response;
   try {
-    response = await post({ stat, amount: 1, operationId: id });
+    response = await post({ stat, amount: quote.amount, operationId: id });
   } catch (error) {
     if (error?.notDispatched) {
       state.pending = null;
@@ -104,16 +107,19 @@ export async function upgradeCharacterPoint({
   }
   const after = response?.characterStatsUpgrade?.[stat];
   const base = response?.characterStats?.[stat]?.base;
+  const charge = quote.balance - response?.balance?.[quote.currency];
   if (
     !response ||
     response.success === false ||
     response.characterStatsUpgrade?.resetAtUtc !== quote.resetAt ||
-    after?.dailyUsed !== quote.dailyUsed + 1 ||
-    base !== quote.base + 1 ||
-    response.balance?.[quote.currency] !== quote.balance - quote.nextCost
+    after?.dailyUsed !== quote.dailyUsed + quote.amount ||
+    base !== quote.base + quote.amount ||
+    !Number.isSafeInteger(charge) ||
+    charge < 0 ||
+    (quote.amount === 1 ? charge !== quote.nextCost : charge > quote.maxPrice)
   )
     return { status: "uncertain" };
-  onConfirmed(quote);
+  onConfirmed(quote, charge);
   state.pending = null;
   if (persist() === false) {
     state.pending = {
@@ -124,7 +130,8 @@ export async function upgradeCharacterPoint({
       resetAt: quote.resetAt,
       currency: quote.currency,
       balance: quote.balance,
-      price: quote.nextCost,
+      price: quote.maxPrice,
+      ...(quote.amount > 1 ? { amount: quote.amount } : {}),
       ...(runId ? { runId } : {}),
     };
     throw new Error("character_upgrade_storage_unavailable");

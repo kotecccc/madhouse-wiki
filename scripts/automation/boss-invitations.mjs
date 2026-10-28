@@ -54,6 +54,7 @@ export async function projectBossInvitations(raw, getBoss, now = Date.now()) {
         text(item.peerUsername) ||
         "Отправитель не указан",
       expiresAt,
+      battleExpiresAt: Number.isFinite(battleExpiry) ? battleExpiry : null,
       available:
         expiresAt !== null &&
         expiresAt > now &&

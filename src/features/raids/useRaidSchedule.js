@@ -87,6 +87,7 @@ export function useRaidSchedule() {
 
   return {
     ...state,
+    refresh: () => loadSchedule(controllerRef.current?.signal),
     retry: () => {
       if (requestInFlight.current) {
         pendingRefresh.current = true;

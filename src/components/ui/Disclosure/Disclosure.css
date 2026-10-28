@@ -74,3 +74,33 @@
 .ui-disclosure--sm {
   padding-inline: var(--card-padding);
 }
+
+.ui-disclosure--separated {
+  padding: 0;
+}
+
+.ui-disclosure--separated > .ui-disclosure-summary {
+  padding: var(--space-12);
+}
+
+.ui-disclosure--separated[open] > .ui-disclosure-summary {
+  border-bottom: 1px solid var(--card-border);
+}
+
+.ui-disclosure--separated > .ui-disclosure-content {
+  padding: var(--space-12);
+  background: var(--surface-page);
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+}
+
+.ui-disclosure-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  padding-top: var(--space-12);
+}
+
+.ui-disclosure--separated > .ui-disclosure-footer {
+  padding: var(--space-12);
+  border-top: 1px solid var(--card-border);
+}
