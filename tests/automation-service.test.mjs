@@ -238,6 +238,74 @@ test("verified upstream identities partition records across users and token rota
   });
 });
 
+test("queued intentions and receipts stay isolated through token rotation and server restart", async () => {
+  await withContext(async ({ store, service, game, now }) => {
+    const first = await service.identify(tokenA);
+    const other = await service.identify(tokenB);
+    const enqueue = (entry, playerId) =>
+      service.command(entry, {
+        id: "shared-command-id",
+        command: "queue.enqueue",
+        expectedVersion: service.snapshot(entry).version,
+        args: {
+          type: "friend.favorite",
+          action: { playerId, enabled: false, secret: "do-not-persist" },
+        },
+      });
+    await enqueue(first, 11);
+    await enqueue(other, 22);
+    const rotated = await service.identify(tokenARotated);
+    assert.equal(rotated, first);
+    assert.equal(store.read("101").queuedActions[0].args.playerId, 11);
+    assert.equal(store.read("202").queuedActions[0].args.playerId, 22);
+    assert.ok(store.read("101").receipts.includes("shared-command-id"));
+    assert.ok(store.read("202").receipts.includes("shared-command-id"));
+    assert.ok(
+      !JSON.stringify(service.snapshot(rotated)).includes("do-not-persist"),
+    );
+    service.close();
+    const restored = createAutomationService({
+      store,
+      fetcher: game.fetcher,
+      getBoss: (id) => ({ numericId: id, name: "Boss" }),
+      now: () => now,
+      random: () => 0,
+      schedule: () => ({ unref() {} }),
+      cancel: () => {},
+    });
+    try {
+      const firstAfter = await restored.identify(tokenARotated);
+      const otherAfter = await restored.identify(tokenB);
+      const firstView = restored.snapshot(firstAfter);
+      const otherView = restored.snapshot(otherAfter);
+      assert.equal(firstView.queuedActions[0].args.playerId, 11);
+      assert.equal(otherView.queuedActions[0].args.playerId, 22);
+      assert.equal(
+        firstView.queuedActions[0].id,
+        otherView.queuedActions[0].id,
+      );
+      const duplicate = await restored.command(firstAfter, {
+        id: "shared-command-id",
+        command: "queue.enqueue",
+        expectedVersion: firstView.version,
+        args: {
+          type: "friend.favorite",
+          action: { playerId: 11, enabled: false },
+        },
+      });
+      assert.equal(duplicate.queuedActions.length, 1);
+      for (const snapshot of [firstView, otherView])
+        assert.doesNotMatch(
+          JSON.stringify(snapshot),
+          /tokenA|tokenB|do-not-persist/,
+        );
+      assert.ok(game.calls.every((call) => call.method === "GET"));
+    } finally {
+      restored.close();
+    }
+  });
+});
+
 test("cached identity state reads do not make additional game calls", async () => {
   await withContext(async ({ service, game }) => {
     const http = createAutomationHttp({ service, enabled: true });

@@ -746,6 +746,13 @@ export function createAutomationService({
         enabled: entry.auto.getSnapshot().enabled || entry.collector.running(),
         userPaused: Boolean(entry.pausedAuto),
         resumeRequested: Boolean(entry.pausedAuto?.resumeRequested),
+        queueId:
+          entry.pausedAuto?.checkpoint?.queueId ??
+          (entry.raidSubscription.getSnapshot().checkpoint?.auto?.enabled
+            ? entry.raidSubscription.getSnapshot().checkpoint.auto.queueId
+            : null) ??
+          entry.auto.getSnapshot().queueId ??
+          null,
       },
       pvp: entry.pvp,
       equipment: entry.equipment,
@@ -1692,6 +1699,8 @@ export function createAutomationService({
           entry.businessHelper.run?.queueId,
           entry.floorRunner.getSnapshot().queueId,
           entry.auto.getSnapshot().queueId,
+          entry.pausedAuto?.checkpoint?.queueId,
+          entry.raidSubscription.getSnapshot().checkpoint?.auto?.queueId,
           entry.raidWorker.getSnapshot().queueId,
           entry.raidSubscription.getSnapshot().queueId,
         ].filter((id) => typeof id === "string"),

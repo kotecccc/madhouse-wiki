@@ -8,6 +8,7 @@ import { createAutomationStateStore } from "../scripts/automation/state-store.mj
 import { createBattleSeries } from "../scripts/automation/battle-series.mjs";
 import { canStartAutoSeries } from "../src/features/bosses/BossBattle/boss-battle-auto.js";
 import { inventoryGame } from "./helpers/inventory-game.mjs";
+import { actionQueueCards } from "../src/features/action-queue/action-queue-view.js";
 
 test("a ready farm defers the next fight and a waiting farm releases it", async () => {
   let priority = true;
@@ -1242,6 +1243,87 @@ test("paused autobattle remains paused after worker restart", async () => {
     assert.equal(ctx.starts, 0);
     assert.equal(restored.snapshot(after).goal.status, "active");
     assert.equal(timers.length, 0);
+  } finally {
+    restored?.close();
+    ctx.close();
+  }
+});
+
+test("paused queued autobattle retains its identity and history after restart and pruning", async () => {
+  const ctx = setup();
+  let restored;
+  try {
+    const entry = await ctx.openAndConfigure();
+    await ctx.command(entry, "clear-before-queued-auto", "goal.stop");
+    await ctx.service.boot();
+    await ctx.service.command(entry, {
+      id: "paused-queued-auto",
+      command: "queue.enqueue",
+      expectedVersion: ctx.service.snapshot(entry).version,
+      args: {
+        type: "auto.start",
+        action: {
+          settings: {
+            bossId: 7,
+            kind: "battles",
+            targetCount: 2,
+            maxAttempts: 2,
+          },
+        },
+      },
+    });
+    const end = Date.now() + 4000;
+    while (Date.now() < end && !ctx.service.snapshot(entry).auto.enabled)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).auto.queueId,
+      "paused-queued-auto",
+    );
+    await ctx.command(entry, "pause-queued-auto", "auto.pause");
+    ctx.service.close();
+    const saved = ctx.store.read("101");
+    for (let i = 0; i < 130; i++)
+      saved.queuedActions.push({
+        id: `older-completed-${i}`,
+        type: "friend.favorite",
+        args: { playerId: i + 1, enabled: false },
+        status: "completed",
+        priority: 30,
+        createdAt: 1_001_000 + i,
+        finishedAt: 1_001_000 + i,
+      });
+    ctx.store.write("101", saved);
+    restored = createAutomationService({
+      store: ctx.store,
+      fetcher: ctx.fetcher,
+      getBoss: (id) => ({ numericId: id, name: "Boss", possibleDrops: [] }),
+      now: () => 1_010_000,
+      random: () => 0,
+      schedule: () => ({ unref() {} }),
+      cancel: () => {},
+    });
+    await restored.boot();
+    const after = await restored.identify(token);
+    const view = restored.snapshot(after);
+    assert.equal(view.auto.userPaused, true);
+    assert.equal(view.auto.queueId, "paused-queued-auto");
+    assert.ok(
+      !actionQueueCards(view).some((card) => card.id === "paused-queued-auto"),
+    );
+    await restored.command(after, {
+      id: "trigger-history-prune",
+      command: "queue.enqueue",
+      expectedVersion: view.version,
+      args: {
+        type: "friend.favorite",
+        action: { playerId: 999, enabled: false },
+      },
+    });
+    assert.ok(
+      ctx.store
+        .read("101")
+        .queuedActions.some((job) => job.id === "paused-queued-auto"),
+    );
   } finally {
     restored?.close();
     ctx.close();
