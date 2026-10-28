@@ -932,7 +932,7 @@ export function createWikiBotApi({
     );
     const data = await result.json().catch(() => null);
     if (
-      method === "editMessageText" &&
+      ["editMessageText", "editMessageMedia"].includes(method) &&
       data?.error_code === 400 &&
       typeof data?.description === "string" &&
       data.description.toLowerCase().includes("message is not modified")
@@ -1003,7 +1003,7 @@ export function createWikiBotApi({
   }
 
   async function sendMessage(chatId, text, replyMarkup) {
-    await callBotApi("sendMessage", {
+    return await callBotApi("sendMessage", {
       chat_id: chatId,
       text,
       parse_mode: "HTML",
@@ -1013,7 +1013,7 @@ export function createWikiBotApi({
   }
 
   async function sendPhoto(chatId, photo, caption, replyMarkup) {
-    await callBotApi("sendPhoto", {
+    return await callBotApi("sendPhoto", {
       chat_id: chatId,
       photo,
       caption,
@@ -1087,39 +1087,69 @@ export function createWikiBotApi({
     return { inline_keyboard: inlineKeyboard };
   }
 
-  async function sendArticle(
-    chatId,
-    article,
-    replyMarkup = article.reply_markup,
-  ) {
-    if (!article) {
-      await sendMessage(chatId, "Раздел пока недоступен.", screenMarkup());
-      return;
-    }
-    await sendMessage(
-      chatId,
-      article.input_message_content.message_text,
-      replyMarkup,
-    );
-  }
-
-  async function sendInlineResult(chatId, result, replyMarkup) {
-    if (result?.type === "photo") {
-      await sendPhoto(
-        chatId,
-        result.photo_url,
-        result.caption,
-        replyMarkup || result.reply_markup,
-      );
-      return;
-    }
-    await sendArticle(chatId, result, replyMarkup || result?.reply_markup);
-  }
-
   async function handleCallback(callback) {
     const chatId = callback.message?.chat?.id;
     if (!chatId || typeof callback.data !== "string") return;
     await callBotApi("answerCallbackQuery", { callback_query_id: callback.id });
+
+    async function showScreen(_chatId, text, replyMarkup, photo = null) {
+      const isPhoto = Boolean(callback.message.photo);
+      const common = {
+        chat_id: chatId,
+        message_id: callback.message.message_id,
+      };
+      if (isPhoto === Boolean(photo)) {
+        if (photo) {
+          await callBotApi("editMessageMedia", {
+            ...common,
+            media: {
+              type: "photo",
+              media: photo,
+              caption: text,
+              parse_mode: "HTML",
+            },
+            ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+          });
+        } else {
+          await callBotApi("editMessageText", {
+            ...common,
+            text,
+            parse_mode: "HTML",
+            link_preview_options: { is_disabled: true },
+            ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+          });
+        }
+        return;
+      }
+      // Telegram cannot turn a photo into a text message or vice versa.
+      // Create the replacement first so a failed send never deletes the menu.
+      const replacement = photo
+        ? await sendPhoto(chatId, photo, text, replyMarkup)
+        : await sendMessage(chatId, text, replyMarkup);
+      if (Number.isSafeInteger(replacement?.message_id)) {
+        await callBotApi("deleteMessage", common).catch(() => {});
+      }
+    }
+    async function showArticle(_chatId, article, replyMarkup) {
+      await showScreen(
+        chatId,
+        article?.input_message_content?.message_text ||
+          "Раздел пока недоступен.",
+        replyMarkup || article?.reply_markup || screenMarkup(),
+      );
+    }
+    async function showResult(_chatId, result, replyMarkup) {
+      if (result?.type === "photo") {
+        await showScreen(
+          chatId,
+          result.caption,
+          replyMarkup || result.reply_markup,
+          result.photo_url,
+        );
+      } else {
+        await showArticle(chatId, result, replyMarkup);
+      }
+    }
 
     if (callback.data.startsWith("bridge:")) {
       const sender = callback.from?.id;
@@ -1131,20 +1161,6 @@ export function createWikiBotApi({
         sender !== chatId
       )
         return;
-      const sendBridgeScreen = async (chatId, text, replyMarkup) => {
-        if (callback.message.photo) {
-          await sendMessage(chatId, text, replyMarkup);
-          return;
-        }
-        await callBotApi("editMessageText", {
-          chat_id: chatId,
-          message_id: callback.message.message_id,
-          text,
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
-        });
-      };
       const owner = String(sender);
       const device = bridgeDevices.list(owner);
       const menu = {
@@ -1184,7 +1200,7 @@ export function createWikiBotApi({
         let reporting = false;
         if (online && callback.data === "bridge:check" && bridgeReporter)
           reporting = await bridgeReporter(owner, "auto").catch(() => false);
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           `<b>Мост устройства</b>\n${device ? (online ? "Устройство подключено." : "Устройство привязано, но мост не запущен.") : "Устройство ещё не подключено."}${reporting ? "\nСводка боёв включена." : ""}\n\nВыберите устройство для установки.`,
           menu,
@@ -1194,7 +1210,7 @@ export function createWikiBotApi({
       if (callback.data === "bridge:report") {
         const enabled =
           bridgeReporter && (await bridgeReporter(owner, "enable"));
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           enabled
             ? "Сводка включена. Во время боя здесь появится одно обновляемое сообщение; после серии в нём останется итог."
@@ -1206,7 +1222,7 @@ export function createWikiBotApi({
       if (callback.data === "bridge:report-off") {
         const disabled =
           bridgeReporter && (await bridgeReporter(owner, "disable"));
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           disabled
             ? "Сводка боёв выключена."
@@ -1218,7 +1234,7 @@ export function createWikiBotApi({
       if (callback.data.startsWith("bridge:disconnect:")) {
         const id = callback.data.slice("bridge:disconnect:".length);
         if (!device || id !== device.deviceId) {
-          await sendBridgeScreen(
+          await showScreen(
             chatId,
             "Устройство уже изменилось. Откройте меню моста заново.",
             menu,
@@ -1226,7 +1242,7 @@ export function createWikiBotApi({
           return;
         }
         bridgeDevices.revoke(owner, id);
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           "Устройство отключено. Теперь выберите Mac или iPhone.",
           {
@@ -1239,7 +1255,7 @@ export function createWikiBotApi({
       }
       if (!["bridge:mac", "bridge:iphone"].includes(callback.data)) return;
       if (device) {
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           "Уже привязано устройство. Чтобы подключить другое, сначала отключите его кнопкой ниже.",
           menu,
@@ -1248,7 +1264,7 @@ export function createWikiBotApi({
       }
       const { invitation } = bridgeDevices.invite(owner);
       if (callback.data === "bridge:mac") {
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           `<b>Мост на Mac</b>\n1. Скачайте архив и распакуйте его.\n2. Нажмите правой кнопкой на файл моста → «Открыть».\n3. Вставьте одноразовый ключ: <code>${escapeHtml(invitation)}</code>\n\nКлюч действует 5 минут. Оставьте окно моста открытым.`,
           {
@@ -1272,7 +1288,7 @@ export function createWikiBotApi({
           invitation,
           bootstrapSha256: bridgeBootstrapSha256,
         });
-        await sendBridgeScreen(
+        await showScreen(
           chatId,
           `<b>Мост на iPhone</b>\n1. Установите iSH.\n2. Скопируйте команду ниже и вставьте её в iSH.\n3. Разрешите геолокацию, если iPhone спросит.\n\nКоманда действует 5 минут:\n<code>${escapeHtml(command)}</code>`,
           {
@@ -1286,7 +1302,7 @@ export function createWikiBotApi({
     }
 
     if (callback.data === "menu:home") {
-      await sendMessage(
+      await showScreen(
         chatId,
         "<b>🕯 Madhouse Wiki</b>\nВыберите, что посмотреть:",
         startKeyboard(callback.message.chat.type),
@@ -1294,7 +1310,7 @@ export function createWikiBotApi({
       return;
     }
     if (callback.data === "menu:floors") {
-      await sendMessage(
+      await showScreen(
         chatId,
         "<b>🏢 Этажи и отделения</b>\nВыберите этаж, чтобы посмотреть условия открытия и связанные отделения.",
         floorPicker("floors"),
@@ -1302,7 +1318,7 @@ export function createWikiBotApi({
       return;
     }
     if (callback.data === "menu:business") {
-      await sendMessage(
+      await showScreen(
         chatId,
         "<b>🏬 Требования бизнеса</b>\nВведите название бизнеса и целевой уровень. Например: <code>бизнес Исследовательская 3</code>. Количества из пользовательской таблицы относятся к предметам, не к числу побед над боссами.",
         {
@@ -1321,7 +1337,7 @@ export function createWikiBotApi({
       return;
     }
     if (callback.data === "menu:energy") {
-      await sendMessage(
+      await showScreen(
         chatId,
         describeEnergyTable(siteUrl).input_message_content.message_text,
         screenMarkup(null, [
@@ -1336,7 +1352,7 @@ export function createWikiBotApi({
       return;
     }
     if (callback.data === "menu:energyfloors") {
-      await sendMessage(
+      await showScreen(
         chatId,
         "<b>⚡ Энергия по этажам</b>\nВыберите этаж для данных из каталога.",
         floorPicker("energy"),
@@ -1344,7 +1360,7 @@ export function createWikiBotApi({
       return;
     }
     if (callback.data === "menu:raids") {
-      await sendArticle(
+      await showArticle(
         chatId,
         await readLatestRaidArticle(),
         screenMarkup("рейды"),
@@ -1359,7 +1375,7 @@ export function createWikiBotApi({
           normalizeCode(candidate.code) === normalizeCode(floorMatch[2]),
       );
       if (!floor) {
-        await sendMessage(chatId, "Этаж не найден в каталоге.", screenMarkup());
+        await showScreen(chatId, "Этаж не найден в каталоге.", screenMarkup());
         return;
       }
       const article =
@@ -1376,7 +1392,7 @@ export function createWikiBotApi({
           callback_data: `department:${floorMatch[1] === "energyfloor" ? "energy:" : ""}${department.code}`,
         },
       ]);
-      await sendInlineResult(
+      await showResult(
         chatId,
         article,
         screenMarkup(
@@ -1394,7 +1410,7 @@ export function createWikiBotApi({
           normalizeCode(candidate.code) === normalizeCode(departmentMatch[2]),
       );
       if (!department) {
-        await sendMessage(
+        await showScreen(
           chatId,
           "Отделение не найдено в каталоге.",
           screenMarkup(),
@@ -1408,7 +1424,7 @@ export function createWikiBotApi({
         siteUrl,
         energy,
       );
-      await sendInlineResult(
+      await showResult(
         chatId,
         article,
         screenMarkup(`${energy ? "энергия" : "отделение"} ${department.code}`),
