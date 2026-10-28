@@ -1,4 +1,7 @@
-import { readProfileOverBridge } from "./profile-client.mjs";
+import {
+  readGameOverBridge,
+  readProfileOverBridge,
+} from "./profile-client.mjs";
 
 function failure(code) {
   return Object.assign(new Error(code), { code });
@@ -28,8 +31,15 @@ export function createBridgeAccountService({
   devices,
   registry,
   readProfile = readProfileOverBridge,
+  readGame = readGameOverBridge,
 } = {}) {
-  if (!accounts || !devices || !registry || typeof readProfile !== "function")
+  if (
+    !accounts ||
+    !devices ||
+    !registry ||
+    typeof readProfile !== "function" ||
+    typeof readGame !== "function"
+  )
     throw new TypeError("account_service_dependencies_required");
 
   async function fetchProfile(verifiedOwner, authorization, signal) {
@@ -118,8 +128,43 @@ export function createBridgeAccountService({
     return { profile: sanitize(result.profile) };
   }
 
+  async function read(verifiedOwner, path, { signal } = {}) {
+    const account = accounts.read(verifiedOwner);
+    if (!account) throw failure("account_not_configured");
+    const device = devices.listDevice(verifiedOwner);
+    if (!device) throw failure("device_unavailable");
+    const identity = {
+      owner: registry.ownerKey(verifiedOwner),
+      device: device.deviceId,
+      generation: device.generation,
+    };
+    let result;
+    try {
+      result = await readGame({
+        authorization: account.authorization,
+        path,
+        signal,
+        openTunnel: () => devices.open(verifiedOwner, { signal }),
+        validateTunnel: () => registry.isActive(identity),
+      });
+    } catch {
+      throw failure("bridge_unavailable");
+    }
+    if (!registry.isActive(identity)) throw failure("device_changed");
+    if (accounts.getRevision(verifiedOwner) !== account.revision)
+      throw failure("binding_changed");
+    if (
+      !Number.isInteger(result?.status) ||
+      result.status < 200 ||
+      result.status > 599 ||
+      !Buffer.isBuffer(result.body)
+    )
+      throw failure("bridge_unavailable");
+    return result;
+  }
+
   function status(verifiedOwner) {
     return accounts.getRevision(verifiedOwner) > 0 ? "saved" : "not_configured";
   }
-  return Object.freeze({ bind, profile, status });
+  return Object.freeze({ bind, profile, read, status });
 }

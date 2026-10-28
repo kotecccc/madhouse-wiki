@@ -1,4 +1,5 @@
 const GAME_ORIGIN = "https://cargohustle.online";
+import { isAllowedGameRead } from "./profile-client.mjs";
 const fail = (code) => Object.assign(new Error(code), { code });
 
 const MAX_DIRECT_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -28,12 +29,13 @@ async function drainDirectResponse(response) {
 /**
  * A route resolver must use server-verified identity, not an ID supplied by the
  * browser. Unknown or unavailable policy fails closed. Bridge MVP currently
- * supports only /api/me and never dispatches game mutations.
+ * supports selected read-only paths and never dispatches game mutations.
  */
 export function createGameRouter({
   resolveRoute,
   directFetch,
   bridgeProfile,
+  bridgeRead,
   withDirectLease,
 } = {}) {
   if (
@@ -123,15 +125,23 @@ export function createGameRouter({
       throw fail("game_route_unavailable");
     if (route.credentialCurrent === false) throw fail("game_credentials_stale");
     const method = String(init.method || "GET").toUpperCase();
+    const path = parsed.pathname + parsed.search;
     if (
       method !== "GET" ||
-      parsed.pathname !== "/api/me" ||
-      parsed.search ||
-      init.body != null
+      init.body != null ||
+      !isAllowedGameRead(path) ||
+      (parsed.pathname === "/api/me" && parsed.search)
     )
       throw fail("bridge_operation_not_supported");
     // A bridge error is final; it is never retried via directFetch.
-    const result = await bridgeProfile(route.owner, { signal: init.signal });
+    let result;
+    if (path === "/api/me") {
+      result = await bridgeProfile(route.owner, { signal: init.signal });
+    } else {
+      if (typeof bridgeRead !== "function")
+        throw fail("bridge_operation_not_supported");
+      result = await bridgeRead(route.owner, path, { signal: init.signal });
+    }
     let current;
     try {
       current = await resolveRoute(verifiedIdentity);

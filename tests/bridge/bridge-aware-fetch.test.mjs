@@ -11,6 +11,7 @@ function setup({
   identity = () => null,
   route = () => null,
   profile = async () => ({ profile: { playerId: 42 } }),
+  read,
   direct = async () => new Response("direct"),
 } = {}) {
   let calls = 0;
@@ -36,11 +37,42 @@ function setup({
       snapshots,
       accounts,
       directRoutes,
-      accountService: { profile },
+      accountService: { profile, ...(read ? { read } : {}) },
     }),
     calls: () => calls,
   };
 }
+
+test("selected reads use the bridge and never fall back on failure", async () => {
+  let calls = 0;
+  const f = setup({
+    lookup: () => ({
+      policy: "bridge_required",
+      owner: "101",
+      epoch: 1,
+      credentialCurrent: true,
+    }),
+    read: async (owner, path) => {
+      assert.equal(owner, "101");
+      assert.equal(path, "/api/friends?limit=2");
+      if (calls++) throw new Error("offline");
+      return { status: 200, body: Buffer.from("[]") };
+    },
+  });
+  const target = "https://cargohustle.online/api/friends?limit=2";
+  assert.deepEqual(
+    await (await f.boundary.fetch(target, options())).json(),
+    [],
+  );
+  await assert.rejects(f.boundary.fetch(target, options()), {
+    message: "offline",
+  });
+  await assert.rejects(
+    f.boundary.fetch("https://cargohustle.online/api/me?extra=1", options()),
+    { code: "bridge_operation_not_supported" },
+  );
+  assert.equal(f.calls(), 0);
+});
 
 test("registered bridge token reads only through bridge even if snapshot exists", async () => {
   const fixture = setup({

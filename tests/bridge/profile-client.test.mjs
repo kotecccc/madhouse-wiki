@@ -4,7 +4,10 @@ import { createServer } from "node:https";
 import { createConnection } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { test } from "node:test";
-import { readProfileOverBridge } from "../../scripts/bridge/profile-client.mjs";
+import {
+  readGameOverBridge,
+  readProfileOverBridge,
+} from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
 
 const cert = await readFile(
@@ -13,6 +16,53 @@ const cert = await readFile(
 const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
+
+test("selected game reads preserve their query inside the verified tunnel", async () => {
+  let seen;
+  const server = createServer({ cert, key }, (req, res) => {
+    seen = {
+      url: req.url,
+      method: req.method,
+      authorization: req.headers.authorization,
+    };
+    res.end('{"items":[]}');
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+  });
+  try {
+    const result = await readGameOverBridge({
+      authorization: "Bearer fake-token",
+      path: "/api/friends/search?name=test",
+      connector,
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(seen, {
+      url: "/api/friends/search?name=test",
+      method: "GET",
+      authorization: "Bearer fake-token",
+    });
+    for (const path of [
+      "/api/auth",
+      "https://evil.test/api/me",
+      "/api/me#fragment",
+      "/api/me%2fextra",
+    ])
+      assert.throws(
+        () =>
+          readGameOverBridge({
+            authorization: "Bearer fake-token",
+            path,
+            connector,
+          }),
+        { message: "invalid_profile_request" },
+      );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("reads only the fake profile over verified TLS and sends the token inside it", async () => {
   let seen;
