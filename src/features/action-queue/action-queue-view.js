@@ -259,6 +259,7 @@ export function actionQueueCards(state, catalogue = {}) {
     character?.status === "running" ||
     character?.status === "uncertain" ||
     (character?.status === "stopped" &&
+      character?.id != null &&
       state.characterUpgrade?.pending?.runId === character?.id)
   )
     addActor(
@@ -284,6 +285,25 @@ export function actionQueueCards(state, catalogue = {}) {
     job.eligible !== false &&
     !job.blockedBy &&
     (job.nextAt ?? 0) <= time;
+  const terminalActor = (job) => {
+    const actor =
+      job.type === "work.start"
+        ? work
+        : job.type === "character.start"
+          ? character
+          : job.type === "business.start"
+            ? business
+            : null;
+    if (
+      actor?.queueId !== job.id ||
+      !["completed", "limited", "stopped", "error"].includes(actor.status) ||
+      actor.pending ||
+      actor.pendingUpgrade ||
+      (job.type === "character.start" && state.characterUpgrade?.pending)
+    )
+      return null;
+    return actor;
+  };
   const recentCompleted = new Set(
     (state.queuedActions || [])
       .filter((job) => job.status === "completed" && !job.dismissed)
@@ -298,13 +318,27 @@ export function actionQueueCards(state, catalogue = {}) {
       (job) =>
         visible.has(job.status) &&
         !job.dismissed &&
-        (job.status !== "completed" || recentCompleted.has(job.id)) &&
+        (job.status !== "completed" ||
+          recentCompleted.has(job.id) ||
+          terminalActor(job)) &&
         !(job.type === "auto.start" && state.auto?.queueId === job.id) &&
         !(job.type === "raid.start" && state.raid?.queueId === job.id) &&
-        !(job.type === "business.start" && business?.queueId === job.id) &&
+        !(
+          job.type === "business.start" &&
+          business?.queueId === job.id &&
+          !terminalActor(job)
+        ) &&
         !(job.type === "floor.start" && floor?.queueId === job.id) &&
-        !(job.type === "work.start" && work?.queueId === job.id) &&
-        !(job.type === "character.start" && character?.queueId === job.id) &&
+        !(
+          job.type === "work.start" &&
+          work?.queueId === job.id &&
+          !terminalActor(job)
+        ) &&
+        !(
+          job.type === "character.start" &&
+          character?.queueId === job.id &&
+          !terminalActor(job)
+        ) &&
         !(
           job.type === "subscription.start" && subscription?.queueId === job.id
         ),
@@ -317,6 +351,7 @@ export function actionQueueCards(state, catalogue = {}) {
     );
   let position = 0;
   for (const job of queued) {
+    const finishedActor = terminalActor(job);
     const validDeadline = (value) =>
       Number.isFinite(value) && value > 0 && value <= 8_640_000_000_000_000;
     const retryDeadline = Math.max(
@@ -389,9 +424,16 @@ export function actionQueueCards(state, catalogue = {}) {
                                         "Действие",
       status:
         job.status === "completed"
-          ? handoffTypes.has(job.type)
-            ? "Передано исполнителю"
-            : phases.completed
+          ? finishedActor
+            ? {
+                completed: "Выполнено",
+                limited: "Достигнут лимит",
+                stopped: "Остановлено",
+                error: "Не удалось выполнить",
+              }[finishedActor.status]
+            : handoffTypes.has(job.type)
+              ? "Передано исполнителю"
+              : phases.completed
           : job.status === "failed" && job.reason === "dependency_failed"
             ? failureMessages.dependency_failed
             : state.gameHealth?.status === "credentials_invalid" ||

@@ -100,6 +100,59 @@ test("recent completions are selected by completion time, not creation order", (
   assert.equal(ids.length, 5);
 });
 
+test("a finished long-running actor reports its own outcome and can be dismissed", () => {
+  for (const [type, field, status, expected] of [
+    ["work.start", "workFarm", "completed", "Выполнено"],
+    ["work.start", "workFarm", "limited", "Достигнут лимит"],
+    ["business.start", "businessAssistant", "error", "Не удалось выполнить"],
+    ["character.start", "characterUpgrade", "stopped", "Остановлено"],
+  ]) {
+    const run = { queueId: "goal-01", status };
+    const cards = actionQueueCards({
+      serverTime: 1000,
+      [field]: { run },
+      queuedActions: [
+        {
+          id: "goal-01",
+          type,
+          status: "completed",
+          priority: 0,
+          createdAt: 1,
+          args: {},
+        },
+      ],
+    });
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].status, expected);
+    assert.equal(cards[0].command, "queue.dismiss");
+  }
+});
+
+test("a stopped work actor with an unresolved checkpoint remains on reconciliation", () => {
+  const cards = actionQueueCards({
+    workFarm: {
+      run: {
+        queueId: "goal-01",
+        status: "stopped",
+        pending: { id: "unknown" },
+      },
+    },
+    queuedActions: [
+      {
+        id: "goal-01",
+        type: "work.start",
+        status: "completed",
+        priority: 0,
+        createdAt: 1,
+        args: {},
+      },
+    ],
+  });
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].status, "Проверяем результат");
+  assert.equal(cards[0].command, null);
+});
+
 test("a dependent action explains that it waits for confirmation", () => {
   const [card] = actionQueueCards({
     serverTime: 1000,
