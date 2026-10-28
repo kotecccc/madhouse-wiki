@@ -81,7 +81,7 @@ function floorState(floors) {
 }
 
 // Account access is transient UI state, never part of the reference catalogue.
-export function useFloorAvailability() {
+export function useFloorAvailability({ profileSettled = true } = {}) {
   const [availability, setAvailability] = useState(
     () =>
       floorState(peekSessionJson("/api/floors", { allowStale: true }) || [])
@@ -101,6 +101,27 @@ export function useFloorAvailability() {
   );
   const [requestId, setRequestId] = useState(0);
   useEffect(() => {
+    const controller = new AbortController();
+    const loadCatalogue = async () => {
+      try {
+        const response = await fetch("/api/catalogue", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (controller.signal.aborted) return;
+          mergeKnowledgeBaseOverlay(data);
+          setAvailability((current) => ({ ...current }));
+        }
+      } catch {
+        // The bundled SQLite catalogue remains usable when the runtime store is unavailable.
+      }
+    };
+    void loadCatalogue();
+    return () => controller.abort();
+  }, [requestId]);
+  useEffect(() => {
     let controller;
     let previousStatus = readSession().status;
     let identity = readSession().token;
@@ -115,7 +136,6 @@ export function useFloorAvailability() {
       controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
-      const refreshModel = () => setAvailability((current) => ({ ...current }));
       const session = readSession();
       previousStatus = session.status;
       const changed = identity !== session.token;
@@ -131,21 +151,13 @@ export function useFloorAvailability() {
             : "idle",
         );
       }
-      try {
-        const response = await fetch("/api/catalogue", {
-          cache: "no-store",
-          signal,
-        });
-        if (response.ok) {
-          mergeKnowledgeBaseOverlay(await response.json());
-          refreshModel();
-        }
-      } catch {
-        // The bundled SQLite catalogue remains usable when the runtime store is unavailable.
-      }
       if (signal.aborted) return;
       if (session.status !== "ready") {
         setStatus(isTelegramRestorePending() ? "loading" : "idle");
+        return;
+      }
+      if (!profileSettled) {
+        if (!cached) setStatus("loading");
         return;
       }
       try {
@@ -189,7 +201,7 @@ export function useFloorAvailability() {
       window.removeEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
       clearInterval(timer);
     };
-  }, [requestId]);
+  }, [requestId, profileSettled]);
   return {
     availability,
     floorDetails,

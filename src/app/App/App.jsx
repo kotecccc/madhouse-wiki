@@ -63,8 +63,11 @@ export function App() {
     () => false,
   );
   const scrollRegionRef = useRef(null);
-  const floorAvailability = useFloorAvailability();
   const profileState = usePlayerProfile();
+  const floorAvailability = useFloorAvailability({
+    profileSettled:
+      profileState.status === "ready" || profileState.status === "error",
+  });
   const raidSchedule = useRaidSchedule();
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
