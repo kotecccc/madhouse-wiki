@@ -17,7 +17,9 @@ function rememberRequest(entry, id) {
 
 export function unavailable(response, message) {
   const error = fail(
-    [401, 403, 429].includes(response.status) ? response.status : 503,
+    [400, 401, 403, 404, 405, 410, 422, 429].includes(response.status)
+      ? response.status
+      : 503,
     message,
   );
   const header = response.headers?.get?.("Retry-After");

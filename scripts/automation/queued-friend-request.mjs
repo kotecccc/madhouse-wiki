@@ -1,4 +1,5 @@
 import { reconcileRaidFriend, requestRaidFriend } from "./raid-friends.mjs";
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
 export function queuedFriendRequestAdapter({ entry, fetcher, save }) {
   const confirmed = (job) => (entry.raidFriendReceipts ?? []).includes(job.id);
@@ -79,8 +80,8 @@ export function queuedFriendRequestAdapter({ entry, fetcher, save }) {
             reason: "Проверяем результат.",
             retryAfterMs: error.retryAfterMs,
           };
-        if ([401, 403].includes(error.status))
-          return { status: "failed", reason: "game_session_required" };
+        const terminal = terminalBattlePreflight(error.status);
+        if (terminal) return terminal;
         if (error?.notDispatched || !canDispatch())
           return {
             status: "retry",

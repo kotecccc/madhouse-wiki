@@ -1,5 +1,6 @@
 import { removeFriend, reconcileFriendRemoval } from "./friend-removal.mjs";
 import { readRaidFriendStatus } from "./raid-friends.mjs";
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
 export function queuedFriendRemovalAdapter({ entry, fetcher, save }) {
   function confirmed(job) {
@@ -103,8 +104,8 @@ export function queuedFriendRemovalAdapter({ entry, fetcher, save }) {
             reason: "Проверяем результат.",
             retryAfterMs: error.retryAfterMs,
           };
-        if ([401, 403].includes(error.status))
-          return { status: "failed", reason: "game_session_required" };
+        const terminal = terminalBattlePreflight(error.status);
+        if (terminal) return terminal;
         if (error?.notDispatched)
           return {
             status: "retry",

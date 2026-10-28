@@ -1,3 +1,5 @@
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
 
 export function queuedSubscriptionAdapter({ entry, getBoss, refresh, now }) {
@@ -67,8 +69,8 @@ export function queuedSubscriptionAdapter({ entry, getBoss, refresh, now }) {
         return { status: "completed" };
       } catch (error) {
         if (started(job) || entry.storageFailed) return { status: "uncertain" };
-        if ([401, 403].includes(error.status))
-          return { status: "failed", reason: "game_session_required" };
+        const terminal = terminalBattlePreflight(error.status);
+        if (terminal) return terminal;
         return {
           status: "retry",
           reason: "Ожидаем игру.",

@@ -1,4 +1,5 @@
 import { readRaidFriendStatus } from "./raid-friends.mjs";
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
 export function queuedFriendSettingAdapter({ entry, fetcher, save, kind }) {
   async function apply(job, { canDispatch }) {
@@ -15,8 +16,8 @@ export function queuedFriendSettingAdapter({ entry, fetcher, save, kind }) {
         if (status !== "friend")
           return { status: "failed", reason: "friend_not_found" };
       } catch (error) {
-        if ([401, 403].includes(error.status))
-          return { status: "failed", reason: "game_session_required" };
+        const terminal = terminalBattlePreflight(error.status);
+        if (terminal) return terminal;
         if (error.status && error.status < 500 && error.status !== 429)
           return { status: "failed", reason: error.message };
         return {

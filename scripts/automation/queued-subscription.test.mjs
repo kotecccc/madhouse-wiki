@@ -63,6 +63,29 @@ function harness() {
   };
 }
 
+test("subscription stops on a permanent invitation-read rejection", async () => {
+  let starts = 0;
+  const entry = {
+    raidSubscription: { getSnapshot: () => ({}), start: () => starts++ },
+  };
+  const adapter = queuedSubscriptionAdapter({
+    entry,
+    now: () => 1000,
+    refresh: async () => {
+      throw Object.assign(new Error("rejected"), { status: 400 });
+    },
+  });
+  const result = await adapter.execute(
+    { id: "subscription-rejected", args: { leaderPlayerId: 42, bossId: 7 } },
+    { canDispatch: () => true },
+  );
+  assert.deepEqual(result, {
+    status: "failed",
+    reason: "game_request_rejected",
+  });
+  assert.equal(starts, 0);
+});
+
 test("subscription waits for a fresh verified invitation and honors Retry-After", async () => {
   const h = harness();
   h.queue.add({
