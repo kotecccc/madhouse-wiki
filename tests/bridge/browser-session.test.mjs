@@ -11,6 +11,8 @@ test("browser session stops resolving after rebind or device replacement", () =>
     now: () => 1000000,
   });
   const token = sessions.issue("101", 3, { deviceId: "device", generation: 1 });
+  assert.equal(sessions.isBridgeToken(token), true);
+  assert.equal(sessions.isBridgeToken("other.jwt.token"), false);
   let account = {
     revision: 3,
     deviceId: "device",

@@ -119,6 +119,12 @@ export function createBridgeRuntime({
                   epoch: session.revision,
                   credentialCurrent: true,
                 };
+              if (
+                typeof authorization === "string" &&
+                authorization.startsWith("Bearer ") &&
+                browserSessions.isBridgeToken(authorization.slice(7))
+              )
+                throw new Error("bridge_session_invalid");
               return storage.accounts.resolveCredential(authorization);
             },
           },

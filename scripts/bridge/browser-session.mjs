@@ -5,10 +5,13 @@ export function createBridgeBrowserSessions({ key, now = Date.now } = {}) {
   if (!Buffer.isBuffer(key) || key.length < 32 || typeof now !== "function")
     throw new TypeError("invalid_session_key");
   const header = Buffer.from(
-    JSON.stringify({ alg: "HS256", typ: "JWT" }),
+    JSON.stringify({ alg: "HS256", typ: "JWT", bridge: 1 }),
   ).toString("base64url");
   const signature = (value) => createHmac("sha256", key).update(value).digest();
   return Object.freeze({
+    isBridgeToken(token) {
+      return typeof token === "string" && token.startsWith(`${header}.`);
+    },
     issue(owner, revision, device) {
       if (
         !/^[1-9][0-9]{0,19}$/.test(owner) ||
