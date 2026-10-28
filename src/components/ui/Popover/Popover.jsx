@@ -129,6 +129,6 @@ export function Popover({ anchor, point, onClose, children, label }) {
     >
       {children}
     </BaseCard>,
-    anchor?.closest?.("dialog[open]") ?? document.body,
+    anchor?.closest?.(".shared-modal, dialog[open]") ?? document.body,
   );
 }

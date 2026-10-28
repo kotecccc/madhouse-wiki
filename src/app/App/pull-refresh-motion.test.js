@@ -12,7 +12,8 @@ test("pull starts gently and requires deliberate movement", () => {
   assert.ok(resistedPull(40) < 20);
   assert.ok(resistedPull(100) < PULL_THRESHOLD);
   assert.ok(resistedPull(160) < PULL_THRESHOLD);
-  assert.ok(resistedPull(180) > PULL_THRESHOLD);
+  assert.ok(resistedPull(180) < PULL_THRESHOLD);
+  assert.ok(resistedPull(240) > PULL_THRESHOLD);
   assert.ok(resistedPull(10000) <= 120);
 });
 

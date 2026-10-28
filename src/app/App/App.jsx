@@ -15,9 +15,11 @@ import { BossInvitationsDialog } from "../../features/bosses/BossInvitations/Bos
 import {
   bossBattle,
   bossInvitations,
+  connectBattleSession,
 } from "../../features/bosses/BossBattle/boss-battle-session.js";
 import { CharacterUpgrade } from "../../features/overview/CharacterUpgrade/CharacterUpgrade.jsx";
 import { WorkFarmDialog } from "../../features/works/WorkCard/WorkFarmDialog.jsx";
+import { WorkCalculatorDialog } from "../../features/works/WorkCard/WorkCalculatorDialog.jsx";
 import { ActiveBattleControl } from "../../features/combat/ActiveBattleDock/ActiveBattleDock.jsx";
 import { BottomDock } from "../../components/layout/BottomDock/BottomDock.jsx";
 import { knowledgeBase as kb } from "virtual:madhouse-catalogue";
@@ -36,6 +38,8 @@ import {
   postSessionJson,
 } from "../../../shared/session-api.js";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
+import { Button } from "../../components/ui/Button/Button.jsx";
+import { BaseCard } from "../../components/ui/BaseCard/BaseCard.jsx";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
 import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
 import { FloorsSection } from "../../features/floors/FloorsSection/FloorsSection.jsx";
@@ -54,11 +58,37 @@ import { usePlayerProfile } from "../../features/auth/usePlayerProfile.js";
 import { OverviewSection } from "../../features/overview/OverviewSection/OverviewSection.jsx";
 import { useRaidSchedule } from "../../features/raids/useRaidSchedule.js";
 
-import { screenFromHash } from "./app-screen.js";
+import {
+  pageFromPath,
+  screenFromHash,
+  screenFromLocation,
+  screenUrl,
+} from "./app-screen.js";
 import { usePullRefresh } from "./usePullRefresh.js";
 import { PullRefresh } from "../../components/ui/PullRefresh/PullRefresh.jsx";
+import {
+  PageHostContext,
+  subscribePages,
+  getPages,
+  refreshTopPage,
+  closeAllPages,
+} from "../../components/ui/Modal/page-context.js";
 
 export function App() {
+  const [pageHost, setPageHost] = useState(null);
+  const [bossActionsTarget, setBossActionsTarget] = useState(null);
+  const [bossAttackTarget, setBossAttackTarget] = useState(null);
+  const pages = useSyncExternalStore(subscribePages, getPages, getPages);
+  const battleState = useSyncExternalStore(
+    bossBattle.subscribe,
+    bossBattle.getSnapshot,
+    bossBattle.getSnapshot,
+  );
+  const currentPage = pages.at(-1);
+  const bossPage = currentPage?.kind === "boss";
+  const otherActiveBattle = Boolean(
+    battleState.previewBoss && battleState.battle?.status === "active",
+  );
   const [toastTarget, setToastTarget] = useState(null);
   const refreshing = useSyncExternalStore(
     subscribeSessionData,
@@ -79,8 +109,12 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState(() =>
     typeof window === "undefined"
       ? "overview"
-      : screenFromHash(window.location.hash),
+      : screenFromLocation(window.location.pathname, window.location.hash),
   );
+  const [routePath, setRoutePath] = useState(() =>
+    typeof window === "undefined" ? "/" : window.location.pathname,
+  );
+  const [routeWork, setRouteWork] = useState(null);
   const visibleScreen =
     ["inventory", "friends"].includes(activeScreen) && !authenticated
       ? "overview"
@@ -168,10 +202,17 @@ export function App() {
   ).reduce((sum, option) => sum + (option.count || 0), 0);
   const pull = usePullRefresh({
     regionRef: scrollRegionRef,
-    enabled: ["overview", "raids", "friends", "inventory"].includes(
-      visibleScreen,
-    ),
+    enabled: true,
     onRefresh: async () => {
+      if (await refreshTopPage()) return;
+      if (visibleScreen === "queue") {
+        if (authenticated)
+          await getSessionJson("/api/automation/state", {
+            fresh: true,
+            revalidate: false,
+          });
+        return;
+      }
       if (visibleScreen === "friends") {
         try {
           await postSessionJson("/api/automation/friends/refresh", {});
@@ -235,20 +276,108 @@ export function App() {
 
   useEffect(() => {
     const syncScreen = () => {
-      const next = screenFromHash(window.location.hash);
+      if (window.location.hash === "#queue")
+        window.history.replaceState(
+          window.history.state,
+          "",
+          screenUrl("queue", window.location.search),
+        );
+      const legacy = /^#(boss|work)\/(\d+)$/.exec(window.location.hash);
+      if (legacy && pageFromPath(`/${legacy[1]}/${legacy[2]}`))
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `/${legacy[1]}/${legacy[2]}${window.location.search}`,
+        );
+      const page = pageFromPath(window.location.pathname);
+      if (page && window.location.pathname.endsWith("/"))
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `/${page.kind}/${page.id}${window.location.search}${window.location.hash}`,
+        );
+      const next = screenFromLocation(
+        window.location.pathname,
+        window.location.hash,
+      );
       setActiveScreen(next);
-      if (window.location.hash !== `#${next}`)
-        window.history.replaceState(null, "", `#${next}`);
+      setRoutePath(window.location.pathname);
+      if (window.location.hash === "#overview")
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${window.location.pathname}${window.location.search}`,
+        );
     };
     syncScreen();
     window.addEventListener("hashchange", syncScreen);
-    return () => window.removeEventListener("hashchange", syncScreen);
+    window.addEventListener("popstate", syncScreen);
+    return () => {
+      window.removeEventListener("hashchange", syncScreen);
+      window.removeEventListener("popstate", syncScreen);
+    };
   }, []);
 
+  useEffect(() => {
+    const route = pageFromPath(routePath);
+    if (!route) return;
+    if (route.kind === "work") {
+      const work = kb.works.find(
+        (item) =>
+          Number(
+            item.workId ??
+              item.numericId ??
+              item.apiId ??
+              String(item.id).split(":").at(-1),
+          ) === route.id,
+      );
+      if (work) setRouteWork(work);
+      return;
+    }
+    if (!authenticated) return;
+    if (route.kind === "battle") return;
+    const boss = kb.bosses.find(
+      (item) => Number(item.numericId ?? item.apiId) === route.id,
+    );
+    if (!boss) return;
+    let cancelled = false;
+    void connectBattleSession().then(() => {
+      if (!cancelled && window.location.pathname === routePath)
+        void bossBattle.open(boss);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [routePath, authenticated]);
+
+  useEffect(() => {
+    const route = pageFromPath(routePath);
+    if (
+      authenticated &&
+      route?.kind === "battle" &&
+      String(battleState.battle?.id ?? "") === route.id &&
+      battleState.boss &&
+      !battleState.visible
+    )
+      void bossBattle.open(battleState.boss, { refresh: false });
+  }, [
+    routePath,
+    authenticated,
+    battleState.battle?.id,
+    battleState.boss,
+    battleState.visible,
+  ]);
+
   function changeScreen(screen) {
+    closeAllPages();
     const next = screenFromHash(`#${screen}`);
     setActiveScreen(next);
-    window.history.replaceState(null, "", `#${next}`);
+    window.history.replaceState(
+      null,
+      "",
+      screenUrl(next, window.location.search),
+    );
+    setRoutePath(next === "queue" ? "/queue" : "/");
     scrollRegionRef.current?.scrollTo({ top: 0, behavior: "instant" });
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -323,202 +452,258 @@ export function App() {
   }, [authenticated, floorAvailability.status]);
 
   return (
-    <ToastTargetContext.Provider value={toastTarget}>
-      <div className="site-shell">
-        <div className="site-header-group">
-          <SiteHeader
-            loading={
-              refreshing ||
-              pull.loading ||
-              profileState.status === "loading" ||
-              floorAvailability.status === "loading" ||
-              floorContentLoading ||
-              inventoryLoading ||
-              raidSchedule.status === "loading"
-            }
-          />
-          {authenticated && (
-            <AccountSummary
-              key={profileState.profile?.playerId ?? "loading"}
-              profile={profileState.profile}
+    <PageHostContext.Provider value={pageHost}>
+      <ToastTargetContext.Provider value={toastTarget}>
+        <div className="site-shell">
+          <div className="site-header-group">
+            <SiteHeader
+              onHome={() => changeScreen("overview")}
+              loading={
+                refreshing ||
+                pull.loading ||
+                profileState.status === "loading" ||
+                floorAvailability.status === "loading" ||
+                floorContentLoading ||
+                inventoryLoading ||
+                raidSchedule.status === "loading"
+              }
             />
-          )}
-        </div>
-        <div
-          className="app-scroll-region"
-          ref={scrollRegionRef}
-          data-page-scroll
-        >
-          <PullRefresh {...pull} />
-          <main
-            id="top"
-            className={`app-content app-content--${visibleScreen}`}
+            {authenticated && (
+              <AccountSummary
+                key={profileState.profile?.playerId ?? "loading"}
+                profile={profileState.profile}
+              />
+            )}
+          </div>
+          <div
+            className="app-scroll-region"
+            ref={scrollRegionRef}
+            data-page-scroll
           >
-            <div
-              id="screen-overview"
-              className="app-screen app-screen--overview"
+            <PullRefresh {...pull} />
+            <main
+              id="top"
+              className={`app-content app-content--${visibleScreen}${pages.length ? " app-content--subpage" : ""}`}
             >
+              <div
+                id="screen-overview"
+                className="app-screen app-screen--overview"
+              >
+                {authenticated && (
+                  <OverviewSection
+                    profileState={profileState}
+                    floorAvailability={floorAvailability}
+                    departmentState={departmentState}
+                    schedule={raidSchedule}
+                    onOpenFloors={onOpenFloors}
+                    onOpenRaids={onOpenRaids}
+                    onRetryFloors={floorAvailability.retry}
+                  />
+                )}
+                <div className="app-floor-catalogue">
+                  {kb.floors.length === 0 && (
+                    <p role="status">Справочник ещё не заполнен.</p>
+                  )}
+                  <FloorsSection
+                    {...floorAvailability}
+                    isAuthenticated={authenticated}
+                    playerLevel={
+                      authenticated && profileState.status === "ready"
+                        ? profileState.profile.playerLevel
+                        : null
+                    }
+                    onCalculator={setConditionDialog}
+                    onUpgradeSelect={setUpgradeDialog}
+                    onDepartmentState={onDepartmentState}
+                    onLoadingChange={setFloorContentLoading}
+                    selectedFloorCode={floorFocusCode}
+                    queueFocus={
+                      queueFocus?.kind === "floor" ? queueFocus : null
+                    }
+                    onQueueFocusHandled={onQueueFocusHandled}
+                    onVisibleFloorChange={setVisibleFloorCode}
+                  />
+                </div>
+              </div>
+              <div id="screen-raids" className="app-screen app-screen--raids">
+                <RaidScheduleSection
+                  authenticated={authenticated}
+                  active={visibleScreen === "raids"}
+                  queueFocus={queueFocus?.kind === "raid" ? queueFocus : null}
+                  onQueueFocusHandled={onQueueFocusHandled}
+                  availability={floorAvailability.availability}
+                  state={raidSchedule}
+                  onRetry={raidSchedule.retry}
+                />
+              </div>
+              {visibleScreen === "queue" && (
+                <div id="screen-queue" className="app-screen app-screen--queue">
+                  <ActionQueueSection
+                    authenticated={authenticated}
+                    state={actionQueue.state}
+                    catalogue={kb}
+                    onCommand={actionQueue.command}
+                    onOpen={openQueueAction}
+                    pending={actionQueue.pending}
+                  />
+                  {actionQueue.error && (
+                    <CardDescription role="alert">
+                      {actionQueue.error}
+                    </CardDescription>
+                  )}
+                </div>
+              )}
+              {authenticated && visibleScreen === "friends" && (
+                <div
+                  id="screen-friends"
+                  className="app-screen app-screen--friends"
+                >
+                  <FriendsSection
+                    key={sessionGeneration}
+                    active
+                    refreshGeneration={friendsRefresh}
+                    onNotice={setInventoryNotice}
+                    queueFocus={
+                      ["friend", "buddy"].includes(queueFocus?.kind)
+                        ? queueFocus
+                        : null
+                    }
+                    onQueueFocusHandled={onQueueFocusHandled}
+                  />
+                </div>
+              )}
               {authenticated && (
-                <OverviewSection
-                  profileState={profileState}
-                  floorAvailability={floorAvailability}
-                  departmentState={departmentState}
-                  schedule={raidSchedule}
-                  onOpenFloors={onOpenFloors}
-                  onOpenRaids={onOpenRaids}
-                  onRetryFloors={floorAvailability.retry}
+                <div
+                  id="screen-inventory"
+                  className="app-screen app-screen--inventory"
+                >
+                  <InventorySection
+                    active={visibleScreen === "inventory"}
+                    refreshGeneration={inventoryRefresh}
+                    responses={inventoryResponses}
+                    dirtyPaths={inventoryDirty}
+                    playerLevel={profileState.profile?.playerLevel}
+                    target={inventoryTarget}
+                    onNotice={setInventoryNotice}
+                    onLoadingChange={setInventoryLoading}
+                  />
+                </div>
+              )}
+            </main>
+            <div ref={setPageHost} className="app-subpage-host" />
+            <div hidden={pages.length > 0}>
+              <SiteFooter>
+                <FeedbackWidget screen={activeScreen} />
+              </SiteFooter>
+            </div>
+          </div>
+          {workCollectionNotice && (
+            <Toast
+              floating
+              success
+              title="Части набора собраны"
+              onDismiss={() => setWorkCollectionNotice(null)}
+            >
+              {workCollectionNotice}
+            </Toast>
+          )}
+          <BottomDock toastRef={setToastTarget}>
+            {inventoryNotice ? (
+              <Toast
+                urgent={!inventoryNotice.success}
+                success={inventoryNotice.success}
+                title={inventoryNotice.success ? "В очереди" : "Ошибка"}
+                onDismiss={() => setInventoryNotice(null)}
+              >
+                {inventoryNotice.message}
+              </Toast>
+            ) : (
+              <GameHealthWarningBanner />
+            )}
+            <ActiveBattleControl hideIndicators={bossPage}>
+              {bossPage ? (
+                <div className="boss-page-actions">
+                  <BaseCard variant="glass-nav-circle">
+                    <Button
+                      variant="nav-tab"
+                      size="lg"
+                      icon="arrow-left"
+                      iconSize="large"
+                      iconOnly
+                      aria-label="Назад"
+                      onClick={currentPage.back}
+                    />
+                  </BaseCard>
+                  <BaseCard
+                    variant="glass-nav"
+                    ref={setBossActionsTarget}
+                    className="boss-page-actions-target"
+                  />
+                  {otherActiveBattle ? (
+                    <div
+                      ref={setBossAttackTarget}
+                      className="boss-page-actions-target"
+                    />
+                  ) : (
+                    <BaseCard
+                      variant="glass-nav"
+                      ref={setBossAttackTarget}
+                      className="boss-page-actions-target"
+                    />
+                  )}
+                </div>
+              ) : (
+                <MobileNavigation
+                  activeScreen={visibleScreen}
+                  inventoryCount={inventoryCount}
+                  authenticated={authenticated}
+                  onScreenChange={changeScreen}
                 />
               )}
-              <div className="app-floor-catalogue">
-                {kb.floors.length === 0 && (
-                  <p role="status">Справочник ещё не заполнен.</p>
-                )}
-                <FloorsSection
-                  {...floorAvailability}
-                  isAuthenticated={authenticated}
-                  playerLevel={
-                    authenticated && profileState.status === "ready"
-                      ? profileState.profile.playerLevel
-                      : null
-                  }
-                  onCalculator={setConditionDialog}
-                  onUpgradeSelect={setUpgradeDialog}
-                  onDepartmentState={onDepartmentState}
-                  onLoadingChange={setFloorContentLoading}
-                  selectedFloorCode={floorFocusCode}
-                  queueFocus={queueFocus?.kind === "floor" ? queueFocus : null}
-                  onQueueFocusHandled={onQueueFocusHandled}
-                  onVisibleFloorChange={setVisibleFloorCode}
-                />
-              </div>
-            </div>
-            <div id="screen-raids" className="app-screen app-screen--raids">
-              <RaidScheduleSection
-                authenticated={authenticated}
-                active={visibleScreen === "raids"}
-                queueFocus={queueFocus?.kind === "raid" ? queueFocus : null}
-                onQueueFocusHandled={onQueueFocusHandled}
-                availability={floorAvailability.availability}
-                state={raidSchedule}
-                onRetry={raidSchedule.retry}
-              />
-            </div>
-            {visibleScreen === "queue" && (
-              <div id="screen-queue" className="app-screen app-screen--queue">
-                <ActionQueueSection
-                  authenticated={authenticated}
-                  state={actionQueue.state}
-                  catalogue={kb}
-                  onCommand={actionQueue.command}
-                  onOpen={openQueueAction}
-                  pending={actionQueue.pending}
-                />
-                {actionQueue.error && (
-                  <CardDescription role="alert">
-                    {actionQueue.error}
-                  </CardDescription>
-                )}
-              </div>
-            )}
-            {authenticated && visibleScreen === "friends" && (
-              <div
-                id="screen-friends"
-                className="app-screen app-screen--friends"
-              >
-                <FriendsSection
-                  key={sessionGeneration}
-                  active
-                  refreshGeneration={friendsRefresh}
-                  onNotice={setInventoryNotice}
-                  queueFocus={
-                    ["friend", "buddy"].includes(queueFocus?.kind)
-                      ? queueFocus
-                      : null
-                  }
-                  onQueueFocusHandled={onQueueFocusHandled}
-                />
-              </div>
-            )}
-            {authenticated && (
-              <div
-                id="screen-inventory"
-                className="app-screen app-screen--inventory"
-              >
-                <InventorySection
-                  active={visibleScreen === "inventory"}
-                  refreshGeneration={inventoryRefresh}
-                  responses={inventoryResponses}
-                  dirtyPaths={inventoryDirty}
-                  playerLevel={profileState.profile?.playerLevel}
-                  target={inventoryTarget}
-                  onNotice={setInventoryNotice}
-                  onLoadingChange={setInventoryLoading}
-                />
-              </div>
-            )}
-          </main>
-          <SiteFooter>
-            <FeedbackWidget screen={activeScreen} />
-          </SiteFooter>
-        </div>
-        {workCollectionNotice && (
-          <Toast
-            floating
-            success
-            title="Части набора собраны"
-            onDismiss={() => setWorkCollectionNotice(null)}
-          >
-            {workCollectionNotice}
-          </Toast>
-        )}
-        <BottomDock toastRef={setToastTarget}>
-          {inventoryNotice ? (
-            <Toast
-              urgent={!inventoryNotice.success}
-              success={inventoryNotice.success}
-              title={inventoryNotice.success ? "В очереди" : "Ошибка"}
-              onDismiss={() => setInventoryNotice(null)}
-            >
-              {inventoryNotice.message}
-            </Toast>
-          ) : (
-            <GameHealthWarningBanner />
-          )}
-          <ActiveBattleControl>
-            <MobileNavigation
-              activeScreen={visibleScreen}
-              inventoryCount={inventoryCount}
-              authenticated={authenticated}
-              onScreenChange={changeScreen}
+            </ActiveBattleControl>
+          </BottomDock>
+          <RequirementCalculatorDialog
+            conditionDialog={conditionDialog}
+            onClose={() => setConditionDialog(null)}
+          />
+          {upgradeDialog && (
+            <UpgradeDialog
+              data={upgradeDialog}
+              onClose={() => setUpgradeDialog(null)}
             />
-          </ActiveBattleControl>
-        </BottomDock>
-        <RequirementCalculatorDialog
-          conditionDialog={conditionDialog}
-          onClose={() => setConditionDialog(null)}
-        />
-        {upgradeDialog && (
-          <UpgradeDialog
-            data={upgradeDialog}
-            onClose={() => setUpgradeDialog(null)}
+          )}
+          <BossBattleDialog
+            actionsTarget={bossActionsTarget}
+            attackTarget={bossAttackTarget}
           />
-        )}
-        <BossBattleDialog />
-        {queueDialog?.type === "character" && (
-          <CharacterUpgrade onClose={() => setQueueDialog(null)} />
-        )}
-        {queueDialog?.type === "invitations" && (
-          <BossInvitationsDialog onClose={() => setQueueDialog(null)} />
-        )}
-        {queueDialog?.type === "work" && (
-          <WorkFarmDialog
-            work={queueDialog.work}
-            energy={queueDialog.work.energyCycle?.full}
-            onClose={() => setQueueDialog(null)}
-          />
-        )}
-        <TelegramLaunchScreen />
-      </div>
-    </ToastTargetContext.Provider>
+          {routeWork && (
+            <WorkCalculatorDialog
+              work={routeWork}
+              energy={
+                kb.departments.find(
+                  (department) => department.id === routeWork.departmentId,
+                )?.energyCycle?.full
+              }
+              visible
+              onClose={() => setRouteWork(null)}
+            />
+          )}
+          {queueDialog?.type === "character" && (
+            <CharacterUpgrade onClose={() => setQueueDialog(null)} />
+          )}
+          {queueDialog?.type === "invitations" && (
+            <BossInvitationsDialog onClose={() => setQueueDialog(null)} />
+          )}
+          {queueDialog?.type === "work" && (
+            <WorkFarmDialog
+              work={queueDialog.work}
+              energy={queueDialog.work.energyCycle?.full}
+              onClose={() => setQueueDialog(null)}
+            />
+          )}
+          <TelegramLaunchScreen />
+        </div>
+      </ToastTargetContext.Provider>
+    </PageHostContext.Provider>
   );
 }

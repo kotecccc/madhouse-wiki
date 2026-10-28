@@ -107,6 +107,44 @@ test("existing battle is resumed without a start; close retains it and reopen re
   );
 });
 
+test("an unavailable medicine stock read does not block a confirmed boss state", async () => {
+  const { store, calls } = setup((_method, path) => {
+    if (path === "/api/me/bag") throw new Error("bag unavailable");
+    return detail();
+  });
+  await store.open(boss);
+  assert.equal(store.getSnapshot().canStart, true);
+  await store.refreshMedicineStock();
+  assert.equal(store.getSnapshot().canStart, true);
+  assert.equal(store.getSnapshot().needsRefresh, false);
+  assert.equal(store.getSnapshot().error, null);
+  assert.equal(
+    calls.every(([method]) => method === "GET"),
+    true,
+  );
+});
+
+test("a medicine stock read never clears an uncertain battle result", async () => {
+  for (const bagFails of [false, true]) {
+    const { store, calls } = setup((method, path) => {
+      if (method === "POST") throw new Error("lost response");
+      if (path === "/api/me/bag") {
+        if (bagFails) throw new Error("bag unavailable");
+        return { items: [] };
+      }
+      return detail();
+    });
+    await store.open(boss);
+    await store.start();
+    const error = store.getSnapshot().error;
+    await store.refreshMedicineStock();
+    assert.equal(store.getSnapshot().needsRefresh, true);
+    assert.equal(store.getSnapshot().canStart, false);
+    assert.equal(store.getSnapshot().error, error);
+    assert.equal(calls.filter(([method]) => method === "POST").length, 1);
+  }
+});
+
 test("lost mutation response blocks further attacks and never retries POST", async () => {
   const { store, calls } = setup((method) => {
     if (method === "POST") throw new Error("timeout");

@@ -269,9 +269,26 @@ export function createBattleAssistant({
       if (!confirmed) return false;
       complete();
     }
+    const beforeRead = controller.getSnapshot();
+    let refreshedBattle = false;
+    if (
+      beforeRead.battle?.status === "active" &&
+      (beforeRead.needsRefresh ||
+        beforeRead.error ||
+        (beforeRead.battle.expiresAt != null &&
+          beforeRead.battle.expiresAt <= now()))
+    ) {
+      await controller.refresh();
+      refreshedBattle = true;
+      if (
+        controller.getSnapshot().needsRefresh ||
+        controller.getSnapshot().error
+      )
+        return false;
+    }
     if (controller.getSnapshot().battle?.status === "active")
       await controller.loadMedicines();
-    else await controller.refresh();
+    else if (!refreshedBattle) await controller.refresh();
     if (
       controller.getSnapshot().needsRefresh ||
       stopped ||
@@ -492,10 +509,11 @@ export function createBattleAssistant({
     if (next)
       await controller.startNextBattle({ allowed: canStart, beforeSend });
     else await controller.start({ beforeSend });
-    if (!controller.getSnapshot().needsRefresh) complete();
+    const result = controller.getSnapshot();
+    if (!result.needsRefresh) complete();
     else
       wait(
-        "Проверяем состояние входа в бой. Повторный вход автоматически не отправляется.",
+        `${result.errorStatus === 500 ? "Игровой сервер вернул HTTP 500. " : ""}Проверяем состояние входа в бой. Повторный вход автоматически не отправляется.`,
       );
   }
   async function step({ notBefore = 0 } = {}) {
@@ -625,6 +643,12 @@ export function createBattleAssistant({
         publish();
         return { kind: "invite" };
       }
+      if (!record.pending) {
+        invitationNotice =
+          "Приглашение не отправлено: состояние боя изменилось.";
+        publish();
+        return { kind: "wait" };
+      }
       ledger.inviteBlocked = true;
       return wait(
         "Результат приглашения неизвестен. Проверьте бой; рассылка не повторена.",
@@ -682,6 +706,9 @@ export function createBattleAssistant({
     use,
     buy,
     step,
+    invalidatePendingWork() {
+      generation++;
+    },
     cancel() {
       stopped = true;
       generation++;

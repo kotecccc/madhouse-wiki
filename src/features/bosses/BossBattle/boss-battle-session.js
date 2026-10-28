@@ -50,6 +50,8 @@ async function automationRequest(method, path, body) {
             : "Не удалось получить серверное состояние боя.",
     );
     error.status = response.status;
+    error.code = value.error;
+    error.conflictReason = value.conflictReason;
     error.snapshot = value.snapshot;
     throw error;
   }

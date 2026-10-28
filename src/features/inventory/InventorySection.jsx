@@ -3,7 +3,7 @@ import { InventoryVirtualCard } from "./InventoryVirtualCard.jsx";
 import { InventoryLoadMore } from "./InventoryLoadMore.jsx";
 import { inventoryHeaderLoading } from "./loading-state.js";
 import { Skeleton } from "../../components/ui/Skeleton/Skeleton.jsx";
-import { Dialog } from "../../components/ui/Dialog/Dialog.jsx";
+import { Modal } from "../../components/ui/Modal/Modal.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
 import { useEffect, useRef, useState } from "react";
@@ -282,11 +282,9 @@ export function InventorySection({
         </Button>
       )}
       {nextOpen && nextItems.length > 0 && (
-        <Dialog
-          modal
-          surface="floor-data"
+        <Modal
           onClose={() => setNextOpen(false)}
-          aria-label={`Предметы уровня ${playerLevel + 1}`}
+          title={`Предметы уровня ${playerLevel + 1}`}
         >
           <div className="inventory-next-dialog">
             <CardTitle as="h2">Уровень {playerLevel + 1}</CardTitle>
@@ -300,7 +298,7 @@ export function InventorySection({
             </div>
             <Button onClick={() => setNextOpen(false)}>Закрыть</Button>
           </div>
-        </Dialog>
+        </Modal>
       )}
       <div className="inventory-toolbar">
         <div className="inventory-category-scroll">

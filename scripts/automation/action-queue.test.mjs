@@ -2,6 +2,48 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
 
+test("moving waiting battle series persists order without interrupting active or urgent actions", async () => {
+  let saved;
+  const calls = [];
+  const adapters = Object.fromEntries(
+    ["auto.start", "raid.start", "invitation.accept"].map((type) => [
+      type,
+      {
+        validate: (args) => args,
+        execute: async (job) => {
+          calls.push(job.id);
+          return { status: "completed" };
+        },
+      },
+    ]),
+  );
+  const create = (items = []) =>
+    createActionQueue({
+      saved: items,
+      adapters,
+      now: () => 10000,
+      persist: (items) => {
+        saved = structuredClone(items);
+      },
+    });
+  const queue = create();
+  queue.add({ id: "auto-0001", type: "auto.start", args: {}, priority: 15 });
+  queue.add({ id: "raid-0002", type: "raid.start", args: {}, priority: 15 });
+  queue.add({
+    id: "invite-003",
+    type: "invitation.accept",
+    args: {},
+    priority: 60,
+  });
+  assert.equal(queue.moveSeries("raid-0002", "up"), true);
+  assert.equal(queue.moveSeries("invite-003", "up"), false);
+  const restored = create(saved);
+  await restored.tick();
+  await restored.tick();
+  await restored.tick();
+  assert.deepEqual(calls, ["invite-003", "raid-0002", "auto-0001"]);
+});
+
 function setup(saved = []) {
   let time = 1000;
   let stored = [];

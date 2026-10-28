@@ -335,7 +335,7 @@ export function LoginControl() {
               setMenuClosing(false);
             }}
           >
-            <Button variant="menu-item" icon="door" onClick={logout}>
+            <Button variant="menu-item" icon="logout" onClick={logout}>
               Выйти
             </Button>
           </CardActionMenu>

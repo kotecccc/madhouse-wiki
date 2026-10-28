@@ -4,9 +4,30 @@ import assert from "node:assert/strict";
 import {
   bossBattleReference,
   bossBattleLoot,
+  bossBattleRewardText,
   bossDropIdentity,
   grantedBattleDrops,
 } from "../src/features/bosses/BossBattle/boss-battle-reference.js";
+
+test("reward text contains only received items and known currencies", () => {
+  const reference = {
+    possibleDrops: [
+      { type: "activity_item", entityId: 1, name: "Трофей" },
+      { type: "weapon", entityId: 2, name: "Другой предмет" },
+    ],
+  };
+  assert.equal(
+    bossBattleRewardText(reference, {
+      grantedDrops: [{ type: "activity_item", entityId: 1, amount: 2 }],
+      currencyRewards: [{ type: "gold", amount: 10 }],
+    }),
+    "Трофей ×2, Монеты 10",
+  );
+  assert.equal(
+    bossBattleRewardText(reference, { grantedDrops: [] }),
+    "Предметы не выпали.",
+  );
+});
 import {
   createBossBattleController,
   normalizeBattle,

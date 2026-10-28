@@ -1,4 +1,5 @@
 import { mutagenImageUrl } from "../../../../scripts/catalogue/public-assets.mjs";
+import { fmt } from "../../../lib/format.js";
 
 const identityFields = [
   "type",
@@ -155,4 +156,23 @@ export function bossBattleLoot(reference, battle) {
       amount: drop.amount,
     });
   return result;
+}
+
+export function bossBattleRewardText(reference, battle) {
+  const items = bossBattleLoot(reference, battle)
+    .filter((row) => row.received)
+    .map(
+      ({ item, amount }) =>
+        `${item.name || "Название не указано"}${amount == null ? "" : ` ×${fmt(amount)}`}`,
+    );
+  const labels = {
+    gold: "Монеты",
+    pills: "Пилюли",
+    dollar: "Купюры",
+    exp: "Опыт",
+  };
+  for (const { type, amount } of battle?.currencyRewards || []) {
+    if (labels[type]) items.push(`${labels[type]} ${fmt(amount)}`);
+  }
+  return items.join(", ") || "Предметы не выпали.";
 }

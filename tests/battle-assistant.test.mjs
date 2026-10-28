@@ -303,6 +303,31 @@ test("lost start response is reconciled from a discovered active battle for the 
   assert.deepEqual(controller.calls, [["refresh"], ["stock"], ["limit"]]);
 });
 
+for (const status of [500, 503, null]) {
+  test(`uncertain battle start reports game HTTP 500 only when confirmed (${status})`, async () => {
+    const controller = fakeController(baseState({ battle: null }));
+    controller.start = async ({ beforeSend }) => {
+      assert.equal(beforeSend({ operationId: "start-op" }), true);
+      controller.setSnapshot({
+        ...controller.getSnapshot(),
+        needsRefresh: true,
+        errorStatus: status,
+      });
+    };
+    const assistant = createBattleAssistant({ controller });
+    assistant.begin("start-run");
+    await assistant.startBattle();
+    const message = assistant.projection().notice;
+    assert.equal(
+      message.includes("Игровой сервер вернул HTTP 500."),
+      status === 500,
+    );
+    assert.match(message, /Повторный вход автоматически не отправляется/);
+    assert.equal(assistant.exportState().pending.kind, "start");
+    assert.equal(assistant.exportState().waiting.notice, message);
+  });
+}
+
 test("unknown start state stays pending after discovery and never retries the start", async () => {
   const controller = fakeController(
     baseState({ battle: null, needsRefresh: true, canStart: false }),
@@ -526,6 +551,54 @@ test("first invitation is immediate; repeats require fresh quota and persist the
   );
 });
 
+test("an invitation skipped before dispatch is not reported as uncertain or blocked", async () => {
+  const controller = fakeController(
+    baseState({
+      damageLimit: { bossId: 7, value: 40 },
+      battle: { ...baseState().battle, readyAt: 110000, totalDamage: 100 },
+    }),
+  );
+  controller.inviteAll = async () => undefined;
+  const assistant = createBattleAssistant({
+    controller,
+    now: () => 100000,
+    random: () => 0,
+  });
+  assistant.configure(enabledSettings());
+  assistant.begin("goal-1");
+  assert.equal((await assistant.step()).kind, "wait");
+  assert.equal(assistant.projection().uncertain, false);
+  assert.equal(assistant.projection().invitation.blocked, false);
+  assert.match(assistant.projection().invitationNotice, /не отправлено/);
+});
+
+test("an invitation reserved before an unknown response remains blocked without replay", async () => {
+  const controller = fakeController(
+    baseState({
+      damageLimit: { bossId: 7, value: 40 },
+      battle: { ...baseState().battle, readyAt: 110000, totalDamage: 100 },
+    }),
+  );
+  let attempts = 0;
+  controller.inviteAll = async ({ beforeSend }) => {
+    attempts++;
+    beforeSend({ operationId: "invite-unknown" });
+    return undefined;
+  };
+  const assistant = createBattleAssistant({
+    controller,
+    now: () => 100000,
+    random: () => 0,
+  });
+  assistant.configure(enabledSettings());
+  assistant.begin("goal-1");
+  await assistant.step();
+  assert.equal(assistant.projection().uncertain, true);
+  assert.equal(assistant.projection().invitation.blocked, true);
+  await assistant.step();
+  assert.equal(attempts, 1);
+});
+
 test("manual medicine operation reserves before send and charges confirmed purchase budget", async () => {
   let assistant;
   const controller = fakeController(baseState(), {
@@ -636,6 +709,37 @@ test("read recovery can clear an outage while mutation availability remains gate
     false,
   );
   assert.ok(controller.calls.some(([kind]) => kind === "stock"));
+});
+
+test("recovery rereads an expired active battle and adopts the confirmed outcome", async () => {
+  const initial = baseState({
+    battle: { ...baseState().battle, expiresAt: 999 },
+  });
+  const controller = fakeController(initial, {
+    refresh: (c) =>
+      c.setSnapshot({
+        ...c.getSnapshot(),
+        battle: { ...c.getSnapshot().battle, status: "expired" },
+      }),
+  });
+  const assistant = createBattleAssistant({ controller, now: () => 1000 });
+  assistant.begin("expired-battle");
+  assert.equal(await assistant.recover(), true);
+  assert.equal(controller.getSnapshot().battle.status, "expired");
+  assert.ok(controller.calls.some(([kind]) => kind === "refresh"));
+  assert.ok(
+    !controller.calls.some(([kind]) => ["attack", "use", "buy"].includes(kind)),
+  );
+});
+
+test("failed battle refresh stays in recovery without repeating a mutation", async () => {
+  const controller = fakeController(
+    baseState({ needsRefresh: true, error: "Ошибка" }),
+  );
+  const assistant = createBattleAssistant({ controller });
+  assistant.begin("failed-refresh");
+  assert.equal(await assistant.recover(), false);
+  assert.deepEqual(controller.calls, [["refresh"]]);
 });
 
 test("uncertain strikes refresh the battle and clear only after confirmed personal damage", async () => {

@@ -993,6 +993,256 @@ test("selecting a new boss hides the previous result until server reconciliation
   h.disconnect();
 });
 
+test("opening waits for an in-flight command and uses its updated version", async () => {
+  let release;
+  const h = harness({
+    request: async (method, path, body) => {
+      if (method === "GET") return initialState();
+      if (body.command === "healing.configure")
+        return new Promise((resolve) => (release = resolve));
+      return { ...initialState(), version: 9, battle: { boss: { id: 29 } } };
+    },
+  });
+  await h.connect();
+  const saving = h.bossBattle.configureHealing({ enabled: false });
+  const opening = h.bossBattle.open({ numericId: 29, name: "Selected" });
+  assert.equal(h.calls.length, 2);
+  release({ ...initialState(), version: 8 });
+  await saving;
+  assert.equal(await opening, true);
+  assert.equal(h.calls.at(-1)[2].expectedVersion, 8);
+  assert.equal(h.bossBattle.getSnapshot().boss.id, 29);
+  h.disconnect();
+});
+
+test("opening retries only a confirmed state version conflict", async () => {
+  let attempts = 0;
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      if (++attempts === 1) {
+        const error = new Error("State changed");
+        error.status = 409;
+        error.code = "automation_state_changed";
+        error.conflictReason = "version";
+        error.snapshot = { ...initialState(), version: 8 };
+        throw error;
+      }
+      return { ...initialState(), version: 9, battle: { boss: { id: 29 } } };
+    },
+  });
+  await h.connect();
+  assert.equal(await h.bossBattle.open({ numericId: 29 }), true);
+  assert.equal(attempts, 2);
+  assert.equal(h.calls.at(-1)[2].expectedVersion, 8);
+  h.disconnect();
+});
+
+test("opening does not retry another conflict with the generic 409 code", async () => {
+  let attempts = 0;
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      attempts++;
+      const error = new Error("Conflict");
+      error.status = 409;
+      error.code = "automation_state_changed";
+      error.snapshot = initialState();
+      throw error;
+    },
+  });
+  await h.connect();
+  assert.equal(await h.bossBattle.open({ numericId: 29 }), false);
+  assert.equal(attempts, 1);
+  h.disconnect();
+});
+
+test("a different active battle remains authoritative while the selected boss is shown separately", async () => {
+  const h = harness();
+  await h.connect();
+  await h.bossBattle.open({
+    numericId: 29,
+    name: "Selected",
+    image: "/boss.png",
+  });
+  const state = h.bossBattle.getSnapshot();
+  assert.equal(state.boss.id, 8);
+  assert.equal(state.battle.id, "b-1");
+  assert.equal(state.previewBoss.id, 29);
+  assert.equal(state.previewBoss.name, "Selected");
+  assert.equal(state.previewBoss.reference.image, "/boss.png");
+  h.bossBattle.close();
+  assert.equal(h.bossBattle.getSnapshot().previewBoss, null);
+  await h.bossBattle.open({ numericId: 8, name: "Boss" }, { refresh: false });
+  assert.equal(h.bossBattle.getSnapshot().previewBoss, null);
+  h.disconnect();
+});
+
+test("opening the current active battle from another boss is local and sends no command", async () => {
+  const h = harness();
+  await h.connect();
+  await h.bossBattle.open({ numericId: 29, name: "Selected" });
+  const requests = h.calls.length;
+  assert.equal(h.bossBattle.showCurrentBattle(), true);
+  assert.equal(h.calls.length, requests);
+  assert.equal(h.bossBattle.getSnapshot().previewBoss, null);
+  assert.equal(h.bossBattle.getSnapshot().boss.id, 8);
+  assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
+  h.disconnect();
+});
+
+test("opening the current battle refuses a completed result", async () => {
+  const state = initialState();
+  state.battle.battle.status = "won";
+  const h = harness({ state });
+  await h.connect();
+  assert.equal(h.bossBattle.showCurrentBattle(), false);
+  assert.equal(h.calls.length, 1);
+  h.disconnect();
+});
+
+test("saving healing settings preserves the battle page and its selected catalogue reference", async () => {
+  let release;
+  const state = initialState();
+  state.battle.boss.reference = { damageMax: 90 };
+  const h = harness({
+    request: async (method) =>
+      method === "GET"
+        ? state
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
+  });
+  await h.connect();
+  await h.bossBattle.open(
+    { numericId: 8, name: "Boss", image: "/boss.png", requiredLevel: 25 },
+    { refresh: false },
+  );
+  const saving = h.bossBattle.configureHealing({ enabled: false });
+  const pending = h.bossBattle.getSnapshot();
+  assert.equal(pending.pending, null);
+  assert.equal(pending.battle.id, "b-1");
+  assert.equal(pending.boss.reference.image, "/boss.png");
+  assert.equal(pending.boss.reference.requiredLevel, 25);
+  assert.equal(pending.boss.reference.damageMax, 90);
+  release(state);
+  await saving;
+  assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
+  h.disconnect();
+});
+
+test("healing settings wait for an in-flight command and use its latest version", async () => {
+  let release;
+  const h = harness({
+    request: async (method, _path, body) => {
+      if (method === "GET") return initialState();
+      if (body.command === "work.refresh")
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      return { ...initialState(), version: 9 };
+    },
+  });
+  await h.connect();
+  const refreshing = h.workFarm.refresh(7);
+  const saving = h.bossBattle.configureHealing({ enabled: true });
+  assert.equal(h.calls.length, 2);
+  release({ ...initialState(), version: 8 });
+  await refreshing;
+  assert.equal(await saving, true);
+  assert.equal(h.calls.at(-1)[2].expectedVersion, 8);
+  h.disconnect();
+});
+
+test("healing settings rebase only a rejected version conflict with unchanged settings", async () => {
+  for (const changed of [false, true]) {
+    let attempts = 0;
+    const initial = initialState();
+    initial.battle.healing = { settings: { enabled: false } };
+    const h = harness({
+      request: async (method) => {
+        if (method === "GET") return initial;
+        if (++attempts === 1) {
+          const error = new Error("conflict");
+          error.status = 409;
+          error.conflictReason = "version";
+          error.snapshot = {
+            ...initial,
+            version: 8,
+            battle: {
+              ...initial.battle,
+              healing: { settings: { enabled: changed } },
+            },
+          };
+          throw error;
+        }
+        return { ...initial, version: 9 };
+      },
+    });
+    await h.connect();
+    assert.equal(
+      await h.bossBattle.configureHealing({ enabled: true }),
+      !changed,
+    );
+    assert.equal(attempts, changed ? 1 : 2);
+    h.disconnect();
+  }
+});
+
+test("an uncertain healing settings response is not replayed", async () => {
+  let attempts = 0;
+  const h = harness({
+    request: async (method) => {
+      if (method === "GET") return initialState();
+      attempts++;
+      throw new Error("connection lost");
+    },
+  });
+  await h.connect();
+  assert.equal(await h.bossBattle.configureHealing({ enabled: true }), false);
+  assert.equal(attempts, 1);
+  h.disconnect();
+});
+
+test("adding the current fight queues a single-battle intent with its exact identity", async () => {
+  const h = harness();
+  await h.connect();
+  await h.bossBattleAuto.finishBattle(8, "b-1");
+  assert.deepEqual(h.calls.at(-1)[2].args, {
+    type: "auto.start",
+    action: {
+      singleBattleId: "b-1",
+      settings: {
+        bossId: 8,
+        kind: "battles",
+        targetCount: 1,
+        countWins: false,
+        durationHours: null,
+        maxAttempts: null,
+      },
+    },
+  });
+  h.disconnect();
+});
+
+test("queued auto and raid intents carry their own healing settings", async () => {
+  const h = harness();
+  await h.connect();
+  const settings = { bossId: 29, kind: "battles", targetCount: 5 };
+  const healingSettings = { enabled: true, autoBuy: false };
+  await h.bossBattleAuto.start(settings, { healingSettings });
+  assert.deepEqual(h.calls.at(-1)[2].args.action, {
+    settings,
+    healingSettings,
+  });
+  await h.bossBattleAuto.startRaid(settings, { healingSettings });
+  assert.deepEqual(h.calls.at(-1)[2].args.action, {
+    settings,
+    healingSettings,
+  });
+  h.disconnect();
+});
+
 test("invitations are server-backed and accepting opens only the confirmed joined fight", async () => {
   const state = {
     ...initialState(),

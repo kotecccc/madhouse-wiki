@@ -716,6 +716,56 @@ test("auto.stop cancels the queued next battle", async () => {
   );
 });
 
+test("stopping an active autobattle finishes the fight and can be resumed", async () => {
+  await withSetup(
+    { initial: makeBattle("active-1", "active", 1_000_000) },
+    async (ctx) => {
+      const entry = await ctx.openAndConfigure("battles", 3);
+      await ctx.command(entry, "auto-finish-start", "auto.start");
+      const before = ctx.service.snapshot(entry);
+      await ctx.command(entry, "auto-finish-stop", "auto.stop");
+      let state = ctx.service.snapshot(entry);
+      assert.equal(state.auto.enabled, true);
+      assert.equal(state.auto.stopAfterBattle, true);
+      assert.equal(ctx.store.read("101").auto.stopAfterBattle, true);
+      assert.equal(state.battle.battle.id, before.battle.battle.id);
+      assert.equal(state.goal.target, before.goal.target);
+      const callsBefore = ctx.calls.length;
+      await ctx.command(entry, "auto-finish-resume", "auto.resume");
+      state = ctx.service.snapshot(entry);
+      assert.equal(state.auto.stopAfterBattle, false);
+      assert.equal(ctx.store.read("101").auto.stopAfterBattle, false);
+      assert.equal(state.goal.target, before.goal.target);
+      assert.equal(ctx.calls.length, callsBefore);
+    },
+  );
+});
+
+test("stopping during an in-flight strike finishes that fight without starting another", async () => {
+  await withSetup(
+    { initial: makeBattle("active-1", "active", 1_000_000), holdAttack: true },
+    async (ctx) => {
+      const entry = await ctx.openAndConfigure("battles", 3);
+      await ctx.command(entry, "auto-finish-flight-start", "auto.start");
+      await ctx.advance(3000, entry);
+      assert.equal(ctx.service.snapshot(entry).battle.pending, "attack");
+      await ctx.command(entry, "auto-finish-flight-stop", "auto.stop");
+      assert.equal(ctx.service.snapshot(entry).auto.stopAfterBattle, true);
+      ctx.releaseAttack();
+      await ctx.flush();
+      await ctx.advance(30000, entry);
+      assert.equal(
+        ctx.calls.filter(
+          (call) => call.method === "POST" && call.path.endsWith("/attack"),
+        ).length,
+        1,
+      );
+      assert.equal(ctx.starts, 0);
+      assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    },
+  );
+});
+
 test("raid.stop keeps invitations and auto attacks until the current fight ends", async () => {
   await withSetup({ inviteAvailable: true }, async (ctx) => {
     const entry = await ctx.openAndConfigure("battles", 3);
@@ -745,6 +795,27 @@ test("raid.stop keeps invitations and auto attacks until the current fight ends"
     assert.equal(ctx.starts, 1);
     assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
     assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+  });
+});
+
+test("resuming a finishing raid preserves its goal and current battle", async () => {
+  await withSetup({ inviteAvailable: true }, async (ctx) => {
+    const entry = await ctx.openAndConfigure("battles", 3);
+    assert.equal(entry.raidWorker.start(7), true);
+    await entry.raidWorker.tick();
+    await ctx.command(entry, "raidfinishresume01", "raid.stop");
+    const before = ctx.service.snapshot(entry);
+    const callsBefore = ctx.calls.length;
+    assert.equal(before.raid.stopAfterBattle, true);
+    await ctx.command(entry, "raidfinishresume02", "raid.resume");
+    const after = ctx.service.snapshot(entry);
+    assert.equal(after.raid.stopAfterBattle, false);
+    assert.equal(after.battle.battle.id, before.battle.battle.id);
+    assert.equal(after.goal.target, before.goal.target);
+    assert.equal(after.goal.completedBattles, before.goal.completedBattles);
+    assert.equal(ctx.store.read("101").raid.stopAfterBattle, false);
+    assert.equal(ctx.store.read("101").auto.singleBattle, false);
+    assert.equal(ctx.calls.length, callsBefore);
   });
 });
 
@@ -1000,7 +1071,7 @@ test("server series preserves enabled intent across a manual battle refresh", as
         postsBefore,
       );
       await f.command(entry, "stop-refresh-case", "auto.stop");
-      assert.equal(f.service.snapshot(entry).auto.enabled, false);
+      assert.equal(f.service.snapshot(entry).auto.stopAfterBattle, true);
     },
   );
 });
@@ -1243,6 +1314,36 @@ test("paused autobattle remains paused after worker restart", async () => {
     assert.equal(ctx.starts, 0);
     assert.equal(restored.snapshot(after).goal.status, "active");
     assert.equal(timers.length, 0);
+  } finally {
+    restored?.close();
+    ctx.close();
+  }
+});
+
+test("finishing autobattle survives worker restart without starting a new fight", async () => {
+  const ctx = setup({ initial: makeBattle("active-1", "active", 1_000_000) });
+  let restored;
+  try {
+    const entry = await ctx.openAndConfigure("battles", 3);
+    await ctx.command(entry, "finish-restart-start", "auto.start");
+    await ctx.command(entry, "finish-restart-stop", "auto.stop");
+    ctx.service.close();
+    restored = createAutomationService({
+      store: ctx.store,
+      fetcher: ctx.fetcher,
+      getBoss: (id) => ({ numericId: id, name: "Boss", possibleDrops: [] }),
+      now: () => 1_000_000,
+      random: () => 0,
+      schedule: (callback) => callback,
+      cancel: () => {},
+    });
+    await restored.boot();
+    const after = await restored.identify(token);
+    const state = restored.snapshot(after);
+    assert.equal(state.auto.enabled, true);
+    assert.equal(state.auto.stopAfterBattle, true);
+    assert.equal(state.battle.battle.id, "active-1");
+    assert.equal(ctx.starts, 0);
   } finally {
     restored?.close();
     ctx.close();
@@ -1741,6 +1842,18 @@ for (const mode of ["auto", "raid"])
       assert.equal(state[mode].queueId, `queue-series-${mode}`);
       assert.equal(state.goal.status, "active");
       assert.equal(ctx.store.read("101").pendingAutomation, null);
+      if (mode === "raid") {
+        await assert.rejects(
+          ctx.service.command(entry, {
+            id: "duplicate-active-raid",
+            command: "queue.enqueue",
+            expectedVersion: state.version,
+            args: { type: "raid.start", action: { settings } },
+          }),
+          /raid_boss_already_active/,
+        );
+        assert.equal(ctx.service.snapshot(entry).queuedActions.length, 1);
+      }
     });
   });
 

@@ -1,3 +1,32 @@
+import { isTerminalBossBattle } from "./boss-battle-status.js";
+
+export function healingErrorNotice(notice) {
+  return [
+    "Лечимся…",
+    "Покупаем одну аптечку…",
+    "Результат удара проверяется. Автоматического повтора не будет.",
+  ].includes(notice)
+    ? null
+    : notice || null;
+}
+
+export function canQueueBossBattleStart(
+  state,
+  { preview = false, automationRunning = false } = {},
+) {
+  return Boolean(
+    !preview &&
+    !automationRunning &&
+    !state.invitationOnly &&
+    !state.pending &&
+    !state.needsRefresh &&
+    !state.purchase &&
+    !state.purchaseUncertain &&
+    !state.queuedBattleActions?.some((job) => job.type === "battle.start") &&
+    (state.battle ? isTerminalBossBattle(state.battle) : state.canStart),
+  );
+}
+
 export function formatBattleCountdown(expiresAt, now) {
   if (!Number.isFinite(expiresAt) || !Number.isFinite(now)) return null;
   const total = Math.max(0, Math.ceil((expiresAt - now) / 1000));
@@ -60,13 +89,17 @@ export function bossAutomationEligible(state) {
 
 export function formatBattleCompletedAt(battle) {
   if (!Number.isFinite(battle?.completedAt)) return null;
-  return new Intl.DateTimeFormat("ru-RU", {
+  const parts = new Intl.DateTimeFormat("ru-RU", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(new Date(battle.completedAt));
+  }).formatToParts(new Date(battle.completedAt));
+  const values = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+  return `${values.hour}:${values.minute} ${values.day}.${values.month}`;
 }
 
 export function bossExecutionStatus(state, auto = {}) {

@@ -349,9 +349,9 @@ export function RaidScheduleSection({
                   <div className="raid-feed-state" role="status">
                     <Icon type="combat" size="hero" aria-hidden="true" />
                     <CardDescription>
-                      Обнаруженных рейдов пока нет. Рейд появляется после трёх
-                      разных боёв одного ведущего с боссом за два часа при
-                      наличии активного приглашения.
+                      Рейдов пока нет. Рейд появится здесь, когда ведущий
+                      проведёт три боя с одним боссом за два часа и появится
+                      активное приглашение.
                     </CardDescription>
                   </div>
                 )}

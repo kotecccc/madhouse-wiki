@@ -30,6 +30,7 @@ export function createBattleSeries({
   let checkpoint = null;
   let singleBattle = false;
   let singleBattleId = null;
+  let stopAfterBattle = false;
   let queueId = null;
   let startReceipts = Array.isArray(savedStartReceipts)
     ? savedStartReceipts.slice(-128)
@@ -59,6 +60,7 @@ export function createBattleSeries({
       nextAttackAt: current.nextAttackAt,
       pause: current.pause,
       phase,
+      stopAfterBattle,
       notice: current.notice ?? null,
       nextRecoveryAt,
       queueId,
@@ -76,6 +78,7 @@ export function createBattleSeries({
     controller.stopAutomation?.();
     generation++;
     enabled = false;
+    stopAfterBattle = false;
     phase = "stopped";
     clearTimer();
     strike.stop();
@@ -257,7 +260,9 @@ export function createBattleSeries({
       (phase === "attacking" ||
         (singleBattleId && state.battle?.id === singleBattleId))
     ) {
+      const finishGoal = stopAfterBattle;
       stop();
+      if (finishGoal) goal.stop();
       return;
     }
     if (
@@ -315,12 +320,26 @@ export function createBattleSeries({
         singleBattleId,
       };
     },
-    finishCurrent() {
+    finishCurrent({ stopAfterBattle: shouldStop = false } = {}) {
       const battle = controller.getSnapshot().battle;
       if (!enabled || battle?.status !== "active" || !battle.id) return false;
-      if (singleBattle && singleBattleId === battle.id) return true;
+      if (
+        singleBattle &&
+        singleBattleId === battle.id &&
+        (!shouldStop || stopAfterBattle)
+      )
+        return true;
       singleBattle = true;
       singleBattleId = battle.id;
+      if (shouldStop) stopAfterBattle = true;
+      publish();
+      return true;
+    },
+    resumeSeries() {
+      if (!enabled) return false;
+      singleBattle = false;
+      singleBattleId = null;
+      stopAfterBattle = false;
       publish();
       return true;
     },
@@ -353,6 +372,7 @@ export function createBattleSeries({
       if (state.battle?.status !== "active" && !goal.canStart()) return false;
       if (controller.beginAutomation?.() === false) return false;
       singleBattle = restored?.singleBattle ?? single;
+      stopAfterBattle = Boolean(restored?.stopAfterBattle);
       queueId = restored?.queueId ?? queuedId;
       if (queueId && !startReceipts.includes(queueId))
         startReceipts = [...startReceipts.slice(-127), queueId];

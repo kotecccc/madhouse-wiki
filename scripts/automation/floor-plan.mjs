@@ -3,7 +3,12 @@ const count = (value) => Number.isSafeInteger(value) && value >= 0;
 
 // Only live, explicitly unmet requirements can produce a game action. Reference
 // catalogue conditions may be incomplete and therefore never authorize one.
-export function planFloorProgress({ floors, info, catalogue }) {
+export function planFloorProgress({
+  floors,
+  info,
+  catalogue,
+  targetBossId = null,
+}) {
   if (!Array.isArray(floors) || !Array.isArray(catalogue?.floors))
     return { status: "waiting", reason: "Данные этажей недоступны." };
   const ordered = catalogue.floors;
@@ -49,8 +54,14 @@ export function planFloorProgress({ floors, info, catalogue }) {
       reason: "Условия открытия ещё не подтверждены.",
     };
   let unresolved = null;
+  let matchedBossTarget = null;
   for (const requirement of requirements) {
     if (requirement.met === true) continue;
+    if (
+      targetBossId != null &&
+      (requirement.type !== "boss_kills" || requirement.bossId !== targetBossId)
+    )
+      continue;
     const mapping = {
       work_completions: ["work", "workId"],
       boss_kills: ["boss", "bossId"],
@@ -78,7 +89,7 @@ export function planFloorProgress({ floors, info, catalogue }) {
       unresolved ??= "Цель отсутствует в справочнике или неоднозначна.";
       continue;
     }
-    return {
+    const target = {
       status: "ready",
       destination: destination.blockCode ?? destination.code,
       kind,
@@ -90,7 +101,16 @@ export function planFloorProgress({ floors, info, catalogue }) {
           ? requirement.required
           : Math.min(requirement.required, requirement.current + 1000),
     };
+    if (targetBossId == null) return target;
+    if (
+      !matchedBossTarget ||
+      target.required - target.current >
+        matchedBossTarget.required - matchedBossTarget.current
+    )
+      matchedBossTarget = target;
   }
+  if (matchedBossTarget && !unresolved) return matchedBossTarget;
+  if (targetBossId != null && !unresolved) return { status: "changed" };
   return {
     status: "waiting",
     reason: unresolved ?? "Ожидаем подтверждения открытия.",

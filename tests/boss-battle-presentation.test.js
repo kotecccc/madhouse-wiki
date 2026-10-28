@@ -16,7 +16,47 @@ import {
   goalProgressPresentation,
   sameBattleEvent,
   sameBattleEvents,
+  canQueueBossBattleStart,
+  healingErrorNotice,
 } from "../src/features/bosses/BossBattle/boss-battle-presentation.js";
+
+test("ordinary healing and purchase progress is not shown as an error", () => {
+  assert.equal(healingErrorNotice("Лечимся…"), null);
+  assert.equal(healingErrorNotice("Покупаем одну аптечку…"), null);
+  assert.equal(
+    healingErrorNotice("Применение аптечки не подтверждено."),
+    "Применение аптечки не подтверждено.",
+  );
+});
+
+test("a completed battle can be queued again even before start availability is refreshed", () => {
+  const state = { battle: { status: "won" }, canStart: false };
+  assert.equal(canQueueBossBattleStart(state), true);
+  assert.equal(
+    canQueueBossBattleStart({ ...state, needsRefresh: true }),
+    false,
+  );
+  assert.equal(
+    canQueueBossBattleStart({ ...state, purchaseUncertain: true }),
+    false,
+  );
+  assert.equal(
+    canQueueBossBattleStart({
+      ...state,
+      queuedBattleActions: [{ type: "battle.start" }],
+    }),
+    false,
+  );
+  assert.equal(
+    canQueueBossBattleStart({ ...state, battle: { status: "active" } }),
+    false,
+  );
+  assert.equal(canQueueBossBattleStart({ ...state, battle: null }), false);
+  assert.equal(
+    canQueueBossBattleStart(state, { automationRunning: true }),
+    false,
+  );
+});
 
 const event = {
   turn: 1,
@@ -200,6 +240,144 @@ test("battle header contains countdown, hides automation manual controls and kee
       }),
     );
     assert.ok(!goalMarkup.includes("Бои: 2 · Победы: 1"));
+    const menuMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal: null,
+        auto: { enabled: true },
+        menuActions: true,
+      }),
+    );
+    const activeSettingsMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: { ...settingsState, battle: { status: "active" } },
+        goal,
+        auto: { enabled: true },
+        menuActions: true,
+        hideSettings: true,
+      }),
+    );
+    assert.doesNotMatch(
+      activeSettingsMarkup,
+      /Режим боя|Цель и условия боя|Сколько ходить/,
+    );
+    assert.match(activeSettingsMarkup, /Остановить автобой/);
+    assert.match(
+      menuMarkup,
+      /button-nav-tab[^>]*aria-pressed="true"[^>]*aria-label="Остановить автобой"/,
+    );
+    const idleMenuMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal: null,
+        menuActions: true,
+      }),
+    );
+    assert.ok(idleMenuMarkup.includes("Режим боя"));
+    assert.ok(!idleMenuMarkup.includes("Не установлена"));
+    assert.ok(idleMenuMarkup.includes("Автобой"));
+    const previewMenuMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal: null,
+        menuActions: true,
+        disableStart: true,
+      }),
+    );
+    assert.match(previewMenuMarkup, /aria-label="Начать автобой"[^>]*disabled/);
+    assert.ok(previewMenuMarkup.includes("Цель и условия боя"));
+    assert.ok(previewMenuMarkup.includes("Сколько ходить"));
+    const queuedMenuMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal: null,
+        menuActions: true,
+        queueInsteadOfStart: true,
+      }),
+    );
+    assert.match(queuedMenuMarkup, /aria-label="В очередь автобоя"/);
+    assert.match(queuedMenuMarkup, />В очередь автобоя<\/span>/);
+    const alreadyQueuedMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: {
+          ...settingsState,
+          queuedSeries: [
+            { type: "auto.start", args: { bossId: 7 } },
+            { type: "raid.start", args: { bossId: 7 } },
+          ],
+        },
+        goal: null,
+        menuActions: true,
+        queueInsteadOfStart: true,
+      }),
+    );
+    assert.match(
+      alreadyQueuedMarkup,
+      /aria-label="Автобой в очереди"[^>]*disabled/,
+    );
+    const queuedActionsMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: {
+          ...settingsState,
+          queuedSeries: [
+            { type: "auto.start", args: { bossId: 7 } },
+            { type: "raid.start", args: { bossId: 7 } },
+          ],
+        },
+        goal: null,
+      }),
+    );
+    assert.match(
+      queuedActionsMarkup,
+      /aria-label="Автобой в очереди"[^>]*disabled/,
+    );
+    assert.match(
+      queuedActionsMarkup,
+      /aria-label="Рейд в очереди"[^>]*disabled/,
+    );
+    const otherQueuedMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: {
+          ...settingsState,
+          queuedSeries: [{ type: "auto.start", args: { bossId: 8 } }],
+        },
+        goal: null,
+        menuActions: true,
+        queueInsteadOfStart: true,
+      }),
+    );
+    assert.match(otherQueuedMarkup, /aria-label="В очередь автобоя"/);
+    assert.match(idleMenuMarkup, /aria-label="Цель боя"/);
+    assert.doesNotMatch(idleMenuMarkup, /<details/);
+    assert.match(idleMenuMarkup, /tabler-icon-robot/);
+    const selectedGoalMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal: { ...goal, kind: "battles", targetCount: 10 },
+        menuActions: true,
+      }),
+    );
+    assert.match(selectedGoalMarkup, /value="10"/);
+    assert.ok(idleMenuMarkup.includes("Рейд"));
+    assert.ok(
+      idleMenuMarkup.indexOf("Режим боя") <
+        idleMenuMarkup.indexOf("Цель и условия боя"),
+    );
+    assert.ok(
+      idleMenuMarkup.indexOf("Сколько ходить") >
+        idleMenuMarkup.indexOf("Цель и условия боя"),
+    );
+    assert.ok(!menuMarkup.includes('aria-label="Запустить рейд"'));
+    const raidMenuMarkup = renderToStaticMarkup(
+      createElement(BossBattleGoalPanel, {
+        state: settingsState,
+        goal: null,
+        raid: { enabled: true, bossId: 7 },
+        menuActions: true,
+      }),
+    );
+    assert.match(raidMenuMarkup, /aria-label="Остановить рейд"/);
+    assert.ok(!raidMenuMarkup.includes('aria-label="Начать автобой"'));
     const progressMarkup = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: { boss: { id: 7, name: "Босс", reference: {} } },
@@ -420,7 +598,7 @@ test("battle header contains countdown, hides automation manual controls and kee
             },
           ],
         },
-        "Комната",
+        "Цель и условия боя",
       ],
       [
         "time",
@@ -450,6 +628,10 @@ test("battle header contains countdown, hides automation manual controls and kee
         }),
       );
       assert.ok(variant.includes(text));
+      if (kind === "drops") {
+        assert.ok(!variant.includes("Выбранный"));
+        assert.ok(!variant.includes("Весь дроп"));
+      }
       assert.ok(!variant.includes("Цель на победы"));
     }
     const battle = {
@@ -597,8 +779,20 @@ test("battle header contains countdown, hides automation manual controls and kee
       createElement(BossHealingSettings, { state: healingState, onSave() {} }),
     );
     assert.ok(healingMarkup.includes("Использовать аптечки?"));
-    assert.ok(healingMarkup.includes("ui-disclosure ui-disclosure--sm"));
+    assert.ok(
+      healingMarkup.includes(
+        "ui-disclosure ui-disclosure--sm ui-disclosure--separated",
+      ),
+    );
     assert.match(healingMarkup, /ui-pill--unknown[^>]*>2 шт\.<\/span>/);
+    const battleHealingMarkup = renderToStaticMarkup(
+      createElement(BossHealingSettings, {
+        state: { ...healingState, battle: { status: "active" } },
+        onSave() {},
+      }),
+    );
+    assert.match(battleHealingMarkup, />Аптечки</);
+    assert.match(battleHealingMarkup, /ui-pill--unknown[^>]*>1 \/ 2<\/span>/);
     assert.doesNotMatch(healingMarkup, /ui-pill-dot|ui-pill--completed/);
     assert.ok(!healingMarkup.includes("<input"));
     assert.ok(!healingMarkup.includes('role="radiogroup"'));
@@ -864,5 +1058,8 @@ test("automation waiting hides past outcomes while actual terminal timestamps re
     false,
   );
   assert.equal(formatBattleCompletedAt({ completedAt: null }), null);
-  assert.match(formatBattleCompletedAt(state.battle), /26\.10/);
+  assert.match(
+    formatBattleCompletedAt(state.battle),
+    /^\d{2}:\d{2} \d{2}\.\d{2}$/,
+  );
 });

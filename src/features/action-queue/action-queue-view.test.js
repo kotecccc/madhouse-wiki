@@ -79,7 +79,7 @@ test("completed actions disappear while handoffs do not claim the goal finished"
   assert.equal(handoff.command, "queue.dismiss");
 });
 
-test("stopped battle and subscription handoffs remain visible after their actors retain queue IDs", () => {
+test("stopped battle handoffs are hidden while subscription handoffs remain visible", () => {
   for (const [type, actorName] of [
     ["auto.start", "auto"],
     ["raid.start", "raid"],
@@ -98,6 +98,10 @@ test("stopped battle and subscription handoffs remain visible after their actors
       queuedActions: [job],
     };
     const cards = actionQueueCards(state);
+    if (type !== "subscription.start") {
+      assert.equal(cards.length, 0);
+      continue;
+    }
     assert.equal(cards.length, 1);
     assert.equal(cards[0].id, job.id);
     assert.equal(cards[0].status, "Передано исполнителю");
@@ -107,12 +111,8 @@ test("stopped battle and subscription handoffs remain visible after their actors
   }
 });
 
-test("a stopped current handoff remains visible beyond the five recent completions", () => {
-  for (const [type, actorName] of [
-    ["auto.start", "auto"],
-    ["raid.start", "raid"],
-    ["subscription.start", "subscription"],
-  ]) {
+test("a stopped subscription handoff remains visible beyond recent completions", () => {
+  for (const [type, actorName] of [["subscription.start", "subscription"]]) {
     const job = {
       id: "old-handoff",
       type,

@@ -11,6 +11,51 @@ const tokenA = "Bearer tokenA.payload.sig";
 const tokenARotated = "Bearer tokenA2.payload.sig";
 const tokenB = "Bearer tokenB.payload.sig";
 
+test("queue move is durable and repeating its receipt does not move twice", async () => {
+  await withContext(async ({ service, store, game }) => {
+    const entry = await service.identify(tokenA);
+    for (const [id, bossId] of [
+      ["queue-boss-one", 7],
+      ["queue-boss-two", 8],
+    ]) {
+      await service.command(entry, {
+        id,
+        command: "queue.enqueue",
+        expectedVersion: service.snapshot(entry).version,
+        args: {
+          type: "auto.start",
+          action: {
+            settings: {
+              bossId,
+              kind: "battles",
+              targetCount: 1,
+              durationHours: null,
+            },
+          },
+        },
+      });
+    }
+    const command = {
+      id: "move-boss-two",
+      command: "queue.move",
+      expectedVersion: service.snapshot(entry).version,
+      args: { id: "queue-boss-two", direction: "up" },
+    };
+    await service.command(entry, command);
+    await service.command(entry, command);
+    const jobs = store.read("101").queuedActions;
+    assert.ok(
+      jobs.find((job) => job.id === "queue-boss-two").queueOrderAt <
+        jobs.find((job) => job.id === "queue-boss-one").queueOrderAt,
+    );
+    assert.ok(store.read("101").receipts.includes(command.id));
+    assert.equal(
+      game.calls.filter(({ method }) => method === "POST").length,
+      0,
+    );
+  });
+});
+
 test("queue.cancel reports unavailable storage instead of acknowledging a failed write", async () => {
   await withContext(async ({ service, store }) => {
     const entry = await service.identify(tokenA);

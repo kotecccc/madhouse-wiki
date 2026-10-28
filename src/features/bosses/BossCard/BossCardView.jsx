@@ -14,7 +14,15 @@ import {
   activeBattleForBoss,
   bossHealthPercent,
 } from "./boss-card-battle-status.js";
-import { bossBattle } from "../BossBattle/boss-battle-session.js";
+import {
+  bossBattle,
+  bossBattleAuto,
+} from "../BossBattle/boss-battle-session.js";
+import {
+  bossTargetAction,
+  battleCountLabel,
+} from "../DepartmentBossCard/boss-target-action.js";
+import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { departmentById } from "../../../model/knowledge-base.js";
 import { bossDisplayFields } from "../../../lib/card-display-fields.js";
 import { EditableLayout } from "../../../components/ui/CardEditing/EditableLayout.jsx";
@@ -23,6 +31,7 @@ import {
   Fragment,
   isValidElement,
   useContext,
+  useEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -102,6 +111,7 @@ export function BossCardView({
   showInfo = true,
   showBattleAction = false,
   mobileBattleAction = false,
+  primaryBattleAction = false,
   showStats = false,
   showDropList = true,
   action,
@@ -145,7 +155,16 @@ export function BossCardView({
   const cardRef = useRef(null);
   const editing = useContext(CardEditingContext);
   const [menuAnchor, setMenuAnchor] = useState(null);
+  const hold = useRef(null);
+  const suppressClick = useRef(false);
+  function cancelHold() {
+    if (hold.current) clearTimeout(hold.current.timer);
+    hold.current = null;
+  }
+  useEffect(() => () => cancelHold(), []);
   const [menuClosing, setMenuClosing] = useState(false);
+  const [targetPending, setTargetPending] = useState(false);
+  const [targetNotice, setTargetNotice] = useState(null);
   const customMenuAction = isValidElement(action) && action.type === Button;
   const menuEnabled =
     !disableMenu &&
@@ -166,11 +185,33 @@ export function BossCardView({
     else setMenuClosing(true);
   }
   const referenceBoss = useBossRewardReference(boss, cardRef);
+  const targetAction = bossTargetAction(boss, openingRequirements);
+  async function startTarget(mode) {
+    if (!targetAction || targetPending) return;
+    setTargetPending(true);
+    const accepted = await (mode === "raid"
+      ? bossBattleAuto.startRaid(targetAction.settings, {
+          progressionTarget: true,
+        })
+      : bossBattleAuto.start(targetAction.settings, {
+          progressionTarget: true,
+        }));
+    setTargetPending(false);
+    closeMenu();
+    setTargetNotice(
+      accepted
+        ? "Задача добавлена в очередь."
+        : "Не удалось добавить задачу в очередь.",
+    );
+    setTargetNoticeSuccess(accepted);
+  }
+  const [targetNoticeSuccess, setTargetNoticeSuccess] = useState(false);
   const sessionReady = useSyncExternalStore(
     subscribeSession,
     () => readSession().status === "ready",
     () => false,
   );
+  const directBattle = primaryBattleAction && showBattleAction && sessionReady;
   const activeBattle = useSyncExternalStore(
     bossBattle.subscribe,
     () =>
@@ -335,22 +376,91 @@ export function BossCardView({
             tabIndex: 0,
             "aria-haspopup": "dialog",
             "aria-expanded": Boolean(menuAnchor),
-            "aria-label": `Действия: ${boss.name}`,
+            "aria-label": directBattle
+              ? `Босс: ${boss.name}. Shift+F10 — действия`
+              : `Действия: ${boss.name}`,
+            "aria-keyshortcuts": directBattle ? "Shift+F10" : undefined,
+            onPointerDown: (event) => {
+              if (!directBattle || !event.isPrimary || event.button !== 0)
+                return;
+              const interactive = event.target.closest?.(
+                "button, a, input, select, textarea, summary, dialog, [role=button], [role=dialog]",
+              );
+              if (interactive && interactive !== event.currentTarget) return;
+              cancelHold();
+              suppressClick.current = false;
+              const anchor = event.currentTarget;
+              const { clientX, clientY, pointerId } = event;
+              const timer = setTimeout(() => {
+                hold.current = null;
+                suppressClick.current = true;
+                setMenuClosing(false);
+                setMenuAnchor(anchor);
+              }, 600);
+              hold.current = { timer, clientX, clientY, pointerId };
+            },
+            onPointerMove: (event) => {
+              const start = hold.current;
+              if (
+                start &&
+                start.pointerId === event.pointerId &&
+                Math.hypot(
+                  event.clientX - start.clientX,
+                  event.clientY - start.clientY,
+                ) > 10
+              )
+                cancelHold();
+            },
+            onPointerUp: cancelHold,
+            onPointerCancel: () => {
+              cancelHold();
+              suppressClick.current = false;
+            },
+            onContextMenu: (event) => {
+              if (!directBattle) return;
+              event.preventDefault();
+              cancelHold();
+              setMenuClosing(false);
+              setMenuAnchor(event.currentTarget);
+            },
             onClick: (event) => {
               const interactive = event.target.closest?.(
                 "button, a, input, select, textarea, summary, dialog, [role=button], [role=dialog]",
               );
               if (interactive && interactive !== event.currentTarget) return;
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
+              if (directBattle && !menuAnchor) {
+                openBossBattle(referenceBoss, openingRequirements);
+                return;
+              }
               if (menuAnchor) closeMenu();
               else setMenuAnchor(event.currentTarget);
             },
             onKeyDown: (event) => {
+              if (
+                directBattle &&
+                event.target === event.currentTarget &&
+                (event.key === "ContextMenu" ||
+                  (event.key === "F10" && event.shiftKey))
+              ) {
+                event.preventDefault();
+                setMenuClosing(false);
+                setMenuAnchor(event.currentTarget);
+                return;
+              }
               if (
                 event.target !== event.currentTarget ||
                 !["Enter", " "].includes(event.key)
               )
                 return;
               event.preventDefault();
+              if (directBattle && !menuAnchor) {
+                openBossBattle(referenceBoss, openingRequirements);
+                return;
+              }
               if (menuAnchor) closeMenu();
               else setMenuAnchor(event.currentTarget);
             },
@@ -504,6 +614,27 @@ export function BossCardView({
               {activeBattle ? "Смотреть бой" : "Бой"}
             </MenuItem>
           )}
+          {showBattleAction && sessionReady && targetAction && (
+            <>
+              <MenuItem informational icon="target">
+                Задача
+              </MenuItem>
+              <MenuItem
+                icon="combat"
+                disabled={targetPending}
+                onClick={() => void startTarget("auto")}
+              >
+                Автобой {battleCountLabel(targetAction.remaining)}
+              </MenuItem>
+              <MenuItem
+                icon="play"
+                disabled={targetPending}
+                onClick={() => void startTarget("raid")}
+              >
+                Рейд {battleCountLabel(targetAction.remaining)}
+              </MenuItem>
+            </>
+          )}
           {!customMenuAction && (action !== false || raid) && (
             <MenuItem
               icon="loot"
@@ -544,6 +675,17 @@ export function BossCardView({
         ) : (
           dropAction
         ))}
+      {targetNotice && (
+        <Toast
+          floating
+          success={targetNoticeSuccess}
+          urgent={!targetNoticeSuccess}
+          title={targetNoticeSuccess ? "В очереди" : "Ошибка"}
+          onDismiss={() => setTargetNotice(null)}
+        >
+          {targetNotice}
+        </Toast>
+      )}
       {showDrops && (
         <Modal
           title={`Дроп: ${boss.name}`}

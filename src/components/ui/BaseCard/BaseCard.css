@@ -79,6 +79,7 @@
 }
 
 .base-card--glass-nav,
+.base-card--glass-nav-circle,
 .base-card--glass-menu {
   --card-background: var(--navigation-glass-fallback);
   --card-border: var(--navigation-glass-border);
@@ -91,6 +92,16 @@
 .base-card--glass-nav {
   --card-padding: var(--navigation-glass-padding);
   --card-radius: var(--space-32);
+}
+
+.base-card--glass-nav-circle {
+  --card-padding: var(--navigation-glass-padding);
+  --card-radius: var(--radius-navigation);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-64);
+  height: var(--space-64);
 }
 
 .base-card--glass-menu {
@@ -146,6 +157,7 @@
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .base-card--glass-nav,
+  .base-card--glass-nav-circle,
   .base-card--glass-menu {
     background: var(--card-background);
     -webkit-backdrop-filter: blur(var(--navigation-glass-blur))

@@ -199,8 +199,15 @@ export function useActionQueue(
     setPending(true);
     setError(null);
     try {
-      const args = ["queue.cancel", "queue.dismiss"].includes(card.command)
-        ? { id: card.id }
+      const args = ["queue.cancel", "queue.dismiss", "queue.move"].includes(
+        card.command,
+      )
+        ? {
+            id: card.id,
+            ...(card.command === "queue.move"
+              ? { direction: card.direction }
+              : {}),
+          }
         : {};
       const next = await postSessionJson("/api/automation/commands", {
         id: crypto.randomUUID(),
@@ -211,7 +218,11 @@ export function useActionQueue(
       setState(next);
       syncBattleSession(next);
     } catch {
-      setError("Не удалось остановить действие. Попробуйте ещё раз.");
+      setError(
+        card.command === "queue.move"
+          ? "Не удалось изменить порядок очереди. Обновите её и попробуйте снова."
+          : "Не удалось остановить действие. Попробуйте ещё раз.",
+      );
     } finally {
       setPending(false);
     }

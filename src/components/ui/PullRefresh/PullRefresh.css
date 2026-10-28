@@ -32,8 +32,8 @@
 }
 
 .ui-pull-refresh-ring {
-  width: var(--font-size-lg);
-  height: var(--font-size-lg);
+  width: var(--space-32);
+  height: var(--space-32);
   fill: none;
   stroke: currentColor;
   stroke-width: 2;

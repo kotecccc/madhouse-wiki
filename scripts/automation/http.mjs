@@ -113,6 +113,9 @@ export function createAutomationHttp({
             ? { inventoryReason: error.message }
             : {}),
           ...(entry ? { gameHealth: service.snapshot(entry).gameHealth } : {}),
+          ...(status === 409 && error.message === "automation_state_changed"
+            ? { conflictReason: "version" }
+            : {}),
           ...(entry && status === 409
             ? { snapshot: service.snapshot(entry) }
             : {}),

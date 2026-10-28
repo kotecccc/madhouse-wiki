@@ -100,6 +100,7 @@ export function BossBattlePanel({
   now,
   departmentCode,
   onAttack,
+  onFinishBattle,
   auto = { enabled: false, nextAttackAt: null, pause: false },
 }) {
   const { boss, battle } = state;
@@ -341,6 +342,12 @@ export function BossBattlePanel({
                   ? `Ударить · ${waiting} с`
                   : "Ударить"}
           </Button>
+          <Button
+            disabled={!canQueueAttack || state.queuedSingleBattle}
+            onClick={onFinishBattle}
+          >
+            Добить бой
+          </Button>
         </div>
       ) : null}
       {!battle && state.unavailableReason && (
@@ -380,6 +387,7 @@ const BattleParticipants = memo(function BattleParticipants({
     <Disclosure
       size="sm"
       title="Участники"
+      separated
       leading={<Icon type="group" size="medium" />}
       status={
         <CardDescription size="xs">{count ?? "Нет данных"}</CardDescription>
@@ -487,6 +495,7 @@ const BattleJournal = memo(
         size="sm"
         defaultOpen
         title="Журнал боя"
+        separated
         leading={<Icon type="book" size="medium" />}
         status={
           <CardDescription size="xs">{fmt(events.length)}</CardDescription>
@@ -543,7 +552,7 @@ export function BossBattleDetails({
   return (
     <>
       {invitation && battle.status === "active" && !battle.outcome && (
-        <BaseCard padding="12">
+        <BaseCard padding="8">
           <DisclosureHeader
             size="sm"
             leading={<Icon type="user-plus" size="medium" />}

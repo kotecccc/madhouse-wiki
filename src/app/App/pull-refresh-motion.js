@@ -1,4 +1,4 @@
-export const PULL_THRESHOLD = 70;
+export const PULL_THRESHOLD = 85;
 const PULL_LIMIT = 120;
 const TOUCH_IGNORE = 12;
 const WHEEL_STEP_LIMIT = 45;

@@ -1,3 +1,9 @@
+.action-queue-section {
+  display: grid;
+  align-content: start;
+  gap: var(--space-12);
+}
+
 .action-queue-list {
   display: grid;
   gap: var(--space-12);
@@ -15,4 +21,26 @@
   flex: 1;
   min-width: 0;
   gap: var(--space-4);
+}
+
+.action-queue-actions {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.action-queue-action {
+  flex: 1;
+}
+
+.action-queue-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.action-queue-goal-progress {
+  display: grid;
+  gap: var(--space-8);
 }

@@ -331,6 +331,11 @@ export function createBossBattleGoal({ controller, now = Date.now }) {
       finishCurrentBattle = true;
       publish();
     },
+    resumeSeries() {
+      if (!finishCurrentBattle) return;
+      finishCurrentBattle = false;
+      publish();
+    },
     configure(config) {
       const valid = validate(config);
       clear();

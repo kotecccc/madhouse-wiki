@@ -2,6 +2,208 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createActionQueue } from "./action-queue.mjs";
 import { queuedBattleSeriesAdapter } from "./queued-battle-series.mjs";
+import { defaultHealingSettings } from "./battle-assistant.mjs";
+
+test("raid queue deduplicates a boss without silently discarding different settings", () => {
+  const entry = { raidWorker: { getSnapshot: () => ({}) } };
+  const adapter = queuedBattleSeriesAdapter({ entry, mode: "raid" });
+  const queue = createActionQueue({
+    adapters: { "raid.start": adapter },
+    persist: () => true,
+  });
+  const args = (bossId, targetCount) => ({
+    settings: { bossId, kind: "battles", targetCount },
+  });
+  const first = queue.add({
+    id: "raid-job-one",
+    type: "raid.start",
+    args: args(7, 1),
+  });
+  const duplicate = queue.add({
+    id: "raid-job-two",
+    type: "raid.start",
+    args: args(7, 1),
+  });
+  assert.throws(
+    () =>
+      queue.add({
+        id: "raid-job-different",
+        type: "raid.start",
+        args: args(7, 5),
+      }),
+    /action_queue_duplicate_conflict/,
+  );
+  queue.add({ id: "raid-job-three", type: "raid.start", args: args(8, 5) });
+  assert.equal(duplicate.id, first.id);
+  assert.deepEqual(
+    queue.snapshot().map((job) => job.args.settings.bossId),
+    [7, 8],
+  );
+});
+
+test("queued healing belongs to the selected boss and waits for the other battle", async () => {
+  let current = { boss: { id: 8 }, battle: { id: "old", status: "active" } };
+  let savedHealing = null;
+  let starts = 0;
+  const actor = {
+    getSnapshot: () => ({}),
+    start: () => {
+      starts++;
+      return true;
+    },
+  };
+  const entry = {
+    controller: {
+      getSnapshot: () => current,
+      open: async () => {
+        current = { boss: { id: 7 }, battle: null };
+      },
+    },
+    goal: { getSnapshot: () => null },
+    assistant: {
+      projection: () => ({ uncertain: false }),
+      configure: (settings) => {
+        savedHealing = settings;
+      },
+    },
+    auto: actor,
+  };
+  const adapter = queuedBattleSeriesAdapter({
+    entry,
+    mode: "auto",
+    getBoss: () => ({ numericId: 7 }),
+    refresh: async () => true,
+    configure: () => {},
+    save: () => {},
+  });
+  const healingSettings = defaultHealingSettings();
+  healingSettings.items.heal_10 = { enabled: true, limit: 5, currency: "gold" };
+  healingSettings.enabled = true;
+  let stored = [];
+  let time = 1000;
+  const makeQueue = (saved = []) =>
+    createActionQueue({
+      saved,
+      adapters: { "auto.start": adapter },
+      persist: (entries) => {
+        stored = entries;
+      },
+      now: () => time,
+      random: () => 0,
+    });
+  const queue = makeQueue();
+  queue.add({
+    id: "queued-heal-1",
+    type: "auto.start",
+    args: {
+      settings: { bossId: 7, kind: "battles", targetCount: 1 },
+      healingSettings,
+    },
+  });
+  await queue.tick();
+  assert.equal(stored[0].status, "waiting");
+  assert.deepEqual(stored[0].args.healingSettings, healingSettings);
+  assert.equal(savedHealing, null);
+  assert.equal(starts, 0);
+  current.battle = { id: "old", status: "won" };
+  time = stored[0].nextAt;
+  const restored = makeQueue(stored);
+  await restored.tick();
+  assert.equal(restored.snapshot()[0].status, "completed");
+  assert.deepEqual(savedHealing, healingSettings);
+  assert.equal(starts, 1);
+});
+
+for (const mode of ["auto", "raid"])
+  test(`${mode} validates live boss progression before starting the queued goal`, async () => {
+    let remaining = 3;
+    let starts = 0;
+    const actor = {
+      getSnapshot: () => ({}),
+      start: () => {
+        starts++;
+        return true;
+      },
+    };
+    const entry = {
+      controller: { getSnapshot: () => ({ boss: { id: 7 }, battle: null }) },
+      floorActions: {
+        plan: async ({ bossId }) => ({
+          status: "ready",
+          kind: "boss",
+          apiId: bossId,
+          required: 10,
+          current: 10 - remaining,
+        }),
+      },
+      goal: { getSnapshot: () => null },
+      assistant: { begin: () => true },
+      auto: actor,
+      raidWorker: actor,
+    };
+    const adapter = queuedBattleSeriesAdapter({
+      entry,
+      mode,
+      refresh: async () => true,
+      configure: () => {},
+      save: () => {},
+    });
+    const args = adapter.validate({
+      progressionTarget: true,
+      settings: { bossId: 7, kind: "battles", targetCount: 3, countWins: true },
+    });
+    const job = { id: "target-goal", args };
+    remaining = 2;
+    assert.deepEqual(await adapter.execute(job, { canDispatch: () => true }), {
+      status: "failed",
+      reason: "progression_target_changed",
+    });
+    assert.equal(starts, 0);
+    remaining = 3;
+    assert.deepEqual(await adapter.execute(job, { canDispatch: () => true }), {
+      status: "completed",
+    });
+    assert.equal(starts, 1);
+  });
+
+test("a queued single battle starts only the exact still-active fight", async () => {
+  let battle = { id: "fight-1", status: "active" };
+  let started = null;
+  const entry = {
+    controller: { getSnapshot: () => ({ boss: { id: 7 }, battle }) },
+    auto: {
+      getSnapshot: () => ({}),
+      start: (options) => {
+        started = options;
+        return true;
+      },
+    },
+    goal: { getSnapshot: () => null },
+  };
+  const adapter = queuedBattleSeriesAdapter({
+    entry,
+    mode: "auto",
+    refresh: async () => true,
+    configure: () => {},
+    save: () => {},
+  });
+  const args = adapter.validate({
+    singleBattleId: "fight-1",
+    settings: { bossId: 7, kind: "battles", targetCount: 1 },
+  });
+  const job = { id: "job-1", args };
+  battle = { id: "different", status: "active" };
+  assert.deepEqual(await adapter.execute(job, { canDispatch: () => true }), {
+    status: "failed",
+    reason: "battle_no_longer_active",
+  });
+  assert.equal(started, null);
+  battle = { id: "fight-1", status: "active" };
+  assert.deepEqual(await adapter.execute(job, { canDispatch: () => true }), {
+    status: "completed",
+  });
+  assert.deepEqual(started, { queueId: "job-1", singleBattle: true });
+});
 
 for (const mode of ["auto", "raid"])
   for (const stage of ["open", "refresh"])

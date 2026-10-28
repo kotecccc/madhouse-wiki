@@ -37,7 +37,7 @@ const DEFAULTS = {
   ),
   budgets: { gold: 0, dollar: 0, pills: 0 },
 };
-function normalized(settings) {
+export function normalizeHealingDraft(settings) {
   return {
     ...DEFAULTS,
     ...settings,
@@ -51,37 +51,68 @@ function normalized(settings) {
   };
 }
 
-export function BossHealingSettings({ state, onSave, collapsed = false }) {
+export function BossHealingSettings({
+  state,
+  onSave,
+  collapsed = false,
+  readOnly = false,
+  onDraftChange,
+}) {
   const healing = state.healing ?? {};
   const [localDraft, setLocalDraft] = useState(null);
   const [saving, setSaving] = useState(false);
-  const draft = localDraft ?? normalized(healing.settings);
+  const [saveError, setSaveError] = useState(false);
+  const draft = localDraft ?? normalizeHealingDraft(healing.settings);
   const pending = Boolean(state.pending);
-  const blocked = pending && !saving;
+  const blocked = readOnly || (pending && !saving);
+  const inBattle = state.battle?.status === "active";
+  const limit = draft.enabled
+    ? ITEMS.reduce(
+        (total, { type }) =>
+          total + (draft.items[type].enabled ? draft.items[type].limit : 0),
+        0,
+      )
+    : 0;
+  const used = healing.used
+    ? ITEMS.reduce((total, { type }) => total + (healing.used[type] ?? 0), 0)
+    : null;
   useEffect(() => {
-    if (!localDraft || pending || saving) return;
+    if (
+      readOnly ||
+      onDraftChange ||
+      !localDraft ||
+      pending ||
+      saving ||
+      saveError
+    )
+      return;
     const timer = setTimeout(async () => {
       setSaving(true);
+      let saved = false;
       try {
-        await onSave(localDraft);
+        saved = await onSave(localDraft);
+        setSaveError(saved === false);
       } catch {
-        // The shared command state exposes the save error; revert this draft.
+        setSaveError(true);
       } finally {
         // A newer edit stays queued until the current request finishes.
-        setLocalDraft((current) => (current === localDraft ? null : current));
+        if (saved !== false)
+          setLocalDraft((current) => (current === localDraft ? null : current));
         setSaving(false);
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [localDraft, pending, saving, onSave]);
+  }, [localDraft, pending, saving, onSave, readOnly, onDraftChange, saveError]);
   const change = (update) => {
     if (blocked) return;
-    const next = normalized(update(draft));
+    setSaveError(false);
+    const next = normalizeHealingDraft(update(draft));
     next.enabled = Object.values(next.items).some(
       (item) => item.enabled && item.limit > 0,
     );
     next.budgetMode = "item_limits";
     setLocalDraft(next);
+    onDraftChange?.(next);
   };
   const updateItem = (type, patch) =>
     change((current) => ({
@@ -95,27 +126,26 @@ export function BossHealingSettings({ state, onSave, collapsed = false }) {
   return (
     <Disclosure
       key={`${collapsed}:${Boolean(state.battle)}`}
-      title="Использовать аптечки?"
+      title={inBattle ? "Аптечки" : "Использовать аптечки?"}
       size="sm"
+      separated
       leading={<Icon type="medical-cross" size="medium" />}
       defaultOpen={!collapsed && !state.battle && Boolean(healing.uncertain)}
       status={
         <Pill variant="unknown" size="xs" dot={false}>
-          {fmt(
-            draft.enabled
-              ? ITEMS.reduce(
-                  (total, { type }) =>
-                    total +
-                    (draft.items[type].enabled ? draft.items[type].limit : 0),
-                  0,
-                )
-              : 0,
-          )}{" "}
-          шт.
+          {inBattle
+            ? `${used === null ? "—" : fmt(used)} / ${fmt(limit)}`
+            : `${fmt(limit)} шт.`}
         </Pill>
       }
     >
       <div className="boss-healing-settings">
+        {saveError && (
+          <CardDescription role="alert">
+            Не удалось сохранить настройки аптечек. Проверьте их и попробуйте
+            снова.
+          </CardDescription>
+        )}
         {ITEMS.map(({ type, label, effect, icon }) => {
           const item = draft.items[type];
           const stock = state.medicines?.find(
@@ -194,13 +224,18 @@ export function BossHealingSettings({ state, onSave, collapsed = false }) {
             }}
           />
         </div>
-        {healing.uncertain && (
+        {healing.uncertain && !onDraftChange && (
           <>
             <CardDescription>
               Обновите бой и запас, затем подтвердите учёт резерва.
             </CardDescription>
             <Button
-              disabled={pending || state.needsRefresh || Boolean(state.error)}
+              disabled={
+                readOnly ||
+                pending ||
+                state.needsRefresh ||
+                Boolean(state.error)
+              }
               onClick={() => void onSave(null)}
             >
               Состояние проверено

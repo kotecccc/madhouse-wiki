@@ -283,7 +283,7 @@ test("user stop while maintenance is reading prevents a late repair/removal", as
       releaseRead();
       await flush();
       assert.equal(game.mutations().length, 0);
-      assert.equal(service.snapshot(entry).auto.enabled, false);
+      assert.equal(service.snapshot(entry).auto.stopAfterBattle, true);
     },
   );
 });

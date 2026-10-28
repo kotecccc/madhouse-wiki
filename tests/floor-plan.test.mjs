@@ -90,6 +90,34 @@ test("resolves boss and business targets against their API IDs", () => {
   }
 });
 
+test("a selected boss target checks live requirements beyond the first task", () => {
+  const input = structuredClone(fixture);
+  input.info.departments[1].requirements.push(
+    { type: "boss_kills", bossId: 4, current: 3, required: 7 },
+    { type: "boss_kills", bossId: 4, current: 3, required: 9 },
+  );
+  const target = planFloorProgress({ ...input, targetBossId: 4 });
+  assert.equal(target.kind, "boss");
+  assert.equal(target.required - target.current, 6);
+  input.info.departments[1].requirements[2].current = null;
+  assert.equal(
+    planFloorProgress({ ...input, targetBossId: 4 }).status,
+    "waiting",
+  );
+  input.info.departments[1].requirements[1].current = null;
+  assert.equal(
+    planFloorProgress({ ...input, targetBossId: 4 }).status,
+    "waiting",
+  );
+  input.info.departments[1].requirements = [
+    { type: "boss_kills", bossId: 4, current: 9, required: 9 },
+  ];
+  assert.equal(
+    planFloorProgress({ ...input, targetBossId: 4 }).status,
+    "changed",
+  );
+});
+
 test("uses the next floor's live conditions after all departments are open", () => {
   const input = structuredClone(fixture);
   input.info.departments[1].unlocked = true;

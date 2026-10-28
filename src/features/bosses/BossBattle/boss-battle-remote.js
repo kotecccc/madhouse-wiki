@@ -1,3 +1,5 @@
+import { bossBattleReference } from "./boss-battle-reference.js";
+
 const EMPTY_BATTLE = Object.freeze({
   boss: null,
   battle: null,
@@ -91,6 +93,8 @@ export function createRemoteBattleSession({
   let epoch = 0;
   let timer = null;
   let pendingCommands = 0;
+  const commandWaiters = new Set();
+  let pendingHealingCommands = 0;
   let stateRead = null;
   let visible = false;
   let pvpVisible = false;
@@ -133,19 +137,46 @@ export function createRemoteBattleSession({
   };
   function publish() {
     const savedBattle = server?.battle ?? {};
+    const pendingBattleCommands = pendingCommands - pendingHealingCommands;
     // While switching targets, do not label the previous result as the selected
     // boss. Server reconciliation may still return an actually active old fight.
     const battleState =
-      pendingCommands > 0 &&
+      pendingBattleCommands > 0 &&
       localBoss &&
       numericId(savedBattle.boss) !== numericId(localBoss)
         ? { ...EMPTY_BATTLE, boss: localBoss }
         : savedBattle;
+    const selectedReference =
+      localBoss && numericId(battleState.boss) === numericId(localBoss)
+        ? bossBattleReference(localBoss)
+        : null;
+    const hasSelectedDetails = Boolean(
+      selectedReference &&
+      (selectedReference.image ||
+        selectedReference.requiredLevel != null ||
+        selectedReference.maxHp != null ||
+        selectedReference.damageMax != null ||
+        selectedReference.possibleDrops.length ||
+        Object.keys(selectedReference.rewardPreview).length),
+    );
+    const displayBoss =
+      battleState.boss && hasSelectedDetails
+        ? {
+            ...battleState.boss,
+            reference: { ...selectedReference, ...battleState.boss.reference },
+          }
+        : battleState.boss;
     snapshot = Object.freeze({
       ...EMPTY_BATTLE,
       ...battleState,
       error: battleCommandError || battleState.error || null,
       raid: server?.raid ?? EMPTY_RAID,
+      queuedSeries: (server?.queuedActions ?? []).filter(
+        (job) =>
+          ["auto.start", "raid.start"].includes(job.type) &&
+          !job.dismissed &&
+          ["queued", "waiting", "running", "reconciling"].includes(job.status),
+      ),
       queuedBattleActions: (server?.queuedActions ?? []).filter(
         (job) =>
           [
@@ -159,14 +190,32 @@ export function createRemoteBattleSession({
           ) &&
           Number(job.args.bossId) === numericId(battleState.boss ?? localBoss),
       ),
-      boss: battleState.boss ?? localBoss ?? null,
+      queuedSingleBattle: (server?.queuedActions ?? []).some(
+        (job) =>
+          job.type === "auto.start" &&
+          Boolean(job.args?.singleBattleId && battleState.battle?.id) &&
+          job.args?.singleBattleId === battleState.battle?.id &&
+          ["queued", "waiting", "running", "reconciling"].includes(job.status),
+      ),
+      boss: displayBoss ?? localBoss ?? null,
+      previewBoss:
+        visible &&
+        localBoss &&
+        numericId(battleState.boss) &&
+        numericId(battleState.boss) !== numericId(localBoss)
+          ? {
+              id: numericId(localBoss),
+              name: localBoss.name,
+              reference: bossBattleReference(localBoss),
+            }
+          : null,
       visible,
       openingRequirements:
         numericId(battleState.boss ?? localBoss) === openingBossId
           ? openingRequirements
           : [],
       pending:
-        pendingCommands > 0
+        pendingBattleCommands > 0
           ? (battleState.pending ?? "command")
           : (battleState.pending ?? null),
     });
@@ -487,6 +536,9 @@ export function createRemoteBattleSession({
     epoch++;
     clearTimer();
     pendingCommands = 0;
+    for (const resolve of commandWaiters) resolve();
+    commandWaiters.clear();
+    pendingHealingCommands = 0;
     visible = false;
     pvpVisible = false;
     raidsVisible = false;
@@ -532,8 +584,13 @@ export function createRemoteBattleSession({
     )
       friendCommandError = null;
     pendingCommands++;
+    const healingCommand = command === "healing.configure";
+    if (healingCommand) pendingHealingCommands++;
     publish();
     const run = epoch;
+    const healingBefore = healingCommand
+      ? JSON.stringify(server?.battle?.healing?.settings ?? null)
+      : null;
     try {
       let value;
       for (let attempt = 0; ; attempt++) {
@@ -552,7 +609,14 @@ export function createRemoteBattleSession({
             // Refresh is read-only, so it can safely rebase once on the
             // conflict snapshot. Never replay a command that can mutate state.
             if (
-              ["work.refresh", "character.refresh"].includes(command) &&
+              (["work.refresh", "character.refresh"].includes(command) ||
+                (command === "open" && error.conflictReason === "version") ||
+                (healingCommand &&
+                  error.conflictReason === "version" &&
+                  healingBefore ===
+                    JSON.stringify(
+                      error.snapshot?.battle?.healing?.settings ?? null,
+                    ))) &&
               attempt === 0
             )
               continue;
@@ -639,7 +703,8 @@ export function createRemoteBattleSession({
         !(error?.status === 409 && error.snapshot) &&
         !command.startsWith("raid.friend.") &&
         !command.startsWith("character.") &&
-        !enqueue
+        !enqueue &&
+        !healingCommand
       ) {
         const commandError = error?.message || "Не удалось выполнить команду.";
         if (
@@ -666,6 +731,12 @@ export function createRemoteBattleSession({
     } finally {
       if (connected && run === epoch) {
         pendingCommands = Math.max(0, pendingCommands - 1);
+        if (pendingCommands === 0) {
+          for (const resolve of commandWaiters) resolve();
+          commandWaiters.clear();
+        }
+        if (healingCommand)
+          pendingHealingCommands = Math.max(0, pendingHealingCommands - 1);
         publish();
         schedulePoll();
       }
@@ -720,10 +791,23 @@ export function createRemoteBattleSession({
     localOpen(boss);
     if (!refresh && sameBoss) return true;
     const bossId = numericId(boss);
-    return bossId === null ? false : send("open", { bossId });
+    if (bossId === null) return false;
+    const run = epoch;
+    while (connected && run === epoch && pendingCommands > 0) {
+      await new Promise((resolve) => commandWaiters.add(resolve));
+    }
+    if (
+      !connected ||
+      run !== epoch ||
+      !visible ||
+      numericId(localBoss) !== bossId
+    )
+      return false;
+    return send("open", { bossId });
   }
   function close() {
     visible = false;
+    if (snapshot.previewBoss) localBoss = server?.battle?.boss ?? null;
     publish();
     schedulePoll();
   }
@@ -740,6 +824,14 @@ export function createRemoteBattleSession({
     connect,
     disconnect,
     open,
+    showCurrentBattle() {
+      if (!server?.battle?.boss || server.battle.battle?.status !== "active")
+        return false;
+      openingBossId = null;
+      openingRequirements = [];
+      localOpen(server.battle.boss);
+      return true;
+    },
     close,
     reset,
     start: () =>
@@ -768,7 +860,13 @@ export function createRemoteBattleSession({
     hydrateDetails: () => send("hydrate"),
     openMedicines: () => send("medicines.open"),
     closeMedicines: () => send("medicines.close"),
-    configureHealing: (settings) => send("healing.configure", { settings }),
+    async configureHealing(settings) {
+      const run = epoch;
+      while (connected && run === epoch && pendingCommands > 0)
+        await new Promise((resolve) => commandWaiters.add(resolve));
+      if (!connected || run !== epoch) return false;
+      return send("healing.configure", { settings });
+    },
     acknowledgeHealing: () => send("healing.ack"),
     useMedicine: (type) =>
       send("queue.enqueue", {
@@ -800,13 +898,45 @@ export function createRemoteBattleSession({
       return () => autoListeners.delete(listener);
     },
     getSnapshot: () => autoSnapshot,
-    start: (settings) =>
+    start: (settings, { progressionTarget = false, healingSettings } = {}) =>
       settings
-        ? send("queue.enqueue", { type: "auto.start", action: { settings } })
+        ? send("queue.enqueue", {
+            type: "auto.start",
+            action: {
+              settings,
+              ...(healingSettings ? { healingSettings } : {}),
+              ...(progressionTarget ? { progressionTarget: true } : {}),
+            },
+          })
         : send("auto.start"),
+    finishBattle: (bossId, battleId) =>
+      send("queue.enqueue", {
+        type: "auto.start",
+        action: {
+          singleBattleId: battleId,
+          settings: {
+            bossId,
+            kind: "battles",
+            targetCount: 1,
+            countWins: false,
+            durationHours: null,
+            maxAttempts: null,
+          },
+        },
+      }),
     stop: () => send("auto.stop"),
-    startRaid: (settings) =>
-      send("queue.enqueue", { type: "raid.start", action: { settings } }),
+    startRaid: (
+      settings,
+      { progressionTarget = false, healingSettings } = {},
+    ) =>
+      send("queue.enqueue", {
+        type: "raid.start",
+        action: {
+          settings,
+          ...(healingSettings ? { healingSettings } : {}),
+          ...(progressionTarget ? { progressionTarget: true } : {}),
+        },
+      }),
     stopRaid: () => send("raid.stop"),
   };
   const goal = {

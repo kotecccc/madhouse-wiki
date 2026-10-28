@@ -872,7 +872,7 @@ test("character priority waits for the in-flight strike and auto battle resumes 
   }
 });
 
-test("stopping autobattle while an upgrade waits does not restart it", async () => {
+test("stopping autobattle while an upgrade waits keeps only the current fight", async () => {
   const ctx = createHarness({
     health: 100,
     wallet: { gold: 1000, dollar: 100, pills: 100 },
@@ -898,11 +898,13 @@ test("stopping autobattle while an upgrade waits does not restart it", async () 
     ctx.releaseAttack();
     await ctx.flush();
     await ctx.advance(65000);
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    assert.equal(ctx.service.snapshot(entry).auto.stopAfterBattle, true);
+    assert.equal(ctx.service.snapshot(entry).battle.battle.id, "battle-1");
     assert.equal(
-      ctx.calls.filter((c) => c.path.endsWith("/attack") && c.method === "POST")
-        .length,
-      1,
+      ctx.calls.filter(
+        (c) => c.path === "/api/bosses/7/battles" && c.method === "POST",
+      ).length,
+      0,
     );
   } finally {
     ctx.releaseAttack();

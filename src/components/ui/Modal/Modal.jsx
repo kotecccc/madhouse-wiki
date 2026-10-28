@@ -1,11 +1,23 @@
 import { BorderLoader } from "../BorderLoader/BorderLoader.jsx";
-import { useId, useRef, useState } from "react";
-import { isPullReady, refreshModal } from "./pull-refresh.js";
-import { ToastTargetContext } from "../Toast/ToastContext.jsx";
-import { Dialog } from "../Dialog/Dialog.jsx";
+import {
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { createPortal } from "react-dom";
+import { refreshModal } from "./pull-refresh.js";
+import { pushPage, hasPage, removePage } from "./page-history.js";
+import {
+  PageHostContext,
+  registerPage,
+  subscribePages,
+  getPages,
+} from "./page-context.js";
 import { Title } from "../Title/Title.jsx";
 import { Button } from "../Button/Button.jsx";
-import { DialogCloseButton } from "../DialogCloseButton/DialogCloseButton.jsx";
 import "./Modal.css";
 
 export function Modal({
@@ -19,8 +31,6 @@ export function Modal({
   footerNote,
   footerStart,
   className = "",
-  width,
-  showCloseButton = true,
   contentScrollable = true,
   contentVariant = "default",
   contentAlignment = "start",
@@ -28,20 +38,87 @@ export function Modal({
   loading = false,
   onRefresh,
   refreshKey,
+  hideHeader = false,
+  pageKind,
+  pageUrl,
 }) {
-  const [toastTarget, setToastTarget] = useState(null);
   const generatedId = useId();
   const id = titleId || generatedId;
-  const pull = useRef(null);
-  const [pullReady, setPullReady] = useState(false);
+  const host = useContext(PageHostContext);
+  const pages = useSyncExternalStore(subscribePages, getPages, getPages);
   const [pullLoading, setPullLoading] = useState(false);
+  const refreshRef = useRef(onRefresh);
+  const runRefreshRef = useRef(null);
+  refreshRef.current = onRefresh;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const pageId = useRef(null);
+  const pageUrlRef = useRef(pageUrl);
+  pageUrlRef.current = pageUrl;
+  const pageRef = useRef(null);
+  useEffect(() => {
+    if (!visible || !host) return undefined;
+    const previous = document.activeElement;
+    const region = host.closest("[data-page-scroll]");
+    const scroller =
+      region && getComputedStyle(region).display !== "contents"
+        ? region
+        : document.scrollingElement;
+    const previousScroll = scroller?.scrollTop ?? 0;
+    const id = pushPage(window.history, pageUrlRef.current, window.location);
+    pageId.current = id;
+    const unregister = registerPage(generatedId, () => closeRef.current(), {
+      kind: pageKind,
+      canRefresh: () => Boolean(refreshRef.current),
+      refresh: () => runRefreshRef.current?.(),
+      back: () => {
+        if (hasPage(window.history.state, id)) window.history.back();
+        else closeRef.current();
+      },
+    });
+    scroller?.scrollTo({ top: 0, behavior: "instant" });
+    pageRef.current?.focus({ preventScroll: true });
+    const onPop = (event) => {
+      if (!hasPage(event.state, id)) closeRef.current();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      unregister();
+      removePage(window.history, id);
+      if (pageId.current === id) pageId.current = null;
+      scroller?.scrollTo({ top: previousScroll, behavior: "instant" });
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [visible, host, generatedId, pageKind]);
+  useEffect(() => {
+    if (
+      visible &&
+      pageUrl &&
+      pageId.current &&
+      hasPage(window.history.state, pageId.current) &&
+      window.location.pathname !== pageUrl
+    )
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${pageUrl}${window.location.search}`,
+      );
+  }, [visible, pageUrl]);
+  function closePage() {
+    if (pageId.current && hasPage(window.history.state, pageId.current))
+      window.history.back();
+    else onClose();
+  }
   async function runRefresh() {
-    if (!onRefresh || loading) return;
+    if (!refreshRef.current || loadingRef.current) return;
     try {
       await refreshModal(refreshKey || title, async () => {
         setPullLoading(true);
         try {
-          await onRefresh();
+          await refreshRef.current();
         } finally {
           setPullLoading(false);
         }
@@ -50,84 +127,48 @@ export function Modal({
       // The owning feature reports its own refresh errors.
     }
   }
-  function startPull(event) {
-    pull.current = null;
-    setPullReady(false);
-    if (
-      !onRefresh ||
-      event.touches.length !== 1 ||
-      event.currentTarget.scrollTop > 0 ||
-      event.target.closest("button, input, textarea, select, a")
-    )
-      return;
-    pull.current = {
-      x: event.touches[0].clientX,
-      y: event.touches[0].clientY,
-      ready: false,
-    };
-  }
-  function movePull(event) {
-    if (!pull.current || event.touches.length !== 1) return;
-    pull.current.ready = isPullReady({
-      startX: pull.current.x,
-      startY: pull.current.y,
-      x: event.touches[0].clientX,
-      y: event.touches[0].clientY,
-      scrollTop: event.currentTarget.scrollTop,
-    });
-    setPullReady(pull.current.ready);
-  }
-  function endPull(event) {
-    const ready = event.touches.length === 0 && pull.current?.ready;
-    pull.current = null;
-    setPullReady(false);
-    if (ready) void runRefresh();
-  }
-  return (
-    <Dialog
-      modal
-      visible={visible}
-      surface="modal"
+  runRefreshRef.current = runRefresh;
+  if (!visible) return null;
+  const page = (
+    <section
+      ref={pageRef}
+      tabIndex={-1}
+      hidden={Boolean(host && pages.length && pages.at(-1).id !== generatedId)}
       className={`shared-modal${footer === false ? " shared-modal--no-footer" : ""}${contentVariant === "inset" ? " shared-modal--inset" : ""} ${className}`.trim()}
       aria-labelledby={id}
       aria-busy={loading || undefined}
-      onClose={onClose}
-      style={
-        width
-          ? {
-              "--dialog-width":
-                typeof width === "number" ? `${width}px` : width,
-            }
-          : undefined
-      }
     >
-      <ToastTargetContext.Provider value={toastTarget}>
-        <header className="shared-modal-heading">
-          <div className="shared-modal-heading-copy">
-            <Title as="h2" id={id} className="shared-modal-title">
-              {title}
-            </Title>
-            {description && (
-              <p className="shared-modal-description">{description}</p>
+      <>
+        {hideHeader ? (
+          <h2 id={id} className="sr-only">
+            {title}
+          </h2>
+        ) : (
+          <header className="shared-modal-heading">
+            <Button
+              icon="arrow-left"
+              iconOnly
+              aria-label="Назад"
+              onClick={closePage}
+            />
+            <div className="shared-modal-heading-copy">
+              <Title as="h2" id={id} className="shared-modal-title">
+                {title}
+              </Title>
+              {description && (
+                <p className="shared-modal-description">{description}</p>
+              )}
+            </div>
+            {(loading || pullLoading) && (
+              <span className="shared-modal-heading-loader">
+                <BorderLoader />
+              </span>
             )}
-          </div>
-          {showCloseButton && <DialogCloseButton onClick={onClose} />}
-          {(loading || pullLoading) && (
-            <span className="shared-modal-heading-loader">
-              <BorderLoader />
-            </span>
-          )}
-        </header>
+          </header>
+        )}
         <div
           tabIndex={onRefresh ? 0 : undefined}
           aria-keyshortcuts={onRefresh ? "R" : undefined}
-          onTouchStart={startPull}
-          onTouchMove={movePull}
-          onTouchEnd={endPull}
-          onTouchCancel={() => {
-            pull.current = null;
-            setPullReady(false);
-          }}
           onKeyDown={(event) => {
             if (
               onRefresh &&
@@ -147,7 +188,6 @@ export function Modal({
               : ` shared-modal-content--${contentVariant}`
           }${contentAlignment === "center" ? " shared-modal-content--center" : ""}${contentScrollable ? "" : " shared-modal-content--unscrollable"}`}
         >
-          {pullReady && <span role="status">Отпустите, чтобы обновить</span>}
           {contentAlignment === "center" ? (
             <div className="shared-modal-content-inner">{children}</div>
           ) : (
@@ -156,9 +196,6 @@ export function Modal({
           {contentBottom != null && (
             <div className="shared-modal-content-bottom">{contentBottom}</div>
           )}
-        </div>
-        <div className="shared-modal-toast-anchor">
-          <div className="ui-toast-stack" ref={setToastTarget} />
         </div>
         {footer === false ? null : footerNote != null ? (
           <footer
@@ -170,7 +207,7 @@ export function Modal({
             >
               {footerNote}
             </p>
-            {footer || <Button onClick={onClose}>Закрыть</Button>}
+            {footer || <Button onClick={closePage}>Назад</Button>}
           </footer>
         ) : footer ? (
           <footer
@@ -181,10 +218,11 @@ export function Modal({
           </footer>
         ) : (
           <footer className="shared-modal-footer shared-modal-mobile-footer">
-            <Button onClick={onClose}>Закрыть</Button>
+            <Button onClick={closePage}>Назад</Button>
           </footer>
         )}
-      </ToastTargetContext.Provider>
-    </Dialog>
+      </>
+    </section>
   );
+  return host ? createPortal(page, host) : page;
 }

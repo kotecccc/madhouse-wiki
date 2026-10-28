@@ -37,6 +37,7 @@ export function WorkEnergyDialog({ work, energy, onClose, goalTargets = [] }) {
   );
   return (
     <RequirementCalculatorDialog
+      pageUrl={`/work/${Number(work.workId ?? work.numericId ?? work.apiId ?? String(work.id).split(":").at(-1))}`}
       showCloseButton
       conditionDialog={conditionDialog}
       title={`Работа · ${work.title || work.name || "Работёнка"}`}

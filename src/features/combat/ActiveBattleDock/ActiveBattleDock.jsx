@@ -1,5 +1,5 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { getWorkById } from "../../../model/knowledge-base.js";
+import { bossById, getWorkById } from "../../../model/knowledge-base.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   readSession,
@@ -146,7 +146,7 @@ export function BossActiveBattleBar({
   );
 }
 
-export function ActiveBattleControl({ children }) {
+export function ActiveBattleControl({ children, hideIndicators = false }) {
   const boss = useSyncExternalStore(
     bossBattle.subscribe,
     bossBattle.getSnapshot,
@@ -225,7 +225,7 @@ export function ActiveBattleControl({ children }) {
     boss.battle.bossMaxHealth > 0;
   return (
     <>
-      {farmRun && (
+      {!hideIndicators && farmRun && (
         <ProgressButton
           {...workFarmProgress(farmRun, farm.view)}
           icon="energy"
@@ -246,7 +246,7 @@ export function ActiveBattleControl({ children }) {
         />
       )}
       {children}
-      {collection && !bossEntry && (
+      {!hideIndicators && collection && !bossEntry && (
         <BaseCard
           variant="glass-nav"
           className="active-battle-control"
@@ -261,7 +261,7 @@ export function ActiveBattleControl({ children }) {
           </Button>
         </BaseCard>
       )}
-      {entries.length > 0 && (
+      {!hideIndicators && entries.length > 0 && (
         <div className="active-battle-control" aria-label="Текущий бой">
           {bossEntry && (
             <>
@@ -277,7 +277,15 @@ export function ActiveBattleControl({ children }) {
               </div>
               <div className="active-battle-mobile">
                 <ProgressButton
-                  icon="combat"
+                  icon="boss"
+                  imageSrc={
+                    boss.boss.reference?.image ||
+                    Object.values(bossById).find(
+                      (item) =>
+                        Number(item.numericId ?? item.apiId) ===
+                        Number(boss.boss.id),
+                    )?.image
+                  }
                   label={`${bossMode}: ${boss.boss.name}. ${bossExecutionStatus(boss, auto)?.label ?? ""}`}
                   value={
                     boss.battle?.status === "active"

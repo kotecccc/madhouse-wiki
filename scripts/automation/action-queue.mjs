@@ -88,7 +88,11 @@ export function createActionQueue({
           JSON.stringify(item.dependsOn ?? []) === JSON.stringify(dependsOn) &&
           adapters[type].dedupeKey(item.args) === key,
       );
-      if (equivalent) return clone(equivalent);
+      if (equivalent) {
+        if (adapters[type].dedupeConflict?.(normalized, equivalent.args))
+          throw new Error("action_queue_duplicate_conflict");
+        return clone(equivalent);
+      }
     }
     const priorEntries = entries;
     const superseded = [];
@@ -188,6 +192,43 @@ export function createActionQueue({
     if (!entry || !["completed", "failed"].includes(entry.status)) return false;
     entry.dismissed = true;
     commit();
+    return true;
+  }
+  function moveSeries(id, direction) {
+    if (!["up", "down"].includes(direction))
+      throw new Error("invalid_queue_direction");
+    const ordered = entries
+      .filter(
+        (item) =>
+          ["auto.start", "raid.start"].includes(item.type) &&
+          ["queued", "waiting"].includes(item.status) &&
+          !item.cancelRequested,
+      )
+      .sort(
+        (a, b) =>
+          (a.queueOrderAt ?? a.createdAt) - (b.queueOrderAt ?? b.createdAt) ||
+          a.createdAt - b.createdAt,
+      );
+    const index = ordered.findIndex((item) => item.id === id);
+    if (index < 0) return false;
+    const other = index + (direction === "up" ? -1 : 1);
+    if (other < 0 || other >= ordered.length) return false;
+    const previous = ordered.map((item) => item.queueOrderAt);
+    const start = Math.min(
+      ...ordered.map((item) => item.queueOrderAt ?? item.createdAt),
+    );
+    [ordered[index], ordered[other]] = [ordered[other], ordered[index]];
+    for (const [i, item] of ordered.entries()) item.queueOrderAt = start + i;
+    try {
+      commit();
+    } catch (error) {
+      [ordered[index], ordered[other]] = [ordered[other], ordered[index]];
+      for (const [i, item] of ordered.entries()) {
+        if (previous[i] === undefined) delete item.queueOrderAt;
+        else item.queueOrderAt = previous[i];
+      }
+      throw error;
+    }
     return true;
   }
   function resume(id) {
@@ -336,6 +377,7 @@ export function createActionQueue({
     add,
     stop,
     dismiss,
+    moveSeries,
     resume,
     tick,
     hasDue,

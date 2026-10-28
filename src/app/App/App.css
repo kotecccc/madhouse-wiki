@@ -13,6 +13,26 @@
   display: contents;
 }
 
+.app-content--subpage {
+  display: none;
+}
+
+.boss-page-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+}
+
+.boss-page-actions-target {
+  min-width: 0;
+}
+
+.boss-page-actions-target:empty {
+  display: none;
+}
+
 @media (max-width: 650px) {
   html:has(.site-shell),
   body:has(.site-shell),

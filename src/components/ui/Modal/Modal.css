@@ -1,17 +1,13 @@
 .shared-modal {
-  --dialog-width: 520px;
-  position: fixed;
-  inset: 0;
-  margin: auto;
-  max-height: calc(100dvh - 2 * var(--space-16));
-  overflow: hidden;
-  overscroll-behavior: contain;
+  display: grid;
+  gap: var(--space-16);
+  min-width: 0;
+  padding-block: var(--page-gutter);
   outline: none;
 }
 
-.shared-modal[open] {
-  display: flex;
-  flex-direction: column;
+.shared-modal[hidden] {
+  display: none;
 }
 
 .shared-modal-content {
@@ -19,10 +15,6 @@
   grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: var(--space-16);
-  min-height: 0;
-  padding: var(--modal-content-padding);
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 .shared-modal-content--center {
@@ -56,21 +48,12 @@
   background: var(--surface-page);
 }
 
-.shared-modal-toast-anchor {
-  position: relative;
-  min-width: 0;
-  height: 0;
-  flex: 0 0 auto;
-  z-index: 2;
-}
-
 .shared-modal-footer {
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
   gap: var(--space-8);
-  padding: var(--modal-content-padding);
-  border-top: 1px solid var(--card-border);
+  padding-block: var(--space-16);
 }
 
 .shared-modal-footer--with-note {
@@ -98,14 +81,6 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-16);
-  flex: 0 0 auto;
-  padding: var(--modal-content-padding);
-  border-bottom: 1px solid var(--card-border);
-  background: var(--card-background);
-}
-
-.shared-modal-heading > .dialog-close-button {
-  position: static;
   flex: 0 0 auto;
 }
 
@@ -135,76 +110,8 @@
 }
 
 @media (max-width: 650px) {
-  .shared-modal {
-    --modal-content-padding: var(--space-12);
-    width: 100%;
-    height: 100dvh;
-    max-height: none;
-    border: 0;
-    border-radius: 0;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-  }
-
-  .shared-modal[open] {
-    display: grid;
-  }
-
-  .shared-modal--no-footer {
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
-  /* Keep the surface edge-to-edge, with all three rows inside the safe area.
-     Device and Telegram insets describe overlapping exclusions: use the largest
-     rather than adding them. Reserve a kit spacing step at the bottom even when
-     a host reports no inset for its rounded sheet corners. */
-  .shared-modal.ui-dialog {
-    box-sizing: border-box;
-    padding-top: max(
-      env(safe-area-inset-top, 0px),
-      var(--tg-safe-area-inset-top, 0px),
-      var(--tg-content-safe-area-inset-top, 0px)
-    );
-    padding-right: max(
-      env(safe-area-inset-right, 0px),
-      var(--tg-safe-area-inset-right, 0px),
-      var(--tg-content-safe-area-inset-right, 0px)
-    );
-    padding-bottom: max(
-      var(--space-16),
-      env(safe-area-inset-bottom, 0px),
-      var(--tg-safe-area-inset-bottom, 0px),
-      var(--tg-content-safe-area-inset-bottom, 0px)
-    );
-    padding-left: max(
-      env(safe-area-inset-left, 0px),
-      var(--tg-safe-area-inset-left, 0px),
-      var(--tg-content-safe-area-inset-left, 0px)
-    );
-  }
-
-  .shared-modal-toast-anchor {
-    grid-row: 3;
-    grid-column: 1;
-    align-self: start;
-  }
-
-  .shared-modal--no-footer .shared-modal-toast-anchor {
-    grid-row: 2;
-    align-self: end;
-  }
-
-  .shared-modal-footer {
-    grid-row: 3;
-    grid-column: 1;
-  }
-
   .shared-modal-mobile-footer {
     display: flex;
-  }
-
-  .shared-modal-content {
-    min-height: 0;
-    align-content: start;
   }
 }
 

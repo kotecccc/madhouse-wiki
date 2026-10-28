@@ -133,6 +133,7 @@ const commands = new Set([
   "queue.enqueue",
   "queue.cancel",
   "queue.dismiss",
+  "queue.move",
   "buddy.set",
   "buddy.stop",
   "buddy.order",
@@ -965,6 +966,7 @@ export function createAutomationService({
         const automated = () =>
           !closed &&
           !entry.storageFailed &&
+          dispatchGeneration === (entry.autoStartGeneration ?? 0) &&
           canAct(entry, true) &&
           (entry.auto?.getSnapshot().enabled ||
             entry.raidWorker?.getSnapshot().enabled ||
@@ -1024,7 +1026,8 @@ export function createAutomationService({
     entry.goal = createBossBattleGoal({ controller: entry.controller, now });
     const restoredGoal = restoredShopDropGoal(saved?.goalRecord);
     if (restoredGoal) entry.goal.restoreState(restoredGoal);
-    if (saved?.raid?.stopAfterBattle) entry.goal.finishCurrentBattle();
+    if (saved?.raid?.stopAfterBattle || saved?.auto?.stopAfterBattle)
+      entry.goal.finishCurrentBattle();
     const refreshAvailability = async () => {
       if (
         ["unavailable", "credentials_invalid"].includes(
@@ -2841,6 +2844,15 @@ export function createAutomationService({
       const knownJob = entry.actionQueue
         .snapshot()
         .find((job) => job.id === input.id);
+      const runningRaid = entry.raidWorker.getSnapshot();
+      if (
+        input.args.type === "raid.start" &&
+        !knownJob &&
+        (runningRaid.enabled || runningRaid.userPaused) &&
+        positive(input.args.action?.settings?.bossId) &&
+        runningRaid.bossId === input.args.action.settings.bossId
+      )
+        throw failure(409, "raid_boss_already_active");
       if (entry.receipts.includes(input.id) && !knownJob)
         throw failure(409, "automation_command_already_received");
       const previousReceipts = entry.receipts;
@@ -2922,6 +2934,28 @@ export function createAutomationService({
           entry.pausedAuto.nextAttemptAt = 0;
           save(entry);
         }
+      }
+      return snapshot(entry);
+    }
+    if (input.command === "queue.move") {
+      if (entry.receipts.includes(input.id)) return snapshot(entry);
+      if (input.expectedVersion !== entry.version)
+        throw failure(409, "automation_state_changed");
+      if (
+        typeof input.args?.id !== "string" ||
+        !["up", "down"].includes(input.args?.direction)
+      )
+        throw failure(400, "invalid_queue_move");
+      const previousReceipts = entry.receipts;
+      entry.receipts = [...entry.receipts.slice(-127), input.id];
+      try {
+        if (!entry.actionQueue.moveSeries(input.args.id, input.args.direction))
+          throw failure(409, "queue_move_unavailable");
+      } catch (error) {
+        entry.receipts = previousReceipts;
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        throw error;
       }
       return snapshot(entry);
     }
@@ -3962,7 +3996,8 @@ export function createAutomationService({
           entry.raidWorker.pause();
           break;
         case "raid.resume":
-          entry.raidWorker.resumePaused();
+          if (!entry.raidWorker.resumePaused())
+            throw failure(409, "raid_resume_unavailable");
           break;
         case "raid.stop":
           if (entry.raidSubscription.getSnapshot().checkpoint) {
@@ -4162,7 +4197,12 @@ export function createAutomationService({
           }
           break;
         case "auto.resume":
-          if (entry.pausedAuto) {
+          if (entry.auto.getSnapshot().stopAfterBattle) {
+            if (state.battle?.status !== "active")
+              throw failure(409, "auto_resume_unavailable");
+            entry.goal.resumeSeries();
+            entry.auto.resumeSeries();
+          } else if (entry.pausedAuto) {
             entry.pausedAuto.resumeRequested = true;
             entry.pausedAuto.nextAttemptAt = 0;
             save(entry);
@@ -4182,6 +4222,18 @@ export function createAutomationService({
               entry.pausedAuto = null;
               save(entry);
             }
+            break;
+          }
+          if (
+            entry.auto.getSnapshot().enabled &&
+            !entry.raidWorker.getSnapshot().enabled &&
+            !entry.raidWorker.getSnapshot().userPaused &&
+            !entry.collector.running() &&
+            state.battle?.status === "active" &&
+            entry.auto.finishCurrent({ stopAfterBattle: true })
+          ) {
+            entry.assistant.invalidatePendingWork();
+            entry.goal.finishCurrentBattle();
             break;
           }
           entry.pausedAuto = null;

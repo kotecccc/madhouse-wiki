@@ -1,5 +1,7 @@
 import { progressPercent } from "../../../lib/progress-percent.js";
 import { Icon } from "../Icon/Icon.jsx";
+import { ImageCard } from "../ImageCard/ImageCard.jsx";
+import { BaseCard } from "../BaseCard/BaseCard.jsx";
 import "./ProgressButton.css";
 
 export function ProgressButton({
@@ -8,6 +10,7 @@ export function ProgressButton({
   label,
   valueText,
   icon,
+  imageSrc,
   onClick,
   animateLoss = false,
   animationKey,
@@ -18,7 +21,9 @@ export function ProgressButton({
   const percent = progressPercent(value, max);
   return (
     <div className="ui-progress-button">
-      <button
+      <BaseCard
+        as="button"
+        variant="glass-nav-circle"
         type="button"
         className="ui-progress-button-action"
         aria-label={label}
@@ -44,11 +49,17 @@ export function ProgressButton({
             />
           )}
         </svg>
-        <Icon type={icon} size="large" tone="inherit" />
+        {imageSrc ? (
+          <ImageCard src={imageSrc} size={24} imageSize={24} alt="">
+            <Icon type={icon} size="large" tone="inherit" />
+          </ImageCard>
+        ) : (
+          <Icon type={icon} size="large" tone="inherit" />
+        )}
         <span aria-hidden="true">
           {displayText ?? (percent == null ? "—" : `${percent}%`)}
         </span>
-      </button>
+      </BaseCard>
       <span
         className="sr-only"
         role="progressbar"

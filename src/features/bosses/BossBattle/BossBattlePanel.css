@@ -57,13 +57,6 @@
   min-width: 0;
 }
 
-@media (max-width: 650px) {
-  .boss-battle-panel-controls {
-    grid-auto-flow: row;
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .boss-battle-journal-viewport {
   display: grid;
   grid-template-rows: repeat(8, var(--control-height-sm));

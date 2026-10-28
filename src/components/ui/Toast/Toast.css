@@ -12,6 +12,18 @@
   pointer-events: none;
 }
 
+.ui-dialog > .ui-toast-stack {
+  position: fixed;
+  right: var(--page-gutter);
+  bottom: max(
+    var(--space-16),
+    env(safe-area-inset-bottom, 0px),
+    var(--tg-safe-area-inset-bottom, 0px),
+    var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+  left: var(--page-gutter);
+}
+
 .ui-toast-region {
   position: absolute;
   z-index: 30;

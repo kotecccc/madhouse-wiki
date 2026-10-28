@@ -54,8 +54,21 @@ test("farm progress controls expose real tasks and accessible progress without t
       }),
     );
     assert.match(health, /ui-progress-button-fill--animated/);
+    assert.match(health, /base-card--glass-nav-circle/);
     assert.match(health, /stroke-dasharray="50 100"/);
     assert.match(health, /aria-valuetext="50 из 100"/);
+    const bossHealth = renderToStaticMarkup(
+      createElement(ProgressButton, {
+        value: 91,
+        max: 100,
+        icon: "boss",
+        imageSrc: "/boss.png",
+        label: "Бой с боссом",
+      }),
+    );
+    assert.match(bossHealth, /src="\/boss\.png"/);
+    assert.match(bossHealth, /91%/);
+    assert.match(bossHealth, /aria-valuenow="91"/);
     const unknown = renderToStaticMarkup(
       createElement(ProgressButton, {
         icon: "energy",

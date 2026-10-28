@@ -56,6 +56,7 @@ export function DepartmentBossCard({
             }
           : {})}
         showBattleAction={!locked}
+        primaryBattleAction={!locked}
         mobileBattleAction
         mobileBattleStatus={!locked}
         collectionIndicator={

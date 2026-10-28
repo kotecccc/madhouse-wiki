@@ -2,6 +2,7 @@ import {
   battleRetryAfter,
   terminalBattlePreflight,
 } from "./battle-preflight-error.mjs";
+import { validateHealingSettings } from "./battle-assistant.mjs";
 
 // Queue starts an existing actor once; it never replays the actor's game actions.
 export function queuedBattleSeriesAdapter({
@@ -46,6 +47,15 @@ export function queuedBattleSeriesAdapter({
     validate(args) {
       const s = args?.settings;
       if (
+        (args?.singleBattleId != null &&
+          (mode !== "auto" ||
+            typeof args.singleBattleId !== "string" ||
+            !/^[A-Za-z0-9_-]{1,120}$/.test(args.singleBattleId))) ||
+        (args?.progressionTarget != null && args.progressionTarget !== true) ||
+        (args?.progressionTarget === true &&
+          (s?.kind !== "battles" ||
+            s?.countWins !== true ||
+            args.singleBattleId != null)) ||
         !s ||
         !Number.isSafeInteger(s.bossId) ||
         s.bossId <= 0 ||
@@ -72,6 +82,11 @@ export function queuedBattleSeriesAdapter({
       )
         throw new Error("invalid_automation_goal");
       return {
+        ...(args.healingSettings != null
+          ? { healingSettings: validateHealingSettings(args.healingSettings) }
+          : {}),
+        ...(args.singleBattleId ? { singleBattleId: args.singleBattleId } : {}),
+        ...(args.progressionTarget ? { progressionTarget: true } : {}),
         settings: {
           bossId: s.bossId,
           kind: s.kind,
@@ -91,13 +106,38 @@ export function queuedBattleSeriesAdapter({
         },
       };
     },
-    dedupeKey: (args) => JSON.stringify(args.settings),
+    dedupeKey: (args) =>
+      mode === "raid"
+        ? `boss:${args.settings.bossId}`
+        : JSON.stringify([
+            args.settings,
+            args.singleBattleId,
+            args.progressionTarget,
+            args.healingSettings,
+          ]),
+    dedupeConflict: (next, existing) =>
+      mode === "raid" && JSON.stringify(next) !== JSON.stringify(existing),
     async execute(job, { canDispatch }) {
       if (started(job)) {
         if (entry.pendingAutomation?.id === job.id) clearMarker();
         return { status: "completed" };
       }
       try {
+        if (job.args.progressionTarget) {
+          const target = await entry.floorActions.plan({
+            bossId: job.args.settings.bossId,
+          });
+          if (target.status === "changed")
+            return { status: "failed", reason: "progression_target_changed" };
+          if (target.status !== "ready")
+            return { status: "retry", reason: "Проверяем актуальную задачу." };
+          if (
+            target.kind !== "boss" ||
+            target.apiId !== job.args.settings.bossId ||
+            target.required - target.current !== job.args.settings.targetCount
+          )
+            return { status: "failed", reason: "progression_target_changed" };
+        }
         let state = entry.controller.getSnapshot();
         let opened = false;
         if (state.boss?.id !== job.args.settings.bossId) {
@@ -131,12 +171,20 @@ export function queuedBattleSeriesAdapter({
         }
         state = entry.controller.getSnapshot();
         if (
+          job.args.singleBattleId &&
+          (state.battle?.id !== job.args.singleBattleId ||
+            state.battle?.status !== "active")
+        )
+          return { status: "failed", reason: "battle_no_longer_active" };
+        if (
           state.boss?.id !== job.args.settings.bossId ||
           state.pending ||
           state.pendingInvitation ||
           state.purchase ||
           state.purchaseUncertain ||
           state.medicineOpen ||
+          (job.args.healingSettings &&
+            entry.assistant.projection?.().uncertain) ||
           (mode === "raid" && state.battle?.status === "active")
         )
           return { status: "retry", reason: "Ожидаем другие действия." };
@@ -157,6 +205,10 @@ export function queuedBattleSeriesAdapter({
         if (entry.storageFailed)
           throw new Error("automation_storage_unavailable");
         configure(job.args.settings, state);
+        if (job.args.healingSettings)
+          entry.assistant.configure(job.args.healingSettings);
+        if (entry.storageFailed)
+          throw new Error("automation_storage_unavailable");
         if (
           mode === "auto" &&
           state.invitationOnly &&
@@ -174,7 +226,10 @@ export function queuedBattleSeriesAdapter({
         const ok =
           mode === "raid"
             ? entry.raidWorker.start(state.boss.id, { queueId: job.id })
-            : entry.auto.start({ queueId: job.id });
+            : entry.auto.start({
+                queueId: job.id,
+                singleBattle: Boolean(job.args.singleBattleId),
+              });
         if (!ok) {
           discardUnstarted(job);
           return { status: "retry", reason: "Ожидаем другие действия." };

@@ -41,7 +41,7 @@ export function createFloorActions({
   };
   return {
     hasOtherWork,
-    async plan() {
+    async plan({ bossId = null } = {}) {
       const catalogue = getCatalogue();
       const floors = await get("/api/floors");
       const current = [...catalogue.floors]
@@ -56,7 +56,12 @@ export function createFloorActions({
       const info = await get(
         `/api/floors/${encodeURIComponent(current.code)}/info`,
       );
-      return planFloorProgress({ floors, info, catalogue });
+      return planFloorProgress({
+        floors,
+        info,
+        catalogue,
+        targetBossId: bossId,
+      });
     },
     async launch(target, allowed) {
       if (!allowed() || hasOtherWork()) throw new Error("floor_resources_busy");

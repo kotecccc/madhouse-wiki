@@ -105,9 +105,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
   });
   try {
     const load = (path) => server.ssrLoadModule(`/src/${path}`);
-    const { ActionQueueSection } = await load(
-      "features/action-queue/ActionQueueSection.jsx",
-    );
+    const { ActionQueueSection, BattleSeriesContent, QueueActions } =
+      await load("features/action-queue/ActionQueueSection.jsx");
     for (const state of [
       { auto: { userPaused: true } },
       { raid: { userPaused: true } },
@@ -122,8 +121,69 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
           onCommand() {},
         }),
       );
-      assert.match(markup, />Продолжить<\/button>/);
+      if (state.auto || state.raid) {
+        assert.match(markup, /ui-disclosure--separated/);
+        assert.doesNotMatch(markup, />Продолжить<\/span>/);
+      } else assert.match(markup, />Продолжить<\/span>/);
     }
+    const { Disclosure } = await load(
+      "components/ui/Disclosure/Disclosure.jsx",
+    );
+    const bossQueueCard = {
+      title: "Босс",
+      actor: true,
+      destination: "raid",
+      command: "raid.stop",
+      pauseCommand: "raid.pause",
+      series: {
+        settings: {
+          kind: "battles",
+          targetCount: 5,
+          countWins: true,
+          durationHours: 1,
+        },
+        goal: {
+          completedBattles: 3,
+          wins: 2,
+          losses: 1,
+          progress: 2,
+          target: 5,
+        },
+      },
+    };
+    const expandedQueueMarkup = renderToStaticMarkup(
+      createElement(
+        Disclosure,
+        {
+          title: bossQueueCard.title,
+          separated: true,
+          defaultOpen: true,
+          footer: createElement(QueueActions, {
+            card: bossQueueCard,
+            onCommand() {},
+            onOpen() {},
+          }),
+        },
+        createElement(BattleSeriesContent, { card: bossQueueCard }),
+      ),
+    );
+    assert.match(expandedQueueMarkup, /Победы · 5/);
+    assert.match(expandedQueueMarkup, /Длительность · 1 ч/);
+    assert.match(expandedQueueMarkup, /Завершено боёв · 3/);
+    assert.match(expandedQueueMarkup, /Победы · 2/);
+    assert.match(expandedQueueMarkup, /Поражения · 1/);
+    assert.match(expandedQueueMarkup, /Прогресс цели · 2 \/ 5/);
+    assert.match(expandedQueueMarkup, /tabler-icon-player-pause/);
+    assert.match(
+      expandedQueueMarkup,
+      /ui-disclosure-footer[^]*Открыть[^]*Пауза[^]*Остановить/,
+    );
+    const loadingQueue = renderToStaticMarkup(
+      createElement(ActionQueueSection, { authenticated: true, state: null }),
+    );
+    assert.match(loadingQueue, /ui-skeleton-space--card/);
+    assert.match(loadingQueue, /Что такое очередь действий\?/);
+    assert.doesNotMatch(loadingQueue, /Загружаем очередь/);
     const { RaidPost, RaidFriendAction } = await load(
       "features/raids/RaidPost/RaidPost.jsx",
     );
@@ -938,7 +998,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       }),
     );
     assert.ok(!noFooterModal.includes("<footer"));
-    assert.ok(noFooterModal.includes("dialog-close-button"));
+    assert.ok(noFooterModal.includes('aria-label="Назад"'));
     const { SiteHeader } = await load(
       "components/layout/SiteHeader/SiteHeader.jsx",
     );
@@ -1283,6 +1343,8 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     );
     assert.ok(participantDisclosure, "participants disclosure is rendered");
     assert.ok(journalDisclosure, "journal disclosure is rendered");
+    assert.match(participantDisclosure, /ui-disclosure--separated/);
+    assert.match(journalDisclosure, /ui-disclosure--separated/);
     assert.ok(!/^<details[^>]*\sopen(?:="")?/.test(participantDisclosure));
     assert.match(journalDisclosure, /^<details[^>]*\sopen(?:="")?/);
     assert.equal(

@@ -3,6 +3,6 @@
 export function actionQueuePriority(job, now) {
   return (
     (job.status === "reconciling" ? Math.max(job.priority, 60) : job.priority) +
-    (now - job.createdAt) / 60_000
+    (now - (job.queueOrderAt ?? job.createdAt)) / 60_000
   );
 }

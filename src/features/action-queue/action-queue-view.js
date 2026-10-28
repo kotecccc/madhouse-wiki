@@ -57,6 +57,7 @@ const failureMessages = {
   business_missing_unknown: "Проверьте план бизнеса",
   business_run_limit_required: "Не указан лимит сбора",
   invalid_automation_goal: "Проверьте цель боя",
+  progression_target_changed: "Цель изменилась — проверьте задачу",
   character_upgrade_quote_changed: "Стоимость или лимит изменились",
 };
 const actions = {
@@ -69,6 +70,15 @@ const actions = {
 // These cards project existing account actors; they do not own progress.
 export function actionQueueCards(state, catalogue = {}) {
   if (!state) return [];
+  const bossTitle = (boss, fallback) => {
+    if (!boss) return fallback;
+    const department = catalogue.departments?.find(
+      (item) => item.id === boss.departmentId,
+    );
+    const code = department?.code || department?.blockCode || boss.blockCode;
+    const name = boss.name || boss.nameRu || fallback;
+    return code ? `${code} • ${name}` : name;
+  };
   const cards = [];
   const addActor = (key, title, command, detail, progress, image) =>
     cards.push({
@@ -124,9 +134,17 @@ export function actionQueueCards(state, catalogue = {}) {
     cards.at(-1).floorTarget = floor.target ?? null;
   else {
     if (raid?.enabled || raid?.userPaused) {
+      const raidBossId = raid.bossId ?? state.goal?.boss?.id;
+      const raidBoss =
+        catalogue.bosses?.find(
+          (boss) => Number(boss.numericId ?? boss.apiId) === Number(raidBossId),
+        ) ??
+        (Number(state.battle?.boss?.id) === Number(raidBossId)
+          ? state.battle?.boss
+          : null);
       addActor(
         "raid",
-        "Рейды",
+        bossTitle(raidBoss, "Рейды"),
         "raid.stop",
         raid.resumeRequested
           ? "Продолжаем"
@@ -137,13 +155,31 @@ export function actionQueueCards(state, catalogue = {}) {
               : raid.notice === "Ожидаем выполнение работёнки."
                 ? "Ожидает фарм"
                 : null,
+        null,
+        raidBoss?.image || raidBoss?.reference?.image,
       );
+      cards.at(-1).bossId = raidBossId;
+      if (raid.stopAfterBattle) cards.at(-1).command = null;
+      if (raidBoss) cards.at(-1).detail = "Рейд";
+      cards.at(-1).series = {
+        settings:
+          Number(state.goal?.boss?.id) === Number(raidBossId)
+            ? state.goal
+            : ((state.queuedActions || []).find(
+                (job) => job.id === raid.queueId && job.type === "raid.start",
+              )?.args?.settings ?? null),
+        goal:
+          Number(state.goal?.boss?.id) === Number(raidBossId)
+            ? state.goal
+            : null,
+      };
       if (subscription?.hasSuspendedGoal || buddy?.hasSuspendedGoal) {
         cards.at(-1).status = "Ожидает рейд";
-      } else if (!raid.resumeRequested && !raid.stopAfterBattle) {
-        cards.at(-1).pauseCommand = raid.userPaused
-          ? "raid.resume"
-          : "raid.pause";
+      } else if (!raid.resumeRequested) {
+        cards.at(-1).pauseCommand =
+          raid.userPaused || raid.stopAfterBattle
+            ? "raid.resume"
+            : "raid.pause";
       }
     }
     if (["running", "paused"].includes(business?.status)) {
@@ -181,25 +217,50 @@ export function actionQueueCards(state, catalogue = {}) {
         goal.target > 0
           ? { value: goal.progress, max: goal.target }
           : null;
+      const catalogueBoss = catalogue.bosses?.find(
+        (item) => Number(item.numericId ?? item.apiId) === Number(boss?.id),
+      );
       addActor(
         "auto",
-        boss?.nameRu || boss?.name || "Автобой",
+        bossTitle(catalogueBoss ?? boss, "Автобой"),
         "auto.stop",
-        state.auto?.resumeRequested
-          ? "Продолжаем"
-          : state.auto?.userPaused
-            ? "На паузе"
-            : state.auto?.phase === "yielding"
-              ? "Ожидает фарм"
-              : null,
+        state.auto?.stopAfterBattle
+          ? "Завершает бой"
+          : state.auto?.resumeRequested
+            ? "Продолжаем"
+            : state.auto?.userPaused
+              ? "На паузе"
+              : state.auto?.phase === "yielding"
+                ? "Ожидает фарм"
+                : null,
         progress,
         boss?.image,
       );
       const card = cards.at(-1);
+      if (state.auto?.stopAfterBattle) card.command = null;
+      card.bossId = boss?.id ?? null;
+      card.detail = "Автобой";
+      card.image =
+        boss?.image ||
+        boss?.reference?.image ||
+        catalogue.bosses?.find(
+          (item) => Number(item.numericId ?? item.apiId) === Number(boss?.id),
+        )?.image;
+      card.series = {
+        settings:
+          Number(goal?.boss?.id) === Number(boss?.id)
+            ? goal
+            : ((state.queuedActions || []).find(
+                (job) =>
+                  job.id === state.auto?.queueId && job.type === "auto.start",
+              )?.args?.settings ?? null),
+        goal: Number(goal?.boss?.id) === Number(boss?.id) ? goal : null,
+      };
       if (!state.auto?.resumeRequested)
-        card.pauseCommand = state.auto?.userPaused
-          ? "auto.resume"
-          : "auto.pause";
+        card.pauseCommand =
+          state.auto?.userPaused || state.auto?.stopAfterBattle
+            ? "auto.resume"
+            : "auto.pause";
     } else if (
       !(raid?.enabled || raid?.userPaused) &&
       !subscription?.hasSuspendedGoal &&
@@ -335,10 +396,11 @@ export function actionQueueCards(state, catalogue = {}) {
         visible.has(job.status) &&
         !job.dismissed &&
         (job.status !== "completed" ||
-          (terminalActor(job)
-            ? terminalActor(job).status !== "completed"
-            : handoffTypes.has(job.type) &&
-              (recentHandoffs.has(job.id) || currentBattleHandoff(job)))) &&
+          (!["auto.start", "raid.start"].includes(job.type) &&
+            (terminalActor(job)
+              ? terminalActor(job).status !== "completed"
+              : handoffTypes.has(job.type) &&
+                (recentHandoffs.has(job.id) || currentBattleHandoff(job))))) &&
         !(
           job.type === "auto.start" &&
           state.auto?.queueId === job.id &&
@@ -384,6 +446,22 @@ export function actionQueueCards(state, catalogue = {}) {
         actionQueuePriority(b, time) - actionQueuePriority(a, time) ||
         a.createdAt - b.createdAt,
     );
+  const movableSeries = queued
+    .filter(
+      (job) =>
+        ["auto.start", "raid.start"].includes(job.type) &&
+        ["queued", "waiting"].includes(job.status) &&
+        !job.cancelRequested,
+    )
+    .sort(
+      (a, b) =>
+        (a.queueOrderAt ?? a.createdAt) - (b.queueOrderAt ?? b.createdAt) ||
+        a.createdAt - b.createdAt,
+    );
+  let seriesIndex = 0;
+  for (let i = 0; i < queued.length; i++)
+    if (movableSeries.includes(queued[i]))
+      queued[i] = movableSeries[seriesIndex++];
   let position = 0;
   for (const job of queued) {
     const finishedActor = terminalActor(job);
@@ -429,9 +507,9 @@ export function actionQueueCards(state, catalogue = {}) {
                 : job.type === "floor.start"
                   ? "Открытие этажа"
                   : job.type === "auto.start"
-                    ? "Автобой"
+                    ? bossTitle(queuedBoss, "Автобой")
                     : job.type === "raid.start"
-                      ? "Рейды"
+                      ? bossTitle(queuedBoss, "Рейды")
                       : job.type === "business.start"
                         ? "Прокачка бизнеса"
                         : job.type === "invitation.accept"
@@ -493,7 +571,9 @@ export function actionQueueCards(state, catalogue = {}) {
                         : job.blockedBy === "storage"
                           ? "Ожидает сервер"
                           : job.blockedBy === "action"
-                            ? "Ожидает другие действия"
+                            ? ["auto.start", "raid.start"].includes(job.type)
+                              ? "Ожидает очереди"
+                              : "Ожидает другие действия"
                             : job.blockedBy === "dependency"
                               ? "Ожидает подтверждения действия"
                               : job.blockedBy === "game"
@@ -516,7 +596,11 @@ export function actionQueueCards(state, catalogue = {}) {
                                         "auto.start",
                                         "raid.start",
                                       ].includes(job.type)
-                                      ? "Ожидает другие действия"
+                                      ? ["auto.start", "raid.start"].includes(
+                                          job.type,
+                                        )
+                                        ? "Ожидает очереди"
+                                        : "Ожидает другие действия"
                                       : "Ожидает окончания боя"
                                     : phases[job.status] || "Ожидание",
       detail:
@@ -532,35 +616,43 @@ export function actionQueueCards(state, catalogue = {}) {
               )
               .filter(Boolean)
               .join(", ") || null
-          : job.type === "subscription.start"
-            ? job.args.leaderUsername
-              ? `@${job.args.leaderUsername}`
+          : job.type === "auto.start"
+            ? queuedBoss?.name
+              ? "Автобой"
               : null
-            : job.type === "friend.response"
-              ? job.args.decision === "accept"
-                ? "Принятие заявки"
-                : "Отклонение заявки"
-              : job.type === "friend.request"
-                ? "Заявка в друзья"
-                : job.type === "friend.favorite"
-                  ? job.args.enabled
-                    ? "В избранное"
-                    : "Убрать из избранного"
-                  : job.type === "friend.buddy"
-                    ? job.args.enabled
-                      ? "Добавить в Buddy"
-                      : "Убрать из Buddy"
-                    : job.type === "friend.remove"
-                      ? "Удаление друга"
-                      : job.type === "work.booster"
-                        ? job.args.type === "full"
-                          ? "Полный"
-                          : "Малый"
-                        : queuedBoss?.name
-                          ? queuedBoss.name
-                          : item?.name
-                            ? actions[job.args?.action]
-                            : null,
+            : job.type === "raid.start"
+              ? queuedBoss?.name
+                ? "Рейд"
+                : null
+              : job.type === "subscription.start"
+                ? job.args.leaderUsername
+                  ? `@${job.args.leaderUsername}`
+                  : null
+                : job.type === "friend.response"
+                  ? job.args.decision === "accept"
+                    ? "Принятие заявки"
+                    : "Отклонение заявки"
+                  : job.type === "friend.request"
+                    ? "Заявка в друзья"
+                    : job.type === "friend.favorite"
+                      ? job.args.enabled
+                        ? "В избранное"
+                        : "Убрать из избранного"
+                      : job.type === "friend.buddy"
+                        ? job.args.enabled
+                          ? "Добавить в Buddy"
+                          : "Убрать из Buddy"
+                        : job.type === "friend.remove"
+                          ? "Удаление друга"
+                          : job.type === "work.booster"
+                            ? job.args.type === "full"
+                              ? "Полный"
+                              : "Малый"
+                            : queuedBoss?.name
+                              ? queuedBoss.name
+                              : item?.name
+                                ? actions[job.args?.action]
+                                : null,
       image: queuedWork?.image || queuedBoss?.image || item?.image,
       destination: job.type,
       inventoryTarget:
@@ -570,6 +662,14 @@ export function actionQueueCards(state, catalogue = {}) {
       work: queuedWork,
       businessId: job.args?.businessId,
       bossId,
+      ...(["auto.start", "raid.start"].includes(job.type) &&
+      ["queued", "waiting"].includes(job.status) &&
+      !job.cancelRequested
+        ? { movableSeries: true }
+        : {}),
+      ...(["auto.start", "raid.start"].includes(job.type)
+        ? { series: { settings: job.args?.settings ?? null, goal: null } }
+        : {}),
       raidTarget:
         job.type === "subscription.start"
           ? {

@@ -49,6 +49,7 @@ export function RequirementCalculatorDialog({
   boostersLoading = false,
   onRefresh,
   refreshKey,
+  pageUrl,
 }) {
   const [energyLimit, setEnergyLimit] = useState("");
   const [localProfileEnergy, setProfileEnergy] = useState(null);
@@ -190,6 +191,7 @@ export function RequirementCalculatorDialog({
     showCalculation && (requirementCalc == null || energyPlan);
   return (
     <Modal
+      pageUrl={pageUrl}
       className="requirement-calculator-dialog"
       title={title || calculatorTitle}
       titleId="requirement-calc-title"

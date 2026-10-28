@@ -136,6 +136,18 @@ export function createRaidWaiter({
       return true;
     },
     resumePaused() {
+      if (value.enabled && value.stopAfterBattle) {
+        if (state().battle?.status !== "active") return false;
+        auto.resumeSeries?.();
+        goal.resumeSeries?.();
+        publish({
+          stopAfterBattle: false,
+          status: "fighting",
+          nextCheckAt: now(),
+          notice: "Рейд продолжен.",
+        });
+        return true;
+      }
       if (!value.userPaused) return false;
       publish({ resumeRequested: true, notice: "Продолжаем рейд." });
       return true;

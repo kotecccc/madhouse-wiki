@@ -459,12 +459,17 @@ export function createBossBattleController({
     controller = new AbortController();
     const signal = controller.signal;
     let sent = false;
+    const stockOnly = kind === "stock-only";
     publish({
-      pending: kind,
-      error: null,
-      errorStatus: null,
-      errorRetryAfterMs: null,
-      notice: null,
+      pending: stockOnly ? "stock" : kind,
+      ...(stockOnly
+        ? {}
+        : {
+            error: null,
+            errorStatus: null,
+            errorRetryAfterMs: null,
+            notice: null,
+          }),
     });
     const call = (method, path, body) => {
       if (generation !== version || signal.aborted)
@@ -479,6 +484,10 @@ export function createBossBattleController({
     try {
       return await task(call, version);
     } catch (error) {
+      if (stockOnly) {
+        if (version === generation) publish({ medicines: null });
+        return;
+      }
       if (version === generation)
         publish({
           needsRefresh: true,
@@ -1370,7 +1379,7 @@ export function createBossBattleController({
     useMedicine,
     refreshMedicineStock() {
       if (!state.boss) return;
-      return run("stock", async (call, version) => {
+      return run("stock-only", async (call, version) => {
         const bag = await call("GET", "/api/me/bag");
         if (version === generation)
           publish({

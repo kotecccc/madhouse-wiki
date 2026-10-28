@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import react from "@vitejs/plugin-react";
 
-test("shared modal uses one surface with a separate body and optional actions", async () => {
+test("shared page uses a labelled surface with a separate body and optional actions", async () => {
   const server = await createServer({
     configFile: false,
     plugins: [react()],
@@ -33,22 +33,16 @@ test("shared modal uses one surface with a separate body and optional actions", 
         ),
       );
     const html = render();
-    assert.equal((html.match(/<dialog\b/g) || []).length, 1);
-    assert.match(html, /<dialog[^>]*base-card--modal/);
+    assert.equal((html.match(/<section\b/g) || []).length, 1);
+    assert.doesNotMatch(html, /<dialog\b/);
     assert.match(html, /aria-labelledby="drop-title"/);
     assert.match(html, /<header[^>]*>[\s\S]*<h2[^>]*id="drop-title"/);
     assert.match(html, /<\/header><div class="shared-modal-content"><ul>/);
-    assert.ok(!html.includes("<section"));
-    assert.ok(
-      html.indexOf("shared-modal-toast-anchor") < html.indexOf("<footer"),
-    );
+    assert.match(html, /aria-label="Назад"/);
+    assert.doesNotMatch(html, /shared-modal-toast-anchor|ui-toast-stack/);
     assert.match(
       html,
-      /shared-modal-toast-anchor"><div class="ui-toast-stack"/,
-    );
-    assert.match(
-      html,
-      /<footer class="shared-modal-footer shared-modal-mobile-footer"><button[^>]*>Закрыть<\/button><\/footer>/,
+      /<footer class="shared-modal-footer shared-modal-mobile-footer"><button[^>]*>Назад<\/button><\/footer>/,
     );
     assert.match(
       render(createElement("button", null, "Готово")),
@@ -57,7 +51,7 @@ test("shared modal uses one surface with a separate body and optional actions", 
     const withNote = render(undefined, "Обновлено недавно");
     const footerMarkup = withNote.slice(withNote.indexOf("<footer"));
     assert.match(footerMarkup, /Обновлено недавно/);
-    assert.match(footerMarkup, /Закрыть/);
+    assert.match(footerMarkup, /Назад/);
     assert.doesNotMatch(footerMarkup, /shared-modal-mobile-footer/);
     const split = render(
       undefined,
@@ -73,7 +67,7 @@ test("shared modal uses one surface with a separate body and optional actions", 
     );
     assert.ok(
       splitFooter.indexOf("Последнее обновление") <
-        splitFooter.indexOf("Закрыть"),
+        splitFooter.indexOf("Назад"),
     );
   } finally {
     await server.close();

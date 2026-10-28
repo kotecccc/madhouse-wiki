@@ -4,12 +4,12 @@ import "./SiteHeader.css";
 import { Brand } from "../Brand/Brand.jsx";
 import { GameHealthWarningIndicator } from "../BottomDock/GameHealthWarning.jsx";
 
-export function SiteHeader({ loading = false, showDivider = true }) {
+export function SiteHeader({ loading = false, showDivider = true, onHome }) {
   return (
     <header
       className={`topbar${loading ? " topbar--loading" : ""}${showDivider ? "" : " topbar--without-divider"}`}
     >
-      <Brand />
+      <Brand onHome={onHome} />
       <div className="topbar-actions">
         <GameHealthWarningIndicator />
         <LoginControl />
