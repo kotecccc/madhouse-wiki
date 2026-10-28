@@ -12,7 +12,7 @@ export function createBridgeBrowserSessions({ key, now = Date.now } = {}) {
     isBridgeToken(token) {
       return typeof token === "string" && token.startsWith(`${header}.`);
     },
-    issue(owner, revision, device) {
+    issue(owner, revision, device, until = Math.floor(now() / 1000) + 86400) {
       if (
         !/^[1-9][0-9]{0,19}$/.test(owner) ||
         !Number.isSafeInteger(revision) ||
@@ -20,7 +20,10 @@ export function createBridgeBrowserSessions({ key, now = Date.now } = {}) {
         typeof device?.deviceId !== "string" ||
         !/^[A-Za-z0-9_-]{1,128}$/.test(device.deviceId) ||
         !Number.isSafeInteger(device.generation) ||
-        device.generation < 1
+        device.generation < 1 ||
+        !Number.isSafeInteger(until) ||
+        until <= Math.floor(now() / 1000) ||
+        until > Math.floor(now() / 1000) + 86400
       )
         throw new TypeError("invalid_session_owner");
       const payload = Buffer.from(
@@ -30,7 +33,8 @@ export function createBridgeBrowserSessions({ key, now = Date.now } = {}) {
           dev: device.deviceId,
           gen: device.generation,
           aud: "madhouse-bridge",
-          exp: Math.floor(now() / 1000) + 900,
+          exp: Math.min(Math.floor(now() / 1000) + 900, until),
+          limit: until,
         }),
       ).toString("base64url");
       const value = `${header}.${payload}`;
@@ -67,6 +71,9 @@ export function createBridgeBrowserSessions({ key, now = Date.now } = {}) {
           !/^[A-Za-z0-9_-]{1,128}$/.test(value.dev) ||
           !Number.isSafeInteger(value.gen) ||
           value.gen < 1 ||
+          !Number.isSafeInteger(value.limit) ||
+          value.limit < value.exp ||
+          value.limit > Math.floor(now() / 1000) + 86400 ||
           !Number.isSafeInteger(value.exp) ||
           value.exp <= Math.floor(now() / 1000)
         )
@@ -76,6 +83,7 @@ export function createBridgeBrowserSessions({ key, now = Date.now } = {}) {
           revision: value.rev,
           deviceId: value.dev,
           generation: value.gen,
+          until: value.limit,
         };
       } catch {
         return null;

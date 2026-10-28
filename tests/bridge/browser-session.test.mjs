@@ -50,6 +50,7 @@ test("bridge browser session is signed, scoped and expires", () => {
     revision: 3,
     deviceId: "device",
     generation: 1,
+    until: 87400,
   });
   assert.equal(
     sessions.verify(token.replace(/.$/, token.endsWith("A") ? "B" : "A")),
@@ -64,4 +65,24 @@ test("bridge browser session is signed, scoped and expires", () => {
   );
   now += 900_000;
   assert.equal(sessions.verify(token), null);
+});
+
+test("renewed session cannot outlive the original absolute limit", () => {
+  let now = 1_000_000;
+  const sessions = createBridgeBrowserSessions({
+    key: Buffer.alloc(32, 4),
+    now: () => now,
+  });
+  const device = { deviceId: "device", generation: 1 };
+  const first = sessions.verify(sessions.issue("101", 1, device));
+  now += 600_000;
+  const renewed = sessions.verify(
+    sessions.issue("101", 1, device, first.until),
+  );
+  assert.equal(renewed.until, first.until);
+  now = first.until * 1000;
+  assert.throws(
+    () => sessions.issue("101", 1, device, first.until),
+    /invalid_session_owner/,
+  );
 });
