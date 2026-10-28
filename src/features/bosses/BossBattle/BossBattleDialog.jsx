@@ -11,6 +11,7 @@ import { BossBattleReceivedDrops } from "./BossBattleReference.jsx";
 import { BossBattlePanel, BossBattleDetails } from "./BossBattlePanel.jsx";
 import { BossBattleGoalPanel } from "./BossBattleGoalPanel.jsx";
 import { BossHealingSettings } from "./BossHealingSettings.jsx";
+import { BossMedicinePanel } from "./BossMedicinePanel.jsx";
 import { isTerminalBossBattle } from "./boss-battle-status.js";
 import { isBossAutomationWaiting } from "./boss-battle-presentation.js";
 import { battleActionHint } from "./boss-battle-controller.js";
@@ -223,6 +224,23 @@ export function BossBattleDialog() {
                 : bossBattle.configureHealing(settings)
             }
           />
+          {state.medicineOpen ? (
+            <BossMedicinePanel
+              state={state}
+              now={Math.max(now, Date.now())}
+              onClose={() => bossBattle.closeMedicines()}
+            />
+          ) : (
+            showBattleDetails && (
+              <Button
+                icon="medical-cross"
+                disabled={Boolean(state.pending)}
+                onClick={() => void bossBattle.openMedicines()}
+              >
+                Аптечки
+              </Button>
+            )
+          )}
         </div>
       </div>
       {queueNotice && (

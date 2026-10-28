@@ -17,7 +17,7 @@ import {
 import { bossBattle } from "./boss-battle-session.js";
 import "./BossMedicinePanel.css";
 
-export function BossMedicinePanel({ state, now }) {
+export function BossMedicinePanel({ state, now, onClose }) {
   const id = useId();
   const [type, setType] = useState("heal_10");
   const [currencyChoice, setCurrency] = useState("");
@@ -39,6 +39,9 @@ export function BossMedicinePanel({ state, now }) {
   return (
     <BaseCard className="boss-medicine-panel" aria-label="Аптечки">
       <CardTitle as="h3">Аптечки</CardTitle>
+      <Button disabled={busy} onClick={onClose}>
+        Закрыть
+      </Button>
       {state.notice && (
         <CardDescription role="status" title={state.notice}>
           {state.notice}
