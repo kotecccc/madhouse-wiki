@@ -185,7 +185,9 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
             Скопировать команду
           </Button>
           <CardDescription>
-            Вставьте команду в iSH на iPhone или в Терминал на Mac.
+            Вставьте команду в iSH на iPhone или в Терминал на Mac. На iPhone
+            разрешите геолокацию для работы при переключении приложений;
+            координаты не сохраняются.
           </CardDescription>
         </>
       )}

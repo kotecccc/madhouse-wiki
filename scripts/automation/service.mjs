@@ -1018,7 +1018,9 @@ export function createAutomationService({
                   ? `/api/bosses/battles/${pending.battleId}/items/use`
                   : pending.kind === "buy"
                     ? "/api/me/bag/combat-items/buy"
-                    : null;
+                    : pending.kind === "invite"
+                      ? `/api/bosses/battles/${pending.battleId}/invitations/bulk`
+                      : null;
           const expectedBody =
             pending.kind === "heal"
               ? { type: pending.type, operationId: pending.operationId }
@@ -1029,7 +1031,13 @@ export function createAutomationService({
                     quantity: pending.quote?.quantity,
                     operationId: pending.operationId,
                   }
-                : { operationId: pending.operationId };
+                : pending.kind === "invite"
+                  ? {
+                      operationId: pending.operationId,
+                      onlyAvailable: true,
+                      onlyOnline: false,
+                    }
+                  : { operationId: pending.operationId };
           const matches = (x, y) =>
             x &&
             y &&

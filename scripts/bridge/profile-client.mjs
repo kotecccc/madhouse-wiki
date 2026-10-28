@@ -171,6 +171,9 @@ export function isBattleActionRoute(method, path) {
       /^\/api\/businesses\/[1-9][0-9]*\/upgrade$/.test(path) ||
       path === "/api/me/bag/combat-items/buy" ||
       /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/items\/use$/.test(path) ||
+      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/invitations\/bulk$/.test(
+        path,
+      ) ||
       /^\/api\/bosses\/[1-9][0-9]*\/battles$/.test(path) ||
       /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/attack$/.test(path))
   );
