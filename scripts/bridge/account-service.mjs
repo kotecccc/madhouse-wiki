@@ -170,7 +170,12 @@ export function createBridgeAccountService({
     return result;
   }
 
-  async function send(verifiedOwner, method, path, { signal, body } = {}) {
+  async function send(
+    verifiedOwner,
+    method,
+    path,
+    { signal, body, callerAuthorization, validateCaller } = {},
+  ) {
     const account = accounts.read(verifiedOwner);
     if (!account || !queueActionGate) throw failure("bridge_unavailable");
     const device = devices.listDevice(verifiedOwner);
@@ -194,8 +199,9 @@ export function createBridgeAccountService({
         validateTunnel: () =>
           registry.isActive(identity) &&
           accounts.getRevision(verifiedOwner) === account.revision &&
+          (validateCaller ? validateCaller() === true : true) &&
           queueActionGate.claim({
-            authorization: account.authorization,
+            authorization: callerAuthorization ?? account.authorization,
             method,
             path,
             body,

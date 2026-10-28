@@ -123,12 +123,18 @@ export function createBridgeAwareAccountFetch({
       ...(live && typeof accountService.send === "function"
         ? {
             bridgeAction: async (owner, method, path, options) => {
-              const result = await accountService.send(
-                owner,
-                method,
-                path,
-                options,
-              );
+              const result = await accountService.send(owner, method, path, {
+                ...options,
+                callerAuthorization: authorization,
+                validateCaller: () => {
+                  const route = accounts.resolveCredential(authorization);
+                  return (
+                    route?.policy === "bridge_required" &&
+                    route.owner === owner &&
+                    route.credentialCurrent === true
+                  );
+                },
+              });
               return new Response(
                 [204, 205, 304].includes(result.status) ? null : result.body,
                 {

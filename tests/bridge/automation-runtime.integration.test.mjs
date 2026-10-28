@@ -354,6 +354,30 @@ test(
         await assert.rejects(transport.liveFetch(workUrl, workRequest));
       });
       assert.equal(sends, 2);
+      const sessionAuthorization = `Bearer ${session}`;
+      const sessionBody = JSON.stringify({
+        workId: 7,
+        taskId: 2,
+        locale: "ru",
+        operationId: "session-work",
+      });
+      const sessionPermit = createWorkActionPermit({
+        authorization: sessionAuthorization,
+        workId: 7,
+        taskId: 2,
+        operationId: "session-work",
+        checkpointIsCurrent: () => true,
+      });
+      await bridge.queueActionGate.runWork(sessionPermit, async () => {
+        await assert.rejects(
+          transport.liveFetch(workUrl, {
+            method: "POST",
+            body: sessionBody,
+            headers: { Authorization: sessionAuthorization },
+          }),
+        );
+      });
+      assert.equal(sends, 3);
       const requestsBeforeOffline = requests;
       agent.kill();
       await waitStatus("offline");
