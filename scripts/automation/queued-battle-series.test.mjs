@@ -5,6 +5,47 @@ import { queuedBattleSeriesAdapter } from "./queued-battle-series.mjs";
 
 for (const mode of ["auto", "raid"])
   for (const stage of ["open", "refresh"])
+    for (const [status, reason] of [
+      [401, "game_session_required"],
+      [400, "game_request_rejected"],
+    ])
+      test(`${mode} rejects permanent ${status} during ${stage} before starting`, async () => {
+        let starts = 0;
+        let snapshot = { boss: stage === "open" ? null : { id: 7 } };
+        const entry = {
+          controller: {
+            getSnapshot: () => snapshot,
+            open: async () => {
+              snapshot = {
+                boss: { id: 7 },
+                needsRefresh: true,
+                error: "rejected",
+                errorStatus: status,
+              };
+            },
+          },
+          auto: { getSnapshot: () => ({}), start: () => starts++ },
+          raidWorker: { getSnapshot: () => ({}), start: () => starts++ },
+        };
+        const adapter = queuedBattleSeriesAdapter({
+          entry,
+          mode,
+          getBoss: async () => ({ numericId: 7 }),
+          refresh: async () => {
+            snapshot = { ...snapshot, error: "rejected", errorStatus: status };
+            return false;
+          },
+        });
+        const result = await adapter.execute(
+          { id: "series-permanent", args: { settings: { bossId: 7 } } },
+          { canDispatch: () => true },
+        );
+        assert.deepEqual(result, { status: "failed", reason });
+        assert.equal(starts, 0);
+      });
+
+for (const mode of ["auto", "raid"])
+  for (const stage of ["open", "refresh"])
     test(`${mode} honors Retry-After during ${stage} without starting`, async () => {
       let reads = 0;
       let starts = 0;

@@ -1,4 +1,7 @@
-import { battleRetryAfter } from "./battle-preflight-error.mjs";
+import {
+  battleRetryAfter,
+  terminalBattlePreflight,
+} from "./battle-preflight-error.mjs";
 
 // Invitation identity and expiry come from the server's saved invitation list.
 export function queuedInvitationAdapter({
@@ -141,6 +144,8 @@ export function queuedInvitationAdapter({
           )
         )
           return { status: "failed", reason: "invitation_expired" };
+        const terminal = terminalBattlePreflight(error?.status);
+        if (terminal) return terminal;
         return {
           status: "retry",
           reason: "Ожидаем игру.",

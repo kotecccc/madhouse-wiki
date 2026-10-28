@@ -1,4 +1,7 @@
-import { battleRetryAfter } from "./battle-preflight-error.mjs";
+import {
+  battleRetryAfter,
+  terminalBattlePreflight,
+} from "./battle-preflight-error.mjs";
 
 // Queue starts an existing actor once; it never replays the actor's game actions.
 export function queuedBattleSeriesAdapter({
@@ -105,21 +108,27 @@ export function queuedBattleSeriesAdapter({
           await entry.controller.open(boss, { discover: true });
           const opening = entry.controller.getSnapshot();
           if (opening.needsRefresh || opening.error)
-            return {
-              status: "retry",
-              reason: "Ожидаем игру.",
-              ...battleRetryAfter(opening),
-            };
+            return (
+              terminalBattlePreflight(opening.errorStatus) ?? {
+                status: "retry",
+                reason: "Ожидаем игру.",
+                ...battleRetryAfter(opening),
+              }
+            );
           if (opening.boss?.id !== job.args.settings.bossId)
             return { status: "retry", reason: "Ожидаем другие действия." };
           opened = true;
         }
-        if (!(await refresh({ alreadyRefreshed: opened })))
-          return {
-            status: "retry",
-            reason: "Ожидаем игру.",
-            ...battleRetryAfter(entry.controller.getSnapshot()),
-          };
+        if (!(await refresh({ alreadyRefreshed: opened }))) {
+          const current = entry.controller.getSnapshot();
+          return (
+            terminalBattlePreflight(current.errorStatus) ?? {
+              status: "retry",
+              reason: "Ожидаем игру.",
+              ...battleRetryAfter(current),
+            }
+          );
+        }
         state = entry.controller.getSnapshot();
         if (
           state.boss?.id !== job.args.settings.bossId ||
@@ -174,6 +183,8 @@ export function queuedBattleSeriesAdapter({
         return { status: "completed" };
       } catch (error) {
         if (started(job)) return { status: "completed" };
+        const terminal = terminalBattlePreflight(error?.status);
+        if (terminal && entry.pendingAutomation?.id !== job.id) return terminal;
         if (error instanceof TypeError || error instanceof RangeError) {
           discardUnstarted(job);
           return { status: "failed", reason: "invalid_automation_goal" };
