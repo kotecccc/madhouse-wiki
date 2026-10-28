@@ -30,6 +30,7 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
   const [status, setStatus] = useState(null);
   const [token, setToken] = useState("");
   const [command, setCommand] = useState("");
+  const [invitation, setInvitation] = useState("");
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [expiresAt, setExpiresAt] = useState(0);
@@ -83,6 +84,7 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
     const timer = setTimeout(
       () => {
         setCommand("");
+        setInvitation("");
         setExpiresAt(0);
       },
       Math.max(0, expiresAt - Date.now()),
@@ -120,6 +122,7 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
     setLoaded(true);
     if (nextDevice) {
       setCommand("");
+      setInvitation("");
       setExpiresAt(0);
     }
   }
@@ -160,17 +163,46 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
               if (invite.expiresAt <= Date.now())
                 throw new Error("invitation_expired");
               setCommand(nextCommand);
+              setInvitation(invite.invitation);
               setExpiresAt(invite.expiresAt);
             })
           }
         >
-          Получить команду
+          Подключить устройство
         </Button>
       )}
       {command && (
         <>
+          <CardDescription>
+            На Mac скачайте архив, распакуйте и откройте файл моста. При первом
+            запуске нажмите правой кнопкой и выберите «Открыть», затем вставьте
+            одноразовый ключ ниже. Позже запускайте тот же файл двойным
+            нажатием.
+          </CardDescription>
+          <Button
+            onClick={() => {
+              window.location.href = "/bridge/MadhouseWikiBridge-macOS.zip";
+            }}
+          >
+            Скачать мост для Mac
+          </Button>
+          <FieldLabel htmlFor={`${inputId}-invitation`}>
+            Одноразовый ключ
+          </FieldLabel>
+          <Input id={`${inputId}-invitation`} value={invitation} readOnly />
+          <Button
+            disabled={busy}
+            onClick={() =>
+              perform(async () => {
+                await navigator.clipboard.writeText(invitation);
+                setMessage("Ключ скопирован.");
+              })
+            }
+          >
+            Скопировать ключ
+          </Button>
           <FieldLabel htmlFor={`${inputId}-command`}>
-            Одноразовая команда
+            Команда для iPhone
           </FieldLabel>
           <Input id={`${inputId}-command`} value={command} readOnly />
           <Button
