@@ -42,6 +42,55 @@ export async function createAutomationRuntime({
   const proxy = createProxy(transport.fetch);
   let catalogue;
   const getCatalogue = () => (catalogue ??= readKnowledgeBase(root));
+  const telegram =
+    bridge && env.TELEGRAM_BOT_TOKEN
+      ? {
+          ownerForPlayer: (playerId) => bridge.ownerForPlayer(playerId),
+          online: async (owner) =>
+            (await bridge.botDevices.status(owner)) === "online",
+          async request(method, payload) {
+            const response = await fetch(
+              `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(10000),
+              },
+            );
+            const data = await response.json().catch(() => null);
+            if (!response.ok || data?.ok !== true) {
+              if (
+                method === "editMessageText" &&
+                response.status === 400 &&
+                typeof data?.description === "string" &&
+                data.description
+                  .toLowerCase()
+                  .includes("message is not modified")
+              )
+                return true;
+              const error = new Error("telegram_notification_unavailable");
+              error.status = response.status;
+              if (
+                method === "editMessageText" &&
+                response.status === 400 &&
+                typeof data?.description === "string" &&
+                data.description
+                  .toLowerCase()
+                  .includes("message to edit not found")
+              )
+                error.code = "message_missing";
+              if (Number.isFinite(data?.parameters?.retry_after))
+                error.retryAfterMs = Math.max(
+                  0,
+                  data.parameters.retry_after * 1000,
+                );
+              throw error;
+            }
+            return data.result;
+          },
+        }
+      : null;
   const service = createAutomationService({
     store,
     fetcher: transport.liveFetch,
@@ -77,6 +126,8 @@ export async function createAutomationRuntime({
       );
     },
     getBusinessCatalogue: getCatalogue,
+    telegram,
+    telegramSiteUrl: env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.ru",
   });
   // Normal runtime serves authenticated commands. Explicit 0 is an operator kill switch.
   if (enabled) await service.boot();
@@ -197,6 +248,12 @@ export async function createAutomationRuntime({
     proxy,
     gameFetch: transport.fetch,
     bridgeActive: Boolean(bridge),
+    async enableTelegramReport(owner, action = "enable") {
+      if (!enabled || !bridge || !telegram) return false;
+      const playerId = bridge.botDevices.player(owner);
+      if (!playerId) return false;
+      return service.enableTelegramReport(playerId, owner, action);
+    },
     nodeHandler: nodeAutomationHandler(handle, {
       origin: env.WIKI_PUBLIC_ORIGIN,
     }),

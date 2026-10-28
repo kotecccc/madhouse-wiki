@@ -144,7 +144,13 @@ if (role === "wiki") {
     ["/api/feedback", feedback.default],
     ["/api/analytics", analytics.default],
     ["/api/analytics-cleanup", cleanup.default],
-    ["/api/telegram/bot-webhook", bot.default],
+    [
+      "/api/telegram/bot-webhook",
+      bot.createBotWebhook(
+        bridgeLab?.runtime?.botDevices || null,
+        automationRuntime.enableTelegramReport,
+      ),
+    ],
     ["/api/telegram/raids-sync", raidsSync.default],
   ]);
 } else {

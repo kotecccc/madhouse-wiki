@@ -181,7 +181,13 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
           </CardDescription>
           <Button
             onClick={() => {
-              window.location.href = "/bridge/MadhouseWikiBridge-macOS.zip";
+              const url = new URL(
+                "/bridge/MadhouseWikiBridge-macOS.zip",
+                window.location.origin,
+              ).href;
+              if (window.Telegram?.WebApp?.openLink)
+                window.Telegram.WebApp.openLink(url);
+              else window.location.assign(url);
             }}
           >
             Скачать мост для Mac

@@ -89,6 +89,17 @@ export function createBridgeRuntime({
     let closed = false;
     return Object.freeze({
       queueActionGate,
+      // Called only by the verified private Telegram webhook, never from a
+      // client-supplied owner ID.
+      botDevices: Object.freeze({
+        list: (owner) => service.listDevice(owner),
+        status: (owner) => service.status(owner),
+        invite: (owner) => service.issueInvitation(owner),
+        revoke: (owner, deviceId) => service.revoke(owner, deviceId),
+        player: (owner) => storage.accounts.read(owner)?.playerId ?? null,
+      }),
+      ownerForPlayer: (playerId) =>
+        storage.accounts.resolveVerifiedPlayer(String(playerId))?.owner ?? null,
       canonicalCredential(authorization) {
         const token =
           typeof authorization === "string" &&
