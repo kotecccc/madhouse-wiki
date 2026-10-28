@@ -1,4 +1,5 @@
 import { medicinePurchaseQuote } from "../../src/features/bosses/BossBattle/boss-medicines.js";
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
 export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
   const status = () => entry.assistant.queuedState();
@@ -66,7 +67,12 @@ export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
         await entry.controller.loadMedicines();
         current = entry.controller.getSnapshot();
         if (current.needsRefresh || current.error)
-          return { status: "retry", reason: "Ожидаем игру." };
+          return (
+            terminalBattlePreflight(current.errorStatus) ?? {
+              status: "retry",
+              reason: "Ожидаем игру.",
+            }
+          );
         if (
           current.battle?.id !== job.args.battleId ||
           current.battle?.status !== "active"

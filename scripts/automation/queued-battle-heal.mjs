@@ -1,3 +1,5 @@
+import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+
 // The assistant owns the per-battle limits and reserves stock before sending.
 export function queuedBattleHealAdapter({ entry }) {
   const status = () => entry.assistant.queuedState();
@@ -46,7 +48,12 @@ export function queuedBattleHealAdapter({ entry }) {
         await entry.controller.loadMedicines();
         current = entry.controller.getSnapshot();
         if (current.needsRefresh || current.error)
-          return { status: "retry", reason: "Ожидаем игру." };
+          return (
+            terminalBattlePreflight(current.errorStatus) ?? {
+              status: "retry",
+              reason: "Ожидаем игру.",
+            }
+          );
         if (
           current.battle?.id !== job.args.battleId ||
           current.battle?.status !== "active"

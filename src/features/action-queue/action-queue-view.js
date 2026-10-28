@@ -29,6 +29,7 @@ const handoffTypes = new Set([
   "subscription.start",
 ]);
 const failureMessages = {
+  game_request_rejected: "Игра отклонила запрос",
   dependency_failed: "Предыдущее действие не выполнено",
   game_session_required: "Требуется вход",
   inventory_price_changed: "Цена изменилась",
