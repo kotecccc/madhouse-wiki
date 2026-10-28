@@ -918,7 +918,12 @@ export function createAutomationService({
         headers: { Authorization: entry.credential },
       }),
       fetcher: async (url, init) => {
-        if (closed || entry.storageFailed || !entry.credential)
+        if (
+          closed ||
+          entry.restoring ||
+          entry.storageFailed ||
+          !entry.credential
+        )
           throw failure(503, "automation_stopped");
         // The controller has already published pending; this sync commit precedes POST.
         if (init.method === "POST") {
@@ -1258,6 +1263,8 @@ export function createAutomationService({
               return (
                 !closed &&
                 !entry.storageFailed &&
+                !entry.restoring &&
+                !fetchOptions.signal.aborted &&
                 entry.credential === credential &&
                 run?.status === "running" &&
                 run.workId === body.workId &&
