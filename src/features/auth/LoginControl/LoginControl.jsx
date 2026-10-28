@@ -99,6 +99,7 @@ export function LoginControl() {
   const profileRef = useRef(null);
   const refreshProfileRef = useRef(() => {});
   const progressAttempts = useRef(new Set());
+  const bridgeSessionRef = useRef(null);
   const authenticated = session.status === "ready";
   useEffect(() => {
     if (
@@ -109,6 +110,14 @@ export function LoginControl() {
       return undefined;
     const controller = new AbortController();
     const owner = telegramContext().userId;
+    let epoch;
+    try {
+      epoch = window.localStorage.getItem(
+        accountStorageKey(CONNECTION_EPOCH_KEY),
+      );
+    } catch {
+      /* storage unavailable */
+    }
     bridgeClient
       .session(controller.signal)
       .then((credential) => {
@@ -116,9 +125,22 @@ export function LoginControl() {
           !controller.signal.aborted &&
           owner &&
           owner === telegramContext().userId &&
+          (() => {
+            try {
+              return (
+                epoch ===
+                window.localStorage.getItem(
+                  accountStorageKey(CONNECTION_EPOCH_KEY),
+                )
+              );
+            } catch {
+              return epoch === undefined;
+            }
+          })() &&
           readSession().status !== "ready"
         ) {
           saveToken(credential);
+          bridgeSessionRef.current = `Bearer ${credential}`;
           setSession(readSession());
           setRestoring(false);
         }
@@ -128,6 +150,39 @@ export function LoginControl() {
       });
     return () => controller.abort();
   }, [bridgeAvailable, bridgeAccountStatus, bridgeClient]);
+  useEffect(() => {
+    if (!bridgeAvailable) return undefined;
+    const controller = new AbortController();
+    const timer = setInterval(async () => {
+      const previous = bridgeSessionRef.current;
+      if (!previous) return;
+      try {
+        if (
+          authorizeRequest({ url: "/api/me" }).headers.Authorization !==
+          previous
+        ) {
+          bridgeSessionRef.current = null;
+          return;
+        }
+        const next = await bridgeClient.renew(previous, controller.signal);
+        if (
+          !controller.signal.aborted &&
+          bridgeSessionRef.current === previous &&
+          authorizeRequest({ url: "/api/me" }).headers.Authorization ===
+            previous
+        ) {
+          saveToken(next);
+          bridgeSessionRef.current = `Bearer ${next}`;
+        }
+      } catch {
+        /* An expired or revoked session requires a fresh launch. */
+      }
+    }, 600000);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [bridgeAvailable, bridgeClient]);
   useEffect(() => {
     if (!bridgeAvailable) return undefined;
     const controller = new AbortController();

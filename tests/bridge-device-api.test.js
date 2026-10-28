@@ -8,6 +8,26 @@ const json = (body, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
+test("session renewal sends only the existing session as authorization", async () => {
+  let sent;
+  const client = createBridgeDeviceClient({
+    getInitData: () => "",
+    fetcher: async (_url, init) => {
+      sent = init;
+      return json({ session: "next.payload.signature" });
+    },
+  });
+  assert.equal(
+    await client.renew("Bearer header.payload.signature"),
+    "next.payload.signature",
+  );
+  assert.deepEqual(JSON.parse(sent.body), { operation: "renew" });
+  assert.equal(sent.headers.Authorization, "Bearer header.payload.signature");
+  await assert.rejects(client.renew("Bearer invalid"), {
+    code: "not_authorized",
+  });
+});
+
 test("bridge session is requested with Telegram identity and validated", async () => {
   let sent;
   const client = createBridgeDeviceClient({
