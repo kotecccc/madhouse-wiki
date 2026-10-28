@@ -218,6 +218,7 @@ export function createAutomationService({
   }),
   fetcher = fetch,
   identifyPlayer,
+  canonicalCredential = (authorization) => authorization,
   accountHealth = () => null,
   snapshotFetch = fetcher,
   queueActionGate = null,
@@ -2611,6 +2612,12 @@ export function createAutomationService({
       !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
     )
       throw failure(401, "game_session_required");
+    let internalCredential;
+    try {
+      internalCredential = canonicalCredential(authorization);
+    } catch {
+      throw failure(401, "game_session_required");
+    }
     const hash = createHash("sha256").update(authorization).digest("hex");
     const cached = identities.get(hash);
     if (cached?.until > now()) {
@@ -2620,8 +2627,8 @@ export function createAutomationService({
       // A different verified session may have replaced this actor's saved
       // credential. Never let an old cached token operate using the new one.
       if (
-        entry.credential === authorization &&
-        accountHealth(authorization)?.status !== "credentials_invalid"
+        entry.credential === internalCredential &&
+        accountHealth(internalCredential)?.status !== "credentials_invalid"
       )
         return entry;
     }
@@ -2632,9 +2639,15 @@ export function createAutomationService({
         ? identifyPlayer(authorization)
         : gameJson(authorization, "/api/me"));
       if (!positive(me?.playerId)) throw failure(401, "invalid_game_identity");
+      try {
+        if (canonicalCredential(authorization) !== internalCredential)
+          throw new Error("changed");
+      } catch {
+        throw failure(401, "game_session_required");
+      }
       const playerId = String(me.playerId);
       const entry = await actor(playerId);
-      entry.credential = authorization;
+      entry.credential = internalCredential;
       entry.player = {
         playerId: me.playerId,
         nickname:

@@ -240,6 +240,10 @@ test(
       assert.equal(sessionResponse.status, 200);
       const { session } = await sessionResponse.json();
       assert.ok(session);
+      assert.equal(
+        bridge.canonicalCredential(`Bearer ${session}`),
+        "Bearer synthetic-token",
+      );
       // Allow the single-use data connection to close and the agent to reconnect.
       await waitStatus("offline");
       await waitStatus("online");
@@ -398,6 +402,10 @@ test(
       assert.equal(requests, requestsBeforeOffline);
       const revoked = await command("revoke", { deviceId: paired.deviceId });
       assert.equal(revoked.status, 200);
+      assert.throws(
+        () => bridge.canonicalCredential(`Bearer ${session}`),
+        /bridge_session_invalid/,
+      );
       await assert.rejects(transport.verifyLocal(`Bearer ${session}`));
       const afterRevoke = await fetch(url, {
         headers: { Authorization: `Bearer ${session}` },

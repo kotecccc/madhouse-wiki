@@ -40,6 +40,7 @@ export async function createAutomationRuntime({
     fetcher: transport.liveFetch,
     snapshotFetch: transport.fetch,
     ...(bridge ? { queueActionGate: bridge.queueActionGate } : {}),
+    ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     accountHealth: snapshots.health,
     identifyPlayer: async (authorization) => {
       const response = await transport.fetch(

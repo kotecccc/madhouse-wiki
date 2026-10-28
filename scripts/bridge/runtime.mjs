@@ -89,6 +89,21 @@ export function createBridgeRuntime({
     let closed = false;
     return Object.freeze({
       queueActionGate,
+      canonicalCredential(authorization) {
+        const token =
+          typeof authorization === "string" &&
+          authorization.startsWith("Bearer ")
+            ? authorization.slice(7)
+            : "";
+        if (!browserSessions.isBridgeToken(token)) return authorization;
+        const session = resolveBridgeBrowserSession(token, {
+          sessions: browserSessions,
+          accounts: storage.accounts,
+          devices: service,
+        });
+        if (!session) throw new Error("bridge_session_invalid");
+        return session.authorization;
+      },
       handle,
       upgrade: gateway.upgrade,
       connectorLease(request, trustedPeer) {
