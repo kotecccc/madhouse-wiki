@@ -89,6 +89,8 @@ test(
     let workProgress = 0;
     let battleActive = false;
     let battlePosts = 0;
+    let attackPosts = 0;
+    let fakeDamage = 0;
     let battleStore;
     const fakeBattle = () => ({
       battleId: "battle-1",
@@ -99,6 +101,7 @@ test(
       bossHealth: 200,
       bossMaxHealth: 200,
       retryAfterMilliseconds: 0,
+      myDamage: fakeDamage,
     });
     const workViewData = () => ({
       workId: 7,
@@ -129,9 +132,24 @@ test(
             "/api/works/open",
             "/api/works/tasks/perform",
             "/api/bosses/7/battles",
+            "/api/bosses/battles/battle-1/attack",
           ].includes(path),
       );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
+      if (
+        path === "/api/bosses/battles/battle-1/attack" &&
+        request.method === "POST"
+      ) {
+        attackPosts++;
+        assert.equal(
+          battleStore.read("42").manualBattle.pending.kind,
+          "attack",
+        );
+        fakeDamage += 10;
+        request.resume();
+        request.once("end", () => request.socket.destroy());
+        return;
+      }
       if (path === "/api/bosses/7/battles" && request.method === "POST") {
         battlePosts++;
         assert.ok(battleStore.read("42").manualBattle.pending.operationId);
@@ -647,6 +665,46 @@ test(
             queue: entry.actionQueue.snapshot(),
             battle: entry.controller.getSnapshot(),
           }),
+        );
+        await battleService.command(entry, {
+          id: "bridge-attack-queue-test",
+          command: "queue.enqueue",
+          expectedVersion: battleService.snapshot(entry).version,
+          args: {
+            type: "battle.attack",
+            action: { bossId: 7, battleId: "battle-1" },
+          },
+        });
+        for (let n = 0; n < 200 && !attackPosts; n++) {
+          battleClock += 1000;
+          battleTimers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(
+          attackPosts,
+          1,
+          JSON.stringify(entry.actionQueue.snapshot()),
+        );
+        for (
+          let n = 0;
+          n < 150 &&
+          entry.actionQueue
+            .snapshot()
+            .find((j) => j.id === "bridge-attack-queue-test")?.status !==
+            "completed";
+          n++
+        ) {
+          battleClock += 1000;
+          battleTimers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(attackPosts, 1);
+        assert.equal(
+          entry.actionQueue
+            .snapshot()
+            .find((j) => j.id === "bridge-attack-queue-test")?.status,
+          "completed",
+          JSON.stringify(entry.actionQueue.snapshot()),
         );
       } finally {
         battleService.close();
