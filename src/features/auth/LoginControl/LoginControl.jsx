@@ -153,9 +153,12 @@ export function LoginControl() {
   useEffect(() => {
     if (!bridgeAvailable) return undefined;
     const controller = new AbortController();
-    const timer = setInterval(async () => {
+    let renewing = false;
+    const renew = async () => {
+      if (renewing) return;
       const previous = bridgeSessionRef.current;
       if (!previous) return;
+      renewing = true;
       try {
         if (
           authorizeRequest({ url: "/api/me" }).headers.Authorization !==
@@ -176,10 +179,24 @@ export function LoginControl() {
         }
       } catch {
         /* An expired or revoked session requires a fresh launch. */
+      } finally {
+        renewing = false;
       }
-    }, 600000);
+    };
+    const onVisible = () => {
+      const current = readSession();
+      if (
+        document.visibilityState === "visible" &&
+        current.expiresAt &&
+        current.expiresAt - Date.now() < 300000
+      )
+        void renew();
+    };
+    const timer = setInterval(renew, 600000);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       controller.abort();
     };
   }, [bridgeAvailable, bridgeClient]);
