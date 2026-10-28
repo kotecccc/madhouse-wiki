@@ -370,6 +370,7 @@ const emptyState = () => ({
   pending: null,
   error: null,
   errorStatus: null,
+  errorRetryAfterMs: null,
   needsRefresh: false,
   canStart: false,
   unavailableReason: null,
@@ -454,7 +455,13 @@ export function createBossBattleController({
     controller = new AbortController();
     const signal = controller.signal;
     let sent = false;
-    publish({ pending: kind, error: null, errorStatus: null, notice: null });
+    publish({
+      pending: kind,
+      error: null,
+      errorStatus: null,
+      errorRetryAfterMs: null,
+      notice: null,
+    });
     const call = (method, path, body) => {
       if (generation !== version || signal.aborted)
         throw new Error("Сессия изменилась");
@@ -477,6 +484,10 @@ export function createBossBattleController({
             error.status >= 100 &&
             error.status <= 599
               ? error.status
+              : null,
+          errorRetryAfterMs:
+            Number.isFinite(error?.retryAfterMs) && error.retryAfterMs >= 0
+              ? error.retryAfterMs
               : null,
           purchase: null,
           ...(["heal", "buy"].includes(kind) ? { medicines: null } : {}),

@@ -118,6 +118,41 @@ test("attack classifies rejected preflight without submitting a strike", async (
   }
 });
 
+test("attack preflight honors Retry-After without submitting", async () => {
+  const h = harness();
+  h.entry.controller.refresh = async () =>
+    Object.assign(h.current, {
+      error: "limited",
+      errorStatus: 429,
+      errorRetryAfterMs: 120000,
+      needsRefresh: true,
+    });
+  const queue = h.make();
+  add(queue);
+  await queue.tick();
+  assert.equal(h.state()[0].nextAt, 120000);
+  assert.equal(h.hits(), 0);
+});
+
+test("attack reconciliation honors Retry-After without resending", async () => {
+  const h = harness({ lost: true });
+  const queue = h.make();
+  add(queue);
+  await queue.tick();
+  h.advance(10000);
+  h.entry.controller.refresh = async () =>
+    Object.assign(h.current, {
+      error: "limited",
+      errorStatus: 429,
+      errorRetryAfterMs: 120000,
+      needsRefresh: true,
+    });
+  await queue.tick();
+  assert.equal(h.state()[0].status, "reconciling");
+  assert.equal(h.state()[0].nextAt, 130000);
+  assert.equal(h.hits(), 1);
+});
+
 test("manual strike waits for a fresh read and executes once", async () => {
   const h = harness({ offline: true }),
     queue = h.make();

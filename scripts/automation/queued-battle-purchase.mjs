@@ -1,5 +1,8 @@
 import { medicinePurchaseQuote } from "../../src/features/bosses/BossBattle/boss-medicines.js";
-import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+import {
+  battleRetryAfter,
+  terminalBattlePreflight,
+} from "./battle-preflight-error.mjs";
 
 export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
   const status = () => entry.assistant.queuedState();
@@ -13,7 +16,11 @@ export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
     try {
       return (await entry.assistant.reconcileQueuedPurchase(job.id, readWallet))
         ? { status: "completed" }
-        : { status: "uncertain", reason: "Проверяем результат." };
+        : {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            ...battleRetryAfter(entry.controller?.getSnapshot?.()),
+          };
     } catch (error) {
       return {
         status: "uncertain",
@@ -71,6 +78,7 @@ export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
             terminalBattlePreflight(current.errorStatus) ?? {
               status: "retry",
               reason: "Ожидаем игру.",
+              ...battleRetryAfter(current),
             }
           );
         if (
@@ -108,7 +116,11 @@ export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
         }
         if (confirmed(job)) return { status: "completed" };
         if (status().pending?.queueId === job.id)
-          return { status: "uncertain", reason: "Проверяем результат." };
+          return {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            ...battleRetryAfter(entry.controller.getSnapshot()),
+          };
         if (result?.reason === "price_changed")
           return { status: "failed", reason: "inventory_price_changed" };
         if (result?.reason === "insufficient_balance")
@@ -118,7 +130,11 @@ export function queuedBattlePurchaseAdapter({ entry, readWallet }) {
         return { status: "retry", reason: "Ожидаем игру." };
       } catch (error) {
         return status().pending?.queueId === job.id
-          ? { status: "uncertain", reason: "Проверяем результат." }
+          ? {
+              status: "uncertain",
+              reason: "Проверяем результат.",
+              ...battleRetryAfter({ errorRetryAfterMs: error?.retryAfterMs }),
+            }
           : {
               status: "retry",
               reason: "Ожидаем игру.",

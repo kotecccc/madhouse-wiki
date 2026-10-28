@@ -1,4 +1,7 @@
-import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+import {
+  battleRetryAfter,
+  terminalBattlePreflight,
+} from "./battle-preflight-error.mjs";
 
 // The start checkpoint is written before POST; a lost result is read back,
 // never submitted again until a previous request is proven unsent.
@@ -38,7 +41,19 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
     if (pending.id !== job.id)
       return { status: "retry", reason: "Проверяем предыдущее действие." };
     try {
-      if (!(await loadBoss(job)))
+      const previousBossId = state().boss?.id;
+      const loaded = await loadBoss(job);
+      const opening = state();
+      if (
+        previousBossId !== job.args.bossId &&
+        (opening.needsRefresh || opening.error)
+      )
+        return {
+          status: "uncertain",
+          reason: "Ожидаем игру.",
+          ...battleRetryAfter(opening),
+        };
+      if (!loaded)
         return { status: "uncertain", reason: "Проверяем результат." };
       await entry.controller.refresh({ discover: true });
       const current = state();
@@ -53,6 +68,7 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
       return {
         status: "uncertain",
         reason: current.error ? "Ожидаем игру." : "Проверяем результат.",
+        ...battleRetryAfter(current),
       };
     } catch (error) {
       return {
@@ -72,7 +88,21 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
     async execute(job, { canDispatch }) {
       if (entry.manualBattle.pending) return reconcile(job);
       try {
-        if (!(await loadBoss(job)))
+        const previousBossId = state().boss?.id;
+        const loaded = await loadBoss(job);
+        const opening = state();
+        if (
+          previousBossId !== job.args.bossId &&
+          (opening.needsRefresh || opening.error)
+        )
+          return (
+            terminalBattlePreflight(opening.errorStatus) ?? {
+              status: "retry",
+              reason: "Ожидаем игру.",
+              ...battleRetryAfter(opening),
+            }
+          );
+        if (!loaded)
           return { status: "retry", reason: "Ожидаем другие действия." };
         await entry.controller.refresh({ discover: true });
         let current = state();
@@ -81,6 +111,7 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
             terminalBattlePreflight(current.errorStatus) ?? {
               status: "retry",
               reason: "Ожидаем игру.",
+              ...battleRetryAfter(current),
             }
           );
         if (
@@ -132,14 +163,28 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
         )
           return finish(job);
         return entry.manualBattle.pending?.id === job.id
-          ? { status: "uncertain", reason: "Проверяем результат." }
+          ? {
+              status: "uncertain",
+              reason: "Проверяем результат.",
+              ...battleRetryAfter(current),
+            }
           : { status: "retry", reason: "Ожидаем игру." };
       } catch (error) {
         return entry.manualBattle.pending?.id === job.id
-          ? { status: "uncertain", reason: "Проверяем результат." }
+          ? {
+              status: "uncertain",
+              reason: "Проверяем результат.",
+              ...battleRetryAfter({ errorRetryAfterMs: error?.retryAfterMs }),
+            }
           : error.status === 404
             ? { status: "failed", reason: "unknown_boss" }
-            : { status: "retry", reason: "Ожидаем игру." };
+            : {
+                status: "retry",
+                reason: "Ожидаем игру.",
+                ...(Number.isFinite(error.retryAfterMs)
+                  ? { retryAfterMs: error.retryAfterMs }
+                  : {}),
+              };
       }
     },
     reconcile,

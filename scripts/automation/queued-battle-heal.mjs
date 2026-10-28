@@ -1,4 +1,7 @@
-import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+import {
+  battleRetryAfter,
+  terminalBattlePreflight,
+} from "./battle-preflight-error.mjs";
 
 // The assistant owns the per-battle limits and reserves stock before sending.
 export function queuedBattleHealAdapter({ entry }) {
@@ -13,7 +16,11 @@ export function queuedBattleHealAdapter({ entry }) {
     try {
       return (await entry.assistant.reconcileQueuedHeal(job.id))
         ? { status: "completed" }
-        : { status: "uncertain", reason: "Проверяем результат." };
+        : {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            ...battleRetryAfter(entry.controller?.getSnapshot?.()),
+          };
     } catch (error) {
       return {
         status: "uncertain",
@@ -52,6 +59,7 @@ export function queuedBattleHealAdapter({ entry }) {
             terminalBattlePreflight(current.errorStatus) ?? {
               status: "retry",
               reason: "Ожидаем игру.",
+              ...battleRetryAfter(current),
             }
           );
         if (
@@ -89,13 +97,21 @@ export function queuedBattleHealAdapter({ entry }) {
         }
         if (confirmed(job)) return { status: "completed" };
         if (status().pending?.queueId === job.id)
-          return { status: "uncertain", reason: "Проверяем результат." };
+          return {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            ...battleRetryAfter(entry.controller.getSnapshot()),
+          };
         if (result?.kind === "stop")
           return { status: "failed", reason: "healing_limit" };
         return { status: "retry", reason: "Ожидаем игру." };
       } catch (error) {
         return status().pending?.queueId === job.id
-          ? { status: "uncertain", reason: "Проверяем результат." }
+          ? {
+              status: "uncertain",
+              reason: "Проверяем результат.",
+              ...battleRetryAfter({ errorRetryAfterMs: error?.retryAfterMs }),
+            }
           : {
               status: "retry",
               reason: "Ожидаем игру.",

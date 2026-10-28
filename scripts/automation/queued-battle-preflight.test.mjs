@@ -35,6 +35,7 @@ for (const [name, makeAdapter] of [
               needsRefresh: true,
               error: "unavailable",
               errorStatus: httpStatus,
+              errorRetryAfterMs: httpStatus === 429 ? 120000 : null,
             };
           },
         },
@@ -56,6 +57,7 @@ for (const [name, makeAdapter] of [
       assert.deepEqual(result, {
         status: expectedStatus,
         reason: expectedReason,
+        ...(httpStatus === 429 ? { retryAfterMs: 120000 } : {}),
       });
       assert.equal(writes, 0);
     }
@@ -79,5 +81,24 @@ for (const [name, makeAdapter] of [
       { canDispatch: () => true },
     );
     assert.equal(result.status, "uncertain");
+  });
+  test(`${name} preserves Retry-After while reconciling a submitted operation`, async () => {
+    const entry = {
+      controller: { getSnapshot: () => ({ errorRetryAfterMs: 120000 }) },
+      assistant: {
+        queuedState: () => ({
+          pending: { queueId: "queued-action" },
+          receipts: [],
+        }),
+        reconcileQueuedHeal: async () => false,
+        reconcileQueuedPurchase: async () => false,
+      },
+    };
+    const result = await makeAdapter(entry).execute(
+      { id: "queued-action" },
+      { canDispatch: () => true },
+    );
+    assert.equal(result.status, "uncertain");
+    assert.equal(result.retryAfterMs, 120000);
   });
 }

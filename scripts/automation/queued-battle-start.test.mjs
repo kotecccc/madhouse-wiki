@@ -107,6 +107,65 @@ test("start classifies rejected preflight without submitting a battle", async ()
   }
 });
 
+test("start preflight honors Retry-After without submitting", async () => {
+  const h = harness();
+  h.entry.controller.refresh = async () =>
+    Object.assign(h.entry.controller.getSnapshot(), {
+      error: "limited",
+      errorStatus: 429,
+      errorRetryAfterMs: 120000,
+      needsRefresh: true,
+    });
+  const queue = h.create();
+  add(queue);
+  await queue.tick();
+  assert.equal(h.state()[0].nextAt, 120000);
+  assert.equal(h.posts(), 0);
+});
+
+test("opening a new boss respects Retry-After before another read", async () => {
+  const h = harness();
+  const current = h.entry.controller.getSnapshot();
+  current.boss = null;
+  let refreshes = 0;
+  h.entry.controller.open = async () =>
+    Object.assign(current, {
+      boss: { id: 7 },
+      error: "limited",
+      errorStatus: 429,
+      errorRetryAfterMs: 120000,
+      needsRefresh: true,
+    });
+  h.entry.controller.refresh = async () => {
+    refreshes++;
+  };
+  const queue = h.create();
+  add(queue);
+  await queue.tick();
+  assert.equal(h.state()[0].nextAt, 120000);
+  assert.equal(refreshes, 0);
+  assert.equal(h.posts(), 0);
+});
+
+test("start reconciliation honors Retry-After without resending", async () => {
+  const h = harness({ lost: true });
+  const queue = h.create();
+  add(queue);
+  await queue.tick();
+  h.advance(10000);
+  h.entry.controller.refresh = async () =>
+    Object.assign(h.entry.controller.getSnapshot(), {
+      error: "limited",
+      errorStatus: 429,
+      errorRetryAfterMs: 120000,
+      needsRefresh: true,
+    });
+  await queue.tick();
+  assert.equal(h.state()[0].status, "reconciling");
+  assert.equal(h.state()[0].nextAt, 130000);
+  assert.equal(h.posts(), 1);
+});
+
 test("battle start waits for a fresh preflight and submits once after recovery", async () => {
   const h = harness({ offline: true }),
     queue = h.create();

@@ -526,6 +526,24 @@ test("invitation Retry-After is exposed to the durable queue", async () => {
   );
 });
 
+test("battle controller retains Retry-After until the next successful read", async () => {
+  let limited = true;
+  const { store } = setup(async () => {
+    if (limited)
+      throw Object.assign(new Error("rate limited"), {
+        status: 429,
+        retryAfterMs: 120000,
+      });
+    return detail();
+  });
+  await store.open(boss);
+  assert.equal(store.getSnapshot().errorStatus, 429);
+  assert.equal(store.getSnapshot().errorRetryAfterMs, 120000);
+  limited = false;
+  await store.refresh();
+  assert.equal(store.getSnapshot().errorRetryAfterMs, null);
+});
+
 test("reconciliation never shortens the cooldown returned by the mutation", async () => {
   const { store } = setup((method, path) => {
     if (path === "/api/bosses/7") return detail();

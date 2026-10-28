@@ -1,5 +1,8 @@
 import { canAttackBattle } from "../../src/features/bosses/BossBattle/boss-battle-controller.js";
-import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
+import {
+  battleRetryAfter,
+  terminalBattlePreflight,
+} from "./battle-preflight-error.mjs";
 
 // A queued strike is tied to one battle. A lost response is reconciled only
 // through the player's confirmed damage; a missing increase never proves that
@@ -47,6 +50,7 @@ export function queuedBattleAttackAdapter({ entry, save, now = Date.now }) {
       return {
         status: "uncertain",
         reason: current.error ? "Ожидаем игру." : "Проверяем результат.",
+        ...battleRetryAfter(current),
       };
     } catch (error) {
       return {
@@ -84,6 +88,7 @@ export function queuedBattleAttackAdapter({ entry, save, now = Date.now }) {
             terminalBattlePreflight(current.errorStatus) ?? {
               status: "retry",
               reason: "Ожидаем игру.",
+              ...battleRetryAfter(current),
             }
           );
         if (
@@ -128,11 +133,19 @@ export function queuedBattleAttackAdapter({ entry, save, now = Date.now }) {
         if (entry.manualBattle.pending?.id === job.id && result?.battleFinished)
           return finish(job, "failed");
         return entry.manualBattle.pending?.id === job.id
-          ? { status: "uncertain", reason: "Проверяем результат." }
+          ? {
+              status: "uncertain",
+              reason: "Проверяем результат.",
+              ...battleRetryAfter(state()),
+            }
           : { status: "retry", reason: "Ожидаем игру." };
       } catch (error) {
         return entry.manualBattle.pending?.id === job.id
-          ? { status: "uncertain", reason: "Проверяем результат." }
+          ? {
+              status: "uncertain",
+              reason: "Проверяем результат.",
+              ...battleRetryAfter({ errorRetryAfterMs: error?.retryAfterMs }),
+            }
           : {
               status: "retry",
               reason: "Ожидаем игру.",

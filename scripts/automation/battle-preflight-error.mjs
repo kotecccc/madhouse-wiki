@@ -7,3 +7,10 @@ export function terminalBattlePreflight(status) {
     return { status: "failed", reason: "game_request_rejected" };
   return null;
 }
+
+export function battleRetryAfter(snapshot) {
+  return Number.isFinite(snapshot?.errorRetryAfterMs) &&
+    snapshot.errorRetryAfterMs >= 0
+    ? { retryAfterMs: snapshot.errorRetryAfterMs }
+    : {};
+}
