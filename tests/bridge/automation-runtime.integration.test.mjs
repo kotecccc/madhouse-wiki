@@ -484,6 +484,7 @@ test(
       const workService = createAutomationService({
         store,
         queueActionGate: bridge.queueActionGate,
+        canonicalCredential: bridge.canonicalCredential,
         identifyPlayer: async () => ({ playerId: 42 }),
         fetcher: transport.liveFetch,
         getBoss: () => null,
@@ -502,17 +503,27 @@ test(
       });
       try {
         workRunnerActive = true;
-        const entry = await workService.identify(authorization);
-        entry.workFarm.start({
-          workId: 7,
-          targetCycles: 1,
-          mode: "energy",
-          energyBudget: 1,
-          maxActions: 5,
-          durationHours: null,
-          maxBoosters: 0,
-          maxDollar: 0,
-          allowPurchase: false,
+        await workService.boot();
+        const entry = await workService.identify(`Bearer ${session}`);
+        await workService.command(entry, {
+          id: "bridge-work-queue-test",
+          command: "queue.enqueue",
+          expectedVersion: workService.snapshot(entry).version,
+          args: {
+            type: "work.start",
+            action: {
+              workId: 7,
+              targetCycles: 1,
+              expectedCompletedCycles: 0,
+              mode: "energy",
+              energyBudget: 1,
+              maxActions: 5,
+              durationHours: null,
+              maxBoosters: 0,
+              maxDollar: 0,
+              allowPurchase: false,
+            },
+          },
         });
         for (let n = 0; n < 100 && !workProgress; n++) {
           timers.shift()?.callback();
@@ -521,7 +532,13 @@ test(
         assert.equal(
           workProgress,
           1,
-          JSON.stringify(entry.workFarm.getSnapshot()),
+          JSON.stringify({
+            work: entry.workFarm.getSnapshot(),
+            queue: entry.actionQueue.snapshot(),
+            busy: entry.busy,
+            inventoryBusy: entry.inventoryBusy,
+            controller: entry.controller.getSnapshot(),
+          }),
         );
         assert.equal(sends, 5);
       } finally {
