@@ -20,6 +20,18 @@ test("only the supported durable queue command is admitted", async () => {
   const original = request(allowed);
   assert.equal(await isAllowedBridgeQueueCommand(original), true);
   assert.deepEqual(await original.json(), allowed);
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
+      request({ command: "queue.cancel", args: { id: "test-job-1" } }),
+    ),
+    true,
+  );
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
+      request({ command: "queue.dismiss", args: { id: "test-job-1" } }),
+    ),
+    true,
+  );
   for (const input of [
     { command: "friends.respond", args: { playerId: 42 } },
     { command: "queue.enqueue", args: { type: "battle.attack" } },
