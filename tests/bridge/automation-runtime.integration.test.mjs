@@ -270,6 +270,15 @@ test(
         fetch: () => assert.fail("unexpected direct fetch"),
         liveFetch: () => assert.fail("unexpected direct fetch"),
       });
+      const workView = await transport.liveFetch(
+        "https://cargohustle.online/api/works/open",
+        {
+          method: "POST",
+          body: JSON.stringify({ workId: 7, locale: "ru" }),
+          headers: { Authorization: "Bearer synthetic-token" },
+        },
+      );
+      assert.equal(workView.status, 200);
       const actionUrl =
         "https://cargohustle.online/api/friends/requests/42/accept";
       const action = () =>
@@ -279,7 +288,7 @@ test(
           headers: { Authorization: "Bearer synthetic-token" },
         });
       await assert.rejects(action());
-      assert.equal(requests, 4);
+      assert.equal(requests, 5);
       let saved = [];
       const authorization = "Bearer synthetic-token";
       const fetcher = createAccountQueue(transport.liveFetch, {
