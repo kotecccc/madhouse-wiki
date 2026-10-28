@@ -115,7 +115,7 @@ export function actionQueueCards(state, catalogue = {}) {
       "floor",
       "Открытие этажа",
       "floor.stop",
-      floor.status === "paused" ? "Приостановлено" : null,
+      floor.reason || (floor.status === "paused" ? "Приостановлено" : null),
     );
   if (floor?.status === "running" || floor?.status === "paused")
     cards.at(-1).floorTarget = floor.target ?? null;

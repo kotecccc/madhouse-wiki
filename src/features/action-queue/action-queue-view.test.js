@@ -147,6 +147,16 @@ test("a stopped floor runner retains a dismissible outcome", () => {
   assert.equal(cards[0].command, "queue.dismiss");
 });
 
+test("a floor checkpoint shows the server's reason for an uncertain launch", () => {
+  const reason =
+    "Запуск цели не подтверждён после перезапуска. Проверьте состояние перед продолжением.";
+  const [card] = actionQueueCards({
+    floorRunner: { status: "paused", phase: "launching", reason },
+  });
+  assert.equal(card.status, reason);
+  assert.equal(card.command, "floor.stop");
+});
+
 test("a stopped work actor with an unresolved checkpoint remains on reconciliation", () => {
   const cards = actionQueueCards({
     workFarm: {
