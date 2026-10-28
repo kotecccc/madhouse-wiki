@@ -1267,6 +1267,8 @@ export function createAutomationService({
                 !fetchOptions.signal.aborted &&
                 entry.credential === credential &&
                 run?.status === "running" &&
+                run.config?.mode === "energy" &&
+                run.config?.collectStash !== true &&
                 run.workId === body.workId &&
                 run.pending?.kind === "performing" &&
                 run.pending.operationId === body.operationId &&
