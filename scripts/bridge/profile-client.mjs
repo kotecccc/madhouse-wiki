@@ -24,10 +24,36 @@ export function isAllowedGameRead(path) {
   );
 }
 
+// The existing work UI uses this POST to read the work view; accept no other
+// fields so this exception cannot become a generic mutation transport.
+export function isAllowedWorkView(method, path, body) {
+  if (
+    method !== "POST" ||
+    path !== "/api/works/open" ||
+    typeof body !== "string" ||
+    body.length > 256
+  )
+    return false;
+  try {
+    const value = JSON.parse(body);
+    return (
+      value &&
+      Object.keys(value).sort().join(",") === "locale,workId" &&
+      value.locale === "ru" &&
+      Number.isSafeInteger(value.workId) &&
+      value.workId > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Selected read-only game data over an authenticated tunnel. */
 export function readGameOverBridge({
   authorization,
   path,
+  method = "GET",
+  body,
   openTunnel,
   validateTunnel = null,
   signal,
@@ -38,7 +64,10 @@ export function readGameOverBridge({
     typeof authorization !== "string" ||
     !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
     typeof connector !== "function" ||
-    !isAllowedGameRead(path)
+    !(
+      (method === "GET" && body == null && isAllowedGameRead(path)) ||
+      isAllowedWorkView(method, path, body)
+    )
   )
     throw new TypeError("invalid_profile_request");
 
@@ -50,9 +79,13 @@ export function readGameOverBridge({
         protocol: "https:",
         hostname: CARGO_HOST,
         port: 443,
-        method: "GET",
+        method,
         path,
-        headers: { Accept: "application/json", Authorization: authorization },
+        headers: {
+          Accept: "application/json",
+          Authorization: authorization,
+          ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+        },
         agent,
         signal,
       },
@@ -99,7 +132,7 @@ export function readGameOverBridge({
       agent.destroy();
     });
     req.once("error", reject);
-    req.end();
+    req.end(body);
   });
 }
 

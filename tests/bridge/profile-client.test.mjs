@@ -17,6 +17,54 @@ const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
 
+test("work view accepts only the bounded read request over the verified tunnel", async () => {
+  let seen;
+  const server = createServer({ cert, key }, async (req, res) => {
+    const parts = [];
+    for await (const part of req) parts.push(part);
+    seen = {
+      method: req.method,
+      url: req.url,
+      body: JSON.parse(Buffer.concat(parts)),
+    };
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+  });
+  try {
+    const request = {
+      authorization: "Bearer fake-token",
+      path: "/api/works/open",
+      method: "POST",
+      body: JSON.stringify({ workId: 7, locale: "ru" }),
+      connector,
+    };
+    assert.equal((await readGameOverBridge(request)).status, 200);
+    assert.deepEqual(seen, {
+      method: "POST",
+      url: "/api/works/open",
+      body: { workId: 7, locale: "ru" },
+    });
+    for (const body of [
+      '{"workId":7,"locale":"ru","action":true}',
+      '{"workId":0,"locale":"ru"}',
+      "{}",
+    ])
+      assert.throws(() => readGameOverBridge({ ...request, body }), {
+        message: "invalid_profile_request",
+      });
+    assert.throws(
+      () => readGameOverBridge({ ...request, path: "/api/works/open?x=1" }),
+      { message: "invalid_profile_request" },
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("selected game reads preserve their query inside the verified tunnel", async () => {
   let seen;
   const server = createServer({ cert, key }, (req, res) => {

@@ -1,5 +1,5 @@
 const GAME_ORIGIN = "https://cargohustle.online";
-import { isAllowedGameRead } from "./profile-client.mjs";
+import { isAllowedGameRead, isAllowedWorkView } from "./profile-client.mjs";
 const fail = (code) => Object.assign(new Error(code), { code });
 
 const MAX_DIRECT_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -127,9 +127,10 @@ export function createGameRouter({
     const method = String(init.method || "GET").toUpperCase();
     const path = parsed.pathname + parsed.search;
     if (
-      method !== "GET" ||
-      init.body != null ||
-      !isAllowedGameRead(path) ||
+      !(
+        (method === "GET" && init.body == null && isAllowedGameRead(path)) ||
+        isAllowedWorkView(method, path, init.body)
+      ) ||
       (parsed.pathname === "/api/me" && parsed.search)
     )
       throw fail("bridge_operation_not_supported");
@@ -140,7 +141,11 @@ export function createGameRouter({
     } else {
       if (typeof bridgeRead !== "function")
         throw fail("bridge_operation_not_supported");
-      result = await bridgeRead(route.owner, path, { signal: init.signal });
+      result = await bridgeRead(route.owner, path, {
+        signal: init.signal,
+        method,
+        body: init.body,
+      });
     }
     let current;
     try {
