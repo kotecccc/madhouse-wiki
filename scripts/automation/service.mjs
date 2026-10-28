@@ -5,6 +5,7 @@ import { weaponEquipment } from "./weapon-equipment.mjs";
 import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
+import { createWorkActionPermit } from "../bridge/work-action-permit.mjs";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
 import {
   createGameOutageFetch,
@@ -1215,7 +1216,7 @@ export function createAutomationService({
         save(entry);
         if (entry.storageFailed)
           throw failure(503, "automation_storage_unavailable");
-        const response = await fetcher(`https://cargohustle.online${path}`, {
+        const fetchOptions = {
           method,
           headers: {
             Authorization: entry.credential,
@@ -1229,7 +1230,45 @@ export function createAutomationService({
             ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
             : AbortSignal.timeout(20000),
           ...(canDispatch ? { canDispatch } : {}),
-        });
+        };
+        const send = () =>
+          fetcher(`https://cargohustle.online${path}`, fetchOptions);
+        let response;
+        if (
+          queueActionGate &&
+          method === "POST" &&
+          path === "/api/works/tasks/perform"
+        ) {
+          const credential = entry.credential;
+          const pending = entry.workFarm.getSnapshot().run?.pending;
+          if (
+            !pending ||
+            pending.kind !== "performing" ||
+            pending.operationId !== body?.operationId ||
+            pending.taskId !== body?.taskId
+          )
+            throw failure(409, "work_checkpoint_missing");
+          const permit = createWorkActionPermit({
+            authorization: credential,
+            workId: body.workId,
+            taskId: body.taskId,
+            operationId: body.operationId,
+            checkpointIsCurrent: () => {
+              const run = entry.workFarm.getSnapshot().run;
+              return (
+                !closed &&
+                !entry.storageFailed &&
+                entry.credential === credential &&
+                run?.status === "running" &&
+                run.workId === body.workId &&
+                run.pending?.kind === "performing" &&
+                run.pending.operationId === body.operationId &&
+                run.pending.taskId === body.taskId
+              );
+            },
+          });
+          response = await queueActionGate.runWork(permit, send);
+        } else response = await send();
         if (!response.ok) {
           const error = failure(
             response.status,
