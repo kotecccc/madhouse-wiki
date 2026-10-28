@@ -34,27 +34,33 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
   const [loaded, setLoaded] = useState(false);
   const [expiresAt, setExpiresAt] = useState(0);
   const busyRef = useRef(false);
+  const statusRequestRef = useRef(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-    let requestNumber = 0;
     function load() {
-      const current = ++requestNumber;
+      const current = ++statusRequestRef.current;
       Promise.all([
         client.list(controller.signal),
         client.status(controller.signal),
       ])
         .then(([nextDevice, nextStatus]) => {
-          if (!controller.signal.aborted && current === requestNumber) {
+          if (
+            !controller.signal.aborted &&
+            current === statusRequestRef.current
+          ) {
             setDevice(nextDevice);
             setStatus(nextStatus);
             setLoaded(true);
           }
         })
         .catch((reason) => {
-          if (!controller.signal.aborted && current === requestNumber)
+          if (
+            !controller.signal.aborted &&
+            current === statusRequestRef.current
+          )
             setError(
               errors[reason?.code] || "Не удалось получить состояние моста.",
             );
@@ -67,6 +73,7 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       controller.abort();
+      statusRequestRef.current += 1;
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [client]);
@@ -102,10 +109,12 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
     }
   }
   async function refresh() {
+    const current = ++statusRequestRef.current;
     const [nextDevice, nextStatus] = await Promise.all([
       client.list(),
       client.status(),
     ]);
+    if (current !== statusRequestRef.current) return;
     setDevice(nextDevice);
     setStatus(nextStatus);
     setLoaded(true);
