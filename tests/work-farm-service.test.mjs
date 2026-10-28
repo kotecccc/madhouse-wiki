@@ -54,9 +54,18 @@ test("automation keeps the server credential and revalidates a cached browser se
     cancel: () => {},
   });
   try {
-    await service.identify("Bearer browser-session");
+    const entry = await service.identify("Bearer browser-session");
     assert.equal(store.read("101").credential, "Bearer server-credential");
+    assert.doesNotThrow(() => service.friends(entry, "Bearer browser-session"));
     valid = false;
+    assert.throws(
+      () => service.friends(entry, "Bearer browser-session"),
+      /game_session_required/,
+    );
+    await assert.rejects(
+      service.refreshFriends(entry, "Bearer browser-session"),
+      /game_session_required/,
+    );
     await assert.rejects(
       service.identify("Bearer browser-session"),
       /game_session_required/,

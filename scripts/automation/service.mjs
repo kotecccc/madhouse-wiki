@@ -4748,17 +4748,26 @@ export function createAutomationService({
       throw error;
     }
   }
+  function requireEntryCredential(entry, authorization) {
+    let credential;
+    try {
+      credential = canonicalCredential(authorization);
+    } catch {
+      throw failure(401, "game_session_required");
+    }
+    if (
+      entry.credential !== credential ||
+      accountHealth(credential)?.status === "credentials_invalid"
+    )
+      throw failure(401, "game_session_required");
+  }
   return {
     identify,
     launch,
     snapshot,
     command,
     async refreshFriends(entry, authorization) {
-      if (
-        entry.credential !== authorization ||
-        accountHealth(authorization)?.status === "credentials_invalid"
-      )
-        throw failure(401, "game_session_required");
+      requireEntryCredential(entry, authorization);
       entry.friendSnapshot.enabled = true;
       if (!entry.friendSnapshot.failures) entry.friendSnapshot.nextAt = 0;
       save(entry);
@@ -4768,11 +4777,7 @@ export function createAutomationService({
       return { scheduled: true };
     },
     friends(entry, authorization) {
-      if (
-        entry.credential !== authorization ||
-        accountHealth(authorization)?.status === "credentials_invalid"
-      )
-        throw failure(401, "game_session_required");
+      requireEntryCredential(entry, authorization);
       if (!entry.friendSnapshot.enabled) {
         entry.friendSnapshot.enabled = true;
         entry.friendSnapshot.nextAt = 0;
