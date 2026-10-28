@@ -58,7 +58,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci --include=dev
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends unzip \
+    && apt-get install -y --no-install-recommends unzip python3 \
     && rm -rf /var/lib/apt/lists/* /opt/puppeteer \
     && npx puppeteer browsers install chrome
 COPY . .
