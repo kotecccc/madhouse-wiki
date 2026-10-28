@@ -32,7 +32,7 @@ const key = await readFile(
 );
 const origin = "https://wiki.example";
 const botToken = "fake-bot";
-const now = 1_800_000_000_000;
+let now = 1_800_000_000_000;
 const listen = (server) =>
   new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const close = (server) => new Promise((resolve) => server.close(resolve));
@@ -382,6 +382,13 @@ test(
         );
       });
       assert.equal(sends, 3);
+      now += 901_000;
+      await assert.rejects(transport.verifyLocal(`Bearer ${session}`));
+      const backgroundProfile = await transport.liveFetch(
+        "https://cargohustle.online/api/me",
+        { headers: { Authorization: authorization } },
+      );
+      assert.equal(backgroundProfile.status, 200);
       const requestsBeforeOffline = requests;
       agent.kill();
       await waitStatus("offline");
