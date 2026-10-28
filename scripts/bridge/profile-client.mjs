@@ -4,12 +4,21 @@ import {
   createGameTlsDuplexConnector,
 } from "./tls-duplex-connector.mjs";
 
-const MAX_PROFILE_BYTES = 1024 * 1024;
+const MAX_PROFILE_BYTES = 4 * 1024 * 1024;
 const PROFILE_TIMEOUT_MS = 20_000;
+const readPaths = [
+  /^\/api\/me$/,
+  /^\/api\/me\/bag$/,
+  /^\/api\/floors$/,
+  /^\/api\/floors\/[A-Za-z0-9_$-]+\/(?:info|leaderboard)$/,
+  /^\/api\/friends(?:\/requests\/(?:incoming|outgoing)|\/search(?:\/suggestions)?)?$/,
+  /^\/api\/players\/[A-Za-z0-9_$-]+(?:\/achievements|\/bosses\/statistics)?$/,
+];
 
-/** Read-only profile over one authenticated tunnel. Never performs a direct retry. */
-export function readProfileOverBridge({
+/** Selected read-only game data over an authenticated tunnel. */
+export function readGameOverBridge({
   authorization,
+  path,
   openTunnel,
   validateTunnel = null,
   signal,
@@ -19,7 +28,11 @@ export function readProfileOverBridge({
   if (
     typeof authorization !== "string" ||
     !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
-    typeof connector !== "function"
+    typeof connector !== "function" ||
+    typeof path !== "string" ||
+    path.length > 4096 ||
+    /[\r\n#\\]/.test(path) ||
+    !readPaths.some((pattern) => pattern.test(path.split("?", 1)[0]))
   )
     throw new TypeError("invalid_profile_request");
 
@@ -32,7 +45,7 @@ export function readProfileOverBridge({
         hostname: CARGO_HOST,
         port: 443,
         method: "GET",
-        path: "/api/me",
+        path,
         headers: { Accept: "application/json", Authorization: authorization },
         agent,
         signal,
@@ -75,4 +88,9 @@ export function readProfileOverBridge({
     req.once("error", reject);
     req.end();
   });
+}
+
+/** Read-only profile over one authenticated tunnel. Never performs a direct retry. */
+export function readProfileOverBridge(options = {}) {
+  return readGameOverBridge({ ...options, path: "/api/me" });
 }
