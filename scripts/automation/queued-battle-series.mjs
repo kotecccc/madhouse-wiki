@@ -96,12 +96,13 @@ export function queuedBattleSeriesAdapter({
       }
       try {
         let state = entry.controller.getSnapshot();
+        let opened = false;
         if (state.boss?.id !== job.args.settings.bossId) {
           if (state.battle?.status === "active" || state.pendingInvitation)
             return { status: "retry", reason: "Ожидаем другие действия." };
           const boss = await getBoss(job.args.settings.bossId);
           if (!boss) return { status: "failed", reason: "unknown_boss" };
-          await entry.controller.open(boss);
+          await entry.controller.open(boss, { discover: true });
           const opening = entry.controller.getSnapshot();
           if (opening.needsRefresh || opening.error)
             return {
@@ -109,8 +110,11 @@ export function queuedBattleSeriesAdapter({
               reason: "Ожидаем игру.",
               ...battleRetryAfter(opening),
             };
+          if (opening.boss?.id !== job.args.settings.bossId)
+            return { status: "retry", reason: "Ожидаем другие действия." };
+          opened = true;
         }
-        if (!(await refresh()))
+        if (!(await refresh({ alreadyRefreshed: opened })))
           return {
             status: "retry",
             reason: "Ожидаем игру.",

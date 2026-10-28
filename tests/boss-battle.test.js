@@ -927,6 +927,24 @@ test("opening a summary battle loads full participant details once, never after 
   assert.equal(store.getSnapshot().battle.detailsLoaded, true);
 });
 
+test("opening with discovery loads battle details without repeating the boss summary", async () => {
+  const { store, calls } = setup((method, path) => {
+    if (path === "/api/bosses/7")
+      return detail({ activeBattle: rawBattle({ participants: [] }) });
+    return rawBattle({
+      participants: [{ nickname: "Игрок", damageDealt: 30 }],
+    });
+  });
+  await store.open(boss, { discover: true });
+  await store.hydrateDetails();
+  assert.equal(store.getSnapshot().battle.detailsLoaded, true);
+  assert.equal(store.getSnapshot().battle.participants[0].nickname, "Игрок");
+  assert.deepEqual(
+    calls.map(([, path]) => path),
+    ["/api/bosses/7", "/api/bosses/battles/battle-1"],
+  );
+});
+
 test("server actions can resolve the current nickname without retaining player identifiers", () => {
   const result = normalizeBattle(
     rawBattle({ actions: [{ turn: 1, playerId: 42, playerDamage: 20 }] }),

@@ -148,6 +148,7 @@ function setup({
   let starts = 0;
   let workCycles = 0;
   let bossReads = 0;
+  let rateLimitBoss = false;
   let holdNextPreflight = false;
   let finishPreflight;
   let finishInvite;
@@ -231,8 +232,20 @@ function setup({
         : Response.json({ items: [] });
     if (url.pathname === "/api/combat")
       return Response.json({ activeBattle: null });
+    if (url.pathname === "/api/bosses/8" && method === "GET")
+      return Response.json({
+        id: 8,
+        damageMax: 10,
+        activeBattle: null,
+        state: { canStartFight: true },
+      });
     if (url.pathname === bossPath && method === "GET") {
       bossReads++;
+      if (rateLimitBoss)
+        return Response.json(
+          { error: "rate limited" },
+          { status: 429, headers: { "Retry-After": "120" } },
+        );
       const response = () =>
         Response.json({
           id: 7,
@@ -411,6 +424,9 @@ function setup({
     get starts() {
       return starts;
     },
+    rateLimitBoss() {
+      rateLimitBoss = true;
+    },
     holdPreflight() {
       holdNextPreflight = true;
     },
@@ -439,6 +455,73 @@ async function withSetup(options, run) {
     ctx.close();
   }
 }
+
+for (const mode of ["auto", "raid"])
+  test(`direct ${mode} start does not enable an actor when preflight is rate limited`, async () => {
+    await withSetup({}, async (ctx) => {
+      const entry = await ctx.openAndConfigure();
+      ctx.rateLimitBoss();
+      const before = ctx.calls.length;
+      await assert.rejects(
+        ctx.service.command(entry, {
+          id: `rate-limited-${mode}`,
+          command: `${mode}.start`,
+          expectedVersion: ctx.service.snapshot(entry).version,
+          args:
+            mode === "raid"
+              ? { settings: { bossId: 7, kind: "battles", targetCount: 2 } }
+              : {},
+        }),
+        /game_unavailable/,
+      );
+      await ctx.advance(30_000, entry);
+      const snap = ctx.service.snapshot(entry);
+      assert.equal(snap.auto.enabled, false);
+      assert.equal(snap.raid.enabled, false);
+      assert.equal(ctx.starts, 0);
+      assert.equal(
+        ctx.calls.slice(before).filter((call) => call.path === bossPath).length,
+        1,
+      );
+    });
+  });
+
+for (const mode of ["auto", "raid"])
+  test(`queued ${mode} start reads a newly selected boss once`, async () => {
+    await withSetup({}, async (ctx) => {
+      const entry = await ctx.service.identify(token);
+      await ctx.service.command(entry, {
+        id: "open-original-boss",
+        command: "open",
+        expectedVersion: ctx.service.snapshot(entry).version,
+        args: { bossId: 7 },
+      });
+      await ctx.service.boot();
+      await ctx.service.command(entry, {
+        id: `new-boss-${mode}`,
+        command: "queue.enqueue",
+        expectedVersion: ctx.service.snapshot(entry).version,
+        args: {
+          type: `${mode}.start`,
+          action: { settings: { bossId: 8, kind: "battles", targetCount: 1 } },
+        },
+      });
+      const end = Date.now() + 4000;
+      while (
+        Date.now() < end &&
+        ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+      )
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.equal(
+        ctx.service.snapshot(entry).queuedActions[0].status,
+        "completed",
+      );
+      assert.equal(
+        ctx.calls.filter((call) => call.path === "/api/bosses/8").length,
+        1,
+      );
+    });
+  });
 
 test("goal-bound series wins two battles and does not start a third", async () => {
   await withSetup({}, async (ctx) => {

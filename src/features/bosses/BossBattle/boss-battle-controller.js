@@ -1108,7 +1108,7 @@ export function createBossBattleController({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async open(boss, { refresh: shouldRefresh = true } = {}) {
+    async open(boss, { refresh: shouldRefresh = true, discover = false } = {}) {
       const id = Number(boss.numericId ?? boss.apiId);
       if (!Number.isSafeInteger(id) || id <= 0) return;
       if (
@@ -1149,7 +1149,7 @@ export function createBossBattleController({
           boss: { id, name: boss.name, reference: bossBattleReference(boss) },
         });
       publish({ visible: true });
-      return refresh();
+      return refresh({ discover });
     },
     syncExternalBattle(boss, raw, expectedSnapshot) {
       if (

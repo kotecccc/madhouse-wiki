@@ -538,9 +538,12 @@ export function createAutomationService({
       goal.status !== "stopped"
     );
   }
-  async function refreshAutoDamageLimit(entry) {
+  async function refreshAutoDamageLimit(
+    entry,
+    { alreadyRefreshed = false } = {},
+  ) {
     const generation = entry.autoStartGeneration ?? 0;
-    await entry.controller.refresh({ discover: true });
+    if (!alreadyRefreshed) await entry.controller.refresh({ discover: true });
     const refreshed = entry.controller.getSnapshot();
     if (refreshed.needsRefresh || refreshed.error) return false;
     await entry.controller.hydrateDetails();
@@ -1613,7 +1616,7 @@ export function createAutomationService({
               mode,
               getBoss,
               save,
-              refresh: () => refreshAutoDamageLimit(entry),
+              refresh: (options) => refreshAutoDamageLimit(entry, options),
               configure: (settings, state) =>
                 configureAutoGoal(entry, settings, state),
               matches: (settings, state) =>
@@ -3628,8 +3631,9 @@ export function createAutomationService({
           )
             throw failure(409, "raid_start_unavailable");
           configureAutoGoal(entry, args.settings, state);
-          await refreshAutoDamageLimit(entry);
+          const refreshed = await refreshAutoDamageLimit(entry);
           if (startGeneration !== (entry.autoStartGeneration ?? 0)) break;
+          if (!refreshed) throw failure(503, "game_unavailable");
           state = entry.controller.getSnapshot();
           if (state.battle?.status === "active")
             throw failure(409, "raid_start_unavailable");
@@ -3788,8 +3792,9 @@ export function createAutomationService({
             throw failure(409, "automation_paused_resume_or_stop");
           const startGeneration = entry.autoStartGeneration ?? 0;
           configureAutoGoal(entry, args.settings, state);
-          await refreshAutoDamageLimit(entry);
+          const refreshed = await refreshAutoDamageLimit(entry);
           if (startGeneration !== (entry.autoStartGeneration ?? 0)) break;
+          if (!refreshed) throw failure(503, "game_unavailable");
           state = entry.controller.getSnapshot();
           // A completed invitation fight does not restrict a new solo intent.
           // Keep uncertain invitation/purchase checkpoints intact; any stale
