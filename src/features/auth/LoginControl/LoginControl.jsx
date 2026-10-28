@@ -9,7 +9,7 @@ import {
   peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   readSession,
   authorizeRequest,
@@ -31,6 +31,10 @@ import { Input } from "../../../components/ui/Input/Input.jsx";
 import { TokenBookmarklet } from "./TokenBookmarklet.jsx";
 import "./LoginControl.css";
 import { normalizePlayerProfile } from "../profile.js";
+import { BridgeConnection } from "../BridgeConnection/BridgeConnection.jsx";
+import { createBridgeDeviceClient } from "../../../../shared/bridge-device-api.js";
+import { createBridgeInstallCommand } from "../../../../shared/bridge-install-command.js";
+import { bridgeRestorePolicy } from "../../../../shared/bridge-restore-policy.js";
 import {
   TelegramConnection,
   TELEGRAM_CONNECTOR_ORIGIN,
@@ -60,6 +64,19 @@ function shouldRestoreTelegramSession() {
 }
 
 export function LoginControl() {
+  const bootstrapSha =
+    import.meta.env.VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256 || "";
+  const bridgeAvailable =
+    /^[a-f0-9]{64}$/.test(bootstrapSha) && !!telegramContext().initData;
+  const bridgeClient = useMemo(
+    () =>
+      createBridgeDeviceClient({
+        getInitData: () => telegramContext().initData,
+      }),
+    [],
+  );
+  const [bridgeOpen, setBridgeOpen] = useState(false);
+  const [bridgeAccountStatus, setBridgeAccountStatus] = useState("pending");
   const [session, setSession] = useState(() => readSession());
   const [open, setOpen] = useState(false);
   const [menuClosing, setMenuClosing] = useState(false);
@@ -83,6 +100,36 @@ export function LoginControl() {
   const refreshProfileRef = useRef(() => {});
   const progressAttempts = useRef(new Set());
   const authenticated = session.status === "ready";
+  useEffect(() => {
+    if (!bridgeAvailable) return undefined;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+      setBridgeAccountStatus((current) =>
+        current === "pending" ? "unavailable" : current,
+      );
+    }, 5000);
+    bridgeClient.status(controller.signal).then(
+      (status) => {
+        clearTimeout(timer);
+        if (!controller.signal.aborted)
+          setBridgeAccountStatus((current) =>
+            current === "saved" ? current : status.account,
+          );
+      },
+      () => {
+        clearTimeout(timer);
+        if (!controller.signal.aborted)
+          setBridgeAccountStatus((current) =>
+            current === "saved" ? current : "unavailable",
+          );
+      },
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [bridgeAvailable, bridgeClient]);
   useEffect(() => {
     const changed = (event) => {
       if (
@@ -335,6 +382,18 @@ export function LoginControl() {
               setMenuClosing(false);
             }}
           >
+            {bridgeAvailable && (
+              <Button
+                variant="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  setMenuClosing(false);
+                  setBridgeOpen(true);
+                }}
+              >
+                Мост устройства
+              </Button>
+            )}
             <Button variant="menu-item" icon="logout" onClick={logout}>
               Выйти
             </Button>
@@ -348,6 +407,10 @@ export function LoginControl() {
           open={connectionOpen}
           error={error}
           autoConnect={autoConnect}
+          bridgeRestore={bridgeRestorePolicy(
+            bridgeAvailable,
+            bridgeAccountStatus,
+          )}
           onRetry={connect}
           onEmpty={() => {
             if (readSession().status !== "empty") clearToken();
@@ -424,6 +487,16 @@ export function LoginControl() {
               >
                 Войти по AccessToken
               </Button>
+              {bridgeAvailable && (
+                <Button
+                  onClick={() => {
+                    setOpen(false);
+                    setBridgeOpen(true);
+                  }}
+                >
+                  Подключить мост
+                </Button>
+              )}
             </div>
           </Modal>
         )}
@@ -650,11 +723,53 @@ export function LoginControl() {
                   Назад
                 </Button>
               )}
+              {!TELEGRAM_CONNECTOR_ORIGIN && bridgeAvailable && (
+                <Button
+                  onClick={() => {
+                    setOpen(false);
+                    setBridgeOpen(true);
+                  }}
+                >
+                  Подключить мост
+                </Button>
+              )}
               <Button variant="primary" type="submit">
                 {TELEGRAM_CONNECTOR_ORIGIN ? "Продолжить" : "Войти"}
               </Button>
             </div>
           </form>
+        </Modal>
+      )}
+      {bridgeOpen && bridgeAvailable && (
+        <Modal title="Мост устройства" onClose={() => setBridgeOpen(false)}>
+          <BridgeConnection
+            client={bridgeClient}
+            createInstallCommand={({ invitation }) =>
+              createBridgeInstallCommand({
+                invitation,
+                bootstrapSha256: bootstrapSha,
+              })
+            }
+            onBound={(value) => {
+              setBridgeAccountStatus("saved");
+              setAutoConnect(false);
+              telegramRef.current?.cancel();
+              try {
+                window.localStorage.setItem(
+                  accountStorageKey(CONNECTION_EPOCH_KEY),
+                  crypto.randomUUID(),
+                );
+                window.localStorage.removeItem(
+                  accountStorageKey(AUTO_CONNECT_KEY),
+                );
+              } catch {
+                /* Storage may be unavailable in Telegram. */
+              }
+              saveToken(value);
+              setSession(readSession());
+              setBridgeOpen(false);
+            }}
+          />
         </Modal>
       )}
     </>

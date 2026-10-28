@@ -3,6 +3,12 @@ const subtle = webcrypto.subtle;
 const encoder = new TextEncoder();
 const utf8 = (s) => encoder.encode(s);
 const hex = (data) => Buffer.from(data).toString("hex");
+const verificationFailure = (error) =>
+  new Error(
+    error?.code === "bridge_route_required"
+      ? "bridge_route_required"
+      : "game_unavailable",
+  );
 const keyBytes = (value) => {
   if (!/^[a-f0-9]{64}$/i.test(value || ""))
     throw new Error("session_config_unavailable");
@@ -76,7 +82,10 @@ export function createAccountSessions({
   fetcher = fetch,
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  withOwnerLease,
 }) {
+  if (withOwnerLease !== undefined && typeof withOwnerLease !== "function")
+    throw new TypeError("invalid_connector_owner_guard");
   async function cryptoKey() {
     return subtle.importKey("raw", keyBytes(encryptionKey), "AES-GCM", false, [
       "encrypt",
@@ -262,26 +271,62 @@ export function createAccountSessions({
         redirect: "error",
         signal: verificationSignal,
       };
-      let me;
-      let profile;
+      let checked;
       try {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          verificationSignal.throwIfAborted();
-          me = await fetcher(
-            "https://cargohustle.online/api/me",
-            verificationOptions,
-          );
-          if (![500, 502, 503, 504].includes(me.status)) break;
-          await me.body?.cancel();
-          if (attempt === 2) throw new Error("game_unavailable");
-          await pause(1100 * (attempt + 1));
-        }
-        if (me.status === 429) throw new Error("game_unavailable");
-        if (me.ok) profile = await me.json();
-      } catch {
-        throw new Error("game_unavailable");
+        const verify = async (registerVerified) => {
+          let me;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            verificationSignal.throwIfAborted();
+            me = await fetcher(
+              "https://cargohustle.online/api/me",
+              verificationOptions,
+            );
+            if (![500, 502, 503, 504].includes(me.status)) break;
+            await me.body?.cancel();
+            if (attempt === 2) throw new Error("game_unavailable");
+            await pause(1100 * (attempt + 1));
+          }
+          if (me.status === 429) {
+            await me.body?.cancel();
+            throw new Error("game_unavailable");
+          }
+          if (!me.ok) {
+            await me.body?.cancel();
+            return { status: me.status, profile: null };
+          }
+          const profile = await me.json();
+          if (registerVerified) {
+            const telegramId =
+              typeof profile?.telegramId === "number" &&
+              Number.isSafeInteger(profile.telegramId)
+                ? String(profile.telegramId)
+                : typeof profile?.telegramId === "string" &&
+                    /^[1-9][0-9]{0,15}$/.test(profile.telegramId)
+                  ? profile.telegramId
+                  : null;
+            if (
+              telegramId !== userId ||
+              !Number.isSafeInteger(profile?.playerId) ||
+              profile.playerId <= 0
+            )
+              throw new Error("game_account_mismatch");
+            const digest = hex(
+              await subtle.digest("SHA-256", utf8(`Bearer ${token}`)),
+            );
+            await registerVerified(String(profile.playerId), digest);
+          }
+          return { status: me.status, profile };
+        };
+        checked =
+          typeof withOwnerLease === "function"
+            ? await withOwnerLease(userId, "session_verify", verify)
+            : await verify();
+      } catch (error) {
+        throw verificationFailure(error);
       }
-      if (!me.ok) throw new Error("invalid_game_session");
+      if (checked.status < 200 || checked.status >= 300)
+        throw new Error("invalid_game_session");
+      const profile = checked.profile;
       const telegramId =
         typeof profile?.telegramId === "number" &&
         Number.isSafeInteger(profile.telegramId)

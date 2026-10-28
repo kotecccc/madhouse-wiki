@@ -4,6 +4,12 @@ import { createReferenceBlobStore } from "../scripts/catalogue/reference-blob-st
 import { createCatalogueSyncApi } from "../scripts/catalogue/sync-api.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-export default createWikiApiVercelHandler(
-  createCatalogueSyncApi({ root, storeBlob: createReferenceBlobStore() }),
-);
+export function createCatalogueHandler({
+  fetcher = fetch,
+  storeBlob = createReferenceBlobStore(),
+} = {}) {
+  return createWikiApiVercelHandler(
+    createCatalogueSyncApi({ root, storeBlob, fetcher }),
+  );
+}
+export default createCatalogueHandler();

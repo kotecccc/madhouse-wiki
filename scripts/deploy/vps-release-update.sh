@@ -4,11 +4,15 @@ set -Eeuo pipefail
 readonly ROOT=/opt/madhouse-wiki
 readonly REPOSITORY=kotecccc/madhouse-wiki
 readonly RELEASE_API="https://api.github.com/repos/${REPOSITORY}/releases/latest"
+readonly COMPARE_API="https://api.github.com/repos/${REPOSITORY}/compare"
 readonly IMAGE_ARCHIVE=madhouse-wiki-image.tar.gz
 readonly CHECKSUM_FILE="${IMAGE_ARCHIVE}.sha256"
 readonly COMPOSE_FILE="${ROOT}/vps-compose.yml"
+readonly BRIDGE_COMPOSE_FILE="${ROOT}/vps-bridge-compose.yml"
+readonly BRIDGE_ENABLED_MARKER="${ROOT}/bridge-enabled"
 readonly RELEASE_ENV="${ROOT}/release.env"
 readonly PREVIOUS_RELEASE_ENV="${ROOT}/previous-release.env"
+readonly ROLLBACK_FLOOR_ENV="${ROOT}/rollback-floor.env"
 readonly BEFORE_DOWNLOAD_KB=$((6 * 1024 * 1024))
 readonly BEFORE_LOAD_KB=$((4 * 1024 * 1024))
 readonly RESERVE_KB=$((1024 * 1024))
@@ -57,12 +61,52 @@ read_marker() {
 }
 previous_sha="$(read_marker "${RELEASE_ENV}" MADHOUSE_RELEASE_SHA)"
 retained_previous_sha="$(read_marker "${PREVIOUS_RELEASE_ENV}" MADHOUSE_PREVIOUS_RELEASE_SHA)"
+minimum_safe_sha="$(read_marker "${ROLLBACK_FLOOR_ENV}" MADHOUSE_MINIMUM_SAFE_RELEASE_SHA)"
+bridge_enabled=0
+compose_files=(--file "${COMPOSE_FILE}")
+if [[ -e "${BRIDGE_ENABLED_MARKER}" ]]; then
+  if [[ ! -f "${BRIDGE_ENABLED_MARKER}" || "$(cat "${BRIDGE_ENABLED_MARKER}")" != "enabled" || -z "${minimum_safe_sha}" || ! -f "${BRIDGE_COMPOSE_FILE}" || ! -f "${ROOT}/bridge.env" ]]; then
+    echo "Bridge configuration or rollback floor is missing; refusing update" >&2
+    exit 1
+  fi
+  bridge_enabled=1
+  compose_files+=(--file "${BRIDGE_COMPOSE_FILE}")
+fi
 protected_release_sha="${previous_sha}"
 protected_previous_sha="${retained_previous_sha}"
 retention_known=0
 if [[ -f "${PREVIOUS_RELEASE_ENV}" ]]; then retention_known=1; fi
 initial_retention_known="${retention_known}"
 candidate_sha=""
+
+# Once route-aware state exists, never install or automatically roll back to a
+# revision that can ignore it. Failure to establish ancestry is a hard stop.
+at_or_above_rollback_floor() {
+  local sha="$1" comparison_file="${work}/rollback-floor-comparison.json"
+  if [[ -z "${minimum_safe_sha}" || "${sha}" == "${minimum_safe_sha}" ]]; then return 0; fi
+  curl --fail --silent --show-error --location --max-time 30 --max-filesize 1000000 \
+    --header 'Accept: application/vnd.github+json' \
+    --header 'X-GitHub-Api-Version: 2022-11-28' \
+    "${COMPARE_API}/${minimum_safe_sha}...${sha}" --output "${comparison_file}" || return 1
+  python3 - "${comparison_file}" "${minimum_safe_sha}" "${sha}" <<'PYCODE'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    comparison = json.load(source)
+if not isinstance(comparison, dict):
+    raise SystemExit("invalid release ancestry")
+base = comparison.get("base_commit")
+head = comparison.get("head_commit")
+merge_base = comparison.get("merge_base_commit")
+if (not isinstance(base, dict) or base.get("sha") != sys.argv[2]
+    or not isinstance(head, dict) or head.get("sha") != sys.argv[3]
+    or not isinstance(merge_base, dict) or merge_base.get("sha") != sys.argv[2]
+    or comparison.get("status") != "ahead" or type(comparison.get("ahead_by")) is not int
+    or comparison["ahead_by"] < 1 or type(comparison.get("behind_by")) is not int
+    or comparison["behind_by"] != 0):
+    raise SystemExit("release is below or unrelated to the rollback floor")
+PYCODE
+}
 
 cleanup_old_images() {
   # A legacy installation has no trustworthy previous-release pointer. Do not
@@ -195,6 +239,16 @@ checksum_url="${release_info[1]}"
 candidate_sha="${release_info[2]}"
 image_tag="madhouse-wiki:vps-${candidate_sha}"
 
+if [[ -n "${minimum_safe_sha}" ]]; then
+  if [[ -z "${previous_sha}" ]] || ! at_or_above_rollback_floor "${previous_sha}"; then
+    echo "Current release is not verified above the rollback floor; refusing update" >&2
+    exit 1
+  fi
+  if ! at_or_above_rollback_floor "${candidate_sha}"; then
+    echo "Candidate is not verified above the rollback floor; refusing update" >&2
+    exit 1
+  fi
+fi
 if [[ "${candidate_sha}" == "${previous_sha}" ]]; then
   exit 0
 fi
@@ -232,9 +286,17 @@ require_free_space "${RESERVE_KB}"
 compose() {
   docker compose \
     --project-name madhouse-wiki \
-    --file "${COMPOSE_FILE}" \
+    "${compose_files[@]}" \
     --env-file "${RELEASE_ENV}" \
     "$@"
+}
+
+verify_bridge_configuration() {
+  if [[ "${bridge_enabled}" -eq 1 ]]; then
+    [[ -f "${BRIDGE_ENABLED_MARKER}" && "$(cat "${BRIDGE_ENABLED_MARKER}")" == "enabled" && -f "${BRIDGE_COMPOSE_FILE}" && -f "${ROOT}/bridge.env" ]]
+  else
+    [[ ! -e "${BRIDGE_ENABLED_MARKER}" ]]
+  fi
 }
 
 stop_wiki_and_wait_for_lease() {
@@ -242,13 +304,17 @@ stop_wiki_and_wait_for_lease() {
   # durable worker lease may still live for 15 seconds; never delete it or
   # start the candidate/rollback worker until that window has elapsed.
   if [[ -f "${RELEASE_ENV}" ]]; then
-    compose stop wiki
+    if [[ "${bridge_enabled}" -eq 1 ]]; then
+      compose stop connector wiki
+    else
+      compose stop wiki
+    fi
   else
     # First deployment has no release marker yet. Supply only the image SHA
     # needed to resolve Compose and stop any existing Wiki container safely.
     MADHOUSE_RELEASE_SHA="${candidate_sha}" docker compose \
       --project-name madhouse-wiki \
-      --file "${COMPOSE_FILE}" \
+      "${compose_files[@]}" \
       --env-file /dev/null \
       stop wiki
   fi
@@ -278,6 +344,12 @@ restore_previous_release_env() {
   fi
 }
 
+current_floor="$(read_marker "${ROLLBACK_FLOOR_ENV}" MADHOUSE_MINIMUM_SAFE_RELEASE_SHA)" || { echo "Invalid rollback floor; refusing update" >&2; exit 1; }
+if [[ "${current_floor}" != "${minimum_safe_sha}" ]]; then
+  echo "Rollback floor changed during update; refusing to stop Wiki" >&2
+  exit 1
+fi
+verify_bridge_configuration || { echo "Bridge configuration changed during update; refusing to stop services" >&2; exit 1; }
 stop_wiki_and_wait_for_lease
 # Persist the rollback pointer before publishing the candidate marker, so a
 # process interruption cannot leave the prior current image unprotected.
@@ -300,6 +372,12 @@ fi
 
 echo "madhouse-wiki release failed health checks: ${candidate_sha}" >&2
 if [[ -n "${previous_sha}" ]]; then
+  current_floor="$(read_marker "${ROLLBACK_FLOOR_ENV}" MADHOUSE_MINIMUM_SAFE_RELEASE_SHA)" || { echo "Invalid rollback floor; refusing rollback" >&2; exit 1; }
+  if [[ "${current_floor}" != "${minimum_safe_sha}" ]] || ! at_or_above_rollback_floor "${previous_sha}"; then
+    echo "Rollback floor changed or previous release is unsafe; operator attention required" >&2
+    exit 1
+  fi
+  verify_bridge_configuration || { echo "Bridge configuration changed; refusing rollback" >&2; exit 1; }
   stop_wiki_and_wait_for_lease
   write_release_env "${previous_sha}"
   restore_previous_release_env

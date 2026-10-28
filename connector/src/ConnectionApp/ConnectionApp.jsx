@@ -8,6 +8,7 @@ import { Title } from "../../../src/components/ui/Title/Title.jsx";
 import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { normalizePhoneNumber } from "../../phone-auth.js";
 import { createConnection } from "../../session.js";
+import { connectorWikiIdentity } from "../../wiki-identity.js";
 import { silentlyRefreshSharedSessionData } from "../../shared-session-refresh.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
@@ -68,6 +69,8 @@ const messages = {
   telegram_unavailable: "Не удалось соединиться с Telegram.",
   game_auth_rejected: "Игра не приняла вход. Попробуйте подключиться заново.",
   game_unavailable: "Игра сейчас недоступна.",
+  bridge_route_required:
+    "Этот аккаунт подключён через мост. Запустите мост и используйте сохранённый игровой токен.",
   invalid_wiki_identity: "Откройте Wiki заново через меню бота Telegram.",
   game_account_mismatch:
     "Войдите в тот же Telegram-аккаунт, в котором открыта Wiki.",
@@ -590,11 +593,26 @@ export function ConnectionApp() {
                 systemVersion: "WebView",
               },
             }),
-          exchange: async (initData) => {
+          exchange: async (initData, telegramClient, isCurrent) => {
+            const wikiInitData = settings.bridgePolicyRequired
+              ? await connectorWikiIdentity({
+                  existing: currentRequest.current?.data?.wikiInitData,
+                  client: telegramClient,
+                  wikiOrigins: settings.wikiOrigins,
+                })
+              : null;
+            if (!isCurrent()) throw new Error("cancelled");
             const result = await fetch("/api/game-session", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ initData }),
+              body: JSON.stringify({
+                initData,
+                ...(settings.bridgePolicyRequired
+                  ? {
+                      wikiInitData,
+                    }
+                  : {}),
+              }),
               cache: "no-store",
             });
             const data = await result.json();

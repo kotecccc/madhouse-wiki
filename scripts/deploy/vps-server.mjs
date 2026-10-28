@@ -1,4 +1,10 @@
-import { copyFileSync, createReadStream, existsSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,6 +13,12 @@ import { createVercelConnectorHandler } from "./vercel-connector-handler.mjs";
 import { connectorHeaders } from "../../connector/worker.js";
 import { startVpsInlineCards } from "../telegram/inline-cards-vps.mjs";
 import { VERSION } from "../../connector/protocol.js";
+import { createVpsBridgeLab } from "../bridge/vps-lab.mjs";
+import {
+  createBridgeReleaseHttp,
+  verifyBridgeRelease,
+} from "../bridge/release-http.mjs";
+import { bridgeBootstrapSha } from "../bridge/release-config.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
@@ -46,6 +58,35 @@ for (const [name, value] of [
 }
 if (wikiOrigin === connectorOrigin)
   throw new Error("Wiki and connector require separate origins");
+if (role === "wiki") {
+  const expectedBootstrap = bridgeBootstrapSha(
+    JSON.parse(
+      readFileSync(
+        new URL("../bridge/release-config.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+  if (expectedBootstrap) {
+    if (process.env.MADHOUSE_BRIDGE_PRODUCTION !== "1")
+      throw new Error("bridge_production_required");
+    verifyBridgeRelease(
+      process.env.MADHOUSE_BRIDGE_RELEASE_DIR,
+      expectedBootstrap,
+    );
+  }
+}
+const bridgeLab = createVpsBridgeLab({
+  role,
+  env: process.env,
+  wikiOrigin,
+  connectorOrigin,
+});
+const bridgeRelease =
+  bridgeLab?.runtime && process.env.MADHOUSE_BRIDGE_RELEASE_DIR
+    ? createBridgeReleaseHttp(process.env.MADHOUSE_BRIDGE_RELEASE_DIR)
+    : null;
+if (bridgeLab?.privateServer) bridgeLab.privateServer.listen(9094, "0.0.0.0");
 
 const wikiOrigins = [
   ...new Set([
@@ -82,13 +123,23 @@ if (role === "wiki") {
       import("../../api/telegram/raids-sync.js"),
     ]);
   const { createAutomationRuntime } = await import("../automation/runtime.mjs");
-  automationRuntime = await createAutomationRuntime({ root });
+  automationRuntime = await createAutomationRuntime({
+    root,
+    bridge: bridgeLab?.runtime || null,
+  });
   apiHandlers = new Map([
     ["/api/automation/state", automationRuntime.nodeHandler],
     ["/api/automation/launch", automationRuntime.nodeHandler],
     ["/api/automation/commands", automationRuntime.nodeHandler],
     ["/api", automationRuntime.proxy],
-    ["/api/catalogue", catalogue.default],
+    [
+      "/api/catalogue",
+      automationRuntime.bridgeActive
+        ? catalogue.createCatalogueHandler({
+            fetcher: automationRuntime.gameFetch,
+          })
+        : catalogue.default,
+    ],
     ["/api/raids", raids.default],
     ["/api/feedback", feedback.default],
     ["/api/analytics", analytics.default],
@@ -103,6 +154,7 @@ if (role === "wiki") {
       wikiOrigins,
       connectorOrigin,
       endpoint,
+      ...(bridgeLab?.guard ? { connectorGuard: bridgeLab.guard } : {}),
     });
   apiHandlers = new Map([
     ["/api/config", makeConnectorHandler("/api/config")],
@@ -186,6 +238,14 @@ const server = createServer(async (request, response) => {
   try {
     const method = request.method || "GET";
     const url = new URL(request.url || "/", "http://localhost");
+    if (
+      role === "wiki" &&
+      bridgeRelease &&
+      url.pathname.startsWith("/bridge/")
+    ) {
+      bridgeRelease(request, response);
+      return;
+    }
     if (url.pathname === "/healthz" && method === "GET") {
       await writeFetchResponse(
         response,
@@ -209,6 +269,14 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      if (
+        role === "wiki" &&
+        bridgeLab?.adapter &&
+        url.pathname.startsWith("/api/bridge/")
+      ) {
+        await bridgeLab.adapter.handle(request, response);
+        return;
+      }
       if (role === "connector") {
         const handler =
           apiHandlers.get(url.pathname) || apiHandlers.get("/api/unknown");
@@ -294,9 +362,14 @@ const server = createServer(async (request, response) => {
 server.requestTimeout = 30_000;
 server.headersTimeout = 15_000;
 server.keepAliveTimeout = 5_000;
+if (bridgeLab?.adapter) server.on("upgrade", bridgeLab.adapter.upgrade);
 server.listen(
   Number(process.env.PORT || (role === "wiki" ? 9092 : 9093)),
   "0.0.0.0",
 );
 
-server.once("close", () => automationRuntime?.close());
+server.once("close", () => {
+  automationRuntime?.close();
+  bridgeLab?.privateServer?.close();
+  bridgeLab?.runtime?.close();
+});

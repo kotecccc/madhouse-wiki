@@ -36,6 +36,7 @@ export function TelegramConnection({
   onRetry,
   error,
   autoConnect,
+  bridgeRestore = "allow",
   onPending,
   onRestoreSettled,
 }) {
@@ -166,6 +167,15 @@ export function TelegramConnection({
     [request],
   );
   useEffect(() => {
+    if (bridgeRestore === "wait") return;
+    if (bridgeRestore === "skip") {
+      if (!restoreAttempted.current) {
+        restoreAttempted.current = true;
+        callbacks.current.onRestoreSettled?.();
+        signalAuthRestoreSettled();
+      }
+      return;
+    }
     if (
       restoreAttempted.current ||
       (!autoConnect && !telegramContext().initData)
@@ -186,7 +196,7 @@ export function TelegramConnection({
       }
     };
     restore();
-  }, [autoConnect, request]);
+  }, [autoConnect, bridgeRestore, request]);
   useEffect(
     () => () => bridge.current?.destroy({ preserveRemoteSession: true }),
     [],

@@ -1,0 +1,34 @@
+# Opt-in overlay. Do not activate until both services and rollback protection are ready.
+services:
+  wiki:
+    env_file:
+      - /opt/madhouse-wiki/bridge.env
+    environment:
+      MADHOUSE_BRIDGE_PRODUCTION: "1"
+      MADHOUSE_BRIDGE_STATE_DIR: /data/bridge-state
+      MADHOUSE_BRIDGE_WITNESS_PATH: /data/bridge-witness/witness.sqlite
+      MADHOUSE_BRIDGE_RELEASE_DIR: /opt/bridge-release
+    volumes:
+      - bridge_state:/data/bridge-state
+      - bridge_witness:/data/bridge-witness
+      - /opt/madhouse-wiki/bridge-release:/opt/bridge-release:ro
+
+  connector:
+    env_file:
+      - /opt/madhouse-wiki/bridge.env
+    environment:
+      MADHOUSE_BRIDGE_PRODUCTION: "1"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:9093/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+volumes:
+  bridge_state:
+  bridge_witness:

@@ -49,14 +49,16 @@ FROM runtime-base AS build
 
 ARG MADHOUSE_RELEASE_SHA
 ARG VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru
+ARG VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=""
 ENV MADHOUSE_RELEASE_SHA=${MADHOUSE_RELEASE_SHA} \
-    VITE_TELEGRAM_CONNECTOR_ORIGIN=${VITE_TELEGRAM_CONNECTOR_ORIGIN}
+    VITE_TELEGRAM_CONNECTOR_ORIGIN=${VITE_TELEGRAM_CONNECTOR_ORIGIN} \
+    VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=${VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256}
 
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci --include=dev
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends unzip \
+    && apt-get install -y --no-install-recommends unzip python3 \
     && rm -rf /var/lib/apt/lists/* /opt/puppeteer \
     && npx puppeteer browsers install chrome
 COPY . .
@@ -88,8 +90,9 @@ COPY --from=build --chown=node:node /app/src ./src
 COPY --from=build --chown=node:node /opt/puppeteer /opt/puppeteer
 RUN chown -R node:node /opt/puppeteer
 
-RUN mkdir -p /data/automation /data/telegram-cards \
-    && chown node:node /data/automation /data/telegram-cards
+RUN mkdir -p /data/automation /data/telegram-cards /data/bridge-state /data/bridge-witness \
+    && chown node:node /data/automation /data/telegram-cards /data/bridge-state /data/bridge-witness \
+    && chmod 700 /data/bridge-state /data/bridge-witness
 USER node
 EXPOSE 9092 9093
 ENTRYPOINT ["node", "scripts/deploy/vps-server.mjs"]

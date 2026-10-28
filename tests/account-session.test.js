@@ -32,7 +32,7 @@ const jwt = () =>
     ),
     "game-signature",
   ].join(".");
-function setup({ profileStatuses = [] } = {}) {
+function setup({ profileStatuses = [], withOwnerLease } = {}) {
   const records = new Map();
   let serial = 0;
   let profileCalls = 0;
@@ -56,6 +56,7 @@ function setup({ profileStatuses = [] } = {}) {
     encryptionKey,
     now: () => clock,
     pause: async () => {},
+    withOwnerLease,
     fetcher: async (url, opts) => {
       profileCalls++;
       assert.equal(url, "https://cargohustle.online/api/me");
@@ -228,4 +229,20 @@ test("profile verification retries are bounded and never retry rejected credenti
     assert.equal(s.profileCalls(), status >= 500 ? 3 : 1);
     assert.equal((await s.call("restore")).status, "login-required");
   }
+});
+
+test("bridge guard blocks direct profile verification for a bridge owner", async () => {
+  const s = setup({
+    withOwnerLease: async (_owner, _operation, _run) => {
+      throw Object.assign(new Error("blocked"), {
+        code: "bridge_route_required",
+      });
+    },
+  });
+  const start = await s.call("restore");
+  await assert.rejects(
+    s.call("save", { ticket: start.ticket, accessToken: jwt() }),
+    { message: "bridge_route_required" },
+  );
+  assert.equal(s.profileCalls(), 0);
 });

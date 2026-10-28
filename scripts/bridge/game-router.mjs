@@ -1,0 +1,148 @@
+const GAME_ORIGIN = "https://cargohustle.online";
+const fail = (code) => Object.assign(new Error(code), { code });
+
+const MAX_DIRECT_RESPONSE_BYTES = 4 * 1024 * 1024;
+async function drainDirectResponse(response) {
+  if (!(response instanceof Response)) throw fail("game_response_invalid");
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_DIRECT_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw fail("game_response_too_large");
+    }
+    chunks.push(value);
+  }
+  return new Response(Buffer.concat(chunks), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/**
+ * A route resolver must use server-verified identity, not an ID supplied by the
+ * browser. Unknown or unavailable policy fails closed. Bridge MVP currently
+ * supports only /api/me and never dispatches game mutations.
+ */
+export function createGameRouter({
+  resolveRoute,
+  directFetch,
+  bridgeProfile,
+  withDirectLease,
+} = {}) {
+  if (
+    typeof resolveRoute !== "function" ||
+    typeof directFetch !== "function" ||
+    typeof bridgeProfile !== "function"
+  )
+    throw new TypeError("game_router_dependencies_required");
+  async function fetchGame({ url, init = {}, verifiedIdentity }) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw fail("game_target_forbidden");
+    }
+    if (
+      parsed.origin !== GAME_ORIGIN ||
+      parsed.username ||
+      parsed.password ||
+      parsed.hash
+    )
+      throw fail("game_target_forbidden");
+    if (!verifiedIdentity || typeof verifiedIdentity !== "object")
+      throw fail("game_identity_unverified");
+    let route;
+    try {
+      route = await resolveRoute(verifiedIdentity);
+    } catch {
+      throw fail("game_route_unavailable");
+    }
+    if (
+      !route ||
+      !["direct", "bridge_required"].includes(route.policy) ||
+      !Number.isSafeInteger(route.epoch) ||
+      route.epoch < 0
+    )
+      throw fail("game_route_unavailable");
+    if (route.policy === "direct") {
+      if (route.owner != null || route.epoch < 1)
+        throw fail("game_route_unavailable");
+      if (typeof withDirectLease !== "function")
+        throw fail("game_route_unavailable");
+      return withDirectLease(
+        verifiedIdentity,
+        route.epoch,
+        async (markDispatched) => {
+          let current;
+          try {
+            current = await resolveRoute(verifiedIdentity);
+          } catch {
+            throw fail("game_route_unavailable");
+          }
+          if (
+            !current ||
+            current.policy !== "direct" ||
+            current.epoch !== route.epoch ||
+            current.owner != null
+          )
+            throw fail("game_route_changed");
+          markDispatched();
+          const response = await drainDirectResponse(
+            await directFetch(parsed.href, { ...init, redirect: "manual" }),
+          );
+          // A proxy may have collapsed an uncertain upstream failure into 5xx.
+          // Keep the lease until it is reconciled rather than assuming failure.
+          if (
+            response.status >= 500 ||
+            response.headers.get("x-madhouse-snapshot") === "stale"
+          )
+            throw fail("direct_result_uncertain");
+          return response;
+        },
+        {
+          effect: ["GET", "HEAD"].includes(
+            String(init.method || "GET").toUpperCase(),
+          )
+            ? "read"
+            : "mutation",
+        },
+      );
+    }
+    if (route.epoch < 1 || typeof route.owner !== "string" || !route.owner)
+      throw fail("game_route_unavailable");
+    if (route.credentialCurrent === false) throw fail("game_credentials_stale");
+    const method = String(init.method || "GET").toUpperCase();
+    if (
+      method !== "GET" ||
+      parsed.pathname !== "/api/me" ||
+      parsed.search ||
+      init.body != null
+    )
+      throw fail("bridge_operation_not_supported");
+    // A bridge error is final; it is never retried via directFetch.
+    const result = await bridgeProfile(route.owner, { signal: init.signal });
+    let current;
+    try {
+      current = await resolveRoute(verifiedIdentity);
+    } catch {
+      throw fail("game_route_unavailable");
+    }
+    if (
+      !current ||
+      current.policy !== "bridge_required" ||
+      current.epoch !== route.epoch ||
+      current.owner !== route.owner ||
+      current.credentialCurrent === false
+    )
+      throw fail("game_route_changed");
+    return result;
+  }
+  return Object.freeze({ fetchGame });
+}
