@@ -30,6 +30,10 @@ export async function isAllowedBridgeQueueCommand(request) {
           (input.args?.type === "work.start" &&
             input.args?.action?.mode === "energy" &&
             input.args?.action?.collectStash !== true))) ||
+      (input?.command === "work.refresh" &&
+        Number.isSafeInteger(input.args?.workId) &&
+        input.args.workId > 0) ||
+      input?.command === "work.stop" ||
       (["queue.cancel", "queue.dismiss"].includes(input?.command) &&
         typeof input.args?.id === "string")
     );
