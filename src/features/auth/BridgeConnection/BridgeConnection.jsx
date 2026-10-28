@@ -203,7 +203,7 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
               onClick={() =>
                 perform(async () => {
                   await client.profile();
-                  setMessage("Игровая сессия работает через мост.");
+                  setMessage("Игровой профиль доступен через мост.");
                 })
               }
             >
