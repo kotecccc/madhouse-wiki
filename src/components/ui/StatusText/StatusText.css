@@ -1,0 +1,4 @@
+.status-text {
+  color: var(--status-completed);
+  font-size: var(--font-size-sm);
+}

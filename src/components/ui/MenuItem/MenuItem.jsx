@@ -38,6 +38,7 @@ export function MenuItem({
     <Button
       {...props}
       icon={icon}
+      menuValue={value}
       variant="menu-item"
       tone={warning ? "warning" : undefined}
       liftOnHover={false}

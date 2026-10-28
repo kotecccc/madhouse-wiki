@@ -8,7 +8,8 @@
     linear-gradient(90deg, transparent, var(--red-bright), transparent) 0 0 /
       var(--space-64) 100% no-repeat,
     var(--line);
-  animation: border-loader-progress 1.2s linear infinite;
+  animation: border-loader-progress var(--loading-indicator-duration) linear
+    infinite;
 }
 
 @keyframes border-loader-progress {

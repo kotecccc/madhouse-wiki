@@ -1286,6 +1286,26 @@ test("live profile enriches current own level and cannot carry old-level experie
   assert.equal(profile.energy.current, 10);
 });
 
+test("verified profile identity exposes saved experience for its own account", async () => {
+  const queue = queueFetcher([
+    reply({
+      playerId: 41,
+      exp: { level: 135, currentExp: 100, expToNextLevel: 500 },
+    }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("saved-experience"));
+  assert.deepEqual(snapshots.identity("Bearer saved-experience").exp, {
+    level: 135,
+    currentExp: 100,
+    expToNextLevel: 500,
+  });
+  assert.equal(snapshots.identity("Bearer other"), null);
+});
+
 test("inventory snapshots are private, survive restart, and level changes invalidate them without game reads", async () => {
   const store = memoryStore();
   const { fetcher, calls } = queueFetcher([

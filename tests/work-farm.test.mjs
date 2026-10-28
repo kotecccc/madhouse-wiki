@@ -27,6 +27,7 @@ function makeHarness({
   onChange,
   stashParts = null,
   failStash = () => false,
+  performResponse = () => ({}),
 } = {}) {
   const workId = 7;
   const calls = [];
@@ -148,7 +149,7 @@ function makeHarness({
           item.progress = 0;
         });
       }
-      const result = stateResponse();
+      const result = { ...stateResponse(), ...performResponse() };
       if (losePerformReply) throw new TypeError("response connection lost");
       return result;
     }
@@ -250,6 +251,83 @@ test("collection farm never performs work when fresh stash check fails", async (
       0,
     );
     assert.equal(h.farm.getSnapshot().run.phase, "retrying");
+  } finally {
+    h.farm.dispose();
+  }
+});
+
+test("collection farm checks parts after each task and stops within initial energy", async () => {
+  const parts = [0];
+  const h = makeHarness({ stashParts: parts, required: [5], energy: 2 });
+  try {
+    await refresh(h);
+    start(h.farm, { collectStash: true });
+    await h.fireNext();
+    assert.equal(h.farm.getSnapshot().run.config.mode, "energy");
+    parts[0] = 1;
+    await h.fireNext();
+    assert.equal(h.farm.getSnapshot().run.status, "completed");
+    assert.equal(
+      h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+      1,
+    );
+  } finally {
+    h.farm.dispose();
+  }
+
+  const limited = makeHarness({ stashParts: [0], required: [5], energy: 2 });
+  try {
+    await refresh(limited);
+    start(limited.farm, { collectStash: true });
+    for (let i = 0; i < 3; i++) await limited.fireNext();
+    assert.equal(limited.farm.getSnapshot().run.status, "completed");
+    assert.equal(
+      limited.calls.filter((call) => call.path === "/api/works/tasks/perform")
+        .length,
+      2,
+    );
+  } finally {
+    limited.farm.dispose();
+  }
+});
+
+test("collection farm uses confirmed task drops and skips redundant stash reads", async () => {
+  let dropped = false;
+  const h = makeHarness({
+    stashParts: [1, 0],
+    required: [5],
+    energy: 5,
+    performResponse: () => ({
+      success: true,
+      ...(dropped
+        ? {
+            stashDrop: {
+              setId: 3,
+              ingredientId: 2,
+              items: [
+                { ingredientId: 1, owned: 1 },
+                { ingredientId: 2, owned: 1 },
+              ],
+            },
+          }
+        : {}),
+    }),
+  });
+  try {
+    await refresh(h);
+    start(h.farm, { collectStash: true });
+    await h.fireNext();
+    dropped = true;
+    await h.fireNext();
+    assert.equal(h.farm.getSnapshot().run.status, "completed");
+    assert.equal(
+      h.calls.filter((call) => call.path === "/api/stash/sets").length,
+      1,
+    );
+    assert.equal(
+      h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+      2,
+    );
   } finally {
     h.farm.dispose();
   }

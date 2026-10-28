@@ -4,6 +4,7 @@ import {
   postSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
+import { stashCraftCompleted } from "./stash-craft-refresh.js";
 import { syncBattleSession } from "../bosses/BossBattle/boss-battle-session.js";
 
 const pendingStatus = new Set(["queued", "waiting", "running", "reconciling"]);
@@ -33,6 +34,7 @@ export function useActionQueue(
     let cancelled = false;
     let timer;
     let previousWork = null;
+    let queueInitialized = false;
     const update = (next) => {
       if (cancelled || !next || !Array.isArray(next.queuedActions)) return;
       const work = next.workFarm?.run;
@@ -56,21 +58,19 @@ export function useActionQueue(
         : null;
       for (const job of next.queuedActions) {
         const before = prior.current.get(job.id);
-        if (
-          job.type === "stash.craft" &&
-          before &&
-          before !== "completed" &&
-          job.status === "completed"
-        ) {
+        if (stashCraftCompleted(job, before, queueInitialized)) {
           void getSessionJson("/api/stash/sets", {
             fresh: true,
             revalidate: false,
           }).catch(() => {});
-          void getSessionJson("/api/me", {
-            fresh: true,
-            serverRefresh: "live",
-            revalidate: false,
-          }).catch(() => {});
+          for (const path of ["/api/me", "/api/me/bag"]) {
+            void getSessionJson(path, {
+              fresh: true,
+              serverRefresh: "live",
+              afterPending: true,
+              revalidate: false,
+            }).catch(() => {});
+          }
         }
         if (
           job.type === "inventory" &&
@@ -114,12 +114,14 @@ export function useActionQueue(
       prior.current = new Map(
         next.queuedActions.map((job) => [job.id, job.status]),
       );
+      queueInitialized = true;
       setState(next);
       syncBattleSession(next);
     };
     const unsubscribe = subscribeSessionData((event) => {
       if (event.cleared) {
         prior.current.clear();
+        queueInitialized = false;
         setState(null);
       } else if (
         ["/api/automation/state", "/api/automation/commands"].includes(

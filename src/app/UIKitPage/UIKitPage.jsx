@@ -171,6 +171,64 @@ function ExamplePanel({ children, className = "" }) {
   );
 }
 
+function FarmBorderSamples() {
+  const [selected, setSelected] = useState(1);
+  const [color, setColor] = useState("blue");
+  const names = [
+    "Мягкий след",
+    "Длинный след",
+    "Два огонька",
+    "Пульсирующий след",
+    "Встречные огоньки",
+    "Медленно по часовой",
+    "Длинный медленный след",
+    "Медленно против часовой",
+  ];
+  return (
+    <div className="ui-kit-farm-motion-list">
+      <SegmentedControl
+        label="Вариант анимации границы"
+        value={selected}
+        onChange={setSelected}
+        size="sm"
+        options={names.map((name, index) => ({
+          value: index + 1,
+          label: String(index + 1),
+          ariaLabel: `Вариант ${index + 1}: ${name}`,
+        }))}
+      />
+      <SegmentedControl
+        label="Цвет анимации"
+        value={color}
+        onChange={setColor}
+        size="sm"
+        options={[
+          { value: "blue", label: "Синий" },
+          { value: "green", label: "Зелёный" },
+          { value: "gold", label: "Золотой" },
+        ]}
+      />
+      <BaseCard
+        variant="floor-data"
+        motionBorder={selected}
+        motionColor={color}
+        className="ui-kit-farm-motion-card"
+      >
+        <ImageCard size={48} imageSize={32}>
+          <Icon type="department" />
+        </ImageCard>
+        <div className="ui-kit-farm-motion-copy">
+          <CardTitle>
+            {selected}. {names[selected - 1]}
+          </CardTitle>
+          <CardDescription>D1 · Инспектор</CardDescription>
+        </div>
+        <Icon type="energy" size="small" />
+      </BaseCard>
+    </div>
+  );
+}
+
 function Property({ name, value }) {
   return (
     <span className="ui-kit-property">
@@ -224,6 +282,17 @@ export function UIKitPage() {
         <div className="ui-kit-content" key={activeKit}>
           {activeKit === "ui" ? (
             <>
+              <ComponentSection
+                id="farm-motion"
+                title="Анимации активного фарма"
+              >
+                <CardTitle>Анимация границы</CardTitle>
+                <CardDescription>
+                  Выберите вариант: на карточке показывается только одна
+                  анимация.
+                </CardDescription>
+                <FarmBorderSamples />
+              </ComponentSection>
               <ComponentSection id="foundations" title="Foundations">
                 <ExamplePanel>
                   <div className="ui-kit-panel-heading">

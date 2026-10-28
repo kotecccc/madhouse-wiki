@@ -28,6 +28,7 @@ export function Button({
   children,
   icon,
   iconSize,
+  menuValue,
   iconOnly = false,
   editKey,
   liftOnHover = true,
@@ -79,6 +80,9 @@ export function Button({
         </>
       ) : (
         children
+      )}
+      {safeVariant === "menu-item" && menuValue != null && (
+        <span className="button-menu-item-value">{menuValue}</span>
       )}
     </button>
   );

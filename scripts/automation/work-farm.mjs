@@ -1,4 +1,8 @@
-import { normalizeWorkStash } from "../../shared/work-stash.js";
+import {
+  applyWorkStashDrop,
+  normalizeWorkStash,
+  workStashPartsProgress,
+} from "../../shared/work-stash.js";
 import { randomUUID } from "node:crypto";
 import { retryDelay } from "./action-queue.mjs";
 import {
@@ -251,7 +255,10 @@ export function createWorkFarm({
           (cycleFinished &&
             after.completedCycles === before.completedCycles + 1)),
       );
-      if (confirmed) run.energySpent += task.energyCost;
+      if (confirmed) {
+        run.energySpent += task.energyCost;
+        if (run.config.collectStash) delete run.stashVerifiedCycle;
+      }
     } else if (before && pending.kind === "buying") {
       confirmed =
         after.boosters.find((item) => item.type === pending.type)?.count ===
@@ -445,7 +452,11 @@ export function createWorkFarm({
             "Не удалось однозначно подтвердить выполнение задания. Повтор не отправлен.",
           );
         record.view = { ...before, ...after, energy, updatedAt: now() };
-        if (after.completedCycles > before.completedCycles && getStash) {
+        if (
+          !run.config.collectStash &&
+          after.completedCycles > before.completedCycles &&
+          getStash
+        ) {
           try {
             const work = await getWork(run.workId);
             const stash = normalizeWorkStash(
@@ -462,6 +473,26 @@ export function createWorkFarm({
         run.completedCycles = after.completedCycles;
         run.pending = null;
         run.energySpent += task.energyCost;
+        if (run.config.collectStash) {
+          const work = await getWork(run.workId);
+          const stash = applyWorkStashDrop(
+            record.view.stash,
+            work?.stashSet?.ingredients,
+            raw,
+          );
+          if (stash) {
+            record.view.stash = stash;
+            run.stashVerifiedCycle = after.completedCycles;
+            const progress = workStashPartsProgress(
+              stash,
+              work.stashSet.ingredients,
+            );
+            if (progress?.owned === progress?.total) {
+              finish("completed", "Все части набора собраны.");
+              return;
+            }
+          } else delete run.stashVerifiedCycle;
+        }
         log("perform", `${task.title} · ${task.energyCost} энергии`);
         run.phase = "checking";
         publish();
@@ -593,6 +624,7 @@ export function createWorkFarm({
         run.completedCycles = after.completedCycles;
         run.pending = null;
         run.energySpent += task.energyCost;
+        if (run.config.collectStash) delete run.stashVerifiedCycle;
         log("perform", `${task.title} · ${task.energyCost} энергии`);
         if (
           !run.config.collectStash &&
@@ -992,9 +1024,10 @@ export function createWorkFarm({
           "За один запуск можно запланировать не более 1000 выполнений.",
         );
       const config =
-        args.mode === "energy"
+        args.mode === "energy" || args.collectStash
           ? {
               ...args,
+              mode: "energy",
               energyBudget: args.energyBudget ?? null,
               maxBoosters: 0,
               maxDollar: 0,

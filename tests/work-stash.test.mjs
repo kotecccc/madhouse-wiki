@@ -3,9 +3,68 @@ import assert from "node:assert/strict";
 import {
   normalizeWorkStash,
   workStashFirstCollection,
+  workStashPartsProgress,
+  applyWorkStashDrop,
 } from "../shared/work-stash.js";
 import { createWorkFarm } from "../scripts/automation/work-farm.mjs";
 import { isSnapshotPath } from "../scripts/account/snapshots.mjs";
+
+test("task drop rejects partial or mismatched inventory data", () => {
+  const parts = [{ ingredientId: 1 }, { ingredientId: 2 }];
+  const stash = {
+    setId: 3,
+    ingredients: [
+      { ingredientId: 1, quantity: 1 },
+      { ingredientId: 2, quantity: 0 },
+    ],
+  };
+  assert.equal(applyWorkStashDrop(stash, parts, { success: true }), stash);
+  assert.equal(
+    applyWorkStashDrop(stash, parts, {
+      success: true,
+      stashDrop: {
+        setId: 3,
+        ingredientId: 2,
+        items: [{ ingredientId: 2, owned: 1 }],
+      },
+    }),
+    null,
+  );
+  assert.equal(
+    applyWorkStashDrop(stash, parts, {
+      success: true,
+      stashDrop: { setId: 4, ingredientId: 2, items: [] },
+    }),
+    null,
+  );
+  assert.equal(
+    applyWorkStashDrop(stash, parts, { success: true, isDuplicate: true }),
+    null,
+  );
+});
+
+test("set progress counts distinct owned required parts and rejects unknown quantities", () => {
+  const parts = [{ ingredientId: 1 }, { ingredientId: 2 }, { ingredientId: 3 }];
+  const stash = {
+    ingredients: [
+      { ingredientId: 1, quantity: 4 },
+      { ingredientId: 2, quantity: 0 },
+      { ingredientId: 3, quantity: 1 },
+    ],
+  };
+  assert.deepEqual(workStashPartsProgress(stash, parts), {
+    owned: 2,
+    total: 3,
+  });
+  assert.equal(workStashPartsProgress(null, parts), null);
+  assert.equal(
+    workStashPartsProgress(
+      { ingredients: stash.ingredients.slice(0, 2) },
+      parts,
+    ),
+    null,
+  );
+});
 
 test("first collection uses craft history rather than owned parts alone", () => {
   const ingredients = [{ ingredientId: 1 }, { ingredientId: 2 }];

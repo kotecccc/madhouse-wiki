@@ -1,0 +1,219 @@
+/* Preview variants share the card's existing border and status colors. */
+@property --border-motion-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.base-card--motion-border {
+  position: relative;
+  --border-motion-color: var(--status-active);
+}
+
+.base-card--motion-border-green {
+  --border-motion-color: var(--status-completed);
+}
+
+.base-card--motion-border-gold {
+  --border-motion-color: var(--status-business);
+}
+
+.base-card--motion-border::after,
+.base-card--motion-border-5::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+      from var(--border-motion-angle),
+      transparent 0%,
+      var(--border-motion-color) 5%,
+      transparent 10%
+    )
+    border-box;
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  mask-composite: exclude;
+  animation: border-motion-orbit var(--card-motion-duration) linear infinite;
+}
+
+.base-card--motion-border-1::after {
+  background: conic-gradient(
+      from var(--border-motion-angle),
+      transparent 0%,
+      var(--border-motion-color) 8%,
+      transparent 16%
+    )
+    border-box;
+  animation-name: border-motion-horizontal;
+}
+
+@keyframes border-motion-horizontal {
+  0% {
+    --border-motion-angle: -29deg;
+  }
+  20% {
+    --border-motion-angle: 31deg;
+  }
+  30% {
+    --border-motion-angle: 91deg;
+  }
+  50% {
+    --border-motion-angle: 151deg;
+  }
+  70% {
+    --border-motion-angle: 211deg;
+  }
+  80% {
+    --border-motion-angle: 271deg;
+  }
+  100% {
+    --border-motion-angle: 331deg;
+  }
+}
+
+.base-card--motion-border-2::after {
+  background: conic-gradient(
+      from var(--border-motion-angle),
+      transparent 0%,
+      var(--border-motion-color) 12%,
+      transparent 24%
+    )
+    border-box;
+}
+
+.base-card--motion-border-3::after {
+  animation-timing-function: linear(
+    0,
+    0.11 10%,
+    0.19 20%,
+    0.23 25%,
+    0.27 30%,
+    0.39 40%,
+    0.5 50%,
+    0.61 60%,
+    0.69 70%,
+    0.73 75%,
+    0.77 80%,
+    0.89 90%,
+    1
+  );
+  background: conic-gradient(
+      from var(--border-motion-angle),
+      transparent 0%,
+      var(--border-motion-color) 5%,
+      transparent 10%,
+      transparent 50%,
+      var(--border-motion-color) 55%,
+      transparent 60%
+    )
+    border-box;
+}
+
+.base-card--motion-border-4::after {
+  animation:
+    border-motion-orbit var(--card-motion-duration) linear infinite,
+    border-motion-pulse var(--card-motion-duration) ease-in-out infinite;
+}
+
+.base-card--motion-border-5::before {
+  animation-direction: reverse;
+}
+
+/* Slower versions keep the original light and start near the left edge. */
+.base-card--motion-border-6::after,
+.base-card--motion-border-7::after {
+  animation-name: border-motion-from-left;
+  animation-duration: 4s;
+}
+
+.base-card--motion-border-7::after {
+  animation-duration: 5s;
+  background: conic-gradient(
+      from var(--border-motion-angle),
+      transparent 0%,
+      var(--border-motion-color) 12%,
+      transparent 24%
+    )
+    border-box;
+}
+
+.base-card--motion-border-8::after {
+  display: none;
+}
+
+/* A soft highlight travels along the actual outline at a constant speed. */
+.base-card-border-path {
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: inherit;
+  pointer-events: none;
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  mask-composite: exclude;
+}
+
+.base-card-border-light {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--space-64);
+  height: var(--space-64);
+  background: radial-gradient(
+    circle,
+    var(--border-motion-color),
+    transparent 70%
+  );
+  offset-path: rect(0 100% 100% 0 round var(--card-radius));
+  animation: border-motion-path 3s linear infinite;
+}
+
+@keyframes border-motion-path {
+  from {
+    offset-distance: 100%;
+  }
+  to {
+    offset-distance: 0%;
+  }
+}
+
+@keyframes border-motion-from-left {
+  from {
+    --border-motion-angle: -95deg;
+  }
+  to {
+    --border-motion-angle: 265deg;
+  }
+}
+
+@keyframes border-motion-orbit {
+  from {
+    --border-motion-angle: 0deg;
+  }
+  to {
+    --border-motion-angle: 360deg;
+  }
+}
+
+@keyframes border-motion-pulse {
+  0%,
+  100% {
+    opacity: var(--skeleton-opacity-min);
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .base-card--motion-border::after,
+  .base-card--motion-border-5::before,
+  .base-card-border-light {
+    animation: none;
+  }
+}

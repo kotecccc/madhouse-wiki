@@ -1,0 +1,42 @@
+.ui-pull-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  overflow: visible;
+  flex: 0 0 auto;
+  transition: height var(--control-transition-duration)
+    var(--control-transition-easing);
+}
+
+.ui-pull-refresh--dragging {
+  transition: none;
+}
+
+.ui-pull-refresh-icon {
+  position: relative;
+  top: var(--space-12);
+  display: flex;
+  transition: transform var(--control-transition-duration)
+    var(--control-transition-easing);
+}
+
+.ui-pull-refresh--dragging .ui-pull-refresh-icon {
+  transition: none;
+}
+
+@media (max-width: 650px) {
+  .ui-pull-refresh-icon {
+    top: var(--space-8);
+  }
+}
+
+.ui-pull-refresh-ring {
+  width: var(--font-size-lg);
+  height: var(--font-size-lg);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+}

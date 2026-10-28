@@ -1,6 +1,6 @@
 import { useMobileCardAction } from "../../../components/ui/BaseCard/useMobileCardAction.js";
 import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState, useSyncExternalStore } from "react";
 import {
   getSessionJson,
   postSessionJson,
@@ -14,9 +14,11 @@ import {
 import {
   normalizeWorkStash,
   workStashFirstCollection,
+  workStashPartsProgress,
 } from "../../../../shared/work-stash.js";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
+import { ApprovableButton } from "../../../components/ui/ConfirmButton/ConfirmButton.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { workFarm } from "../../bosses/BossBattle/boss-battle-session.js";
 import { WorkStashCard } from "./WorkStashCard.jsx";
@@ -37,6 +39,9 @@ import { fmt } from "../../../lib/format.js";
 import { composeDisplayFields } from "../../../lib/card-display-fields.js";
 import { getWorkCardVariantProps } from "./work-card-variants.js";
 import { WorkCalculatorDialog } from "./WorkCalculatorDialog.jsx";
+import { normalizeActiveStashBuffs } from "../../auth/profile.js";
+import { effectTimeLeft } from "../../../lib/stash-buff-time.js";
+import { workFarmCardState } from "./work-farm-card-state.js";
 import "./WorkCard.css";
 
 export function WorkCard({
@@ -55,12 +60,32 @@ export function WorkCard({
   const [menuError, setMenuError] = useState(null);
   const [menuPending, setMenuPending] = useState(false);
   const [stashData, setStashData] = useState(null);
+  const farmState = useSyncExternalStore(
+    workFarm.subscribe,
+    workFarm.getSnapshot,
+    workFarm.getSnapshot,
+  );
+  const farmCard = workFarmCardState({
+    run: farmState.run,
+    workId: Number(work?.workId ?? work?.numericId ?? work?.apiId),
+    departmentCode: department?.code,
+    preview:
+      import.meta.env.DEV && typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("testWorkFarm")
+        : null,
+    dev: import.meta.env.DEV,
+  });
+  const [bagData, setBagData] = useState(() =>
+    peekSessionJson("/api/me/bag", { allowStale: true }),
+  );
+  const [effectNow, setEffectNow] = useState(() => Date.now());
   useEffect(() => {
     let active = true;
     let generation = 0;
     const load = () => {
       const current = ++generation;
       setStashData(null);
+      setBagData(peekSessionJson("/api/me/bag", { allowStale: true }));
       if (
         !work?.stashSet?.ingredients?.length ||
         readSession().status !== "ready"
@@ -76,8 +101,11 @@ export function WorkCard({
     };
     const unsubscribe = subscribeSession(load);
     const unsubscribeData = subscribeSessionData((event) => {
-      if (event.cleared) setStashData(null);
-      else if (event.path === "/api/stash/sets") setStashData(event.data);
+      if (event.cleared) {
+        setStashData(null);
+        setBagData(null);
+      } else if (event.path === "/api/stash/sets") setStashData(event.data);
+      else if (event.path === "/api/me/bag") setBagData(event.data);
     });
     load();
     return () => {
@@ -89,6 +117,12 @@ export function WorkCard({
   const editing = useContext(CardEditingContext);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuClosing, setMenuClosing] = useState(false);
+  useEffect(() => {
+    if (!menuAnchor) return undefined;
+    setEffectNow(Date.now());
+    const timer = setInterval(() => setEffectNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [menuAnchor]);
   const { mobile } = useMobileCardAction({ enabled: false });
   const finishMenu = () => {
     setMenuAnchor(null);
@@ -106,11 +140,26 @@ export function WorkCard({
   const stash = departmentWork?.stash || department?.stashPreview?.title || "";
   const image = departmentWork?.image || department?.stashPreview?.image;
   const parts = work?.stashSet?.ingredients ?? [];
+  const activeEffects = normalizeActiveStashBuffs(bagData).filter(
+    (buff) => buff.expiresAtMs > effectNow,
+  );
+  const activeSet = activeEffects.find(
+    (buff) => String(buff.setId) === String(work?.stashSet?.setId),
+  );
+  const confirmationKey = JSON.stringify(
+    activeEffects.map((buff) => [buff.setId, buff.expiresAtUtc]).sort(),
+  );
   const personalStash =
     stashData && work?.stashSet
       ? normalizeWorkStash(stashData, work.stashSet.setId)
       : null;
   const collection = workStashFirstCollection(personalStash, parts);
+  const progress = workStashPartsProgress(personalStash, parts);
+  const partsReady = progress && progress.owned === progress.total;
+  const setTitle =
+    (work?.stashSet?.title || work?.stashSet?.name || "Набор")
+      .replace(/^Набор\s*[«"“]?/i, "")
+      .replace(/[»"”]$/, "") || "Набор";
   const fields = [
     {
       id: "name",
@@ -127,11 +176,11 @@ export function WorkCard({
     },
   ];
   const showFarm = () => {
-    if (!work) return;
+    if (!work || farmCard.test) return;
     setOpen(true);
   };
   const craftSet = async () => {
-    if (menuPending) return;
+    if (menuPending || farmCard.test) return;
     setMenuPending(true);
     setMenuError(null);
     try {
@@ -156,7 +205,7 @@ export function WorkCard({
     }
   };
   const farmSet = async () => {
-    if (menuPending) return;
+    if (menuPending || farmCard.test) return;
     setMenuPending(true);
     setMenuError(null);
     try {
@@ -171,9 +220,9 @@ export function WorkCard({
       const started = await workFarm.start({
         workId,
         expectedCompletedCycles: completed,
-        targetCycles: completed + 1000,
+        targetCycles: completed + 1,
         collectStash: true,
-        mode: "wait",
+        mode: "energy",
         maxActions: 30000,
         durationHours: null,
         maxBoosters: 0,
@@ -200,6 +249,8 @@ export function WorkCard({
         as={as}
         data-department-id={department?.id}
         data-entity-id={work?.id}
+        motionBorder={farmCard.active ? 3 : undefined}
+        motionColor={farmCard.active ? "gold" : undefined}
         state={
           menuAnchor
             ? "menu-active"
@@ -290,6 +341,11 @@ export function WorkCard({
           </div>
         </div>
         <div className="work-card-footer">
+          {farmCard.test && (
+            <Pill variant="warning" size="xs" dot={false}>
+              Тест
+            </Pill>
+          )}
           <span className="work-card-energy">
             {locked ? (
               <LockIndicator variant="locked" size="small" />
@@ -327,54 +383,76 @@ export function WorkCard({
                     image
                   }
                   value={
-                    collection.status === "collected" ? (
+                    activeSet ? (
+                      <Pill
+                        variant="completed"
+                        size="xs"
+                        dot={false}
+                        title={`${activeSet.name}: ${effectTimeLeft(activeSet.expiresAtMs, effectNow)}`}
+                      >
+                        <Icon type="stash" size="small" />
+                        {effectTimeLeft(
+                          activeSet.expiresAtMs,
+                          effectNow,
+                        ).replace("Осталось ", "")}
+                      </Pill>
+                    ) : collection.status === "collected" ? (
                       <Pill variant="completed" size="xs" dot={false}>
-                        Собран: {fmt(personalStash.craftedCount)}
+                        Собран
                       </Pill>
                     ) : collection.status === "not_collected" ? (
-                      "Не собран"
+                      <Pill variant="unknown" size="xs" dot={false}>
+                        Не собран
+                      </Pill>
                     ) : (
                       "—"
                     )
                   }
                 >
-                  {work.stashSet.title || work.stashSet.name || "Набор"}
+                  {setTitle}
                 </MenuItem>
-                {collection.status === "not_collected" &&
-                  collection.missing > 0 && (
-                    <MenuItem
-                      informational
-                      icon="stash"
-                      value={collection.missing}
-                    >
-                      Не хватает частей
-                    </MenuItem>
-                  )}
                 <Divider menu />
               </>
             )}
             {menuError && <MenuItem informational>{menuError}</MenuItem>}
-            {parts.length > 0 && (
-              <MenuItem
+            {parts.length > 0 && partsReady && activeEffects.length > 0 ? (
+              <ApprovableButton
+                variant="menu-item"
                 icon="stash"
-                disabled={menuPending || personalStash?.canCraft !== true}
+                menuValue={`${progress.owned}/${progress.total}`}
+                liftOnHover={false}
+                confirmationKey={confirmationKey}
+                confirmationLabel="Уже есть эффект, точно?"
+                disabled={
+                  farmCard.test ||
+                  menuPending ||
+                  personalStash?.canCraft !== true
+                }
                 onClick={() => void craftSet()}
               >
                 Собрать набор
-              </MenuItem>
-            )}
-            {parts.length > 0 && (
-              <MenuItem
-                icon="brain"
-                disabled={menuPending}
-                onClick={() => void farmSet()}
-              >
-                Фармить набор
-              </MenuItem>
+              </ApprovableButton>
+            ) : (
+              parts.length > 0 && (
+                <MenuItem
+                  icon={partsReady ? "stash" : "brain"}
+                  value={progress ? `${progress.owned}/${progress.total}` : "—"}
+                  disabled={
+                    farmCard.test ||
+                    menuPending ||
+                    !progress ||
+                    (partsReady && personalStash?.canCraft !== true)
+                  }
+                  onClick={() => void (partsReady ? craftSet() : farmSet())}
+                >
+                  {partsReady ? "Собрать набор" : "Фармить набор"}
+                </MenuItem>
+              )
             )}
             {parts.length === 0 && (
               <MenuItem
                 icon="brain"
+                disabled={farmCard.test}
                 onClick={() => {
                   closeMenu();
                   showFarm();

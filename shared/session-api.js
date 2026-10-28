@@ -186,6 +186,7 @@ export function createSessionApi({
       background = false,
       snapshotOnly = false,
       serverRefresh = false,
+      afterPending = false,
       refreshBoss,
     } = {},
   ) {
@@ -205,19 +206,28 @@ export function createSessionApi({
     const cached = method === "GET" ? entries.get(path) : null;
     if (method === "GET" && pending.has(path)) {
       const active = pending.get(path);
-      if (fresh && snapshotOnlyPending.has(path))
+      if ((fresh && snapshotOnlyPending.has(path)) || afterPending) {
+        const waitingGeneration = generation;
         return active
           .catch(() => {})
-          .then(() =>
-            request(method, path, body, {
+          .then(() => {
+            if (generation !== waitingGeneration)
+              throw new Error("Сессия изменилась");
+            if (pending.get(path) === active) {
+              pending.delete(path);
+              snapshotOnlyPending.delete(path);
+            }
+            return request(method, path, body, {
               fresh: true,
               signal,
               background,
               snapshotOnly: false,
               serverRefresh,
+              afterPending: true,
               refreshBoss,
-            }),
-          );
+            });
+          });
+      }
       return active;
     }
     if (!fresh && cached && !isSnapshotPath(path) && now() < cached.until)
@@ -509,6 +519,7 @@ export function getSessionJson(
     fresh = false,
     revalidate,
     serverRefresh = false,
+    afterPending = false,
     refreshBoss,
   } = {},
 ) {
@@ -524,6 +535,7 @@ export function getSessionJson(
     signal,
     revalidate,
     serverRefresh,
+    afterPending,
     refreshBoss,
   });
   if (!signal) return promise;

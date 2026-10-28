@@ -100,6 +100,7 @@ export function WorkFarmDialog({
   const run = state.run;
   const running = ["running", "paused"].includes(run?.status);
   const active = running && run.workId === workId;
+  const collecting = active && run.config?.collectStash;
   const activeMode = run?.config?.mode ?? "wait";
   const [selectedOption, setSelectedOption] = useState(() =>
     (active && activeMode === "boosters") ||
@@ -335,6 +336,8 @@ export function WorkFarmDialog({
       <LoadingStatus>
         {run.reason ? (
           run.reason
+        ) : collecting ? (
+          `Фарм набора · ${progress.max == null ? "—" : `${fmt(progress.value)} из ${fmt(progress.max)} частей`}`
         ) : energyOnly ? (
           `Работа идёт · ${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
         ) : (
@@ -348,11 +351,19 @@ export function WorkFarmDialog({
         <ProgressBar
           value={progress.value}
           max={progress.max}
-          label={energyOnly ? "Расход энергии" : "Прогресс фарма"}
+          label={
+            collecting
+              ? "Части набора"
+              : energyOnly
+                ? "Расход энергии"
+                : "Прогресс фарма"
+          }
           valueText={
-            energyOnly
-              ? `${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
-              : `${fmt(progress.value)} из ${fmt(progress.max)} энергии до цели`
+            collecting
+              ? `${fmt(progress.value)} из ${fmt(progress.max)} частей`
+              : energyOnly
+                ? `${fmt(run.energySpent ?? 0)} из ${fmt(run.energyBudget ?? 0)} энергии`
+                : `${fmt(progress.value)} из ${fmt(progress.max)} энергии до цели`
           }
         />
       )}
@@ -424,7 +435,7 @@ export function WorkFarmDialog({
       }}
       afterOptions={
         <>
-          {energyOnly && (
+          {energyOnly && !collecting && (
             <BaseCard className="work-calculator-goal">
               <CardTitle as="h3">Применить дефибриллятор</CardTitle>
               <CardDescription>
@@ -462,7 +473,7 @@ export function WorkFarmDialog({
               </div>
             </BaseCard>
           )}
-          {energyOnly && (
+          {energyOnly && !collecting && (
             <div className="work-calculator-goal" aria-label="План заданий">
               <CardTitle as="h3">
                 {taskPreview?.items.length === 0
@@ -508,27 +519,31 @@ export function WorkFarmDialog({
         </>
       }
       onClose={onClose}
-      countControl={{
-        value: String(Math.max(1, remaining)),
-        onChange: (value) => setCount(Math.max(1, Number(value))),
-        min: 1,
-        maxToggle: {
-          active: energyOnly,
-          onToggle: () => setMaxMode((value) => !value),
-          disabled: active,
-          label: (
-            <>
-              MAX {energyBudget == null ? "—" : fmt(energyBudget)}{" "}
-              <Icon type="energy" size="text" />
-            </>
-          ),
-        },
-        disabled: active,
-        max: 1000,
-        label: "Количество выполнений",
-        rangeLabel: "Количество выполнений",
-        unitEnergy: energy ?? work.energyCycle?.full,
-      }}
+      countControl={
+        collecting
+          ? null
+          : {
+              value: String(Math.max(1, remaining)),
+              onChange: (value) => setCount(Math.max(1, Number(value))),
+              min: 1,
+              maxToggle: {
+                active: energyOnly,
+                onToggle: () => setMaxMode((value) => !value),
+                disabled: active,
+                label: (
+                  <>
+                    MAX {energyBudget == null ? "—" : fmt(energyBudget)}{" "}
+                    <Icon type="energy" size="text" />
+                  </>
+                ),
+              },
+              disabled: active,
+              max: 1000,
+              label: "Количество выполнений",
+              rangeLabel: "Количество выполнений",
+              unitEnergy: energy ?? work.energyCycle?.full,
+            }
+      }
       accountState={account}
       energyOverride={totalEnergy}
       intro={

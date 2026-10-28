@@ -29,14 +29,7 @@ function playerProfile(data, previous) {
 }
 
 function livePlayerProfile(data, previous) {
-  const profile = playerProfile(data, previous);
-  if (!Number.isSafeInteger(data.exp?.level))
-    return {
-      ...profile,
-      playerLevel: null,
-      experience: { current: undefined, toNextLevel: undefined },
-    };
-  return profile;
+  return playerProfile(data, previous);
 }
 
 function cachedState() {
@@ -57,6 +50,7 @@ function profileIdentity(data) {
     name: profile.name,
     avatarUrl: profile.avatarUrl,
     playerLevel: profile.playerLevel,
+    experience: profile.experience,
   };
 }
 
@@ -212,11 +206,8 @@ export function usePlayerProfile() {
                 ...current,
                 identity: cached,
                 profile:
-                  current.levelStatus === "error" &&
-                  current.profile?.playerId === cached.playerId &&
-                  !Number.isSafeInteger(current.profile.playerLevel) &&
-                  Number.isSafeInteger(cached.playerLevel)
-                    ? { ...current.profile, playerLevel: cached.playerLevel }
+                  current.profile?.playerId === cached.playerId
+                    ? retainProfileProgress(current.profile, cached)
                     : current.profile,
               };
             });
@@ -238,7 +229,7 @@ export function usePlayerProfile() {
         setState((current) => ({
           ...current,
           status: "ready",
-          profile: livePlayerProfile(data, current.profile),
+          profile: livePlayerProfile(data, current.profile ?? current.identity),
           levelStatus: Number.isSafeInteger(data.exp?.level)
             ? "ready"
             : "loading",
@@ -301,7 +292,10 @@ export function usePlayerProfile() {
           setState((current) => ({
             ...current,
             status: "ready",
-            profile: livePlayerProfile(event.data, current.profile),
+            profile: livePlayerProfile(
+              event.data,
+              current.profile ?? current.identity,
+            ),
           }));
         } else {
           setState((current) => ({

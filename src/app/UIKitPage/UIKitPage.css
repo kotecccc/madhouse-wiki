@@ -14,6 +14,24 @@
   min-width: 0;
 }
 
+.ui-kit-farm-motion-list {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.ui-kit-farm-motion-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+}
+
+.ui-kit-farm-motion-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-4);
+}
+
 .ui-kit-topbar {
   position: sticky;
   top: 0;

@@ -35,7 +35,7 @@
 
 .overview-player-name-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: start;
   gap: var(--space-8);
 }
@@ -44,19 +44,6 @@
   display: grid;
   min-width: 0;
   gap: var(--space-4);
-}
-
-.overview-active-effect {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.overview-active-effect-copy {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
 }
 
 .overview-level-progress {

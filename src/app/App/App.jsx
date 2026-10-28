@@ -31,7 +31,6 @@ import {
   subscribeSessionData,
   getSessionJson,
 } from "../../../shared/session-api.js";
-import { BorderLoader } from "../../components/ui/BorderLoader/BorderLoader.jsx";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { SiteHeader } from "../../components/layout/SiteHeader/SiteHeader.jsx";
 import { SiteFooter } from "../../components/layout/SiteFooter/SiteFooter.jsx";
@@ -50,10 +49,10 @@ import { AUTH_RESTORE_SETTLED_EVENT } from "../../../shared/auth-session.js";
 import { usePlayerProfile } from "../../features/auth/usePlayerProfile.js";
 import { OverviewSection } from "../../features/overview/OverviewSection/OverviewSection.jsx";
 import { useRaidSchedule } from "../../features/raids/useRaidSchedule.js";
-import { raidSubscriptions } from "../../features/bosses/BossBattle/boss-battle-session.js";
 
 import { screenFromHash } from "./app-screen.js";
-import { isPullReady } from "./pull-refresh.js";
+import { usePullRefresh } from "./usePullRefresh.js";
+import { PullRefresh } from "../../components/ui/PullRefresh/PullRefresh.jsx";
 
 export function App() {
   const [toastTarget, setToastTarget] = useState(null);
@@ -90,10 +89,7 @@ export function App() {
   const [floorFocusCode, setFloorFocusCode] = useState(null);
   const [visibleFloorCode, setVisibleFloorCode] = useState(null);
   const [queueFocus, setQueueFocus] = useState(null);
-  const [inventoryRefresh, setInventoryRefresh] = useState(0);
   const [friendsRefresh, setFriendsRefresh] = useState(0);
-  const [friendsLoading, setFriendsLoading] = useState(false);
-  const lastPull = useRef(0);
   const [sessionGeneration, setSessionGeneration] = useState(0);
   const onFriendCompleted = useCallback(
     () => setFriendsRefresh((value) => value + 1),
@@ -160,74 +156,31 @@ export function App() {
     inventoryResponses,
     kb.inventoryItems || [],
   ).reduce((sum, option) => sum + (option.count || 0), 0);
-  const [pullReady, setPullReady] = useState(false);
-  const pullStart = useRef(null);
-
-  function startPull(event) {
-    pullStart.current = null;
-    setPullReady(false);
-    if (
-      event.touches.length !== 1 ||
-      scrollRegionRef.current?.scrollTop > 0 ||
-      event.target.closest("button, input, textarea, select, dialog, a")
-    )
-      return;
-    pullStart.current = {
-      x: event.touches[0].clientX,
-      y: event.touches[0].clientY,
-      ready: false,
-    };
-  }
-  function movePull(event) {
-    const start = pullStart.current;
-    if (!start || event.touches.length !== 1) return;
-    start.ready = isPullReady({
-      startX: start.x,
-      startY: start.y,
-      x: event.touches[0].clientX,
-      y: event.touches[0].clientY,
-      scrollTop: scrollRegionRef.current?.scrollTop,
-    });
-    setPullReady(start.ready);
-  }
-  function endPull(event) {
-    if (event.touches.length > 0) {
-      pullStart.current = null;
-      setPullReady(false);
-      return;
-    }
-    const ready = pullStart.current?.ready;
-    pullStart.current = null;
-    setPullReady(false);
-    if (
-      !ready ||
-      Date.now() - lastPull.current < 10000 ||
-      refreshing ||
-      friendsLoading
-    )
-      return;
-    lastPull.current = Date.now();
-    if (visibleScreen === "friends") {
-      setFriendsRefresh((value) => value + 1);
-    } else if (visibleScreen === "inventory") {
-      setInventoryRefresh((value) => value + 1);
-    } else if (visibleScreen === "raids") {
-      raidSchedule.retry();
-      if (authenticated) raidSubscriptions.watch(true);
-    } else {
+  const pull = usePullRefresh({
+    regionRef: scrollRegionRef,
+    enabled: visibleScreen === "overview",
+    onRefresh: async () => {
       floorAvailability.retry();
-      if (authenticated) {
-        const paths = new Set(["/api/me", "/api/floors"]);
-        for (const code of [visibleFloorCode, departmentState?.code])
-          if (code) paths.add(`/api/floors/${encodeURIComponent(code)}/info`);
-        for (const path of paths)
-          void getSessionJson(path, {
+      if (!authenticated) return;
+      const paths = new Set([
+        "/api/me",
+        "/api/me/bag",
+        "/api/floors",
+        "/api/stash/sets",
+      ]);
+      for (const code of [visibleFloorCode, departmentState?.code])
+        if (code) paths.add(`/api/floors/${encodeURIComponent(code)}/info`);
+      await Promise.allSettled(
+        [...paths].map((path) =>
+          getSessionJson(path, {
             fresh: true,
             serverRefresh: "live",
-          }).catch(() => {});
-      }
-    }
-  }
+            afterPending: true,
+          }),
+        ),
+      );
+    },
+  });
 
   useEffect(() => {
     const syncSession = () => setSessionStatus(readSession().status);
@@ -340,6 +293,7 @@ export function App() {
           <SiteHeader
             loading={
               refreshing ||
+              pull.loading ||
               profileState.status === "loading" ||
               floorAvailability.status === "loading" ||
               floorContentLoading ||
@@ -358,20 +312,8 @@ export function App() {
           className="app-scroll-region"
           ref={scrollRegionRef}
           data-page-scroll
-          onTouchStart={startPull}
-          onTouchMove={movePull}
-          onTouchEnd={endPull}
-          onTouchCancel={() => {
-            pullStart.current = null;
-            setPullReady(false);
-          }}
         >
-          {refreshing && <BorderLoader label="Обновление данных" />}
-          {pullReady && (
-            <CardDescription role="status">
-              Отпустите, чтобы обновить
-            </CardDescription>
-          )}
+          <PullRefresh {...pull} />
           <MobileNavigation
             desktop
             inventoryCount={inventoryCount}
@@ -458,7 +400,6 @@ export function App() {
                   key={sessionGeneration}
                   active
                   refreshGeneration={friendsRefresh}
-                  onRefreshState={setFriendsLoading}
                   onNotice={setInventoryNotice}
                   queueFocus={
                     ["friend", "buddy"].includes(queueFocus?.kind)
@@ -480,7 +421,6 @@ export function App() {
                   dirtyPaths={inventoryDirty}
                   playerLevel={profileState.profile?.playerLevel}
                   target={inventoryTarget}
-                  refreshGeneration={inventoryRefresh}
                   onNotice={setInventoryNotice}
                   onLoadingChange={setInventoryLoading}
                 />

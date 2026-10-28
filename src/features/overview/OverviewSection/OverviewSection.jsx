@@ -11,6 +11,7 @@ import { Wallet } from "../../../components/ui/Wallet/Wallet.jsx";
 import { ImageCard } from "../../../components/ui/ImageCard/ImageCard.jsx";
 import { InfoButton } from "../../../components/ui/InfoButton/InfoButton.jsx";
 import { Pill } from "../../../components/ui/Pill/Pill.jsx";
+import { StatusText } from "../../../components/ui/StatusText/StatusText.jsx";
 import { ProgressBar } from "../../../components/ui/ProgressBar/ProgressBar.jsx";
 import {
   getRaidStatus,
@@ -26,19 +27,11 @@ import { allCharacterUpgradesComplete } from "../../../lib/character-stat-upgrad
 import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
 import { CharacterUpgrade } from "../CharacterUpgrade/CharacterUpgrade.jsx";
 import { getProfileStatDisplay } from "../../auth/profile.js";
+import { effectTimeLeft } from "../../../lib/stash-buff-time.js";
 import "./OverviewSection.css";
 
 const numberFormat = new Intl.NumberFormat("ru-RU");
 const fallbackEnergyRegenSeconds = 120;
-
-function effectTimeLeft(expiresAtMs, now) {
-  const remaining = Math.max(0, Math.ceil((expiresAtMs - now) / 1000));
-  if (!remaining) return "Срок истёк · ожидается обновление данных";
-  const hours = String(Math.floor(remaining / 3600)).padStart(2, "0");
-  const minutes = String(Math.floor((remaining % 3600) / 60)).padStart(2, "0");
-  const seconds = String(remaining % 60).padStart(2, "0");
-  return `Осталось ${hours}:${minutes}:${seconds}`;
-}
 
 function energyAtTime(energy, now) {
   if (
@@ -206,9 +199,15 @@ function ProfileSummary({ state }) {
   }, [upgradeResetAt]);
   const shouldTickEnergy =
     !!displayedEnergy && displayedEnergy.current < energy.max;
-  const shouldTickEffects = profile?.stashBuffs?.some(
-    (buff) => buff.expiresAtMs > now,
+  const activeBuff = profile?.stashBuffs?.reduce(
+    (earliest, buff) =>
+      buff.expiresAtMs > now &&
+      (!earliest || buff.expiresAtMs < earliest.expiresAtMs)
+        ? buff
+        : earliest,
+    null,
   );
+  const shouldTickEffects = Boolean(activeBuff);
   useEffect(() => {
     if (!shouldTickEnergy && !shouldTickEffects) return undefined;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -320,6 +319,22 @@ function ProfileSummary({ state }) {
           <div className="overview-player-identity">
             <div className="overview-player-name-row">
               <CardTitle as="h2">{profile.name}</CardTitle>
+              {activeBuff && (
+                <Pill
+                  variant="completed"
+                  size="xs"
+                  dot={false}
+                  role="status"
+                  aria-label={`${activeBuff.name}: ${effectTimeLeft(activeBuff.expiresAtMs, now)}`}
+                  title={`${activeBuff.name}: ${effectTimeLeft(activeBuff.expiresAtMs, now)}`}
+                >
+                  <Icon type="stash" size="small" />
+                  {effectTimeLeft(activeBuff.expiresAtMs, now).replace(
+                    "Осталось ",
+                    "",
+                  )}
+                </Pill>
+              )}
               {Number.isSafeInteger(profile.playerLevel) && (
                 <Pill size="xs" dot={false}>
                   {fmt(profile.playerLevel)} ур.
@@ -375,26 +390,6 @@ function ProfileSummary({ state }) {
                 />
               </div>
             )}
-            {profile.stashBuffs?.map((buff, index) => (
-              <div
-                className="overview-active-effect"
-                key={`${buff.setId}:${buff.expiresAtUtc}:${index}`}
-              >
-                <Icon type="stash" size="small" />
-                <div className="overview-active-effect-copy">
-                  <CardTitle as="span" size="xs" title={buff.name}>
-                    {buff.name}
-                  </CardTitle>
-                  <CardDescription size="xs">
-                    {effectTimeLeft(buff.expiresAtMs, now)}
-                  </CardDescription>
-                </div>
-                <InfoButton
-                  label={buff.name}
-                  description={`Безумие +${fmt(buff.madness)}, агрессия +${fmt(buff.aggression)}, ярость +${fmt(buff.rage)}. Действует до ${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "medium" }).format(new Date(buff.expiresAtMs))}. Время и прибавки получены из игрового API.`}
-                />
-              </div>
-            ))}
             {profile.stashBuffsStatus === "error" && (
               <ErrorToast message="Данные о временных эффектах недоступны" />
             )}
@@ -437,6 +432,20 @@ function ProfileSummary({ state }) {
             name !== "Агрессия" && Number.isFinite(derived)
               ? `${fmt(derived)}${unit.startsWith("%") ? "" : " "}${unit}`
               : null;
+          const statKey = {
+            Безумие: "madness",
+            Агрессия: "aggression",
+            Ярость: "rage",
+          }[name];
+          const effects = (profile.stashBuffs || []).filter(
+            (buff) => buff.expiresAtMs > now && buff[statKey] > 0,
+          );
+          const effectDescription = effects
+            .map(
+              (buff) =>
+                `${buff.name}: +${fmt(buff[statKey])}, ${effectTimeLeft(buff.expiresAtMs, now)}`,
+            )
+            .join("; ");
           return (
             <div key={name}>
               <dt>
@@ -451,14 +460,37 @@ function ProfileSummary({ state }) {
                   size="small"
                 />
                 {name}
-                {description && (
-                  <InfoButton label={name} description={description} />
+                {(description || effectDescription) && (
+                  <InfoButton
+                    label={name}
+                    description={[description, effectDescription]
+                      .filter(Boolean)
+                      .join(". ")}
+                  />
                 )}
               </dt>
               <dd>
                 {numberFormat.format(display.value)}
                 {display.temporary > 0 && (
-                  <> + {numberFormat.format(display.temporary)}</>
+                  <>
+                    {" "}
+                    <StatusText>
+                      + {numberFormat.format(display.temporary)}
+                    </StatusText>
+                  </>
+                )}
+                {display.temporary === 0 && effects.length > 0 && (
+                  <Pill
+                    variant="completed"
+                    size="xs"
+                    dot={false}
+                    title={effectDescription}
+                  >
+                    Бонус +
+                    {numberFormat.format(
+                      effects.reduce((sum, buff) => sum + buff[statKey], 0),
+                    )}
+                  </Pill>
                 )}
               </dd>
             </div>

@@ -646,3 +646,36 @@ test("failure-specific timestamps survive response metadata without counting suc
   reportGameHealth({ status: "available" });
   assert.deepEqual(readConfirmedGameHealthFeatures(), []);
 });
+
+test("post-action live refresh waits for a prior read and fetches again", async () => {
+  let release;
+  const calls = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake" },
+    }),
+    fetcher: async (_url, options) => {
+      calls.push(options.headers["X-Madhouse-Snapshot-Refresh"]);
+      if (calls.length === 1)
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      return new Response(JSON.stringify({ revision: calls.length }), {
+        headers: { "X-Madhouse-Snapshot": "current" },
+      });
+    },
+  });
+  const earlier = api.get("/api/me/bag", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  const refresh = api.get("/api/me/bag", {
+    fresh: true,
+    serverRefresh: "live",
+    afterPending: true,
+  });
+  release();
+  await earlier;
+  assert.deepEqual(await refresh, { revision: 2 });
+  assert.deepEqual(calls, [undefined, "live"]);
+});

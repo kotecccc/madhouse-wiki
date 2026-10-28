@@ -40,6 +40,9 @@
   --control-height-lg: 48px;
   --touch-target-size: 44px;
   --skeleton-animation-duration: 1.6s;
+  --loading-indicator-duration: 1.2s;
+  --card-motion-duration: 2s;
+  --card-motion-easing: cubic-bezier(0.3, 0.2, 0.7, 0.8);
   --skeleton-opacity-min: 0.5;
   --control-transition-duration: 0.2s;
   --control-transition-easing: ease;

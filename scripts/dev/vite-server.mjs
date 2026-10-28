@@ -1,3 +1,53 @@
+import { stop as stopEsbuild } from "esbuild";
+
+// A killed esbuild child leaves its JS service cached inside Vite. Reset that
+// service in place; restarting Vite would also restart account automation.
+export function recoverEsbuildPlugin({
+  stop = stopEsbuild,
+  schedule = setTimeout,
+} = {}) {
+  return {
+    name: "recover-dead-esbuild",
+    apply: "serve",
+    configureServer(server) {
+      const logger = server.config.logger;
+      const original = logger.error;
+      let recovering = false;
+      let lastRecovery = 0;
+      const error = (message, options) => {
+        original.call(logger, message, options);
+        const cause = options?.error;
+        if (
+          cause?.plugin !== "vite:esbuild" ||
+          !/The service (?:is no longer running|was stopped)/.test(
+            cause.message || "",
+          ) ||
+          recovering ||
+          Date.now() - lastRecovery < 10000
+        )
+          return;
+        recovering = true;
+        lastRecovery = Date.now();
+        Promise.resolve()
+          .then(() => stop())
+          .then(() => {
+            schedule(() => {
+              recovering = false;
+              server.ws.send({ type: "full-reload", path: "*" });
+            }, 250);
+          })
+          .catch(() => {
+            recovering = false;
+          });
+      };
+      logger.error = error;
+      server.httpServer?.once("close", () => {
+        if (logger.error === error) logger.error = original;
+      });
+    },
+  };
+}
+
 // Docker Desktop bind mounts need polling; HMR stays on the published HTTP port.
 export function devServerOptions(port, env = process.env) {
   const docker = env.MADHOUSE_DOCKER_DEV === "1";

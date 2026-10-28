@@ -67,6 +67,22 @@ test("active stash buffs normalize plural and legacy singular payloads safely", 
     rage: 0,
   });
   assert.equal(buffs[1].setId, 5, "expiry filtering belongs to display time");
+  assert.equal(
+    normalizeActiveStashBuffs({
+      activeStashBuffs: [],
+      activeStashBuff: {
+        setId: 3,
+        name: "Лоскутница",
+        expiresAtUtc: "2030-01-01T00:00:00Z",
+        madness: 26,
+      },
+    })[0]?.madness,
+    26,
+  );
+  assert.deepEqual(
+    normalizeActiveStashBuffs({ activeStashBuffs: [], activeStashBuff: null }),
+    [],
+  );
   assert.deepEqual(
     normalizeActiveStashBuffs({
       activeStashBuff: {

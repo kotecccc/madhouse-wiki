@@ -41,7 +41,11 @@ function safeImageUrl(value) {
 // The game client reads activeStashBuffs (and legacy activeStashBuff) from
 // /api/me/bag. Its alq normalizer exposes these fields for the stash plaque.
 export function normalizeActiveStashBuffs(bag) {
-  const value = bag?.activeStashBuffs ?? bag?.activeStashBuff;
+  const plural = bag?.activeStashBuffs;
+  const value =
+    Array.isArray(plural) && plural.length === 0 && bag?.activeStashBuff
+      ? bag.activeStashBuff
+      : (plural ?? bag?.activeStashBuff);
   const source = Array.isArray(value) ? value : value ? [value] : [];
 
   return source.flatMap((buff) => {

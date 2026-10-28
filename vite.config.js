@@ -1,6 +1,7 @@
 import {
   devServerOptions,
   dockerSourceHmrPlugin,
+  recoverEsbuildPlugin,
 } from "./scripts/dev/vite-server.mjs";
 import { automationPlugin } from "./scripts/automation/runtime.mjs";
 import { authSessionPlugin } from "./scripts/auth-session-plugin.mjs";
@@ -31,6 +32,7 @@ export default defineConfig({
   ),
   plugins: [
     dockerSourceHmrPlugin(),
+    recoverEsbuildPlugin(),
     react(),
     raidsFixturePlugin(fileURLToPath(new URL(".", import.meta.url))),
     authSessionPlugin(),

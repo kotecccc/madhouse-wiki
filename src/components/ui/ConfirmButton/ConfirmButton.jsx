@@ -21,8 +21,18 @@ export function ApprovableButton({
   return (
     <Button
       {...props}
+      menuValue={
+        confirming && props.variant === "menu-item" ? null : props.menuValue
+      }
       disabled={disabled}
-      variant={confirming ? "warning" : (props.variant ?? "primary")}
+      variant={
+        confirming && props.variant !== "menu-item"
+          ? "warning"
+          : (props.variant ?? "primary")
+      }
+      tone={
+        confirming && props.variant === "menu-item" ? "warning" : props.tone
+      }
       onClick={(event) => {
         if (!confirming) {
           if (onArm) onArm(event);

@@ -8,6 +8,52 @@
   --card-description-size: var(--font-size-sm);
 }
 
+/* Copies stay one card-width apart, including the copy entering from the left. */
+.base-card--motion-active {
+  --card-motion-color: var(--border-strong);
+  --card-motion-gradient: linear-gradient(
+    90deg,
+    transparent 48%,
+    color-mix(in srgb, var(--card-motion-color) 50%, transparent) 50%,
+    transparent 52%
+  );
+  background-image:
+    var(--card-motion-gradient), var(--card-motion-gradient),
+    var(--card-motion-gradient);
+  background-size:
+    200% 100%,
+    200% 100%,
+    200% 100%;
+  background-repeat: no-repeat;
+  animation: base-card-active-motion var(--card-motion-duration)
+    var(--card-motion-easing) infinite;
+}
+
+@keyframes base-card-active-motion {
+  from {
+    background-position:
+      0 0,
+      100% 0,
+      200% 0;
+  }
+  to {
+    background-position:
+      -100% 0,
+      0 0,
+      100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .base-card--motion-active {
+    animation: none;
+    background-position:
+      0 0,
+      100% 0,
+      200% 0;
+  }
+}
+
 /* Variants keep the shared shape and typography while tuning surface or role-specific spacing. */
 .base-card--upgrade-level {
   --card-background: var(--surface-raised);

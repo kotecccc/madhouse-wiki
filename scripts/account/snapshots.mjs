@@ -787,7 +787,16 @@ export function createAccountSnapshots({
             .map((key) => [key, data[key]]),
         ),
         ...(Number.isSafeInteger(data.exp?.level)
-          ? { exp: { level: data.exp.level } }
+          ? {
+              exp: Object.fromEntries(
+                ["level", "currentExp", "expToNextLevel"]
+                  .filter(
+                    (key) =>
+                      Number.isSafeInteger(data.exp[key]) && data.exp[key] >= 0,
+                  )
+                  .map((key) => [key, data.exp[key]]),
+              ),
+            }
           : {}),
       };
     },

@@ -38,3 +38,56 @@ export function workStashFirstCollection(stash, ingredients) {
   const missing = quantities.filter((quantity) => quantity === 0).length;
   return { status: "not_collected", missing };
 }
+
+export function workStashPartsProgress(stash, ingredients) {
+  if (!ingredients?.length || !stash) return null;
+  const quantities = ingredients.map(
+    (item) =>
+      stash.ingredients?.find(
+        (entry) => String(entry.ingredientId) === String(item.ingredientId),
+      )?.quantity,
+  );
+  if (quantities.some((quantity) => !Number.isSafeInteger(quantity)))
+    return null;
+  return {
+    owned: quantities.filter((quantity) => quantity > 0).length,
+    total: ingredients.length,
+  };
+}
+
+// The public game client treats a missing stashDrop on a successful task as no drop.
+// A drop's items contain the updated owned quantities; reject partial snapshots.
+export function applyWorkStashDrop(stash, ingredients, response) {
+  if (!stash || response?.success !== true || response.isDuplicate === true)
+    return null;
+  const drop = response.stashDrop;
+  if (drop == null) return stash;
+  if (
+    typeof drop !== "object" ||
+    String(drop.setId) !== String(stash.setId) ||
+    !Array.isArray(drop.items) ||
+    !ingredients?.some(
+      (part) => String(part.ingredientId) === String(drop.ingredientId),
+    )
+  )
+    return null;
+  const next = {
+    ...stash,
+    ingredients: stash.ingredients.map((part) => {
+      const matches = drop.items.filter(
+        (item) => String(item.ingredientId) === String(part.ingredientId),
+      );
+      if (
+        matches.length !== 1 ||
+        !Number.isSafeInteger(matches[0].owned) ||
+        matches[0].owned < 0
+      )
+        return null;
+      return { ...part, quantity: matches[0].owned };
+    }),
+  };
+  return next.ingredients.some((part) => !part) ||
+    !workStashPartsProgress(next, ingredients)
+    ? null
+    : next;
+}
