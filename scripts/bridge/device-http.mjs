@@ -39,6 +39,8 @@ async function readBody(request) {
 export function createBridgeDeviceHttp({
   service,
   accountService,
+  browserSessions,
+  accounts,
   botToken,
   origin,
   consume,
@@ -115,6 +117,20 @@ export function createBridgeDeviceHttp({
         return json(200, {
           device: await service.status(owner.id),
           account: accountService.status(owner.id),
+        });
+      }
+      if (
+        body.operation === "session" &&
+        Object.keys(body).sort().join(",") === "initData,operation"
+      ) {
+        if (!browserSessions || !accounts)
+          return json(503, { error: "bridge_unavailable" });
+        const device = service.listDevice(owner.id);
+        const revision = accounts.getRevision(owner.id);
+        if (!device || revision < 1)
+          return json(409, { error: "account_not_configured" });
+        return json(200, {
+          session: browserSessions.issue(owner.id, revision, device),
         });
       }
       if (

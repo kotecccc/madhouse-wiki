@@ -30,6 +30,46 @@ function request(path, body, requestOrigin = origin) {
   });
 }
 
+test("session issuance requires a verified owner and existing device binding", async () => {
+  const handler = createBridgeDeviceHttp({
+    service: {
+      listDevice: (owner) =>
+        owner === "101" ? { deviceId: "device", generation: 1 } : null,
+    },
+    accounts: { getRevision: (owner) => (owner === "101" ? 2 : 0) },
+    browserSessions: {
+      issue: (owner, revision, device) =>
+        `${owner}-${revision}-${device.deviceId}`,
+    },
+    botToken,
+    origin,
+    now: () => now,
+    consume: () => true,
+  });
+  const send = (id) =>
+    handler(
+      request("/api/bridge/device", {
+        operation: "session",
+        initData: initData(id),
+      }),
+      "127.0.0.1",
+    );
+  assert.deepEqual(await (await send(101)).json(), { session: "101-2-device" });
+  assert.equal((await send(102)).status, 409);
+  assert.equal(
+    (
+      await handler(
+        request("/api/bridge/device", {
+          operation: "session",
+          initData: "invalid",
+        }),
+        "127.0.0.1",
+      )
+    ).status,
+    401,
+  );
+});
+
 test("verified Telegram owner pairs, lists and revokes only their device", async () => {
   const db = new DatabaseSync(":memory:");
   const registry = createDeviceRegistry({

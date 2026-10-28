@@ -6,6 +6,8 @@ import { createBridgeStorage } from "./device-storage.mjs";
 import { createBridgeAwareAccountFetch } from "./bridge-aware-fetch.mjs";
 import { createConnectorLeaseIpcHandler } from "./connector-lease-ipc.mjs";
 import { createQueueActionGate } from "./queue-action-gate.mjs";
+import { createHmac } from "node:crypto";
+import { createBridgeBrowserSessions } from "./browser-session.mjs";
 
 /**
  * Isolated composition boundary. The hosting server must gate activation,
@@ -53,6 +55,13 @@ export function createBridgeRuntime({
     const handle = createBridgeDeviceHttp({
       service,
       accountService,
+      accounts: storage.accounts,
+      browserSessions: createBridgeBrowserSessions({
+        key: createHmac("sha256", botToken)
+          .update("madhouse-bridge-browser-session-v1")
+          .digest(),
+        ...(now ? { now } : {}),
+      }),
       botToken,
       origin,
       consume,
