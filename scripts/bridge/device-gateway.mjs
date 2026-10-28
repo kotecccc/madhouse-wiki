@@ -49,8 +49,7 @@ export function createDeviceGateway({
         req.method !== "GET" ||
         req.url !== "/bridge/data" ||
         typeof clientIp !== "string" ||
-        !clientIp ||
-        (await consume(clientIp)) !== true
+        !clientIp
       )
         return reject();
       const raw = req.rawHeaders || [];
@@ -59,9 +58,12 @@ export function createDeviceGateway({
         if (raw[i].toLowerCase() === "authorization") count += 1;
       if (count !== 1) return reject();
       const match = DEVICE_AUTH.exec(req.headers.authorization || "");
+      if (!match || !registry.authenticateDevice(match[1], match[2])) {
+        await consume(clientIp);
+        return reject();
+      }
       if (
-        !match ||
-        !registry.authenticateDevice(match[1], match[2]) ||
+        (await consume(clientIp, match[1])) !== true ||
         closed ||
         socket.destroyed
       )

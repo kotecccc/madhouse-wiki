@@ -74,7 +74,7 @@ export function createBridgeRuntime({
     gateway = createDeviceGateway({
       service,
       registry: storage.registry,
-      consume: (ip) => consume(ip, "/bridge/data"),
+      consume: (ip, device) => consume(ip, "/bridge/data", device),
       ...(heartbeatMs ? { heartbeatMs } : {}),
     });
     const connectorLease = connectorIpcKey

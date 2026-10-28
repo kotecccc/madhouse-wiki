@@ -931,6 +931,13 @@ export function createWikiBotApi({
       },
     );
     const data = await result.json().catch(() => null);
+    if (
+      method === "editMessageText" &&
+      data?.error_code === 400 &&
+      typeof data?.description === "string" &&
+      data.description.toLowerCase().includes("message is not modified")
+    )
+      return true;
     if (!result.ok || data?.ok !== true) {
       throw new Error(`Telegram Bot API ${method} failed`);
     }
@@ -1124,6 +1131,20 @@ export function createWikiBotApi({
         sender !== chatId
       )
         return;
+      const sendBridgeScreen = async (chatId, text, replyMarkup) => {
+        if (callback.message.photo) {
+          await sendMessage(chatId, text, replyMarkup);
+          return;
+        }
+        await callBotApi("editMessageText", {
+          chat_id: chatId,
+          message_id: callback.message.message_id,
+          text,
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        });
+      };
       const owner = String(sender);
       const device = bridgeDevices.list(owner);
       const menu = {
@@ -1163,7 +1184,7 @@ export function createWikiBotApi({
         let reporting = false;
         if (online && callback.data === "bridge:check" && bridgeReporter)
           reporting = await bridgeReporter(owner, "auto").catch(() => false);
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           `<b>Мост устройства</b>\n${device ? (online ? "Устройство подключено." : "Устройство привязано, но мост не запущен.") : "Устройство ещё не подключено."}${reporting ? "\nСводка боёв включена." : ""}\n\nВыберите устройство для установки.`,
           menu,
@@ -1173,7 +1194,7 @@ export function createWikiBotApi({
       if (callback.data === "bridge:report") {
         const enabled =
           bridgeReporter && (await bridgeReporter(owner, "enable"));
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           enabled
             ? "Сводка включена. Во время боя здесь появится одно обновляемое сообщение; после серии в нём останется итог."
@@ -1185,7 +1206,7 @@ export function createWikiBotApi({
       if (callback.data === "bridge:report-off") {
         const disabled =
           bridgeReporter && (await bridgeReporter(owner, "disable"));
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           disabled
             ? "Сводка боёв выключена."
@@ -1197,7 +1218,7 @@ export function createWikiBotApi({
       if (callback.data.startsWith("bridge:disconnect:")) {
         const id = callback.data.slice("bridge:disconnect:".length);
         if (!device || id !== device.deviceId) {
-          await sendMessage(
+          await sendBridgeScreen(
             chatId,
             "Устройство уже изменилось. Откройте меню моста заново.",
             menu,
@@ -1205,7 +1226,7 @@ export function createWikiBotApi({
           return;
         }
         bridgeDevices.revoke(owner, id);
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           "Устройство отключено. Теперь выберите Mac или iPhone.",
           {
@@ -1218,7 +1239,7 @@ export function createWikiBotApi({
       }
       if (!["bridge:mac", "bridge:iphone"].includes(callback.data)) return;
       if (device) {
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           "Уже привязано устройство. Чтобы подключить другое, сначала отключите его кнопкой ниже.",
           menu,
@@ -1227,7 +1248,7 @@ export function createWikiBotApi({
       }
       const { invitation } = bridgeDevices.invite(owner);
       if (callback.data === "bridge:mac") {
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           `<b>Мост на Mac</b>\n1. Скачайте архив и распакуйте его.\n2. Нажмите правой кнопкой на файл моста → «Открыть».\n3. Вставьте одноразовый ключ: <code>${escapeHtml(invitation)}</code>\n\nКлюч действует 5 минут. Оставьте окно моста открытым.`,
           {
@@ -1251,7 +1272,7 @@ export function createWikiBotApi({
           invitation,
           bootstrapSha256: bridgeBootstrapSha256,
         });
-        await sendMessage(
+        await sendBridgeScreen(
           chatId,
           `<b>Мост на iPhone</b>\n1. Установите iSH.\n2. Скопируйте команду ниже и вставьте её в iSH.\n3. Разрешите геолокацию, если iPhone спросит.\n\nКоманда действует 5 минут:\n<code>${escapeHtml(command)}</code>`,
           {
