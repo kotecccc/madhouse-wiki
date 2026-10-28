@@ -6,6 +6,7 @@ import {
   readFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { createHash } from "node:crypto";
 
 const files = new Map([
   [
@@ -29,6 +30,40 @@ const files = new Map([
     ["releases/manifest.sig", 64, "application/octet-stream"],
   ],
 ]);
+
+/** Verify public files are readable and the bootstrap matches the Wiki build. */
+export function verifyBridgeRelease(directory, bootstrapSha) {
+  if (
+    typeof directory !== "string" ||
+    !isAbsolute(directory) ||
+    !/^[a-f0-9]{64}$/.test(bootstrapSha || "")
+  )
+    throw new Error("bridge_release_invalid");
+  try {
+    for (const [relative, limit] of files.values()) {
+      const fd = openSync(
+        join(directory, relative),
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      );
+      try {
+        const info = fstatSync(fd);
+        if (!info.isFile() || info.size < 1 || info.size > limit)
+          throw new Error();
+        const data = readFileSync(fd);
+        if (data.length !== info.size) throw new Error();
+        if (
+          relative === "bootstrap.pyz" &&
+          createHash("sha256").update(data).digest("hex") !== bootstrapSha
+        )
+          throw new Error();
+      } finally {
+        closeSync(fd);
+      }
+    }
+  } catch {
+    throw new Error("bridge_release_invalid");
+  }
+}
 
 /** Serve only the already prepared public artifacts; never expose signing keys. */
 export function createBridgeReleaseHttp(directory) {

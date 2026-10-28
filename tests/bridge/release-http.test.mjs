@@ -10,7 +10,39 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createBridgeReleaseHttp } from "../../scripts/bridge/release-http.mjs";
+import { createHash } from "node:crypto";
+import {
+  createBridgeReleaseHttp,
+  verifyBridgeRelease,
+} from "../../scripts/bridge/release-http.mjs";
+
+test("startup rejects missing, altered, and symlinked release files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-release-check-"));
+  const digest = createHash("sha256").update("bootstrap").digest("hex");
+  try {
+    mkdirSync(join(dir, "releases"));
+    writeFileSync(join(dir, "bootstrap.pyz"), "bootstrap");
+    for (const name of ["madhouse-bridge.pyz", "manifest.json", "manifest.sig"])
+      writeFileSync(join(dir, "releases", name), "valid-size");
+    assert.doesNotThrow(() => verifyBridgeRelease(dir, digest));
+    assert.throws(() => verifyBridgeRelease(dir, "0".repeat(64)), {
+      message: "bridge_release_invalid",
+    });
+    rmSync(join(dir, "releases", "manifest.sig"));
+    assert.throws(() => verifyBridgeRelease(dir, digest), {
+      message: "bridge_release_invalid",
+    });
+    symlinkSync(
+      join(dir, "bootstrap.pyz"),
+      join(dir, "releases", "manifest.sig"),
+    );
+    assert.throws(() => verifyBridgeRelease(dir, digest), {
+      message: "bridge_release_invalid",
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("release endpoint serves only exact public files and rejects symlinks", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-public-release-"));

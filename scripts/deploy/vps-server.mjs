@@ -1,4 +1,10 @@
-import { copyFileSync, createReadStream, existsSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +14,11 @@ import { connectorHeaders } from "../../connector/worker.js";
 import { startVpsInlineCards } from "../telegram/inline-cards-vps.mjs";
 import { VERSION } from "../../connector/protocol.js";
 import { createVpsBridgeLab } from "../bridge/vps-lab.mjs";
-import { createBridgeReleaseHttp } from "../bridge/release-http.mjs";
+import {
+  createBridgeReleaseHttp,
+  verifyBridgeRelease,
+} from "../bridge/release-http.mjs";
+import { bridgeBootstrapSha } from "../bridge/release-config.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
@@ -48,6 +58,24 @@ for (const [name, value] of [
 }
 if (wikiOrigin === connectorOrigin)
   throw new Error("Wiki and connector require separate origins");
+if (role === "wiki") {
+  const expectedBootstrap = bridgeBootstrapSha(
+    JSON.parse(
+      readFileSync(
+        new URL("../bridge/release-config.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+  if (expectedBootstrap) {
+    if (process.env.MADHOUSE_BRIDGE_PRODUCTION !== "1")
+      throw new Error("bridge_production_required");
+    verifyBridgeRelease(
+      process.env.MADHOUSE_BRIDGE_RELEASE_DIR,
+      expectedBootstrap,
+    );
+  }
+}
 const bridgeLab = createVpsBridgeLab({
   role,
   env: process.env,
