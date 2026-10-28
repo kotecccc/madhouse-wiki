@@ -372,6 +372,14 @@ test(
         await assert.rejects(transport.liveFetch(workUrl, workRequest));
       });
       assert.equal(requests, requestsBeforeOffline);
+      const revoked = await command("revoke", { deviceId: paired.deviceId });
+      assert.equal(revoked.status, 200);
+      await assert.rejects(transport.verifyLocal(`Bearer ${session}`));
+      const afterRevoke = await fetch(url, {
+        headers: { Authorization: `Bearer ${session}` },
+      });
+      assert.ok(afterRevoke.status >= 400);
+      assert.equal(requests, requestsBeforeOffline);
     } finally {
       agent?.kill();
       automation.close();
