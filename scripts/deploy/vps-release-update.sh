@@ -96,13 +96,16 @@ with open(sys.argv[1], encoding="utf-8") as source:
 if not isinstance(comparison, dict):
     raise SystemExit("invalid release ancestry")
 base = comparison.get("base_commit")
-head = comparison.get("head_commit")
 merge_base = comparison.get("merge_base_commit")
+commits = comparison.get("commits")
+total = comparison.get("total_commits")
 if (not isinstance(base, dict) or base.get("sha") != sys.argv[2]
-    or not isinstance(head, dict) or head.get("sha") != sys.argv[3]
     or not isinstance(merge_base, dict) or merge_base.get("sha") != sys.argv[2]
     or comparison.get("status") != "ahead" or type(comparison.get("ahead_by")) is not int
-    or comparison["ahead_by"] < 1 or type(comparison.get("behind_by")) is not int
+    or comparison["ahead_by"] < 1 or type(total) is not int
+    or not isinstance(commits, list) or total != len(commits) or total < 1
+    or not isinstance(commits[-1], dict) or commits[-1].get("sha") != sys.argv[3]
+    or type(comparison.get("behind_by")) is not int
     or comparison["behind_by"] != 0):
     raise SystemExit("release is below or unrelated to the rollback floor")
 PYCODE

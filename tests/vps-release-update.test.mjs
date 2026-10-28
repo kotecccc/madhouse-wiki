@@ -108,7 +108,8 @@ case "$url" in
     status='${compareMode}'; merge="$base"; ahead=1; behind=0
     [ "$status" = 'behind' ] && { ahead=0; behind=1; }
     [ "$status" = 'diverged' ] && { merge='${"f".repeat(40)}'; behind=1; }
-    printf '{"base_commit":{"sha":"%s"},"head_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"},"status":"%s","ahead_by":%s,"behind_by":%s}\n' "$base" "$head" "$merge" "$status" "$ahead" "$behind" >"$out"
+    total=1; [ "$status" = 'truncated' ] && { status=ahead; total=2; }
+    printf '{"base_commit":{"sha":"%s"},"commits":[{"sha":"%s"}],"total_commits":%s,"merge_base_commit":{"sha":"%s"},"status":"%s","ahead_by":%s,"behind_by":%s}\n' "$base" "$head" "$total" "$merge" "$status" "$ahead" "$behind" >"$out"
     ;;
   https://api.github.com/*)
     cat >"$out" <<'JSON'
@@ -644,7 +645,12 @@ test("bridge updates refuse missing overlay or rollback floor", () => {
 });
 
 test("rollback floor rejects older, diverged, and unverifiable candidates before stopping", () => {
-  for (const compareMode of ["behind", "diverged", "network-error"]) {
+  for (const compareMode of [
+    "behind",
+    "diverged",
+    "network-error",
+    "truncated",
+  ]) {
     const f = fixture({ floorSha: previous, compareMode });
     try {
       assert.notEqual(f.run.status, 0, compareMode);
