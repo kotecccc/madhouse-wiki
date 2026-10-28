@@ -38,6 +38,8 @@ export async function isAllowedBridgeQueueCommand(request) {
           "battle.attack",
           "battle.heal",
           "battle.buy",
+          "auto.start",
+          "raid.start",
         ].includes(input.args?.type) ||
           (input.args?.type === "work.start" &&
             input.args?.action?.mode === "energy" &&
@@ -48,7 +50,15 @@ export async function isAllowedBridgeQueueCommand(request) {
       (input?.command === "work.plan" &&
         Number.isSafeInteger(input.args?.workId) &&
         input.args.workId > 0) ||
-      input?.command === "work.stop" ||
+      [
+        "work.stop",
+        "auto.pause",
+        "auto.resume",
+        "auto.stop",
+        "raid.pause",
+        "raid.resume",
+        "raid.stop",
+      ].includes(input?.command) ||
       (["buddy.set", "friends.favorite"].includes(input?.command) &&
         Number.isSafeInteger(input.args?.playerId) &&
         input.args.playerId > 0 &&

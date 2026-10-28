@@ -929,7 +929,7 @@ export function createAutomationService({
         }
         const dispatchGeneration = entry.autoStartGeneration ?? 0;
         const credential = entry.credential;
-        const response = await fetcher(url, {
+        const options = {
           ...init,
           redirect: "error",
           canDispatch: () => {
@@ -950,7 +950,86 @@ export function createAutomationService({
                 : canAct(entry))
             );
           },
-        }).catch((error) => {
+        };
+        const send = () => fetcher(url, options);
+        const pending = entry.assistant?.queuedState().pending;
+        const automaticBattle =
+          !entry.queueBattleDispatch &&
+          pending &&
+          !pending.queueId &&
+          (entry.auto?.getSnapshot().enabled ||
+            entry.raidWorker?.getSnapshot().enabled ||
+            entry.collector?.running());
+        let sent;
+        if (queueActionGate && automaticBattle && init.method === "POST") {
+          const path = new URL(url).pathname;
+          const requestBody = init.body;
+          let parsed;
+          try {
+            parsed = JSON.parse(requestBody);
+          } catch {
+            throw failure(409, "battle_checkpoint_missing");
+          }
+          const expectedPath =
+            pending.kind === "start"
+              ? `/api/bosses/${pending.bossId}/battles`
+              : pending.kind === "attack"
+                ? `/api/bosses/battles/${pending.battleId}/attack`
+                : pending.kind === "heal"
+                  ? `/api/bosses/battles/${pending.battleId}/items/use`
+                  : pending.kind === "buy"
+                    ? "/api/me/bag/combat-items/buy"
+                    : null;
+          const expectedBody =
+            pending.kind === "heal"
+              ? { type: pending.type, operationId: pending.operationId }
+              : pending.kind === "buy"
+                ? {
+                    type: pending.quote?.type,
+                    currency: pending.quote?.currency,
+                    quantity: pending.quote?.quantity,
+                    operationId: pending.operationId,
+                  }
+                : { operationId: pending.operationId };
+          const matches = (x, y) =>
+            x &&
+            y &&
+            Object.keys(x).length === Object.keys(y).length &&
+            Object.keys(y).every((key) => x[key] === y[key]);
+          if (
+            !expectedPath ||
+            path !== expectedPath ||
+            !pending.operationId ||
+            !matches(parsed, expectedBody)
+          )
+            throw failure(409, "battle_checkpoint_missing");
+          let used = false;
+          const permit = ({ authorization, method, path: target, body }) => {
+            const current = entry.assistant?.queuedState().pending;
+            if (
+              used ||
+              authorization !== credential ||
+              method !== "POST" ||
+              target !== expectedPath ||
+              body !== requestBody ||
+              current?.operationId !== pending.operationId ||
+              current?.kind !== pending.kind ||
+              current?.battleId !== pending.battleId ||
+              current?.queueId ||
+              !options.canDispatch() ||
+              !(
+                entry.auto?.getSnapshot().enabled ||
+                entry.raidWorker?.getSnapshot().enabled ||
+                entry.collector?.running()
+              )
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          sent = queueActionGate.runWork(permit, send);
+        } else sent = send();
+        const response = await sent.catch((error) => {
           if (error.notDispatched && init.method === "POST")
             entry.assistant?.releaseUnsent(
               JSON.parse(init.body || "null")?.operationId,
