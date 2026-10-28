@@ -221,6 +221,27 @@ test("a failed prerequisite is shown even when the session needs login", () => {
   assert.equal(card.status, "Предыдущее действие не выполнено");
 });
 
+test("a cancelled in-flight action that fails shows its final error and can be dismissed", () => {
+  const cards = actionQueueCards({
+    gameHealth: { status: "credentials_invalid" },
+    queuedActions: [
+      {
+        id: "failed-after-cancel",
+        type: "inventory",
+        args: { action: "buy" },
+        priority: 1,
+        createdAt: 1,
+        status: "failed",
+        cancelRequested: true,
+        reason: "inventory_price_changed",
+      },
+    ],
+  });
+  assert.equal(cards[0].status, "Цена изменилась");
+  assert.equal(cards[0].command, "queue.dismiss");
+  assert.equal(cards[0].cancelNotice, null);
+});
+
 test("retry deadlines are shown only when a future attempt or reconciliation is scheduled", () => {
   const base = {
     type: "inventory",

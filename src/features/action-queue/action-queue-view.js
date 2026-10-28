@@ -442,13 +442,13 @@ export function actionQueueCards(state, catalogue = {}) {
               : phases.completed
           : job.status === "failed" && job.reason === "dependency_failed"
             ? failureMessages.dependency_failed
-            : state.gameHealth?.status === "credentials_invalid" ||
-                job.reason === "game_session_required"
-              ? "Требуется вход"
-              : job.cancelRequested
-                ? "Ожидаем результат"
-                : job.status === "failed"
-                  ? failureMessages[job.reason] || "Не удалось выполнить"
+            : job.status === "failed"
+              ? failureMessages[job.reason] || "Не удалось выполнить"
+              : state.gameHealth?.status === "credentials_invalid" ||
+                  job.reason === "game_session_required"
+                ? "Требуется вход"
+                : job.cancelRequested
+                  ? "Ожидаем результат"
                   : job.reason === "Ожидаем приглашение."
                     ? "Ожидает приглашение"
                     : job.status === "running"
@@ -553,12 +553,11 @@ export function actionQueueCards(state, catalogue = {}) {
         ? { playerId: job.args?.playerId ?? null }
         : null,
       floorTarget: job.type === "floor.start" ? (floor?.target ?? null) : null,
-      command:
-        job.status === "completed"
-          ? "queue.dismiss"
-          : job.cancelRequested
-            ? null
-            : "queue.cancel",
+      command: ["completed", "failed"].includes(job.status)
+        ? "queue.dismiss"
+        : job.cancelRequested
+          ? null
+          : "queue.cancel",
       cancelNotice:
         !job.cancelRequested && ["running", "reconciling"].includes(job.status)
           ? "Если действие уже отправлено, оно может завершиться; результат останется на проверке."
