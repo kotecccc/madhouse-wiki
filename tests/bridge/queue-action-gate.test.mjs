@@ -6,6 +6,53 @@ import { createActionQueue } from "../../scripts/automation/action-queue.mjs";
 import { createAccountQueue } from "../../scripts/automation/account-queue.mjs";
 import { queuedFriendResponseAdapter } from "../../scripts/automation/queued-friend-response.mjs";
 
+test("waiting account lane preserves the work dispatch permission", async () => {
+  const gate = createQueueActionGate();
+  let release;
+  const blocked = new Promise((resolve) => {
+    release = resolve;
+  });
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body: JSON.stringify({
+      workId: 7,
+      taskId: 2,
+      locale: "ru",
+      operationId: "op",
+    }),
+  };
+  const permit = createWorkActionPermit({
+    authorization: request.authorization,
+    workId: 7,
+    taskId: 2,
+    operationId: "op",
+    checkpointIsCurrent: () => true,
+  });
+  const queue = createAccountQueue(
+    async (url) => {
+      if (url.endsWith("/hold")) await blocked;
+      else assert.equal(gate.claim(request), true);
+      return new Response("{}");
+    },
+    { captureDispatchContext: gate.capture },
+  );
+  const held = queue("https://cargohustle.online/hold", {
+    headers: { Authorization: request.authorization },
+  });
+  const work = gate.runWork(permit, () =>
+    queue("https://cargohustle.online/api/works/tasks/perform", {
+      method: "POST",
+      headers: { Authorization: request.authorization },
+      body: request.body,
+    }),
+  );
+  release();
+  await Promise.all([held, work]);
+  assert.equal(gate.claim(request), false);
+});
+
 test("work permission is scoped to its active context and consumed once", async () => {
   const gate = createQueueActionGate();
   const permit = createWorkActionPermit({
