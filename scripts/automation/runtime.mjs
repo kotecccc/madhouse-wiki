@@ -8,6 +8,7 @@ import { createAutomationStateStore } from "./state-store.mjs";
 import { createAutomationService } from "./service.mjs";
 import { createAutomationHttp, nodeAutomationHandler } from "./http.mjs";
 import { readKnowledgeBase } from "../catalogue/query.mjs";
+import { isAllowedBridgeQueueCommand } from "../bridge/queue-command.mjs";
 
 export async function createAutomationRuntime({
   root = process.cwd(),
@@ -96,7 +97,11 @@ export async function createAutomationRuntime({
           headers: { "Cache-Control": "private, no-store" },
         });
       }
-      if (route.policy === "bridge_required" && request.method !== "GET")
+      if (
+        route.policy === "bridge_required" &&
+        request.method !== "GET" &&
+        !(await isAllowedBridgeQueueCommand(request))
+      )
         return new Response(
           JSON.stringify({ error: "bridge_actions_disabled" }),
           {
