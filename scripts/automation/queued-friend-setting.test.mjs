@@ -76,6 +76,18 @@ test("service persists queued friend settings without contacting the game", asyn
     assert.equal(result.queuedActions[0].type, "friend.favorite");
     assert.equal(result.queuedActions[0].status, "queued");
     assert.deepEqual(result.preferences.favoriteFriendIds ?? [], []);
+    const dependent = await service.command(entry, {
+      id: "favorite-0002",
+      expectedVersion: result.version,
+      command: "queue.enqueue",
+      args: {
+        type: "friend.favorite",
+        action: { playerId: 8, enabled: false },
+        dependsOn: ["favorite-0001"],
+      },
+    });
+    assert.deepEqual(dependent.queuedActions[1].dependsOn, ["favorite-0001"]);
+    assert.equal(dependent.queuedActions[1].blockedBy, "dependency");
   } finally {
     service.close();
     rmSync(directory, { recursive: true, force: true });

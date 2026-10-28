@@ -383,6 +383,165 @@ for (const failure of ["before dispatch", "after dispatch"]) {
   });
 }
 
+test("dismiss hides only terminal records and preserves the durable receipt", async () => {
+  const h = setup();
+  h.queue.add({ id: "action-finished", type: "buy", args: { id: 1 } });
+  h.queue.add({ id: "action-pending", type: "buy", args: { id: 2 } });
+  await h.queue.tick();
+  assert.equal(h.queue.dismiss("action-pending"), false);
+  assert.equal(h.queue.dismiss("action-finished"), true);
+  assert.equal(h.stored()[0].status, "completed");
+  assert.equal(h.stored()[0].dismissed, true);
+  assert.equal(
+    h.queue.add({ id: "action-finished", type: "buy", args: { id: 1 } }).status,
+    "completed",
+  );
+});
+
+test("dependent work waits for confirmed success without blocking independent work", async () => {
+  const h = setup();
+  const executed = [];
+  h.execute(async (job) => {
+    executed.push(job.id);
+    return { status: "completed" };
+  });
+  h.queue.add({
+    id: "dependency-01",
+    type: "buy",
+    args: { id: 1 },
+    priority: 1,
+  });
+  h.queue.add({
+    id: "dependent-01",
+    type: "buy",
+    args: { id: 2 },
+    priority: 60,
+    dependsOn: ["dependency-01"],
+  });
+  h.queue.add({
+    id: "independent-01",
+    type: "buy",
+    args: { id: 3 },
+    priority: 30,
+  });
+  assert.equal(h.queue.snapshot()[1].blockedBy, "dependency");
+  await h.queue.tick();
+  await h.queue.tick();
+  await h.queue.tick();
+  assert.deepEqual(executed, [
+    "independent-01",
+    "dependency-01",
+    "dependent-01",
+  ]);
+});
+
+test("failed or cancelled dependencies never authorize dependent dispatch after restart", async () => {
+  for (const status of ["failed", "cancelled", "reconciling"]) {
+    let calls = 0;
+    const saved = [
+      {
+        id: "dependency-01",
+        type: "buy",
+        args: { id: 1 },
+        status,
+        priority: 0,
+        createdAt: 0,
+        attempts: 0,
+        nextAt: Number.MAX_SAFE_INTEGER,
+      },
+      {
+        id: "dependent-01",
+        type: "buy",
+        args: { id: 2 },
+        status: "queued",
+        priority: 60,
+        createdAt: 1,
+        attempts: 0,
+        nextAt: 0,
+        dependsOn: ["dependency-01"],
+      },
+    ];
+    const queue = createActionQueue({
+      saved,
+      persist: () => true,
+      now: () => 1000,
+      adapters: {
+        buy: {
+          execute: async () => {
+            calls++;
+            return { status: "completed" };
+          },
+        },
+      },
+    });
+    assert.equal(queue.hasDue(), false);
+    await queue.tick();
+    assert.equal(calls, 0);
+    assert.equal(queue.snapshot()[1].blockedBy, "dependency");
+  }
+});
+
+test("rejects missing, duplicate and self dependencies", () => {
+  const h = setup();
+  for (const dependsOn of [["missing-01"], ["dependent-01"]])
+    assert.throws(
+      () =>
+        h.queue.add({
+          id: "dependent-01",
+          type: "buy",
+          args: { id: 1 },
+          dependsOn,
+        }),
+      /invalid_action_queue_dependency/,
+    );
+  h.queue.add({ id: "dependency-01", type: "buy", args: { id: 1 } });
+  assert.throws(
+    () =>
+      h.queue.add({
+        id: "dependent-01",
+        type: "buy",
+        args: { id: 2 },
+        dependsOn: ["dependency-01", "dependency-01"],
+      }),
+    /invalid_action_queue_dependency/,
+  );
+});
+
+test("history pruning retains a completed prerequisite while it is still referenced", () => {
+  const saved = Array.from({ length: 130 }, (_, i) => ({
+    id: `done-${String(i).padStart(4, "0")}`,
+    type: "buy",
+    args: { id: i },
+    status: "completed",
+    priority: 0,
+    createdAt: i,
+    attempts: 0,
+    nextAt: null,
+  }));
+  saved.push({
+    id: "dependent-01",
+    type: "buy",
+    args: { id: 200 },
+    status: "queued",
+    priority: 0,
+    createdAt: 200,
+    attempts: 0,
+    nextAt: 0,
+    dependsOn: ["done-0000"],
+  });
+  const queue = createActionQueue({
+    saved,
+    persist: () => true,
+    adapters: { buy: { validate: (args) => args } },
+  });
+  queue.add({ id: "another-01", type: "buy", args: { id: 201 } });
+  assert.ok(queue.snapshot().some((entry) => entry.id === "done-0000"));
+  assert.equal(
+    queue.snapshot().find((entry) => entry.id === "dependent-01").eligible,
+    true,
+  );
+});
+
 test("terminal history stays bounded while uncertain checkpoints remain", async () => {
   // Simulate a checkpoint recovered after an interrupted submission.
   const paused = createActionQueue({

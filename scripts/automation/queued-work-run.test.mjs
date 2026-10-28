@@ -102,6 +102,23 @@ test("service waits for the existing farm before starting the next one", async (
     assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
     assert.equal(service.snapshot(entry).workFarm.run.workId, 7);
     assert.equal(service.snapshot(entry).workFarm.run.queueId, "work-queue-01");
+    await assert.rejects(
+      service.command(entry, {
+        id: "dependent-floor-01",
+        command: "queue.enqueue",
+        expectedVersion: service.snapshot(entry).version,
+        args: { type: "floor.start", action: {}, dependsOn: ["work-queue-01"] },
+      }),
+      /invalid_action_queue_dependency/,
+    );
+    await service.command(entry, {
+      id: "dismiss-work-01",
+      command: "queue.dismiss",
+      expectedVersion: service.snapshot(entry).version,
+      args: { id: "work-queue-01" },
+    });
+    assert.equal(service.snapshot(entry).queuedActions[0].dismissed, true);
+    assert.equal(service.snapshot(entry).workFarm.run.status, "running");
     await service.command(entry, {
       id: "cancel-work-01",
       command: "queue.cancel",

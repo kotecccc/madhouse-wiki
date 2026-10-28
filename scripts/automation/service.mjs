@@ -121,6 +121,7 @@ const safeCommands = new Set([
 const commands = new Set([
   "queue.enqueue",
   "queue.cancel",
+  "queue.dismiss",
   "buddy.set",
   "buddy.stop",
   "buddy.order",
@@ -2555,6 +2556,29 @@ export function createAutomationService({
         entry.receipts = [...entry.receipts.slice(-127), input.id];
       try {
         let action = input.args.action;
+        const dependsOn = input.args.dependsOn ?? [];
+        if (
+          !Array.isArray(dependsOn) ||
+          dependsOn.length > 10 ||
+          dependsOn.some((id) => {
+            const dependency = entry.actionQueue
+              .snapshot()
+              .find((job) => job.id === id);
+            return (
+              !dependency ||
+              [
+                "work.start",
+                "character.start",
+                "business.start",
+                "floor.start",
+                "auto.start",
+                "raid.start",
+                "subscription.start",
+              ].includes(dependency.type)
+            );
+          })
+        )
+          throw failure(400, "invalid_action_queue_dependency");
         if (input.args.type === "invitation.accept") {
           action =
             knownJob?.type === "invitation.accept"
@@ -2570,6 +2594,7 @@ export function createAutomationService({
           id: input.id,
           type: input.args.type,
           args: action,
+          dependsOn,
           priority:
             input.args.type === "invitation.accept"
               ? 60
@@ -2599,6 +2624,12 @@ export function createAutomationService({
         throw failure(entry.storageFailed ? 503 : 400, error.message);
       }
       if (input.args.type === "battle.buy") entry.controller.cancelPurchase();
+      return snapshot(entry);
+    }
+    if (input.command === "queue.dismiss") {
+      if (typeof input.args?.id !== "string")
+        throw failure(400, "invalid_queue_id");
+      entry.actionQueue.dismiss(input.args.id);
       return snapshot(entry);
     }
     if (input.command === "queue.cancel") {

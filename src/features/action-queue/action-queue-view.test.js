@@ -29,6 +29,7 @@ test("projects server actors and prioritized queued intentions without duplicate
         id: "hidden",
         type: "inventory",
         status: "completed",
+        dismissed: true,
         priority: 4,
         createdAt: 100,
         args: {},
@@ -47,6 +48,57 @@ test("projects server actors and prioritized queued intentions without duplicate
   assert.deepEqual(cards[2].inventoryTarget, { type: "weapon", id: 2 });
   assert.equal(cards[2].position, 1);
   assert.equal(cards[3].position, 2);
+});
+
+test("completed actions can be dismissed and handoffs do not claim the goal finished", () => {
+  const cards = actionQueueCards({
+    serverTime: 1000,
+    queuedActions: [
+      {
+        id: "done",
+        type: "inventory",
+        status: "completed",
+        priority: 30,
+        createdAt: 1,
+        args: { action: "buy" },
+      },
+      {
+        id: "handoff",
+        type: "work.start",
+        status: "completed",
+        priority: 20,
+        createdAt: 2,
+        args: { workId: 1 },
+      },
+    ],
+  });
+  const done = cards.find((card) => card.id === "done");
+  const handoff = cards.find((card) => card.id === "handoff");
+  assert.equal(done.status, "Выполнено");
+  assert.equal(done.command, "queue.dismiss");
+  assert.equal(done.position, null);
+  assert.equal(handoff.status, "Передано исполнителю");
+  assert.equal(handoff.command, "queue.dismiss");
+});
+
+test("a dependent action explains that it waits for confirmation", () => {
+  const [card] = actionQueueCards({
+    serverTime: 1000,
+    queuedActions: [
+      {
+        id: "dependent",
+        type: "inventory",
+        status: "queued",
+        priority: 30,
+        createdAt: 1,
+        args: { action: "buy" },
+        blockedBy: "dependency",
+        eligible: false,
+      },
+    ],
+  });
+  assert.equal(card.status, "Ожидает подтверждения действия");
+  assert.equal(card.position, null);
 });
 
 test("shows floor and character progress using authoritative actor state", () => {

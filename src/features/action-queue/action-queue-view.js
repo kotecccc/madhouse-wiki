@@ -8,6 +8,7 @@ const visible = new Set([
   "reconciling",
   "paused",
   "failed",
+  "completed",
 ]);
 const phases = {
   queued: "В очереди",
@@ -16,7 +17,17 @@ const phases = {
   reconciling: "Проверяем результат",
   paused: "На паузе",
   failed: "Остановлено",
+  completed: "Выполнено",
 };
+const handoffTypes = new Set([
+  "work.start",
+  "character.start",
+  "business.start",
+  "floor.start",
+  "auto.start",
+  "raid.start",
+  "subscription.start",
+]);
 const failureMessages = {
   game_session_required: "Требуется вход",
   inventory_price_changed: "Цена изменилась",
@@ -268,11 +279,18 @@ export function actionQueueCards(state, catalogue = {}) {
     job.eligible !== false &&
     !job.blockedBy &&
     (job.nextAt ?? 0) <= time;
+  const recentCompleted = new Set(
+    (state.queuedActions || [])
+      .filter((job) => job.status === "completed" && !job.dismissed)
+      .slice(-5)
+      .map((job) => job.id),
+  );
   const queued = (state.queuedActions || [])
     .filter(
       (job) =>
         visible.has(job.status) &&
         !job.dismissed &&
+        (job.status !== "completed" || recentCompleted.has(job.id)) &&
         !(job.type === "auto.start" && state.auto?.queueId === job.id) &&
         !(job.type === "raid.start" && state.raid?.queueId === job.id) &&
         !(job.type === "business.start" && business?.queueId === job.id) &&
@@ -356,46 +374,52 @@ export function actionQueueCards(state, catalogue = {}) {
                                         actions[job.args?.action] ||
                                         "Действие",
       status:
-        state.gameHealth?.status === "credentials_invalid" ||
-        job.reason === "game_session_required"
-          ? "Требуется вход"
-          : job.cancelRequested
-            ? "Ожидаем результат"
-            : job.status === "failed"
-              ? failureMessages[job.reason] || "Не удалось выполнить"
-              : job.reason === "Ожидаем приглашение."
-                ? "Ожидает приглашение"
-                : job.status === "running"
-                  ? phases.running
-                  : job.blockedBy === "credentials"
-                    ? "Требуется вход"
-                    : job.blockedBy === "storage"
-                      ? "Ожидает сервер"
-                      : job.blockedBy === "action"
-                        ? "Ожидает другие действия"
-                        : job.blockedBy === "game"
-                          ? "Ожидает игру"
-                          : job.blockedBy === "rate"
-                            ? "Ожидает очередь"
-                            : job.eligible === false
-                              ? [
-                                  "work.booster",
-                                  "work.start",
-                                  "character.start",
-                                  "subscription.start",
-                                  "battle.start",
-                                  "battle.attack",
-                                  "battle.heal",
-                                  "battle.buy",
-                                  "invitation.accept",
-                                  "business.start",
-                                  "floor.start",
-                                  "auto.start",
-                                  "raid.start",
-                                ].includes(job.type)
-                                ? "Ожидает другие действия"
-                                : "Ожидает окончания боя"
-                              : phases[job.status] || "Ожидание",
+        job.status === "completed"
+          ? handoffTypes.has(job.type)
+            ? "Передано исполнителю"
+            : phases.completed
+          : state.gameHealth?.status === "credentials_invalid" ||
+              job.reason === "game_session_required"
+            ? "Требуется вход"
+            : job.cancelRequested
+              ? "Ожидаем результат"
+              : job.status === "failed"
+                ? failureMessages[job.reason] || "Не удалось выполнить"
+                : job.reason === "Ожидаем приглашение."
+                  ? "Ожидает приглашение"
+                  : job.status === "running"
+                    ? phases.running
+                    : job.blockedBy === "credentials"
+                      ? "Требуется вход"
+                      : job.blockedBy === "storage"
+                        ? "Ожидает сервер"
+                        : job.blockedBy === "action"
+                          ? "Ожидает другие действия"
+                          : job.blockedBy === "dependency"
+                            ? "Ожидает подтверждения действия"
+                            : job.blockedBy === "game"
+                              ? "Ожидает игру"
+                              : job.blockedBy === "rate"
+                                ? "Ожидает очередь"
+                                : job.eligible === false
+                                  ? [
+                                      "work.booster",
+                                      "work.start",
+                                      "character.start",
+                                      "subscription.start",
+                                      "battle.start",
+                                      "battle.attack",
+                                      "battle.heal",
+                                      "battle.buy",
+                                      "invitation.accept",
+                                      "business.start",
+                                      "floor.start",
+                                      "auto.start",
+                                      "raid.start",
+                                    ].includes(job.type)
+                                    ? "Ожидает другие действия"
+                                    : "Ожидает окончания боя"
+                                  : phases[job.status] || "Ожидание",
       detail:
         job.type === "character.start"
           ? job.args.quotes
@@ -465,7 +489,12 @@ export function actionQueueCards(state, catalogue = {}) {
         ? { playerId: job.args?.playerId ?? null }
         : null,
       floorTarget: job.type === "floor.start" ? (floor?.target ?? null) : null,
-      command: job.cancelRequested ? null : "queue.cancel",
+      command:
+        job.status === "completed"
+          ? "queue.dismiss"
+          : job.cancelRequested
+            ? null
+            : "queue.cancel",
       position: ready(job) ? ++position : null,
       actor: false,
     });

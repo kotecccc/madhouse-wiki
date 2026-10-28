@@ -122,7 +122,9 @@ export function useActionQueue(
     setPending(true);
     setError(null);
     try {
-      const args = card.command === "queue.cancel" ? { id: card.id } : {};
+      const args = ["queue.cancel", "queue.dismiss"].includes(card.command)
+        ? { id: card.id }
+        : {};
       const next = await postSessionJson("/api/automation/commands", {
         id: crypto.randomUUID(),
         expectedVersion: state.version,

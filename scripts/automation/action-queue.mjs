@@ -54,7 +54,7 @@ export function createActionQueue({
     if (persist(clone(entries)) === false)
       throw new Error("action_queue_storage_unavailable");
   }
-  function add({ id, type, args, priority = 0 }) {
+  function add({ id, type, args, priority = 0, dependsOn = [] }) {
     if (
       typeof id !== "string" ||
       !/^[A-Za-z0-9_-]{8,80}$/.test(id) ||
@@ -64,6 +64,18 @@ export function createActionQueue({
       throw new Error("invalid_action_queue_entry");
     const existing = entries.find((entry) => entry.id === id);
     if (existing) return clone(existing);
+    if (
+      !Array.isArray(dependsOn) ||
+      dependsOn.length > 10 ||
+      new Set(dependsOn).size !== dependsOn.length ||
+      dependsOn.some(
+        (dependency) =>
+          typeof dependency !== "string" ||
+          dependency === id ||
+          !entries.some((item) => item.id === dependency),
+      )
+    )
+      throw new Error("invalid_action_queue_dependency");
     const normalized = adapters[type].validate(clone(args));
     const key = adapters[type].dedupeKey?.(normalized);
     if (key != null) {
@@ -72,6 +84,7 @@ export function createActionQueue({
           item.type === type &&
           active.has(item.status) &&
           !item.cancelRequested &&
+          JSON.stringify(item.dependsOn ?? []) === JSON.stringify(dependsOn) &&
           adapters[type].dedupeKey(item.args) === key,
       );
       if (equivalent) return clone(equivalent);
@@ -109,14 +122,24 @@ export function createActionQueue({
       .filter((item) => !active.has(item.status))
       .slice(-128);
     const retained = new Set(terminal);
+    const referenced = new Set([
+      ...dependsOn,
+      ...entries
+        .filter((item) => active.has(item.status))
+        .flatMap((item) => item.dependsOn ?? []),
+    ]);
     entries = entries.filter(
-      (item) => active.has(item.status) || retained.has(item),
+      (item) =>
+        active.has(item.status) ||
+        retained.has(item) ||
+        referenced.has(item.id),
     );
     const entry = {
       id,
       type,
       args: normalized,
       priority,
+      ...(dependsOn.length ? { dependsOn: [...dependsOn] } : {}),
       createdAt: now(),
       status: "queued",
       attempts: 0,
@@ -153,6 +176,13 @@ export function createActionQueue({
     commit();
     return true;
   }
+  function dismiss(id) {
+    const entry = entries.find((item) => item.id === id);
+    if (!entry || !["completed", "failed"].includes(entry.status)) return false;
+    entry.dismissed = true;
+    commit();
+    return true;
+  }
   function resume(id) {
     const entry = entries.find((item) => item.id === id);
     if (!entry || entry.status !== "paused") return false;
@@ -171,10 +201,19 @@ export function createActionQueue({
           runnable.has(item.status) &&
           (item.nextAt ?? 0) <= now() &&
           adapters[item.type] &&
+          dependenciesConfirmed(item) &&
           eligible(item) &&
           allowed(item),
       ) &&
       ready()
+    );
+  }
+  function dependenciesConfirmed(item) {
+    return (item.dependsOn ?? []).every((id) =>
+      entries.some(
+        (dependency) =>
+          dependency.id === id && dependency.status === "completed",
+      ),
     );
   }
   async function tick() {
@@ -185,6 +224,7 @@ export function createActionQueue({
           runnable.has(item.status) &&
           (item.nextAt ?? 0) <= now() &&
           adapters[item.type] &&
+          dependenciesConfirmed(item) &&
           eligible(item) &&
           allowed(item),
       )
@@ -204,7 +244,10 @@ export function createActionQueue({
         commit();
       }
       const canDispatch = () =>
-        allowed(entry) && eligible(entry) && !entry.cancelRequested;
+        allowed(entry) &&
+        eligible(entry) &&
+        dependenciesConfirmed(entry) &&
+        !entry.cancelRequested;
       onAttempt();
       const result = await runInContext(entry, reconcile, () =>
         reconcile
@@ -255,14 +298,17 @@ export function createActionQueue({
   return {
     add,
     stop,
+    dismiss,
     resume,
     tick,
     hasDue,
     snapshot: () =>
       entries.map((entry) => ({
         ...clone(entry),
-        eligible: Boolean(eligible(entry)),
-        blockedBy: blockedBy(entry),
+        eligible: Boolean(dependenciesConfirmed(entry) && eligible(entry)),
+        blockedBy: dependenciesConfirmed(entry)
+          ? blockedBy(entry)
+          : "dependency",
       })),
   };
 }
