@@ -8,7 +8,7 @@ import { createBridgeStorage } from "../../scripts/bridge/device-storage.mjs";
 import { createBridgeDeviceService } from "../../scripts/bridge/device-service.mjs";
 import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
 
-function fixture(readProfile) {
+function fixture(readProfile, readGame) {
   const dir = mkdtempSync(join(tmpdir(), "bridge-account-"));
   let storage = createBridgeStorage({ directory: dir });
   const devices = createBridgeDeviceService({ registry: storage.registry });
@@ -19,6 +19,7 @@ function fixture(readProfile) {
     devices,
     registry: storage.registry,
     readProfile,
+    ...(readGame ? { readGame } : {}),
   });
   return {
     dir,
@@ -45,6 +46,33 @@ const goodProfile = async ({ validateTunnel }) => {
   assert.equal(validateTunnel(), true);
   return { status: 200, body: Buffer.from('{"playerId":42,"telegramId":101}') };
 };
+
+test("game reads use the stored account and reject a revoked device", async () => {
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const f = fixture(
+    goodProfile,
+    async ({ authorization, path, validateTunnel }) => {
+      assert.equal(authorization, "Bearer private-test-token");
+      assert.equal(path, "/api/friends?limit=2");
+      assert.equal(validateTunnel(), true);
+      return pending;
+    },
+  );
+  try {
+    const device = f.pair("101");
+    await f.service.bind("101", "Bearer private-test-token");
+    const read = f.service.read("101", "/api/friends?limit=2");
+    f.devices.revoke("101", device.deviceId);
+    release({ status: 200, body: Buffer.from("[]") });
+    await assert.rejects(read, { code: "device_changed" });
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
 
 test("binds verified profile, encrypts token, survives restart and exposes only status", async () => {
   const f = fixture(goodProfile);

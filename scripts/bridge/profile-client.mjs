@@ -15,6 +15,15 @@ const readPaths = [
   /^\/api\/players\/[A-Za-z0-9_$-]+(?:\/achievements|\/bosses\/statistics)?$/,
 ];
 
+export function isAllowedGameRead(path) {
+  return (
+    typeof path === "string" &&
+    path.length <= 4096 &&
+    !/[\r\n#\\]/.test(path) &&
+    readPaths.some((pattern) => pattern.test(path.split("?", 1)[0]))
+  );
+}
+
 /** Selected read-only game data over an authenticated tunnel. */
 export function readGameOverBridge({
   authorization,
@@ -29,10 +38,7 @@ export function readGameOverBridge({
     typeof authorization !== "string" ||
     !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
     typeof connector !== "function" ||
-    typeof path !== "string" ||
-    path.length > 4096 ||
-    /[\r\n#\\]/.test(path) ||
-    !readPaths.some((pattern) => pattern.test(path.split("?", 1)[0]))
+    !isAllowedGameRead(path)
   )
     throw new TypeError("invalid_profile_request");
 
@@ -72,7 +78,14 @@ export function readGameOverBridge({
             reject(new Error("profile_incomplete"));
             return;
           }
-          resolve({ status: response.statusCode, body: Buffer.concat(chunks) });
+          const retryAfter = response.headers["retry-after"];
+          resolve({
+            status: response.statusCode,
+            body: Buffer.concat(chunks),
+            ...(typeof retryAfter === "string" && retryAfter.length <= 128
+              ? { retryAfter }
+              : {}),
+          });
         });
       },
     );

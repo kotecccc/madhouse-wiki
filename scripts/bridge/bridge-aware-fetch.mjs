@@ -100,6 +100,26 @@ export function createBridgeAwareAccountFetch({
           },
         });
       },
+      ...(typeof accountService.read === "function"
+        ? {
+            bridgeRead: async (owner, path, options) => {
+              const result = await accountService.read(owner, path, options);
+              return new Response(
+                [204, 205, 304].includes(result.status) ? null : result.body,
+                {
+                  status: result.status,
+                  headers: {
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Cache-Control": "private, no-store",
+                    ...(result.retryAfter
+                      ? { "Retry-After": result.retryAfter }
+                      : {}),
+                  },
+                },
+              );
+            },
+          }
+        : {}),
     });
     return router.fetchGame({ url, init, verifiedIdentity: identity });
   }

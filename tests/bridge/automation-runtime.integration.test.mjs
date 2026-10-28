@@ -11,7 +11,10 @@ import { test } from "node:test";
 import { createAutomationRuntime } from "../../scripts/automation/runtime.mjs";
 import { createBridgeRuntime } from "../../scripts/bridge/runtime.mjs";
 import { createBridgeNodeAdapter } from "../../scripts/bridge/node-adapter.mjs";
-import { readProfileOverBridge } from "../../scripts/bridge/profile-client.mjs";
+import {
+  readGameOverBridge,
+  readProfileOverBridge,
+} from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
 
 const agentPath = process.env.MADHOUSE_FAKE_AGENT_PATH;
@@ -73,10 +76,14 @@ test(
     let requests = 0;
     const game = createHttpsServer({ cert, key }, (request, response) => {
       requests += 1;
-      assert.equal(request.url, "/api/me");
+      assert.ok(["/api/me", "/api/friends"].includes(request.url));
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
       response.writeHead(200, { "Content-Type": "application/json" });
-      response.end('{"playerId":42,"telegramId":101,"nickname":"fake"}');
+      response.end(
+        request.url === "/api/friends"
+          ? "[]"
+          : '{"playerId":42,"telegramId":101,"nickname":"fake"}',
+      );
     });
     await listen(game);
     const bridge = createBridgeRuntime({
@@ -89,6 +96,15 @@ test(
       consume: () => true,
       readProfile: (options) =>
         readProfileOverBridge({
+          ...options,
+          connector: createGameTlsDuplexConnector({
+            openTunnel: options.openTunnel,
+            validateTunnel: options.validateTunnel,
+            tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
+          }),
+        }),
+      readGame: (options) =>
+        readGameOverBridge({
           ...options,
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
@@ -183,13 +199,22 @@ test(
       assert.equal(next.status, 200);
       assert.equal((await next.json()).playerId, 42);
       assert.equal(requests, 3);
+      const friends = await fetch(
+        `http://127.0.0.1:${proxy.address().port}/api/friends`,
+        {
+          headers: { Authorization: "Bearer synthetic-token" },
+        },
+      );
+      assert.equal(friends.status, 200);
+      assert.deepEqual(await friends.json(), []);
+      assert.equal(requests, 4);
       agent.kill();
       await waitStatus("offline");
       const offline = await fetch(url, {
         headers: { Authorization: "Bearer synthetic-token" },
       });
       assert.ok(offline.status >= 500);
-      assert.equal(requests, 3);
+      assert.equal(requests, 4);
     } finally {
       agent?.kill();
       automation.close();

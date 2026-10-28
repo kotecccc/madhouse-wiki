@@ -19,6 +19,7 @@ export function createBridgeRuntime({
   now,
   heartbeatMs,
   readProfile,
+  readGame,
   connectorIpcKey,
   witnessPath,
   provisionWitness = false,
@@ -40,6 +41,7 @@ export function createBridgeRuntime({
       devices: service,
       registry: storage.registry,
       ...(readProfile ? { readProfile } : {}),
+      ...(readGame ? { readGame } : {}),
     });
     const handle = createBridgeDeviceHttp({
       service,
