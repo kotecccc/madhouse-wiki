@@ -323,8 +323,19 @@ export function actionQueueCards(state, catalogue = {}) {
         (job.status !== "completed" ||
           recentCompleted.has(job.id) ||
           terminalActor(job)) &&
-        !(job.type === "auto.start" && state.auto?.queueId === job.id) &&
-        !(job.type === "raid.start" && state.raid?.queueId === job.id) &&
+        !(
+          job.type === "auto.start" &&
+          state.auto?.queueId === job.id &&
+          (state.auto.enabled ||
+            state.auto.userPaused ||
+            subscription?.suspendedAuto ||
+            buddy?.suspendedAuto)
+        ) &&
+        !(
+          job.type === "raid.start" &&
+          state.raid?.queueId === job.id &&
+          (state.raid.enabled || state.raid.userPaused)
+        ) &&
         !(
           job.type === "business.start" &&
           business?.queueId === job.id &&
@@ -346,7 +357,9 @@ export function actionQueueCards(state, catalogue = {}) {
           !terminalActor(job)
         ) &&
         !(
-          job.type === "subscription.start" && subscription?.queueId === job.id
+          job.type === "subscription.start" &&
+          subscription?.queueId === job.id &&
+          (subscription.enabled || subscription.hasSuspendedGoal)
         ),
     )
     .sort(

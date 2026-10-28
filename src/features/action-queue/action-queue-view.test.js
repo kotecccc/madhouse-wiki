@@ -81,6 +81,34 @@ test("completed actions can be dismissed and handoffs do not claim the goal fini
   assert.equal(handoff.command, "queue.dismiss");
 });
 
+test("stopped battle and subscription handoffs remain visible after their actors retain queue IDs", () => {
+  for (const [type, actorName] of [
+    ["auto.start", "auto"],
+    ["raid.start", "raid"],
+    ["subscription.start", "subscription"],
+  ]) {
+    const job = {
+      id: "handoff-01",
+      type,
+      status: "completed",
+      priority: 15,
+      createdAt: 1,
+      args: {},
+    };
+    const state = {
+      [actorName]: { queueId: job.id, enabled: false },
+      queuedActions: [job],
+    };
+    const cards = actionQueueCards(state);
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].id, job.id);
+    assert.equal(cards[0].status, "Передано исполнителю");
+    assert.equal(cards[0].command, "queue.dismiss");
+    state[actorName].enabled = true;
+    assert.ok(!actionQueueCards(state).some((card) => card.id === job.id));
+  }
+});
+
 test("recent completions are selected by completion time, not creation order", () => {
   const completed = Array.from({ length: 6 }, (_, index) => ({
     id: `done-${index}`,
