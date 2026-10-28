@@ -1,6 +1,40 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createBridgeBrowserSessions } from "../../scripts/bridge/browser-session.mjs";
+import {
+  createBridgeBrowserSessions,
+  resolveBridgeBrowserSession,
+} from "../../scripts/bridge/browser-session.mjs";
+
+test("browser session stops resolving after rebind or device replacement", () => {
+  const sessions = createBridgeBrowserSessions({
+    key: Buffer.alloc(32, 7),
+    now: () => 1000000,
+  });
+  const token = sessions.issue("101", 3, { deviceId: "device", generation: 1 });
+  let account = {
+    revision: 3,
+    deviceId: "device",
+    generation: 1,
+    authorization: "Bearer private",
+  };
+  let device = { deviceId: "device", generation: 1 };
+  const deps = {
+    sessions,
+    accounts: { read: () => account },
+    devices: { listDevice: () => device },
+  };
+  assert.equal(
+    resolveBridgeBrowserSession(token, deps).authorization,
+    "Bearer private",
+  );
+  account = { ...account, revision: 4 };
+  assert.equal(resolveBridgeBrowserSession(token, deps), null);
+  account = { ...account, revision: 3 };
+  device = { ...device, generation: 2 };
+  assert.equal(resolveBridgeBrowserSession(token, deps), null);
+  device = null;
+  assert.equal(resolveBridgeBrowserSession(token, deps), null);
+});
 
 test("bridge browser session is signed, scoped and expires", () => {
   let now = 1_000_000;
@@ -8,8 +42,13 @@ test("bridge browser session is signed, scoped and expires", () => {
     key: Buffer.alloc(32, 9),
     now: () => now,
   });
-  const token = sessions.issue("101", 3);
-  assert.deepEqual(sessions.verify(token), { owner: "101", revision: 3 });
+  const token = sessions.issue("101", 3, { deviceId: "device", generation: 1 });
+  assert.deepEqual(sessions.verify(token), {
+    owner: "101",
+    revision: 3,
+    deviceId: "device",
+    generation: 1,
+  });
   assert.equal(
     sessions.verify(token.replace(/.$/, token.endsWith("A") ? "B" : "A")),
     null,
