@@ -70,7 +70,11 @@ function requestGameOverBridge({
   validateTunnel = null,
   signal,
   // Tests may provide an injected connector; the production default verifies Cargo TLS.
-  connector = createGameTlsDuplexConnector({ openTunnel, validateTunnel }),
+  connector = createGameTlsDuplexConnector({
+    openTunnel,
+    validateTunnel,
+    requestInfo: { method, path },
+  }),
 } = {}) {
   if (
     typeof authorization !== "string" ||
