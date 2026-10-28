@@ -24,13 +24,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Validate and build the Linux amd64 VPS image
-        env:
-          BRIDGE_BOOTSTRAP_SHA256: ${{ vars.MADHOUSE_BRIDGE_BOOTSTRAP_SHA256 }}
         run: |
-          if [[ -n "${BRIDGE_BOOTSTRAP_SHA256}" && ! "${BRIDGE_BOOTSTRAP_SHA256}" =~ ^[a-f0-9]{64}$ ]]; then
-            echo "Invalid bridge bootstrap SHA-256" >&2
-            exit 1
-          fi
+          BRIDGE_BOOTSTRAP_SHA256="$(node scripts/bridge/release-config.mjs)"
           docker build --pull --platform linux/amd64 \
             --file Dockerfile.vps \
             --tag "madhouse-wiki:vps-${GITHUB_SHA}" \
