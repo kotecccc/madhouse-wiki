@@ -105,3 +105,31 @@ test("rejects the tunnel if authorization changes before TLS is ready", async ()
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("request log omits query and only appears after tunnel authorization", async () => {
+  const server = await startFakeGame();
+  const messages = [];
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => {
+      const socket = createConnection(server.address().port, "127.0.0.1");
+      socket.socket = {
+        bridgeRequestLog: true,
+        readyState: 1,
+        send: (message) => messages.push(JSON.parse(message)),
+      };
+      return socket;
+    },
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel: () => true,
+    requestInfo: { method: "GET", path: "/api/bosses/7?private=token" },
+  });
+  try {
+    const socket = await dial(connector);
+    assert.deepEqual(messages, [
+      { type: "request", method: "GET", path: "/api/bosses/7" },
+    ]);
+    socket.destroy();
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

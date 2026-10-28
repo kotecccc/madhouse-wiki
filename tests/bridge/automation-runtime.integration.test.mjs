@@ -91,12 +91,14 @@ test(
     let battlePosts = 0;
     let attackPosts = 0;
     let fakeDamage = 0;
+    let healPosts = 0;
+    let medicineQuantity = 2;
     let battleStore;
     const fakeBattle = () => ({
       battleId: "battle-1",
       bossId: 7,
       status: "active",
-      playerHealth: 100,
+      playerHealth: 50,
       playerMaxHealth: 100,
       bossHealth: 200,
       bossMaxHealth: 200,
@@ -133,9 +135,37 @@ test(
             "/api/works/tasks/perform",
             "/api/bosses/7/battles",
             "/api/bosses/battles/battle-1/attack",
+            "/api/bosses/battles/battle-1/items/use",
           ].includes(path),
       );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
+      if (
+        path === "/api/bosses/battles/battle-1/items/use" &&
+        request.method === "POST"
+      ) {
+        healPosts++;
+        assert.equal(battleStore.read("42").assistant.pending.kind, "heal");
+        medicineQuantity--;
+        request.resume();
+        request.once("end", () => request.socket.destroy());
+        return;
+      }
+      if (path === "/api/me/bag" && battleStore) {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify({
+            combatItems: [
+              {
+                type: "heal_10",
+                quantity: medicineQuantity,
+                maxPurchaseQuantity: 10,
+                prices: [{ currency: "pills", amount: 3 }],
+              },
+            ],
+          }),
+        );
+        return;
+      }
       if (
         path === "/api/bosses/battles/battle-1/attack" &&
         request.method === "POST"
@@ -240,6 +270,7 @@ test(
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
             validateTunnel: options.validateTunnel,
+            requestInfo: { method: "GET", path: "/api/me" },
             tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
           }),
         }),
@@ -249,6 +280,10 @@ test(
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
             validateTunnel: options.validateTunnel,
+            requestInfo: {
+              method: options.method || "GET",
+              path: options.path,
+            },
             tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
           }),
         }),
@@ -258,6 +293,10 @@ test(
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
             validateTunnel: options.validateTunnel,
+            requestInfo: {
+              method: options.method || "GET",
+              path: options.path,
+            },
             tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
           }),
         }),
@@ -267,6 +306,10 @@ test(
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
             validateTunnel: options.validateTunnel,
+            requestInfo: {
+              method: options.method || "GET",
+              path: options.path,
+            },
             tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
           }),
         }),
@@ -324,8 +367,12 @@ test(
           "--token",
           `${paired.deviceId}.${paired.deviceKey}`,
         ],
-        { stdio: "ignore" },
+        { stdio: ["ignore", "pipe", "ignore"] },
       );
+      let agentLog = "";
+      agent.stdout.on("data", (data) => {
+        agentLog += data.toString();
+      });
       async function waitStatus(expected) {
         for (let attempt = 0; attempt < 100; attempt += 1) {
           const state = await (await command("status")).json();
@@ -706,10 +753,55 @@ test(
           "completed",
           JSON.stringify(entry.actionQueue.snapshot()),
         );
+        await battleService.command(entry, {
+          id: "bridge-heal-queue-test",
+          command: "queue.enqueue",
+          expectedVersion: battleService.snapshot(entry).version,
+          args: {
+            type: "battle.heal",
+            action: { bossId: 7, battleId: "battle-1", type: "heal_10" },
+          },
+        });
+        for (let n = 0; n < 200 && !healPosts; n++) {
+          battleClock += 1000;
+          battleTimers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(
+          healPosts,
+          1,
+          JSON.stringify(entry.actionQueue.snapshot()),
+        );
+        for (
+          let n = 0;
+          n < 160 &&
+          entry.actionQueue
+            .snapshot()
+            .find((j) => j.id === "bridge-heal-queue-test")?.status !==
+            "completed";
+          n++
+        ) {
+          battleClock += 1000;
+          battleTimers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(healPosts, 1);
+        assert.equal(
+          entry.actionQueue
+            .snapshot()
+            .find((j) => j.id === "bridge-heal-queue-test")?.status,
+          "completed",
+          JSON.stringify(entry.actionQueue.snapshot()),
+        );
       } finally {
         battleService.close();
         battleStore.close();
       }
+      assert.match(
+        agentLog,
+        /POST \/api\/bosses\/battles\/battle-1\/items\/use/,
+      );
+      assert.doesNotMatch(agentLog, /synthetic-token/);
       const accountIdentity = await automation.handle(
         new Request(`${origin}/api/automation/profile-identity`, {
           headers: { Authorization: `Bearer ${session}` },

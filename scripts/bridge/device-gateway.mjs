@@ -68,6 +68,7 @@ export function createDeviceGateway({
         return reject();
       wss.handleUpgrade(req, socket, head, (ws) => {
         ws.bridgeAlive = true;
+        ws.bridgeRequestLog = req.headers["x-madhouse-bridge-log"] === "1";
         ws.on("pong", () => {
           ws.bridgeAlive = true;
         });
