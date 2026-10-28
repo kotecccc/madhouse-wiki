@@ -46,6 +46,7 @@ export async function isAllowedBridgeQueueCommand(request) {
           "character.start",
           "stash.craft",
           "invitation.accept",
+          "floor.start",
         ].includes(input.args?.type)) ||
       (input?.command === "work.refresh" &&
         Number.isSafeInteger(input.args?.workId) &&
@@ -55,6 +56,27 @@ export async function isAllowedBridgeQueueCommand(request) {
         input.args.workId > 0) ||
       [
         "work.stop",
+        "work.pause",
+        "work.resume",
+        "floor.stop",
+        "open",
+        "refresh",
+        "hydrate",
+        "medicines.open",
+        "medicines.close",
+        "healing.configure",
+        "healing.ack",
+        "purchase.prepare",
+        "purchase.cancel",
+        "purchase.ack",
+        "goal.configure",
+        "goal.stop",
+        "goal.reset",
+        "pvp.refresh",
+        "raid.friend.inspect",
+        "raid.friend.check",
+        "raid.friend.refresh",
+        "friends.reconcile",
         "auto.pause",
         "auto.resume",
         "auto.stop",

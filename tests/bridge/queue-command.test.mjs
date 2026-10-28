@@ -43,6 +43,29 @@ test("only the supported durable queue command is admitted", async () => {
     },
   ])
     assert.equal(await isAllowedBridgeQueueCommand(request(input)), true);
+  for (const command of [
+    "open",
+    "refresh",
+    "hydrate",
+    "medicines.open",
+    "healing.configure",
+    "floor.stop",
+  ])
+    assert.equal(
+      await isAllowedBridgeQueueCommand(
+        request({ command, args: { bossId: 7 } }),
+      ),
+      true,
+    );
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
+      request({
+        command: "queue.enqueue",
+        args: { type: "floor.start", action: {} },
+      }),
+    ),
+    true,
+  );
   const original = request(allowed);
   assert.equal(await isAllowedBridgeQueueCommand(original), true);
   assert.deepEqual(await original.json(), allowed);
