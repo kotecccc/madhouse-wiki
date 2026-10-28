@@ -343,6 +343,16 @@ test(
         headers: { Authorization: "Bearer synthetic-token" },
       });
       assert.ok(offline.status >= 500);
+      const offlinePermit = createWorkActionPermit({
+        authorization,
+        workId: 7,
+        taskId: 2,
+        operationId: "test-work",
+        checkpointIsCurrent: () => true,
+      });
+      await bridge.queueActionGate.runWork(offlinePermit, async () => {
+        await assert.rejects(transport.liveFetch(workUrl, workRequest));
+      });
       assert.equal(requests, requestsBeforeOffline);
     } finally {
       agent?.kill();
