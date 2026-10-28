@@ -1,6 +1,65 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAccountQueue } from "../scripts/automation/account-queue.mjs";
+import { createActionQueue } from "../scripts/automation/action-queue.mjs";
+import { createRequestPriorityContext } from "../scripts/automation/request-priority-context.mjs";
+
+test("restored reconciliation reaches the account lane ahead of a farm step", async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const paths = [];
+  const context = createRequestPriorityContext();
+  const fetcher = createAccountQueue(
+    async (url) => {
+      const path = new URL(url).pathname;
+      paths.push(path);
+      if (path === "/api/hold") await gate;
+      return Response.json({ ok: true });
+    },
+    { now: () => 1000, requestPriority: context.current },
+  );
+  const init = { headers: { Authorization: "Bearer account" } };
+  const hold = fetcher("https://game/api/hold", init);
+  const farm = fetcher("https://game/api/works/tasks/perform", {
+    ...init,
+    method: "POST",
+  });
+  const queue = createActionQueue({
+    saved: [
+      {
+        id: "action-reconcile",
+        type: "buy",
+        args: {},
+        priority: 15,
+        createdAt: 0,
+        status: "reconciling",
+        attempts: 0,
+        nextAt: 0,
+      },
+    ],
+    now: () => 1000,
+    persist: () => true,
+    runInContext: context.run,
+    adapters: {
+      buy: {
+        reconcile: async () => {
+          await fetcher("https://game/api/me/bag", init);
+          return { status: "completed" };
+        },
+      },
+    },
+  });
+  const reconciliation = queue.tick();
+  release();
+  await Promise.all([hold, farm, reconciliation]);
+  assert.deepEqual(paths, [
+    "/api/hold",
+    "/api/me/bag",
+    "/api/works/tasks/perform",
+  ]);
+});
 
 test("per-account lane serializes requests and gives energy and combat priority at request boundaries", async () => {
   const calls = [];

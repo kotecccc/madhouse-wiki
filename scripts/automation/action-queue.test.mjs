@@ -319,6 +319,70 @@ test("aging lets an older low-priority action outrank a new urgent action", asyn
   assert.deepEqual(executed, [1]);
 });
 
+for (const failure of ["before dispatch", "after dispatch"]) {
+  test(`storage failure ${failure} recovers without replaying a dispatched action`, async () => {
+    let durable = [
+      {
+        id: "action-storage",
+        type: "buy",
+        args: { id: 1 },
+        priority: 0,
+        createdAt: 0,
+        status: "queued",
+        attempts: 0,
+        nextAt: 0,
+      },
+    ];
+    let writes = 0;
+    let dispatches = 0;
+    let reconciliations = 0;
+    const adapters = {
+      buy: {
+        execute: async () => {
+          dispatches++;
+          return { status: "completed" };
+        },
+        reconcile: async () => {
+          reconciliations++;
+          return { status: "completed" };
+        },
+      },
+    };
+    const first = createActionQueue({
+      saved: durable,
+      adapters,
+      now: () => 1000,
+      random: () => 0,
+      persist: (entries) => {
+        writes++;
+        if (failure === "before dispatch" || writes > 1) return false;
+        durable = structuredClone(entries);
+        return true;
+      },
+    });
+    await assert.rejects(first.tick(), /action_queue_storage_unavailable/);
+    assert.equal(dispatches, failure === "before dispatch" ? 0 : 1);
+    assert.equal(
+      durable[0].status,
+      failure === "before dispatch" ? "queued" : "running",
+    );
+
+    const restored = createActionQueue({
+      saved: durable,
+      adapters,
+      now: () => 2000,
+      persist: (entries) => {
+        durable = structuredClone(entries);
+        return true;
+      },
+    });
+    await restored.tick();
+    assert.equal(dispatches, 1);
+    assert.equal(reconciliations, failure === "before dispatch" ? 0 : 1);
+    assert.equal(durable[0].status, "completed");
+  });
+}
+
 test("terminal history stays bounded while uncertain checkpoints remain", async () => {
   // Simulate a checkpoint recovered after an interrupted submission.
   const paused = createActionQueue({
