@@ -541,6 +541,8 @@ export function createAutomationService({
   async function refreshAutoDamageLimit(entry) {
     const generation = entry.autoStartGeneration ?? 0;
     await entry.controller.refresh({ discover: true });
+    const refreshed = entry.controller.getSnapshot();
+    if (refreshed.needsRefresh || refreshed.error) return false;
     await entry.controller.hydrateDetails();
     const state = entry.controller.getSnapshot();
     return (

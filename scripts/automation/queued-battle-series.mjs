@@ -1,3 +1,5 @@
+import { battleRetryAfter } from "./battle-preflight-error.mjs";
+
 // Queue starts an existing actor once; it never replays the actor's game actions.
 export function queuedBattleSeriesAdapter({
   entry,
@@ -100,9 +102,20 @@ export function queuedBattleSeriesAdapter({
           const boss = await getBoss(job.args.settings.bossId);
           if (!boss) return { status: "failed", reason: "unknown_boss" };
           await entry.controller.open(boss);
+          const opening = entry.controller.getSnapshot();
+          if (opening.needsRefresh || opening.error)
+            return {
+              status: "retry",
+              reason: "Ожидаем игру.",
+              ...battleRetryAfter(opening),
+            };
         }
         if (!(await refresh()))
-          return { status: "retry", reason: "Ожидаем игру." };
+          return {
+            status: "retry",
+            reason: "Ожидаем игру.",
+            ...battleRetryAfter(entry.controller.getSnapshot()),
+          };
         state = entry.controller.getSnapshot();
         if (
           state.boss?.id !== job.args.settings.bossId ||
@@ -162,7 +175,11 @@ export function queuedBattleSeriesAdapter({
           return { status: "failed", reason: "invalid_automation_goal" };
         }
         discardUnstarted(job);
-        return { status: "retry", reason: "Ожидаем игру." };
+        return {
+          status: "retry",
+          reason: "Ожидаем игру.",
+          ...battleRetryAfter({ errorRetryAfterMs: error?.retryAfterMs }),
+        };
       }
     },
     reconcile,
