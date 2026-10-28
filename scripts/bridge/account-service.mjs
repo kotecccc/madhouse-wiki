@@ -8,6 +8,20 @@ import {
 function failure(code) {
   return Object.assign(new Error(code), { code });
 }
+function logBridgeFailure(error) {
+  const allowed = new Set([
+    "bridge_offline",
+    "bridge_timeout",
+    "tls_failed",
+    "tls_timeout",
+    "tls_closed_before_ready",
+    "invalid_tunnel",
+  ]);
+  console.warn(
+    "madhouse-bridge-transport",
+    allowed.has(error?.code) ? error.code : "other",
+  );
+}
 const secret =
   /token|jwt|authorization|password|session|credential|initdata|secret/i;
 function sanitize(value, depth = 0) {
@@ -63,7 +77,8 @@ export function createBridgeAccountService({
         openTunnel: () => devices.open(verifiedOwner, { signal }),
         validateTunnel: () => registry.isActive(identity),
       });
-    } catch {
+    } catch (error) {
+      logBridgeFailure(error);
       throw failure("bridge_unavailable");
     }
     if (result.status === 401 || result.status === 403)
@@ -154,7 +169,8 @@ export function createBridgeAccountService({
         openTunnel: () => devices.open(verifiedOwner, { signal }),
         validateTunnel: () => registry.isActive(identity),
       });
-    } catch {
+    } catch (error) {
+      logBridgeFailure(error);
       throw failure("bridge_unavailable");
     }
     if (!registry.isActive(identity)) throw failure("device_changed");
