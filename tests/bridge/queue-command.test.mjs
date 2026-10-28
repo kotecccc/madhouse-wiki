@@ -43,7 +43,12 @@ test("only the supported durable queue command is admitted", async () => {
   );
   for (const input of [
     { command: "friends.respond", args: { playerId: 42 } },
+    { command: "work.start", args: { mode: "energy" } },
     { command: "queue.enqueue", args: { type: "battle.attack" } },
+    {
+      command: "queue.enqueue",
+      args: { type: "work.booster", action: { mode: "energy" } },
+    },
     {
       command: "queue.enqueue",
       args: { type: "work.start", action: { mode: "boosters" } },
