@@ -51,6 +51,73 @@ export function createQueueActionGate() {
         return (
           context.workPermit({ authorization, method, path, body }) === true
         );
+      if (["battle.heal", "battle.buy"].includes(context?.job?.type)) {
+        const job = context.job;
+        if (
+          !context.active ||
+          context.used ||
+          context.reconcile ||
+          job.status !== "running" ||
+          !job.id ||
+          authorization !== context.authorization ||
+          method !== "POST" ||
+          typeof body !== "string" ||
+          body.length > 512 ||
+          typeof context.canDispatch !== "function" ||
+          typeof context.checkpoint !== "function"
+        )
+          return false;
+        let value, pending;
+        try {
+          value = JSON.parse(body);
+          pending = context.checkpoint();
+        } catch {
+          return false;
+        }
+        if (
+          !value ||
+          pending?.queueId !== job.id ||
+          pending.battleId !== job.args?.battleId ||
+          value.operationId !== pending.operationId ||
+          typeof value.operationId !== "string" ||
+          !value.operationId
+        )
+          return false;
+        if (job.type === "battle.heal") {
+          if (
+            pending.kind !== "heal" ||
+            path !== `/api/bosses/battles/${job.args.battleId}/items/use` ||
+            Object.keys(value).sort().join(",") !== "operationId,type" ||
+            value.type !== job.args.type ||
+            pending.type !== value.type
+          )
+            return false;
+        } else {
+          const q = job.args.quote;
+          if (
+            pending.kind !== "buy" ||
+            path !== "/api/me/bag/combat-items/buy" ||
+            Object.keys(value).sort().join(",") !==
+              "currency,operationId,quantity,type" ||
+            !q ||
+            value.type !== q.type ||
+            value.currency !== q.currency ||
+            value.quantity !== q.quantity ||
+            pending.quote?.type !== q.type ||
+            pending.quote?.currency !== q.currency ||
+            pending.quote?.quantity !== q.quantity ||
+            pending.quote?.total !== q.total
+          )
+            return false;
+        }
+        try {
+          if (context.canDispatch() !== true) return false;
+        } catch {
+          return false;
+        }
+        context.used = true;
+        return true;
+      }
       if (["battle.start", "battle.attack"].includes(context?.job?.type)) {
         const job = context.job;
         if (

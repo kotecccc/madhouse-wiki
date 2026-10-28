@@ -1938,13 +1938,15 @@ export function createAutomationService({
               run,
               canDispatch,
               () =>
-                ["battle.start", "battle.attack"].includes(job.type)
-                  ? entry.manualBattle?.pending
-                  : job.type === "inventory"
-                    ? entry.equipment?.pending
-                    : job.type === "energy.booster"
-                      ? entry.energyBooster?.pending
-                      : entry.raidFriend?.pending,
+                ["battle.heal", "battle.buy"].includes(job.type)
+                  ? entry.assistant?.queuedState().pending
+                  : ["battle.start", "battle.attack"].includes(job.type)
+                    ? entry.manualBattle?.pending
+                    : job.type === "inventory"
+                      ? entry.equipment?.pending
+                      : job.type === "energy.booster"
+                        ? entry.energyBooster?.pending
+                        : entry.raidFriend?.pending,
             )
           : run();
       },

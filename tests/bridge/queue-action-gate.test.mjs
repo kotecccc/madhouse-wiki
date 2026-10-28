@@ -537,3 +537,44 @@ test("battle start and attack bind the persisted operation to the right battle",
     () => pending,
   );
 });
+
+test("battle medicine is bound to the saved job, type and battle", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "heal",
+    type: "battle.heal",
+    status: "running",
+    args: { bossId: 7, battleId: "battle-1", type: "heal_10" },
+  };
+  const pending = {
+    queueId: job.id,
+    kind: "heal",
+    battleId: "battle-1",
+    type: "heal_10",
+    operationId: "op",
+  };
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/bosses/battles/battle-1/items/use",
+    body: JSON.stringify({ type: "heal_10", operationId: "op" }),
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(
+        gate.claim({
+          ...request,
+          body: JSON.stringify({ type: "heal_full", operationId: "op" }),
+        }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+    () => pending,
+  );
+});
