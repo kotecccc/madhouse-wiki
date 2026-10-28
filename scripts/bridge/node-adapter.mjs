@@ -35,7 +35,11 @@ export function createBridgeNodeAdapter({ runtime, origin } = {}) {
         chunks.push(chunk);
       }
       const headers = new Headers();
-      for (const name of ["content-type", "origin"]) {
+      for (const name of [
+        "content-type",
+        "origin",
+        ...(request.url === "/api/bridge/device" ? ["authorization"] : []),
+      ]) {
         const value = request.headers[name];
         if (typeof value === "string") headers.set(name, value);
       }

@@ -240,6 +240,21 @@ test(
       assert.equal(sessionResponse.status, 200);
       const { session } = await sessionResponse.json();
       assert.ok(session);
+      const renewedResponse = await fetch(
+        `http://127.0.0.1:${management.address().port}/api/bridge/device`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: origin,
+            Authorization: `Bearer ${session}`,
+          },
+          body: JSON.stringify({ operation: "renew" }),
+        },
+      );
+      assert.equal(renewedResponse.status, 200);
+      const renewedSession = (await renewedResponse.json()).session;
+      assert.ok(renewedSession);
       assert.equal(
         bridge.canonicalCredential(`Bearer ${session}`),
         "Bearer synthetic-token",
@@ -407,8 +422,23 @@ test(
         await assert.rejects(transport.liveFetch(workUrl, workRequest));
       });
       assert.equal(requests, requestsBeforeOffline);
+      const freshSession = (await (await command("session")).json()).session;
+      assert.ok(freshSession);
       const revoked = await command("revoke", { deviceId: paired.deviceId });
       assert.equal(revoked.status, 200);
+      const renewAfterRevoke = await fetch(
+        `http://127.0.0.1:${management.address().port}/api/bridge/device`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: origin,
+            Authorization: `Bearer ${freshSession}`,
+          },
+          body: JSON.stringify({ operation: "renew" }),
+        },
+      );
+      assert.equal(renewAfterRevoke.status, 401);
       assert.throws(
         () => bridge.canonicalCredential(`Bearer ${session}`),
         /bridge_session_invalid/,
