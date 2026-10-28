@@ -1218,22 +1218,56 @@ export function createAutomationService({
             save(entry);
             return !entry.storageFailed;
           },
-          post: (path, body) =>
-            fetcher(`https://cargohustle.online${path}`, {
-              method: "POST",
-              headers: {
-                Authorization: credential,
-                Accept: "application/json",
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(body),
-              redirect: "error",
-              signal: AbortSignal.timeout(20000),
-              canDispatch: () => {
-                ensureLease();
-                return allowed();
-              },
-            }),
+          post: (path, body) => {
+            const requestBody = JSON.stringify(body);
+            const send = () =>
+              fetcher(`https://cargohustle.online${path}`, {
+                method: "POST",
+                headers: {
+                  Authorization: credential,
+                  Accept: "application/json",
+                  "Content-Type": "application/json",
+                },
+                body: requestBody,
+                redirect: "error",
+                signal: AbortSignal.timeout(20000),
+                canDispatch: () => {
+                  ensureLease();
+                  return allowed();
+                },
+              });
+            if (!queueActionGate) return send();
+            const pending = run.pendingUpgrade;
+            if (
+              !pending ||
+              path !== `/api/businesses/${pending.businessId}/upgrade` ||
+              body.operationId !== pending.operationId ||
+              Object.keys(body).join(",") !== "operationId"
+            )
+              throw failure(409, "business_checkpoint_missing");
+            let used = false;
+            const permit = ({
+              authorization,
+              method,
+              path: target,
+              body: outgoing,
+            }) => {
+              if (
+                used ||
+                authorization !== credential ||
+                method !== "POST" ||
+                target !== path ||
+                outgoing !== requestBody ||
+                run.pendingUpgrade?.operationId !== pending.operationId ||
+                run.pendingUpgrade?.businessId !== pending.businessId ||
+                !allowed()
+              )
+                return false;
+              used = true;
+              return true;
+            };
+            return queueActionGate.runWork(permit, send);
+          },
         });
       },
       now,
