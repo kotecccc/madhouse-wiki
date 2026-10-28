@@ -81,7 +81,7 @@ export function createGameRouter({
       return withDirectLease(
         verifiedIdentity,
         route.epoch,
-        async (markDispatched) => {
+        async (markDispatched, markReadFinished) => {
           let current;
           try {
             current = await resolveRoute(verifiedIdentity);
@@ -99,6 +99,10 @@ export function createGameRouter({
           const response = await drainDirectResponse(
             await directFetch(parsed.href, { ...init, redirect: "manual" }),
           );
+          if (
+            ["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())
+          )
+            markReadFinished?.();
           // A proxy may have collapsed an uncertain upstream failure into 5xx.
           // Keep the lease until it is reconciled rather than assuming failure.
           if (

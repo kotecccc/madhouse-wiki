@@ -282,7 +282,7 @@ test("missing account record never reactivates a previous direct route", async (
   }
 });
 
-test("a stale snapshot concealing upstream failure keeps the durable lease", async () => {
+test("a completed stale read releases the lease without accepting stale data", async () => {
   const directory = mkdtempSync(join(tmpdir(), "bridge-lease-"));
   const storage = createBridgeStorage({ directory });
   try {
@@ -301,9 +301,33 @@ test("a stale snapshot concealing upstream failure keeps the durable lease", asy
       { code: "direct_result_uncertain" },
     );
     const pending = storage.directRoutes.pending("42");
-    assert.equal(pending.length, 1);
-    assert.equal(pending[0].phase, "dispatched");
-    assert.equal(pending[0].effect, "read");
+    assert.equal(pending.length, 0);
+  } finally {
+    storage.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an uncertain mutation remains fenced after an error response", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-lease-"));
+  const storage = createBridgeStorage({ directory });
+  try {
+    storage.directRoutes.registerVerifiedDirect("42");
+    const router = createGameRouter({
+      resolveRoute: storage.directRoutes.resolve,
+      withDirectLease: storage.directRoutes.withDirectLease,
+      directFetch: async () => new Response(null, { status: 503 }),
+      bridgeProfile: () => assert.fail("unexpected bridge"),
+    });
+    await assert.rejects(
+      router.fetchGame({
+        url,
+        init: { method: "POST" },
+        verifiedIdentity: { playerId: "42" },
+      }),
+      { code: "direct_result_uncertain" },
+    );
+    assert.equal(storage.directRoutes.pending("42")[0].effect, "mutation");
   } finally {
     storage.close();
     rmSync(directory, { recursive: true, force: true });
