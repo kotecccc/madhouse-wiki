@@ -1,5 +1,6 @@
 import { createBossCardsHttp } from "../account/boss-cards.mjs";
 import { createPlayerProgressReader } from "../account/player-progress.mjs";
+import { createProfileLevelHandler } from "../account/profile-level.mjs";
 import { createAccountSnapshots } from "../account/snapshots.mjs";
 import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { resolve } from "node:path";
@@ -18,9 +19,12 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
-  const snapshots = createAccountSnapshots({
-    store,
-    refreshProfileProgress: createPlayerProgressReader(),
+  const snapshots = createAccountSnapshots({ store });
+  const readPlayerProgress = createPlayerProgressReader();
+  const profileLevel = createProfileLevelHandler({
+    identity: snapshots.identity,
+    readProgress: readPlayerProgress,
+    origin: env.WIKI_PUBLIC_ORIGIN,
   });
   const proxy = createProxy(snapshots.fetch);
   let catalogue;
@@ -74,6 +78,27 @@ export async function createAutomationRuntime({
   });
   const handle = async (request) => {
     const url = new URL(request.url);
+    if (url.pathname === "/api/automation/profile-level")
+      return profileLevel(request);
+    if (url.pathname === "/api/automation/profile-identity") {
+      const headers = {
+        "Content-Type": "application/json",
+        "Cache-Control": "private, no-store",
+      };
+      if (request.method !== "GET")
+        return new Response(null, { status: 405, headers });
+      if (
+        url.search ||
+        (request.headers.get("origin") &&
+          request.headers.get("origin") !==
+            (env.WIKI_PUBLIC_ORIGIN || url.origin))
+      )
+        return new Response(null, { status: 403, headers });
+      const identity = snapshots.identity(request.headers.get("authorization"));
+      return identity
+        ? new Response(JSON.stringify(identity), { headers })
+        : new Response(null, { status: 404, headers });
+    }
     if (url.pathname === "/api/automation/inventory-snapshots") {
       const headers = {
         "Content-Type": "application/json",

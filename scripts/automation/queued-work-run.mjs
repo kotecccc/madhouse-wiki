@@ -22,6 +22,7 @@ export function queuedWorkRunAdapter({ entry }) {
         args.maxBoosters > 1000 ||
         !nonnegative(args.maxDollar) ||
         typeof args.allowPurchase !== "boolean" ||
+        (args.collectStash != null && typeof args.collectStash !== "boolean") ||
         (args.energyBudget != null && !nonnegative(args.energyBudget))
       )
         throw new Error("invalid_work_run");
@@ -35,6 +36,7 @@ export function queuedWorkRunAdapter({ entry }) {
         maxBoosters: args.mode === "energy" ? 0 : args.maxBoosters,
         maxDollar: args.mode === "energy" ? 0 : args.maxDollar,
         allowPurchase: args.mode === "energy" ? false : args.allowPurchase,
+        ...(args.collectStash ? { collectStash: true } : {}),
         ...(args.mode === "energy" && args.energyBudget != null
           ? { energyBudget: args.energyBudget }
           : {}),

@@ -32,10 +32,46 @@ export function useActionQueue(
     if (!authenticated) return;
     let cancelled = false;
     let timer;
+    let previousWork = null;
     const update = (next) => {
       if (cancelled || !next || !Array.isArray(next.queuedActions)) return;
+      const work = next.workFarm?.run;
+      if (
+        previousWork?.status === "running" &&
+        previousWork.collectStash &&
+        previousWork.queueId === work?.queueId &&
+        ["completed", "limited", "stopped"].includes(work.status)
+      ) {
+        void getSessionJson("/api/stash/sets", {
+          fresh: true,
+          revalidate: false,
+        }).catch(() => {});
+      }
+      previousWork = work
+        ? {
+            status: work.status,
+            queueId: work.queueId,
+            collectStash: work.config?.collectStash,
+          }
+        : null;
       for (const job of next.queuedActions) {
         const before = prior.current.get(job.id);
+        if (
+          job.type === "stash.craft" &&
+          before &&
+          before !== "completed" &&
+          job.status === "completed"
+        ) {
+          void getSessionJson("/api/stash/sets", {
+            fresh: true,
+            revalidate: false,
+          }).catch(() => {});
+          void getSessionJson("/api/me", {
+            fresh: true,
+            serverRefresh: "live",
+            revalidate: false,
+          }).catch(() => {});
+        }
         if (
           job.type === "inventory" &&
           before &&

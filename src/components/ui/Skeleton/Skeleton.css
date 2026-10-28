@@ -9,6 +9,23 @@
   height: var(--font-size-md);
 }
 
+.ui-skeleton-text {
+  display: inline-block;
+  width: var(--space-64);
+  max-width: 100%;
+  height: var(--font-size-sm);
+  border-radius: var(--radius-control);
+  background: var(--border-strong);
+}
+
+.ui-skeleton-progress {
+  display: block;
+  width: 100%;
+  height: var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+}
+
 .ui-skeleton-space--tile {
   height: var(--font-size-xl);
 }

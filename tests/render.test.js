@@ -376,13 +376,9 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!workMarkup.includes("ui-disclosure"));
     assert.ok(!workMarkup.includes("<details"));
     assert.ok(workMarkup.includes("base-card--target"));
-    assert.match(workMarkup, /class="[^"]*button--accent-gold[^"]*"/);
-    assert.ok(workMarkup.includes('<span class="button-label">Фарм</span>'));
-    assert.ok(
-      workMarkup.includes('aria-label="Настроить фарм: Тестовая работа"'),
-    );
-    assert.ok(workMarkup.includes("tabler-icon-brain"));
-    assert.equal((workMarkup.match(/<button\b/g) || []).length, 1);
+    assert.ok(workMarkup.includes('aria-label="Действия: Тестовая работа"'));
+    assert.ok(workMarkup.includes('aria-expanded="false"'));
+    assert.equal((workMarkup.match(/<button\b/g) || []).length, 0);
     assert.ok(!workMarkup.includes("Калькулятор"));
     assert.ok(!workMarkup.includes(">Цель</button>"));
     assert.ok(workMarkup.includes("work-card-energy"));
@@ -396,16 +392,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(!workWithoutTargetMarkup.includes("base-card--target"));
     assert.ok(
       workWithoutTargetMarkup.includes(
-        '<span class="button-label">Фарм</span>',
+        'aria-label="Действия: Тестовая работа"',
       ),
     );
-    assert.ok(
-      workWithoutTargetMarkup.includes(
-        'aria-label="Настроить фарм: Тестовая работа"',
-      ),
-    );
-    assert.ok(workWithoutTargetMarkup.includes("tabler-icon-brain"));
-    assert.equal((workWithoutTargetMarkup.match(/<button\b/g) || []).length, 1);
+    assert.equal((workWithoutTargetMarkup.match(/<button\b/g) || []).length, 0);
     assert.ok(!workWithoutTargetMarkup.includes("Калькулятор"));
     assert.ok(!workWithoutTargetMarkup.includes(">Цель</button>"));
     const floorBossMarkup = categoryMarkup("bosses");
@@ -980,10 +970,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       ),
     );
     assert.ok(missingWorkMarkup.includes("work-card"));
-    assert.ok(
-      missingWorkMarkup.includes('<span class="button-label">Фарм</span>'),
-    );
-    assert.equal((missingWorkMarkup.match(/<button\b/g) || []).length, 1);
+    assert.equal((missingWorkMarkup.match(/<button\b/g) || []).length, 0);
     assert.ok(
       missingWorkMarkup.includes(
         'class="lock-indicator lock-indicator--locked',
@@ -996,7 +983,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       /class="work-card-energy"><span class="lock-indicator/,
     );
     assert.ok(!missingWorkMarkup.includes("ui-icon--energy"));
-    assert.match(missingWorkMarkup, /<button[^>]*disabled=""/);
+    assert.ok(!missingWorkMarkup.includes('role="button"'));
     assert.ok(!missingWorkMarkup.includes("floor-entity-placeholder"));
     const { BossCard } = await load("features/bosses/BossCard/BossCard.jsx");
     const boss = kb.bosses.find((record) => record.apiId === "41");

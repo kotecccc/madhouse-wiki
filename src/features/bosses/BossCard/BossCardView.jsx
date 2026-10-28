@@ -281,7 +281,7 @@ export function BossCardView({
       variant={cardVariant}
       data-department-id={boss.departmentId}
       data-entity-id={boss.id}
-      state={menuAnchor ? "selected" : cardState}
+      state={menuAnchor ? "menu-active" : cardState}
       padding={cardPadding}
       className={cardClass}
       tabIndex={onSelectPart ? 0 : undefined}

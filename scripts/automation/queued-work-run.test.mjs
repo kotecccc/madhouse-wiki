@@ -21,6 +21,18 @@ const args = {
   allowPurchase: false,
 };
 
+test("queued work validates and retains the collection objective", () => {
+  const adapter = queuedWorkRunAdapter({ entry: {} });
+  assert.equal(
+    adapter.validate({ ...args, collectStash: true }).collectStash,
+    true,
+  );
+  assert.throws(
+    () => adapter.validate({ ...args, collectStash: "yes" }),
+    /invalid_work_run/,
+  );
+});
+
 test("a queued work run records its receipt and never restarts after replacement", async () => {
   let state;
   const entry = { storageFailed: false };

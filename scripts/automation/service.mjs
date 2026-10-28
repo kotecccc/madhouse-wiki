@@ -16,6 +16,7 @@ import {
   migrateAutomationState,
 } from "./state-migrations.mjs";
 import { queuedInventoryAdapter } from "./queued-inventory.mjs";
+import { queuedStashCraftAdapter } from "./queued-stash-craft.mjs";
 import { queuedFriendRemovalAdapter } from "./queued-friend-removal.mjs";
 import { queuedFriendSettingAdapter } from "./queued-friend-setting.mjs";
 import { queuedFriendRequestAdapter } from "./queued-friend-request.mjs";
@@ -428,6 +429,7 @@ export function createAutomationService({
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
       equipment: entry.equipment,
+      stashCraft: entry.stashCraft,
       buddyHelp: entry.buddyHelp,
       friendRemoval: entry.friendRemoval,
       friendSnapshot: entry.friendSnapshot,
@@ -527,7 +529,9 @@ export function createAutomationService({
   }
   function characterPriorityActive(entry) {
     return Boolean(
-      entry.characterUpgrade?.pending || entry.characterBatch?.running(),
+      entry.characterUpgrade?.pending ||
+      entry.characterBatch?.running() ||
+      entry.stashCraft?.pending,
     );
   }
   function workPriorityActive(entry) {
@@ -548,6 +552,7 @@ export function createAutomationService({
   function canAct(entry, ignoreInventory = false) {
     if (
       (!ignoreInventory && entry.inventoryBusy) ||
+      entry.stashCraft?.pending ||
       characterPriorityActive(entry)
     )
       return false;
@@ -824,6 +829,7 @@ export function createAutomationService({
       credential: saved?.credential ?? null,
       player: saved?.player ?? null,
       equipment: saved?.equipment ?? { pending: null, checked: false },
+      stashCraft: saved?.stashCraft ?? { pending: null, receipts: [] },
       buddyHelp: {
         boostersEnabled: false,
         fullBoosterReserve: 1,
@@ -1143,6 +1149,7 @@ export function createAutomationService({
         Boolean(entry.credential) &&
         !entry.raidPolling &&
         !entry.inventoryBusy &&
+        !entry.stashCraft?.pending &&
         !entry.equipment?.pending &&
         !entry.characterUpgrade.pending &&
         (!entry.characterBatch?.running() ||
@@ -1315,6 +1322,7 @@ export function createAutomationService({
           entry.busy ||
           entry.inventoryBusy ||
           entry.storageFailed ||
+          entry.stashCraft?.pending ||
           entry.characterUpgrade.pending ||
           (entry.characterBatch?.running() &&
             !["joining", "confirming"].includes(
@@ -1518,6 +1526,7 @@ export function createAutomationService({
           entry.busy ||
           entry.inventoryBusy ||
           entry.storageFailed ||
+          entry.stashCraft?.pending ||
           !entry.credential ||
           !entry.collector.idleForPriority() ||
           !entry.workFarm.canSuspend() ||
@@ -1575,6 +1584,7 @@ export function createAutomationService({
       if (floor.status !== "running") return false;
       return ![
         "inventory",
+        "stash.craft",
         "friend.remove",
         "friend.request",
         "friend.favorite",
@@ -1597,6 +1607,8 @@ export function createAutomationService({
         return "storage";
       }
       if (startedQueueActor(job)) return null;
+      if (entry.stashCraft.pending && entry.stashCraft.pending.id !== job.id)
+        return "action";
       if (entry.busy || entry.inventoryBusy) return "action";
       if (
         !entry.collector.idleForPriority() ||
@@ -1624,6 +1636,7 @@ export function createAutomationService({
       saved: entry.queuedActions,
       adapters: {
         inventory: queuedInventoryAdapter({ entry, fetcher, save }),
+        "stash.craft": queuedStashCraftAdapter({ entry, fetcher, save }),
         "friend.remove": queuedFriendRemovalAdapter({ entry, fetcher, save }),
         "friend.favorite": queuedFriendSettingAdapter({
           entry,
@@ -1812,6 +1825,7 @@ export function createAutomationService({
                               job.type === "friend.buddy" ||
                               job.type === "subscription.start" ||
                               job.type === "character.start" ||
+                              job.type === "stash.craft" ||
                               job.args.action === "buy" ||
                               entry.controller.getSnapshot().battle?.status !==
                                 "active",
@@ -1868,6 +1882,8 @@ export function createAutomationService({
           !closed &&
           !entry.storageFailed &&
           Boolean(entry.credential) &&
+          (!entry.stashCraft.pending ||
+            entry.stashCraft.pending.id === job.id) &&
           accountHealth(entry.credential)?.status !== "credentials_invalid" &&
           entry.collector.idleForPriority() &&
           (!entry.assistant.projection().uncertain ||
@@ -2600,7 +2616,18 @@ export function createAutomationService({
       entry.raidWorker.getSnapshot().enabled ||
       entry.collector.running() ||
       entry.raidSubscription.getSnapshot().checkpoint ||
-      entry.characterBatch.running()
+      entry.characterBatch.running() ||
+      entry.controller.getSnapshot().purchase ||
+      entry.controller.getSnapshot().purchaseUncertain ||
+      entry.actionQueue
+        .snapshot()
+        .some(
+          (job) =>
+            job.type === "battle.buy" &&
+            ["queued", "waiting", "running", "reconciling"].includes(
+              job.status,
+            ),
+        )
     )
       return;
     const state = entry.controller.getSnapshot();
@@ -2635,6 +2662,7 @@ export function createAutomationService({
       if (
         ![
           "inventory",
+          "stash.craft",
           "friend.remove",
           "friend.favorite",
           "friend.buddy",
@@ -2732,7 +2760,14 @@ export function createAutomationService({
         entry.receipts = previousReceipts;
         throw failure(entry.storageFailed ? 503 : 400, error.message);
       }
-      if (input.args.type === "battle.buy") entry.controller.cancelPurchase();
+      if (input.args.type === "battle.buy") {
+        entry.controller.cancelPurchase();
+        if (entry.pausedAuto?.purchasePause) {
+          entry.pausedAuto.resumeRequested = true;
+          entry.pausedAuto.nextAttemptAt = 0;
+          save(entry);
+        }
+      }
       return snapshot(entry);
     }
     if (input.command === "queue.dismiss") {
@@ -2780,32 +2815,16 @@ export function createAutomationService({
         throw failure(503, "automation_storage_unavailable");
       return snapshot(entry);
     }
-    // The client may have observed an idle batch just before another request
-    // started one. Preserve its confirmed intent instead of rejecting the race.
+    if (entry.stashCraft.pending && !safeCommands.has(input.command))
+      throw failure(409, "automation_action_pending");
+    // Do not queue another upgrade behind an active or uncertain operation.
     if (
       (entry.characterBatch.running() || entry.characterUpgrade.pending) &&
       ["character.upgrade", "character.start", "character.startAll"].includes(
         input.command,
       )
     ) {
-      const args = input.args ?? {};
-      const quotes =
-        input.command === "character.startAll" ? args.quotes : [args.expected];
-      if (
-        !Array.isArray(quotes) ||
-        !quotes.length ||
-        (input.command === "character.startAll"
-          ? quotes.some((quote) => quote?.amount !== quote?.dailyRemaining)
-          : args.expected?.stat !== args.stat ||
-            args.expected?.amount !==
-              (input.command === "character.upgrade" ? 1 : args.amount))
-      )
-        throw failure(400, "invalid_character_upgrade");
-      return command(entry, {
-        ...input,
-        command: "queue.enqueue",
-        args: { type: "character.start", action: { quotes } },
-      });
+      throw failure(409, "character_batch_running");
     }
     if (
       entry.manualBattle.pending &&
@@ -3879,6 +3898,16 @@ export function createAutomationService({
           await entry.assistant.use(args.type);
           break;
         case "purchase.prepare":
+          if (entry.auto.getSnapshot().enabled && !entry.pausedAuto) {
+            entry.pausedAuto = {
+              checkpoint: entry.auto.exportState(),
+              resumeRequested: false,
+              purchasePause: true,
+            };
+            save(entry);
+            if (entry.storageFailed)
+              throw failure(503, "automation_storage_unavailable");
+          }
           entry.auto.stop();
           if (
             entry.raidWorker.getSnapshot().enabled ||
@@ -3890,9 +3919,18 @@ export function createAutomationService({
             args.currency,
             args.quantity,
           );
+          if (
+            entry.pausedAuto?.purchasePause &&
+            !entry.controller.getSnapshot().purchase
+          )
+            entry.pausedAuto.resumeRequested = true;
           break;
         case "purchase.cancel":
           entry.controller.cancelPurchase();
+          if (entry.pausedAuto?.purchasePause) {
+            entry.pausedAuto.resumeRequested = true;
+            entry.pausedAuto.nextAttemptAt = 0;
+          }
           break;
         case "purchase.buy":
           await entry.assistant.buy(entry.controller.getSnapshot().purchase);
@@ -3930,6 +3968,10 @@ export function createAutomationService({
           break;
         }
         case "auto.pause":
+          if (entry.pausedAuto?.purchasePause) {
+            entry.pausedAuto.purchasePause = false;
+            entry.pausedAuto.resumeRequested = false;
+          }
           if (entry.auto.getSnapshot().enabled && !entry.pausedAuto) {
             entry.pausedAuto = {
               checkpoint: entry.auto.exportState(),

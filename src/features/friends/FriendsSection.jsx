@@ -409,7 +409,7 @@ export function FriendsSection({
             <Skeleton variant="control" />
             <Skeleton variant="control" />
           </div>
-          {[0, 1, 2, 3].map((item) => (
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((item) => (
             <Skeleton as="article" key={item} />
           ))}
         </div>

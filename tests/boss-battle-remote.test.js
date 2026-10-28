@@ -131,7 +131,7 @@ test("character upgrades can be queued while battle state is unresolved", async 
   }
 });
 
-test("a character upgrade requested during another batch becomes a queue intention", async () => {
+test("a character upgrade is sent directly without creating a queued intention", async () => {
   const state = {
     ...initialState(),
     characterUpgrade: {
@@ -144,10 +144,10 @@ test("a character upgrade requested during another batch becomes a queue intenti
   await h.connect();
   const quote = { stat: "madness", amount: 1, maxPrice: 500 };
   await h.characterUpgrade.upgrade({ stat: "madness", expected: quote });
-  assert.equal(h.calls.at(-1)[2].command, "queue.enqueue");
+  assert.equal(h.calls.at(-1)[2].command, "character.upgrade");
   assert.deepEqual(h.calls.at(-1)[2].args, {
-    type: "character.start",
-    action: { quotes: [quote] },
+    stat: "madness",
+    expected: quote,
   });
   h.disconnect();
 });

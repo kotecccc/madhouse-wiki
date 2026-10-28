@@ -41,6 +41,7 @@ export function createWorkFarm({
     configs: saved.configs ?? {},
     refreshRetryAt: saved.refreshRetryAt ?? null,
   };
+  if (record.run?.config?.collectStash) delete record.run.stashVerifiedCycle;
   let runController = new AbortController();
   let timer = null,
     generation = 0,
@@ -335,6 +336,35 @@ export function createWorkFarm({
       }
       if (!valid()) return;
       if (
+        run.config.collectStash &&
+        run.stashVerifiedCycle !== record.view.completedCycles
+      ) {
+        const work = await getWork(run.workId);
+        const parts = work?.stashSet?.ingredients;
+        if (!parts?.length || work.stashSetId == null)
+          throw new Error("Состав набора недоступен.");
+        const fresh = normalizeWorkStash(
+          await request("GET", "/api/stash/sets"),
+          work.stashSetId,
+        );
+        if (!valid()) return;
+        const quantities = parts.map(
+          (part) =>
+            fresh?.ingredients?.find(
+              (item) => String(item.ingredientId) === String(part.ingredientId),
+            )?.quantity,
+        );
+        if (quantities.some((value) => !nonnegative(value)))
+          throw new Error("Не удалось проверить части набора.");
+        record.view.stash = fresh;
+        run.stashVerifiedCycle = record.view.completedCycles;
+        publish();
+        if (quantities.every((value) => value > 0)) {
+          finish("completed", "Все части набора собраны.");
+          return;
+        }
+      }
+      if (
         run.config.mode === "boosters" &&
         (record.view.boostersStatus !== "ready" ||
           record.view.walletDollar == null)
@@ -344,7 +374,12 @@ export function createWorkFarm({
         run.config.mode !== "energy" &&
         record.view.completedCycles >= run.targetCycles
       ) {
-        finish("completed", "Целевое количество выполнений достигнуто.");
+        finish(
+          run.config.collectStash ? "limited" : "completed",
+          run.config.collectStash
+            ? "Достигнут лимит выполнений до сбора набора."
+            : "Целевое количество выполнений достигнуто.",
+        );
         return;
       }
       if (run.actionsDone >= run.config.maxActions) {
@@ -451,7 +486,12 @@ export function createWorkFarm({
         if (!valid()) return;
         record.view = view;
         if (view.completedCycles >= run.targetCycles) {
-          finish("completed", "Целевое количество выполнений достигнуто.");
+          finish(
+            run.config.collectStash ? "limited" : "completed",
+            run.config.collectStash
+              ? "Достигнут лимит выполнений до сбора набора."
+              : "Целевое количество выполнений достигнуто.",
+          );
           return;
         }
         plan = makePlan();
@@ -554,8 +594,16 @@ export function createWorkFarm({
         run.pending = null;
         run.energySpent += task.energyCost;
         log("perform", `${task.title} · ${task.energyCost} энергии`);
-        if (after.completedCycles >= run.targetCycles) {
-          finish("completed", "Целевое количество выполнений достигнуто.");
+        if (
+          !run.config.collectStash &&
+          after.completedCycles >= run.targetCycles
+        ) {
+          finish(
+            run.config.collectStash ? "limited" : "completed",
+            run.config.collectStash
+              ? "Достигнут лимит выполнений до сбора набора."
+              : "Целевое количество выполнений достигнуто.",
+          );
           return;
         }
         run.phase = after.tasks.every((task) => task.progress === task.required)
@@ -923,6 +971,7 @@ export function createWorkFarm({
         args.maxBoosters > 1000 ||
         !nonnegative(args.maxDollar) ||
         typeof args.allowPurchase !== "boolean" ||
+        (args.collectStash != null && typeof args.collectStash !== "boolean") ||
         (args.mode === "energy" &&
           args.energyBudget != null &&
           !nonnegative(args.energyBudget))

@@ -404,48 +404,50 @@ export function actionQueueCards(state, catalogue = {}) {
     cards.push({
       id: job.id,
       title:
-        job.type === "character.start"
-          ? "Прокачка характеристик"
-          : job.type === "subscription.start"
-            ? "Подписка на рейды"
-            : job.type === "work.start"
-              ? queuedWork?.title ||
-                queuedWork?.nameRu ||
-                queuedWork?.name ||
-                "Фарм работёнки"
-              : job.type === "floor.start"
-                ? "Открытие этажа"
-                : job.type === "auto.start"
-                  ? "Автобой"
-                  : job.type === "raid.start"
-                    ? "Рейды"
-                    : job.type === "business.start"
-                      ? "Прокачка бизнеса"
-                      : job.type === "invitation.accept"
-                        ? "Принять приглашение"
-                        : job.type === "battle.buy"
-                          ? "Покупка аптечек"
-                          : job.type === "battle.heal"
-                            ? "Лечение"
-                            : job.type === "battle.attack"
-                              ? "Удар по боссу"
-                              : job.type === "battle.start"
-                                ? "Нападение на босса"
-                                : job.type === "friend.request"
-                                  ? job.args.username
-                                    ? `@${job.args.username}`
-                                    : "Ведущий рейда"
-                                  : [
-                                        "friend.remove",
-                                        "friend.favorite",
-                                        "friend.buddy",
-                                      ].includes(job.type)
-                                    ? job.args.name || "Друг"
-                                    : job.type === "work.booster"
-                                      ? "Дефибриллятор"
-                                      : item?.name ||
-                                        actions[job.args?.action] ||
-                                        "Действие",
+        job.type === "stash.craft"
+          ? "Сборка набора"
+          : job.type === "character.start"
+            ? "Прокачка характеристик"
+            : job.type === "subscription.start"
+              ? "Подписка на рейды"
+              : job.type === "work.start"
+                ? queuedWork?.title ||
+                  queuedWork?.nameRu ||
+                  queuedWork?.name ||
+                  "Фарм работёнки"
+                : job.type === "floor.start"
+                  ? "Открытие этажа"
+                  : job.type === "auto.start"
+                    ? "Автобой"
+                    : job.type === "raid.start"
+                      ? "Рейды"
+                      : job.type === "business.start"
+                        ? "Прокачка бизнеса"
+                        : job.type === "invitation.accept"
+                          ? "Принять приглашение"
+                          : job.type === "battle.buy"
+                            ? "Покупка аптечек"
+                            : job.type === "battle.heal"
+                              ? "Лечение"
+                              : job.type === "battle.attack"
+                                ? "Удар по боссу"
+                                : job.type === "battle.start"
+                                  ? "Нападение на босса"
+                                  : job.type === "friend.request"
+                                    ? job.args.username
+                                      ? `@${job.args.username}`
+                                      : "Ведущий рейда"
+                                    : [
+                                          "friend.remove",
+                                          "friend.favorite",
+                                          "friend.buddy",
+                                        ].includes(job.type)
+                                      ? job.args.name || "Друг"
+                                      : job.type === "work.booster"
+                                        ? "Дефибриллятор"
+                                        : item?.name ||
+                                          actions[job.args?.action] ||
+                                          "Действие",
       status:
         job.status === "completed"
           ? finishedActor

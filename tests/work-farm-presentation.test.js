@@ -19,6 +19,27 @@ const view = {
   tasks: [task(1, 8, 4, 1), task(2, 3, 1)],
 };
 
+test("collection progress counts confirmed parts, not the safety cycle limit", () => {
+  const run = {
+    workId: 7,
+    config: { collectStash: true },
+    stashVerifiedCycle: 25,
+  };
+  const current = {
+    ...view,
+    stash: { ingredients: [{ quantity: 2 }, { quantity: 0 }, { quantity: 1 }] },
+  };
+  assert.deepEqual(workFarmProgress(run, current), {
+    value: 2,
+    max: 3,
+    percent: 66,
+  });
+  assert.equal(
+    workFarmProgress(run, { ...current, completedCycles: 26 }).max,
+    null,
+  );
+});
+
 test("MAX previews affordable tasks in runner order, including partial cycles and no refills", () => {
   assert.deepEqual(
     previewWorkTasks(view, { mode: "energy", energyBudget: 27 }),

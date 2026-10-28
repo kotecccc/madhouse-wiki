@@ -189,6 +189,7 @@ function ProfileSummary({ state }) {
   const [now, setNow] = useState(() => Date.now());
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const profile = state.profile;
+  const identity = state.identity;
   const energy = profile?.energy;
   const energyKnown =
     Number.isFinite(energy?.current) &&
@@ -213,6 +214,80 @@ function ProfileSummary({ state }) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [shouldTickEnergy, shouldTickEffects]);
+  if (!profile && identity)
+    return (
+      <BaseCard
+        as="article"
+        variant="floor-data"
+        className="overview-card overview-player-card"
+      >
+        <div className="overview-player-summary">
+          <PlayerAvatar profile={identity} />
+          <div className="overview-player-identity">
+            <div className="overview-player-name-row">
+              <CardTitle as="h2">{identity.name}</CardTitle>
+              <Skeleton variant="text" />
+            </div>
+            <div className="overview-level-progress">
+              <div className="overview-level-heading">
+                <span className="overview-energy-label">
+                  <Icon type="sparkles-2" size="small" />
+                  <CardDescription as="span" size="xs">
+                    Опыт
+                  </CardDescription>
+                </span>
+                <Skeleton variant="text" />
+              </div>
+              <Skeleton variant="progress" />
+            </div>
+          </div>
+        </div>
+        {state.status === "error" ? (
+          <ErrorToast message={state.message} />
+        ) : (
+          <>
+            <span className="sr-only" role="status">
+              Загружаем актуальные данные профиля
+            </span>
+            <div className="overview-energy" role="group" aria-label="Энергия">
+              <div className="overview-energy-heading">
+                <span className="overview-energy-label">
+                  <Icon type="energy" size="small" />
+                  Энергия
+                </span>
+                <Skeleton variant="text" />
+              </div>
+              <Skeleton variant="progress" />
+            </div>
+            <dl className="overview-stats">
+              {[
+                ["Безумие", "madness"],
+                ["Агрессия", "aggression"],
+                ["Ярость", "rage"],
+              ].map(([name, icon]) => (
+                <div key={name}>
+                  <dt>
+                    <Icon type={icon} size="small" />
+                    {name}
+                  </dt>
+                  <dd>
+                    <Skeleton variant="text" />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <Wallet
+              loading
+              entries={[
+                ["Монеты", null, "coin"],
+                ["Пилюли", null, "pill"],
+                ["Доллары", null, "banknote"],
+              ]}
+            />
+          </>
+        )}
+      </BaseCard>
+    );
   if (state.status === "loading" || state.status === "idle")
     return (
       <>
@@ -250,7 +325,26 @@ function ProfileSummary({ state }) {
                   {fmt(profile.playerLevel)} ур.
                 </Pill>
               )}
+              {!Number.isSafeInteger(profile.playerLevel) &&
+                state.levelStatus === "loading" && <Skeleton variant="text" />}
             </div>
+            {!experienceKnown && state.levelStatus === "loading" && (
+              <div
+                className="overview-level-progress"
+                aria-label="Загрузка опыта"
+              >
+                <div className="overview-level-heading">
+                  <span className="overview-energy-label">
+                    <Icon type="sparkles-2" size="small" />
+                    <CardDescription as="span" size="xs">
+                      Опыт
+                    </CardDescription>
+                  </span>
+                  <Skeleton variant="text" />
+                </div>
+                <Skeleton variant="progress" />
+              </div>
+            )}
             {Number.isSafeInteger(profile.playerLevel) && experienceKnown && (
               <div
                 className="overview-level-progress"

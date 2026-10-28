@@ -25,6 +25,8 @@ function makeHarness({
   loseBoosterReply = false,
   losePurchaseReply = false,
   onChange,
+  stashParts = null,
+  failStash = () => false,
 } = {}) {
   const workId = 7;
   const calls = [];
@@ -47,7 +49,20 @@ function makeHarness({
     boosters: { ...boosters },
     walletDollar,
   };
-  const definition = { workId, title: "Test work" };
+  const definition = {
+    workId,
+    title: "Test work",
+    ...(stashParts
+      ? {
+          stashSetId: 3,
+          stashSet: {
+            ingredients: stashParts.map((_, index) => ({
+              ingredientId: index + 1,
+            })),
+          },
+        }
+      : {}),
+  };
   const boosterItems = () =>
     Object.fromEntries(
       ["small", "full"].map((type) => [
@@ -82,6 +97,20 @@ function makeHarness({
   }
   const request = async (method, path, body = {}) => {
     calls.push({ method, path, body });
+    if (path === "/api/stash/sets") {
+      if (failStash()) throw new Error("stash offline");
+      return {
+        sets: [
+          {
+            setId: 3,
+            ingredients: stashParts.map((owned, index) => ({
+              ingredientId: index + 1,
+              owned,
+            })),
+          },
+        ],
+      };
+    }
     if (blockConfirmation() && path === "/api/works/open")
       throw Object.assign(new Error("read was not dispatched"), {
         notDispatched: true,
@@ -186,6 +215,45 @@ function makeHarness({
     },
   };
 }
+
+test("collection farm stops when every part is available", async () => {
+  const parts = [1, 0];
+  const h = makeHarness({ stashParts: parts });
+  try {
+    await refresh(h);
+    start(h.farm, { targetCycles: 10, collectStash: true });
+    await h.fireNext();
+    assert.equal(
+      h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+      1,
+    );
+    parts[1] = 1;
+    await h.fireNext();
+    assert.equal(h.farm.getSnapshot().run.status, "completed");
+    assert.equal(
+      h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+      1,
+    );
+  } finally {
+    h.farm.dispose();
+  }
+});
+
+test("collection farm never performs work when fresh stash check fails", async () => {
+  const h = makeHarness({ stashParts: [0], failStash: () => true });
+  try {
+    await refresh(h);
+    start(h.farm, { targetCycles: 10, collectStash: true });
+    await h.fireNext();
+    assert.equal(
+      h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+      0,
+    );
+    assert.equal(h.farm.getSnapshot().run.phase, "retrying");
+  } finally {
+    h.farm.dispose();
+  }
+});
 
 async function refresh(harness) {
   await harness.farm.refresh(7);

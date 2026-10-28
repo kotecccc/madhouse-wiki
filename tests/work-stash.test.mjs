@@ -1,8 +1,46 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeWorkStash } from "../shared/work-stash.js";
+import {
+  normalizeWorkStash,
+  workStashFirstCollection,
+} from "../shared/work-stash.js";
 import { createWorkFarm } from "../scripts/automation/work-farm.mjs";
 import { isSnapshotPath } from "../scripts/account/snapshots.mjs";
+
+test("first collection uses craft history rather than owned parts alone", () => {
+  const ingredients = [{ ingredientId: 1 }, { ingredientId: 2 }];
+  const read = (craftedCount, owned) =>
+    normalizeWorkStash(
+      {
+        sets: [
+          {
+            setId: 3,
+            craftedCount,
+            ingredients: owned.map((quantity, index) => ({
+              ingredientId: index + 1,
+              owned: quantity,
+            })),
+          },
+        ],
+      },
+      3,
+    );
+  assert.deepEqual(workStashFirstCollection(read(2, [0, 0]), ingredients), {
+    status: "collected",
+  });
+  assert.deepEqual(workStashFirstCollection(read(0, [1, 0]), ingredients), {
+    status: "not_collected",
+    missing: 1,
+  });
+  assert.deepEqual(workStashFirstCollection(read(0, [1, 1]), ingredients), {
+    status: "not_collected",
+    missing: 0,
+  });
+  assert.deepEqual(
+    workStashFirstCollection(read(undefined, [1, 1]), ingredients),
+    { status: "unknown" },
+  );
+});
 
 test("stash quantity, discovery and purchase unlock are independent", () => {
   const value = normalizeWorkStash(

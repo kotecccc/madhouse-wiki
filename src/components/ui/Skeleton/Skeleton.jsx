@@ -20,6 +20,15 @@ export function Skeleton({ variant = "card", className = "", as = "div" }) {
       <span className={`ui-skeleton-space ui-skeleton-space--${variant}`} />
     ),
   };
+  if (variant === "text" || variant === "progress") {
+    return (
+      <span
+        ref={ref}
+        className={`ui-skeleton ui-skeleton-${variant} ${className}`.trim()}
+        aria-hidden="true"
+      />
+    );
+  }
   if (variant === "profile") {
     return (
       <BaseCard

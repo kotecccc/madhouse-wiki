@@ -64,10 +64,7 @@ export function App() {
   );
   const scrollRegionRef = useRef(null);
   const profileState = usePlayerProfile();
-  const floorAvailability = useFloorAvailability({
-    profileSettled:
-      profileState.status === "ready" || profileState.status === "error",
-  });
+  const floorAvailability = useFloorAvailability();
   const raidSchedule = useRaidSchedule();
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
@@ -369,9 +366,7 @@ export function App() {
             setPullReady(false);
           }}
         >
-          {(refreshing || (visibleScreen === "friends" && friendsLoading)) && (
-            <BorderLoader label="Обновление данных" />
-          )}
+          {refreshing && <BorderLoader label="Обновление данных" />}
           {pullReady && (
             <CardDescription role="status">
               Отпустите, чтобы обновить

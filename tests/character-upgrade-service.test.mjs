@@ -99,21 +99,17 @@ test("character action is account scoped, checkpointed, and never replayed after
     service = createAutomationService(options);
     entry = await service.identify("Bearer a.b.c");
     assert.ok(service.snapshot(entry).characterUpgrade.pending);
-    await service.command(entry, {
-      id: "upgrade-2",
-      command: "character.upgrade",
-      expectedVersion: service.snapshot(entry).version,
-      args: { stat: "madness", expected: quote },
-    });
-    assert.equal(entry.actionQueue.snapshot()[0].status, "queued");
-    assert.equal(entry.actionQueue.hasDue(), false);
+    await assert.rejects(
+      service.command(entry, {
+        id: "upgrade-2",
+        command: "character.upgrade",
+        expectedVersion: service.snapshot(entry).version,
+        args: { stat: "madness", expected: quote },
+      }),
+      /character_batch_running/,
+    );
+    assert.equal(entry.actionQueue.snapshot().length, 0);
     assert.equal(posts, 1);
-    await service.command(entry, {
-      id: "cancel-upgrade-2",
-      command: "queue.cancel",
-      expectedVersion: service.snapshot(entry).version,
-      args: { id: "upgrade-2" },
-    });
     profile.characterStats.madness.base = 21;
     profile.wallet.gold -= 500;
     profile.characterStatsUpgrade.madness.dailyUsed = 1;

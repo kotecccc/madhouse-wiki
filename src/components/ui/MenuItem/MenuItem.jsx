@@ -4,19 +4,34 @@ import { Icon } from "../Icon/Icon.jsx";
 export function MenuItem({
   warning = false,
   informational = false,
+  interactive = false,
   icon,
+  leading,
+  image,
+  value,
   children,
   ...props
 }) {
   if (informational) {
+    const Tag = interactive ? "button" : "div";
     return (
-      <div
-        className="button button-menu-item button-menu-item--informational button-size-md button--no-lift"
+      <Tag
+        className={`button button-menu-item button-menu-item--informational button-size-md button--no-lift${interactive ? " button-menu-item--interactive" : ""}`}
+        {...(interactive ? { type: "button" } : {})}
         {...props}
       >
-        {icon && <Icon type={icon} />}
+        {image ? (
+          <span className="button-menu-item-image-slot">
+            <img className="button-menu-item-image" src={image} alt="" />
+          </span>
+        ) : (
+          leading || (icon && <Icon type={icon} />)
+        )}
         <span className="button-label">{children}</span>
-      </div>
+        {value != null && (
+          <span className="button-menu-item-value">{value}</span>
+        )}
+      </Tag>
     );
   }
   return (

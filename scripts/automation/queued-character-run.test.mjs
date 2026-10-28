@@ -77,7 +77,7 @@ test("queued upgrade rejects altered price or amount and records its fixed budge
   entry.characterBatch.dispose();
 });
 
-test("a second character goal waits for the current batch and can be cancelled", async () => {
+test("a second character goal is rejected while a batch is running", async () => {
   const directory = mkdtempSync(join(tmpdir(), "queued-character-"));
   const store = createAutomationStateStore({ directory });
   const service = createAutomationService({
@@ -111,27 +111,19 @@ test("a second character goal waits for the current batch and can be cancelled",
         expectedVersion: 0,
         args: { stat: "madness", amount: 2, expected: quote },
       }),
-      /invalid_character_upgrade/,
+      /character_batch_running/,
     );
-    await service.command(entry, {
-      id: "character-01",
-      command: "character.upgrade",
-      expectedVersion: 0,
-      args: { stat: "madness", expected: quote },
-    });
-    assert.equal(entry.actionQueue.snapshot()[0].type, "character.start");
-    assert.equal(entry.actionQueue.hasDue(), false);
-    entry.characterBatch.stop();
-    assert.equal(entry.actionQueue.hasDue(), true);
-    await entry.actionQueue.tick();
-    assert.equal(entry.characterUpgrade.run.queueId, "character-01");
-    await service.command(entry, {
-      id: "cancel-character-01",
-      command: "queue.cancel",
-      expectedVersion: 0,
-      args: { id: "character-01" },
-    });
-    assert.equal(entry.characterUpgrade.run.status, "stopped");
+    await assert.rejects(
+      service.command(entry, {
+        id: "character-01",
+        command: "character.upgrade",
+        expectedVersion: 0,
+        args: { stat: "madness", expected: quote },
+      }),
+      /character_batch_running/,
+    );
+    assert.equal(entry.actionQueue.snapshot().length, 0);
+    assert.equal(entry.characterUpgrade.run.status, "running");
   } finally {
     service.close();
     store.close();

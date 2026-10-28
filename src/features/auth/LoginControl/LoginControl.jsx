@@ -174,6 +174,14 @@ export function LoginControl() {
   }, [open, authenticated]);
   useEffect(() => {
     let controller;
+    const sessionIdentity = () => {
+      try {
+        return authorizeRequest({ url: "/api/me" }).headers.Authorization;
+      } catch {
+        return null;
+      }
+    };
+    let identity = sessionIdentity();
     const load = async () => {
       controller?.abort();
       controller = new AbortController();
@@ -228,12 +236,23 @@ export function LoginControl() {
         setProfile(normalizePlayerProfile(event.data));
       if (event.cleared) setProfile(null);
     });
+    const onIdentity = (event) => {
+      if (sessionIdentity() === identity && identity && event.detail)
+        setProfile(
+          (current) => current ?? normalizePlayerProfile(event.detail),
+        );
+    };
+    window.addEventListener("madhouse:profile-identity", onIdentity);
     const unsubscribe = subscribeSession(() => {
+      const nextIdentity = sessionIdentity();
+      if (nextIdentity === identity) return;
+      identity = nextIdentity;
       setProfile(null);
       load();
     });
     return () => {
       controller?.abort();
+      window.removeEventListener("madhouse:profile-identity", onIdentity);
       unsubscribe();
       unsubscribeData();
     };

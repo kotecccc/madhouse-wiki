@@ -10,3 +10,7 @@
   width: auto;
   margin-inline: calc(-1 * var(--card-padding));
 }
+
+.ui-divider--menu {
+  margin-block: var(--space-8);
+}

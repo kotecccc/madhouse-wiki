@@ -1,3 +1,7 @@
+## Git branch
+
+- Perform all project work on the local `main` branch by default. Use another branch only when the user explicitly requests it. Preserve existing uncommitted changes and coordinate with other work in the checkout.
+
 ## Efficient edits and validation
 
 - Keep trivial and small, well-localized edits in the main agent. Do not launch a subagent merely to find a file, inspect a few related files, change a style, or repeat the main agent's investigation.

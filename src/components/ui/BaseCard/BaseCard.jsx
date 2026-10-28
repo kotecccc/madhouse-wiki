@@ -43,6 +43,7 @@ export function BaseCard({
         state === "locked" && "base-card--locked",
         state === "target" && "base-card--target",
         state === "selected" && "base-card--selected",
+        state === "menu-active" && "base-card--menu-active",
         state === "warning" && "base-card--warning",
         paddingClass,
         inlinePaddingClass,

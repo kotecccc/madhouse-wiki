@@ -872,6 +872,44 @@ test("character priority waits for the in-flight strike and auto battle resumes 
   }
 });
 
+test("stopping autobattle while an upgrade waits does not restart it", async () => {
+  const ctx = createHarness({
+    health: 100,
+    wallet: { gold: 1000, dollar: 100, pills: 100 },
+    characterTest: true,
+  });
+  try {
+    const entry = await ctx.open();
+    const initial = await ctx.command(entry, "stop-read", "character.refresh");
+    const quote = characterUpgradeQuote(
+      initial.characterUpgrade.profile,
+      "madness",
+      1,
+    );
+    ctx.holdAttack();
+    await ctx.command(entry, "stop-auto-start", "auto.start");
+    await ctx.advance(5000);
+    assert.equal(entry.controller.getSnapshot().pending, "attack");
+    await ctx.command(entry, "stop-upgrade", "character.upgrade", {
+      stat: "madness",
+      expected: quote,
+    });
+    await ctx.command(entry, "stop-auto", "auto.stop");
+    ctx.releaseAttack();
+    await ctx.flush();
+    await ctx.advance(65000);
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    assert.equal(
+      ctx.calls.filter((c) => c.path.endsWith("/attack") && c.method === "POST")
+        .length,
+      1,
+    );
+  } finally {
+    ctx.releaseAttack();
+    ctx.cleanup();
+  }
+});
+
 test("queued manual healing uses the assistant ledger and spends one item", async () => {
   const ctx = createHarness({ health: 40, medicineQuantity: 2 });
   try {
@@ -1004,6 +1042,120 @@ const queuedMedicineQuote = {
   unitPrice: 5,
   total: 10,
 };
+
+test("cancelling medicine purchase resumes the saved autobattle", async () => {
+  const ctx = createHarness({ health: 100, medicineQuantity: 1 });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await ctx.command(entry, "medicine-auto-start", "auto.start");
+    await ctx.command(entry, "medicine-panel-open", "medicines.open");
+    await ctx.command(entry, "medicine-prepare", "purchase.prepare", {
+      type: "heal_10",
+      currency: "gold",
+      quantity: 2,
+    });
+    assert.ok(ctx.service.snapshot(entry).battle.purchase);
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    await ctx.command(entry, "medicine-cancel", "purchase.cancel");
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline && !ctx.service.snapshot(entry).auto.enabled)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("medicine purchase completes before the saved autobattle resumes", async () => {
+  const ctx = createHarness({ health: 100, medicineQuantity: 1 });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await ctx.command(entry, "buy-auto-start", "auto.start");
+    await ctx.command(entry, "buy-panel-open", "medicines.open");
+    await ctx.command(entry, "buy-prepare", "purchase.prepare", {
+      type: "heal_10",
+      currency: "gold",
+      quantity: 2,
+    });
+    const quote = ctx.service.snapshot(entry).battle.purchase;
+    assert.ok(quote);
+    await queueMedicinePurchase(ctx, entry, "buy-during-auto", quote);
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    await waitForQueuedPurchase(ctx, entry, "completed");
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline && !ctx.service.snapshot(entry).auto.enabled)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) =>
+          method === "POST" && path === "/api/me/bag/combat-items/buy",
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("an uncertain medicine purchase keeps autobattle paused without replay", async () => {
+  const ctx = createHarness({
+    health: 100,
+    medicineQuantity: 1,
+    lostPurchaseAfterApply: true,
+  });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await ctx.command(entry, "uncertain-auto-start", "auto.start");
+    await ctx.command(entry, "uncertain-panel-open", "medicines.open");
+    await ctx.command(entry, "uncertain-prepare", "purchase.prepare", {
+      type: "heal_10",
+      currency: "gold",
+      quantity: 2,
+    });
+    await queueMedicinePurchase(
+      ctx,
+      entry,
+      "uncertain-during-auto",
+      ctx.service.snapshot(entry).battle.purchase,
+    );
+    await waitForQueuedPurchase(ctx, entry, "reconciling");
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    assert.equal(
+      ctx.calls.filter(
+        ({ method, path }) =>
+          method === "POST" && path === "/api/me/bag/combat-items/buy",
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("stopping autobattle during medicine confirmation prevents resumption", async () => {
+  const ctx = createHarness({ health: 100, medicineQuantity: 1 });
+  try {
+    const entry = await ctx.open();
+    await ctx.service.boot();
+    await ctx.command(entry, "cancel-auto-start", "auto.start");
+    await ctx.command(entry, "cancel-panel-open", "medicines.open");
+    await ctx.command(entry, "cancel-prepare", "purchase.prepare", {
+      type: "heal_10",
+      currency: "gold",
+      quantity: 2,
+    });
+    await ctx.command(entry, "cancel-auto-stop", "auto.stop");
+    await ctx.command(entry, "cancel-purchase", "purchase.cancel");
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+  } finally {
+    ctx.cleanup();
+  }
+});
 async function queueMedicinePurchase(
   ctx,
   entry,

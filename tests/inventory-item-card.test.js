@@ -43,7 +43,10 @@ test("weapon durability is shown in the menu rather than on the card", async () 
       }),
     );
     assert.match(menuDetails, /Мутаген A-17/);
-    assert.match(menuDetails, /Уровень: 50 \/ 50/);
+    assert.match(
+      menuDetails,
+      /Уровень<\/span><span class="button-menu-item-value">50 \/ 50/,
+    );
     const inactiveDetails = renderToStaticMarkup(
       React.createElement(InventoryMenuDetails, {
         item: {
@@ -59,7 +62,10 @@ test("weapon durability is shown in the menu rather than on the card", async () 
     );
     assert.match(durability, /tabler-icon-tool/);
     assert.doesNotMatch(durability, /role="progressbar"/);
-    assert.match(durability, /Прочность: 27 \/ 90/);
+    assert.match(
+      durability,
+      /Прочность<\/span><span class="button-menu-item-value">27 \/ 90/,
+    );
     assert.match(
       render({
         ...item,
@@ -96,7 +102,10 @@ test("weapon durability is shown in the menu rather than on the card", async () 
     assert.doesNotMatch(copy, /Прочность|role="progressbar"/);
     assert.doesNotMatch(html, /50 из 50 ур\./);
     assert.match(render({ ...item, ownedLevel: 12 }), /Ур\. 12/);
-    assert.match(durability, /Прочность: 27 \/ 90/);
+    assert.match(
+      durability,
+      /Прочность<\/span><span class="button-menu-item-value">27 \/ 90/,
+    );
     assert.doesNotMatch(render({ ...item, ownedLevel: 0 }), /В гардеробе/);
     const equipped = render({ ...item, equipped: true });
     assert.match(
@@ -124,7 +133,7 @@ test("weapon durability is shown in the menu rather than on the card", async () 
           item: { ...item, durability: 0 },
         }),
       ),
-      /Прочность: 0 \/ 90/,
+      /Прочность<\/span><span class="button-menu-item-value">0 \/ 90/,
     );
   } finally {
     await server.close();

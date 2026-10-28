@@ -60,6 +60,22 @@ export function previewWorkTasks(
 export function workFarmProgress(run, view) {
   const unknown = { value: 0, max: null, percent: null };
   if (!run) return unknown;
+  if (run.config?.collectStash) {
+    const parts = view?.stash?.ingredients;
+    if (
+      run.workId !== view?.workId ||
+      run.stashVerifiedCycle !== view?.completedCycles ||
+      !parts?.length ||
+      parts.some((part) => !Number.isSafeInteger(part.quantity))
+    )
+      return unknown;
+    const value = parts.filter((part) => part.quantity > 0).length;
+    return {
+      value,
+      max: parts.length,
+      percent: Math.floor((value / parts.length) * 100),
+    };
+  }
   const value = run.energySpent ?? 0;
   let max;
   if (run.config?.mode === "energy") {

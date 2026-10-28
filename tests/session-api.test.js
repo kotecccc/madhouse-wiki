@@ -2,6 +2,35 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createSessionApi } from "../shared/session-api.js";
 
+test("a stale live profile response never replaces confirmed profile data", async () => {
+  let stale = false;
+  const events = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake" },
+    }),
+    fetcher: async () =>
+      new Response(JSON.stringify({ wallet: stale ? 1 : 20 }), {
+        headers: { "X-Madhouse-Snapshot": stale ? "stale" : "current" },
+      }),
+  });
+  api.subscribe((event) => events.push(event));
+  assert.deepEqual(
+    await api.get("/api/me", { fresh: true, serverRefresh: "live" }),
+    { wallet: 20 },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  stale = true;
+  await assert.rejects(
+    api.get("/api/me", { fresh: true, serverRefresh: "live" }),
+    /Актуальные данные/,
+  );
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), { wallet: 20 });
+  assert.equal(events.filter((event) => event.path === "/api/me").length, 1);
+});
+
 test("session GET cache deduplicates, spaces requests, expires and clears between accounts", async () => {
   let clock = 0;
   let account = "fake-session-a";

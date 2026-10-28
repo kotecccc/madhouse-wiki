@@ -60,8 +60,12 @@ function InventoryStats({ values }) {
 
 export function InventoryDurability({ item }) {
   return (
-    <MenuItem informational icon="wrench">
-      Прочность: {fmt(item.durability)} / {fmt(item.durabilityMax)}
+    <MenuItem
+      informational
+      icon="wrench"
+      value={`${fmt(item.durability)} / ${fmt(item.durabilityMax)}`}
+    >
+      Прочность
     </MenuItem>
   );
 }
@@ -83,11 +87,12 @@ export function InventoryMenuDetails({ item }) {
         </MenuItem>
       )}
       {hasLevel && (
-        <MenuItem informational icon="levels">
-          Уровень: {fmt(item.ownedLevel)}
-          {Number.isSafeInteger(item.maxLevel) && item.maxLevel > 0
-            ? ` / ${fmt(item.maxLevel)}`
-            : null}
+        <MenuItem
+          informational
+          icon="levels"
+          value={`${fmt(item.ownedLevel)}${Number.isSafeInteger(item.maxLevel) && item.maxLevel > 0 ? ` / ${fmt(item.maxLevel)}` : ""}`}
+        >
+          Уровень
         </MenuItem>
       )}
     </>
@@ -311,7 +316,7 @@ export function InventoryItemCard({
       className="inventory-item-card"
       state={
         menuAnchor
-          ? "selected"
+          ? "menu-active"
           : item.status === "locked"
             ? "locked"
             : undefined
@@ -398,7 +403,7 @@ export function InventoryItemCard({
           <InventoryMenuDetails item={item} />
           {durabilityKnown && <InventoryDurability item={item} />}
           {(durabilityKnown || levelKnown || item.installedMutagen) &&
-            (purchaseAction || repairAction || equipAction) && <Divider />}
+            (purchaseAction || repairAction || equipAction) && <Divider menu />}
           {purchaseAction}
           {repairAction}
           {equipAction}

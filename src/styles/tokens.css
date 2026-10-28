@@ -119,6 +119,8 @@
   );
   --icon-energy: #e2b63f;
   --navigation-glass-fallback: rgba(34, 32, 29, 0.82);
+  --menu-surface: #302d2a;
+  --context-menu-min-width: 200px;
   --navigation-glass-border: rgba(233, 222, 197, 0.24);
   --navigation-glass-shadow: 0 var(--space-8) var(--space-32) rgba(0, 0, 0, 0.3);
   --navigation-glass-inset-highlight: inset 0 1px 0 rgba(233, 222, 197, 0.08);

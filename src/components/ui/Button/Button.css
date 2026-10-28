@@ -164,6 +164,7 @@
 
 .button-menu-item {
   width: 100%;
+  align-items: center;
   justify-content: flex-start;
   gap: var(--space-16);
   border-radius: 0;
@@ -183,7 +184,38 @@
 .button-menu-item.button-menu-item--informational:hover:not(:disabled) {
   cursor: default;
   background: transparent;
+  color: var(--text-muted);
   transform: none;
+}
+
+.button-menu-item-value {
+  margin-inline-start: auto;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.button-menu-item.button-menu-item--interactive {
+  cursor: pointer;
+}
+
+.button-menu-item.button-menu-item--interactive:hover:not(:disabled),
+.button-menu-item.button-menu-item--interactive:focus-visible {
+  background: var(--navigation-selected);
+}
+
+.button-menu-item-image-slot {
+  width: var(--font-size-md);
+  height: var(--font-size-md);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-menu-item-image {
+  width: var(--font-size-md);
+  height: var(--font-size-md);
+  object-fit: contain;
 }
 
 .button-icon-copy {

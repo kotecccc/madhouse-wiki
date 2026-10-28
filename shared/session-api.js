@@ -144,7 +144,7 @@ export function createSessionApi({
   let lastStarted = -Infinity;
   let refreshing = 0;
   const isSnapshotPath = (path) =>
-    /^\/api\/(?:automation\/bosses|me|me\/bag|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
+    /^\/api\/(?:automation\/bosses|me|me\/bag|stash\/sets|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
     );
   function publish(event) {
@@ -306,6 +306,10 @@ export function createSessionApi({
           throw error;
         }
         const data = await response.json();
+        const snapshotStatus = response.headers?.get?.("X-Madhouse-Snapshot");
+        if (serverRefresh === "live" && snapshotStatus === "stale") {
+          throw new Error("Актуальные данные профиля недоступны");
+        }
         if (generation !== requestGeneration || controller.signal.aborted)
           throw new Error("Сессия изменилась");
         const updatedHeader = response.headers?.get?.(
@@ -331,7 +335,14 @@ export function createSessionApi({
             : null;
         if (snapshotOnly && now() >= entry.until)
           entry.revalidateAfterRequest = true;
-        publish({ path, data, updatedAt: entry.updatedAt });
+        publish({
+          path,
+          data,
+          updatedAt: entry.updatedAt,
+          snapshotStatus,
+          liveRefresh: serverRefresh === "live",
+          snapshotOnly,
+        });
         return data;
       } finally {
         clearTimeout(timeout);

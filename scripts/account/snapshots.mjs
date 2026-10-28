@@ -556,7 +556,7 @@ export function createAccountSnapshots({
         }
         credentials.set(digest, playerId);
         return withMetadata(
-          json(fallback ? sections[path].data : data),
+          json(fallback && !liveProfile ? sections[path].data : data),
           record,
           sections[path],
         );
@@ -766,6 +766,31 @@ export function createAccountSnapshots({
     return response;
   }
   return {
+    identity(authorization) {
+      const playerId = authorization && credentials.get(hash(authorization));
+      const record = accounts.get(playerId);
+      if (!record || record.revokedHashes?.includes(hash(authorization)))
+        return null;
+      const data = record.sections?.["/api/me"]?.data;
+      if (!data || String(data.playerId) !== playerId) return null;
+      return {
+        ...Object.fromEntries(
+          [
+            "playerId",
+            "nickname",
+            "firstName",
+            "username",
+            "avatarUrl",
+            "photoUrl",
+          ]
+            .filter((key) => data[key] != null)
+            .map((key) => [key, data[key]]),
+        ),
+        ...(Number.isSafeInteger(data.exp?.level)
+          ? { exp: { level: data.exp.level } }
+          : {}),
+      };
+    },
     inventory(authorization) {
       const playerId = authorization && credentials.get(hash(authorization));
       const record = accounts.get(playerId);

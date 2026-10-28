@@ -50,6 +50,32 @@ function queueFetcher(steps) {
   return { fetcher, calls };
 }
 
+test("identity snapshot returns only verified account identity and never numeric profile data", async () => {
+  const queue = queueFetcher([
+    reply({
+      playerId: 41,
+      nickname: "Player",
+      wallet: { gold: 123 },
+      characterStats: { rage: 99 },
+    }),
+  ]);
+  const store = memoryStore();
+  const snapshots = createAccountSnapshots({ store, fetcher: queue.fetcher });
+  assert.equal(snapshots.identity("Bearer unknown"), null);
+  await snapshots.read(`${origin}/api/me`, auth("identity-a"));
+  assert.deepEqual(snapshots.identity("Bearer identity-a"), {
+    playerId: 41,
+    nickname: "Player",
+  });
+  assert.equal(snapshots.identity("Bearer identity-b"), null);
+  const restarted = createAccountSnapshots({ store, fetcher: queue.fetcher });
+  assert.deepEqual(restarted.identity("Bearer identity-a"), {
+    playerId: 41,
+    nickname: "Player",
+  });
+  assert.equal(queue.calls.length, 1);
+});
+
 test("encrypted snapshots survive restart and serve stale sections while offline", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "madhouse-snapshot-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -1205,6 +1231,32 @@ test("opening the site revalidates sensitive profile even inside manual refresh 
     queue.calls[1].init.headers.get("X-Madhouse-Snapshot-Refresh"),
     null,
   );
+});
+
+test("live profile does not fill missing current fields from an older snapshot", async () => {
+  const queue = queueFetcher([
+    reply({
+      playerId: 41,
+      wallet: { gold: 100 },
+      characterStats: { rage: { total: 5 } },
+    }),
+    reply({ playerId: 41, energy: { current: 10, max: 100 } }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("sparse-live"));
+  const response = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      ...auth("sparse-live").headers,
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  const profile = await response.json();
+  assert.equal(profile.wallet, undefined);
+  assert.equal(profile.characterStats, undefined);
+  assert.equal(profile.energy.current, 10);
 });
 
 test("live profile enriches current own level and cannot carry old-level experience across a level change", async () => {

@@ -9,6 +9,7 @@ export function CardActionMenu({
   onClose,
   closing,
   onClosed,
+  preferFit = false,
   children,
 }) {
   const menu = useRef(null);
@@ -41,16 +42,35 @@ export function CardActionMenu({
     const navigation = anchor.closest("dialog[open]")
       ? null
       : document.querySelector(".bottom-dock .mobile-navigation");
+    const spacing =
+      Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--space-8",
+        ),
+      ) || 0;
+    if (preferFit) {
+      const card = anchor.getBoundingClientRect();
+      const bounds = element.getBoundingClientRect();
+      const bottom = Math.min(
+        viewport.bottom,
+        navigation?.getBoundingClientRect().top ?? viewport.bottom,
+      );
+      if (
+        bounds.bottom > bottom &&
+        card.top - bounds.height - spacing >= viewport.top
+      ) {
+        element.style.top = "auto";
+        element.style.bottom = "100%";
+        element.style.marginTop = "0";
+        element.style.marginBottom = "var(--space-8)";
+      }
+    }
     const distance = menuScrollDistance(
       anchor.getBoundingClientRect(),
       element.getBoundingClientRect(),
       viewport,
       navigation?.getBoundingClientRect(),
-      Number.parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue(
-          "--space-8",
-        ),
-      ) || 0,
+      spacing,
     );
     if (distance) {
       const reducedMotion = window.matchMedia?.(
@@ -63,7 +83,7 @@ export function CardActionMenu({
         behavior: reducedMotion ? "instant" : "smooth",
       });
     }
-  }, [anchor]);
+  }, [anchor, preferFit]);
   useEffect(() => {
     const pointerDown = (event) => {
       if (

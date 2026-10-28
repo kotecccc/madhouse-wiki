@@ -18,23 +18,8 @@ import {
 import { workFarm } from "../bosses/BossBattle/boss-battle-session.js";
 
 function playerProfile(data, previous) {
-  const session = readSession();
   const normalized = normalizePlayerProfile(data);
-  normalized.playerLevel ??= session.playerLevel;
-  if (
-    normalized.playerLevel === session.playerLevel &&
-    session.experience &&
-    (!Number.isSafeInteger(normalized.experience.current) ||
-      !Number.isSafeInteger(normalized.experience.toNextLevel))
-  )
-    normalized.experience = session.experience;
   const profile = retainProfileProgress(normalized, previous);
-  if (
-    !Number.isSafeInteger(profile.experience.current) ||
-    !Number.isSafeInteger(profile.experience.toNextLevel)
-  )
-    if (profile.playerLevel === session.playerLevel)
-      profile.experience = session.experience ?? profile.experience;
   const bag = peekSessionJson("/api/me/bag", { allowStale: true });
   return {
     ...profile,
@@ -43,13 +28,36 @@ function playerProfile(data, previous) {
   };
 }
 
+function livePlayerProfile(data, previous) {
+  const profile = playerProfile(data, previous);
+  if (!Number.isSafeInteger(data.exp?.level))
+    return {
+      ...profile,
+      playerLevel: null,
+      experience: { current: undefined, toNextLevel: undefined },
+    };
+  return profile;
+}
+
 function cachedState() {
   if (readSession().status !== "ready")
     return { status: "idle", profile: null };
   const data = peekSessionJson("/api/me", { allowStale: true });
-  return data
-    ? { status: "ready", profile: playerProfile(data) }
-    : { status: "loading", profile: null };
+  return {
+    status: "loading",
+    profile: null,
+    identity: data ? profileIdentity(data) : null,
+  };
+}
+
+function profileIdentity(data) {
+  const profile = normalizePlayerProfile(data);
+  return {
+    playerId: profile.playerId,
+    name: profile.name,
+    avatarUrl: profile.avatarUrl,
+    playerLevel: profile.playerLevel,
+  };
 }
 
 export function usePlayerProfile() {
@@ -123,6 +131,100 @@ export function usePlayerProfile() {
         profileRefreshQueued = false;
         setState(cachedState());
       }
+      const requestLevel = async () => {
+        const request = authorizeRequest({
+          url: "/api/automation/profile-level",
+        });
+        const response = await fetch(request.url, {
+          headers: request.headers,
+          cache: "no-store",
+          signal,
+        });
+        if (!response.ok) throw new Error("level_unavailable");
+        return response.json();
+      };
+      // The server resolves the verified account itself, so the level read can
+      // start before /api/me. Keep failures handled until the profile arrives.
+      const earlyLevel = requestLevel().catch(() => null);
+      const loadLevel = async (playerId, early = null) => {
+        setState((current) => ({ ...current, levelStatus: "loading" }));
+        try {
+          const data = (early && (await early)) || (await requestLevel());
+          if (
+            data.playerId !== playerId ||
+            !Number.isSafeInteger(data.level) ||
+            data.level < 1
+          )
+            throw new Error("level_unavailable");
+          if (!signal.aborted && sessionIdentity() === currentIdentity)
+            setState((current) =>
+              current.profile?.playerId === playerId
+                ? {
+                    ...current,
+                    levelStatus: "ready",
+                    profile: {
+                      ...current.profile,
+                      playerLevel: data.level,
+                      experience:
+                        current.profile.playerLevel != null &&
+                        current.profile.playerLevel !== data.level
+                          ? { current: undefined, toNextLevel: undefined }
+                          : current.profile.experience,
+                    },
+                  }
+                : current,
+            );
+        } catch {
+          if (!signal.aborted && sessionIdentity() === currentIdentity)
+            setState((current) => ({
+              ...current,
+              levelStatus: "error",
+              profile:
+                current.profile?.playerId === current.identity?.playerId &&
+                Number.isSafeInteger(current.identity?.playerLevel)
+                  ? {
+                      ...current.profile,
+                      playerLevel: current.identity.playerLevel,
+                    }
+                  : current.profile,
+            }));
+        }
+      };
+      void (async () => {
+        try {
+          const request = authorizeRequest({
+            url: "/api/automation/profile-identity",
+          });
+          const response = await fetch(request.url, {
+            headers: request.headers,
+            cache: "no-store",
+            signal,
+          });
+          if (!response.ok) return;
+          const data = await response.json();
+          if (!signal.aborted && sessionIdentity() === currentIdentity) {
+            window.dispatchEvent(
+              new CustomEvent("madhouse:profile-identity", { detail: data }),
+            );
+            setState((current) => {
+              const cached = profileIdentity(data);
+              return {
+                ...current,
+                identity: cached,
+                profile:
+                  current.levelStatus === "error" &&
+                  current.profile?.playerId === cached.playerId &&
+                  !Number.isSafeInteger(current.profile.playerLevel) &&
+                  Number.isSafeInteger(cached.playerLevel)
+                    ? { ...current.profile, playerLevel: cached.playerLevel }
+                    : current.profile,
+              };
+            });
+          }
+        } catch {
+          // Identity is optional; the fresh profile remains authoritative.
+        }
+      })();
       try {
         // The public account snapshot can be old even when it is returned with
         // a successful HTTP response. Revalidate it on mount and keep the
@@ -134,9 +236,15 @@ export function usePlayerProfile() {
         });
         if (signal.aborted) return;
         setState((current) => ({
+          ...current,
           status: "ready",
-          profile: playerProfile(data, current.profile),
+          profile: livePlayerProfile(data, current.profile),
+          levelStatus: Number.isSafeInteger(data.exp?.level)
+            ? "ready"
+            : "loading",
         }));
+        if (!Number.isSafeInteger(data.exp?.level))
+          void loadLevel(data.playerId, earlyLevel);
         try {
           const bag = await getSessionJson("/api/me/bag", { signal });
           if (!signal.aborted)
@@ -161,18 +269,27 @@ export function usePlayerProfile() {
             }));
         }
       } catch (error) {
+        const saved = peekSessionJson("/api/me", { allowStale: true });
         if (!signal.aborted)
           setState((current) =>
             current.profile
               ? current
-              : {
-                  status: "error",
-                  profile: null,
-                  message:
-                    error?.message === "Требуется вход"
-                      ? "Войдите в игровой аккаунт, чтобы загрузить профиль."
-                      : "Не удалось загрузить профиль игрока.",
-                },
+              : saved && saved.playerId === current.identity?.playerId
+                ? {
+                    ...current,
+                    status: "ready",
+                    profile: playerProfile(saved, null),
+                    levelStatus: "error",
+                  }
+                : {
+                    status: "error",
+                    profile: null,
+                    identity: current.identity,
+                    message:
+                      error?.message === "Требуется вход"
+                        ? "Войдите в игровой аккаунт, чтобы загрузить профиль."
+                        : "Не удалось загрузить профиль игрока.",
+                  },
           );
       }
     };
@@ -180,10 +297,18 @@ export function usePlayerProfile() {
       if (event.cleared) {
         setState(cachedState());
       } else if (event.path === "/api/me") {
-        setState((current) => ({
-          status: "ready",
-          profile: playerProfile(event.data, current.profile),
-        }));
+        if (event.liveRefresh && event.snapshotStatus !== "stale") {
+          setState((current) => ({
+            ...current,
+            status: "ready",
+            profile: livePlayerProfile(event.data, current.profile),
+          }));
+        } else {
+          setState((current) => ({
+            ...current,
+            identity: profileIdentity(event.data),
+          }));
+        }
       } else if (event.path === "/api/me/bag") {
         setState((current) => ({
           ...current,
