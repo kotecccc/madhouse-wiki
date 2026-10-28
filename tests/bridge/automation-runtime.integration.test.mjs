@@ -9,6 +9,9 @@ import { join } from "node:path";
 import { connect as connectTls } from "node:tls";
 import { test } from "node:test";
 import { createAutomationRuntime } from "../../scripts/automation/runtime.mjs";
+import { createActionQueue } from "../../scripts/automation/action-queue.mjs";
+import { createAccountQueue } from "../../scripts/automation/account-queue.mjs";
+import { queuedFriendResponseAdapter } from "../../scripts/automation/queued-friend-response.mjs";
 import { createBridgeRuntime } from "../../scripts/bridge/runtime.mjs";
 import { createBridgeNodeAdapter } from "../../scripts/bridge/node-adapter.mjs";
 import {
@@ -75,21 +78,40 @@ test(
     );
     assert.equal(made.status, 0);
     let requests = 0;
+    let sends = 0;
+    let accepted = false;
     const game = createHttpsServer({ cert, key }, (request, response) => {
       requests += 1;
+      const path = new URL(request.url, "https://game.test").pathname;
       assert.ok(
-        ["/api/me", "/api/friends", "/api/friends/requests/42/accept"].includes(
-          request.url,
-        ),
+        [
+          "/api/me",
+          "/api/friends",
+          "/api/friends/requests/incoming",
+          "/api/friends/requests/outgoing",
+          "/api/friends/requests/42/accept",
+        ].includes(path),
       );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
+      if (path.endsWith("/accept")) {
+        sends++;
+        accepted = true;
+        request.resume();
+        request.once("end", () => request.socket.destroy());
+        return;
+      }
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(
-        request.url === "/api/friends"
-          ? "[]"
-          : request.url.endsWith("/accept")
-            ? "{}"
-            : '{"playerId":42,"telegramId":101,"nickname":"fake"}',
+        path === "/api/me"
+          ? '{"playerId":42,"telegramId":101,"nickname":"fake"}'
+          : JSON.stringify({
+              items:
+                (path === "/api/friends" && accepted) ||
+                (path === "/api/friends/requests/incoming" && !accepted)
+                  ? [{ player: { playerId: 42 } }]
+                  : [],
+              nextCursor: null,
+            }),
       );
     });
     await listen(game);
@@ -222,7 +244,7 @@ test(
         },
       );
       assert.equal(friends.status, 200);
-      assert.deepEqual(await friends.json(), []);
+      assert.deepEqual(await friends.json(), { items: [], nextCursor: null });
       assert.equal(requests, 4);
       const transport = bridge.wrapSnapshots({
         identity: () => null,
@@ -239,28 +261,46 @@ test(
         });
       await assert.rejects(action());
       assert.equal(requests, 4);
-      const job = {
+      let saved = [];
+      const authorization = "Bearer synthetic-token";
+      const fetcher = createAccountQueue(transport.liveFetch, {
+        captureDispatchContext: bridge.queueActionGate.capture,
+      });
+      const responseAdapter = queuedFriendResponseAdapter({
+        entry: { credential: authorization },
+        fetcher,
+        save: () => {},
+      });
+      const queue = createActionQueue({
+        adapters: { "friend.response": responseAdapter },
+        persist: (value) => {
+          saved = value;
+        },
+        runInContext: (job, reconcile, run, _reservation, canDispatch) =>
+          bridge.queueActionGate.run(
+            job,
+            reconcile,
+            authorization,
+            run,
+            canDispatch,
+          ),
+      });
+      queue.add({
         id: "test-job-1",
-        status: "running",
         type: "friend.response",
         args: { playerId: 42, decision: "accept" },
-      };
-      const result = await bridge.queueActionGate.run(
-        job,
-        false,
-        "Bearer synthetic-token",
-        action,
-        () => true,
-      );
-      assert.equal(result.status, 200);
-      assert.equal(requests, 5);
+      });
+      await queue.tick();
+      assert.equal(sends, 1);
+      assert.equal(saved[0].status, "completed");
+      const requestsBeforeOffline = requests;
       agent.kill();
       await waitStatus("offline");
       const offline = await fetch(url, {
         headers: { Authorization: "Bearer synthetic-token" },
       });
       assert.ok(offline.status >= 500);
-      assert.equal(requests, 5);
+      assert.equal(requests, requestsBeforeOffline);
     } finally {
       agent?.kill();
       automation.close();
