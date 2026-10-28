@@ -9,7 +9,9 @@ export function queuedBattleSeriesAdapter({
   save,
 }) {
   const actor = () => (mode === "raid" ? entry.raidWorker : entry.auto);
-  const started = (job) => actor().getSnapshot().queueId === job.id;
+  const started = (job) =>
+    actor().getSnapshot().queueId === job.id ||
+    (actor().getSnapshot().startReceipts ?? []).includes(job.id);
   function clearMarker() {
     entry.pendingAutomation = null;
     save(entry);
@@ -26,6 +28,12 @@ export function queuedBattleSeriesAdapter({
       if (entry.pendingAutomation?.id === job.id) clearMarker();
       return { status: "completed" };
     }
+    if (
+      actor().getSnapshot().queueId ||
+      actor().getSnapshot().enabled ||
+      entry.pendingAutomation?.id !== job.id
+    )
+      return { status: "uncertain", reason: "Проверяем результат." };
     discardUnstarted(job);
     return { status: "retry" };
   }

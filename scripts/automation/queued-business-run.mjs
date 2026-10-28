@@ -2,7 +2,9 @@ import { businessPlan } from "./business-assistant.mjs";
 
 // The collector owns the long-running checkpoint; this adapter only starts it.
 export function queuedBusinessRunAdapter({ entry, getCatalogue }) {
-  const started = (job) => entry.businessHelper.run?.queueId === job.id;
+  const started = (job) =>
+    entry.businessHelper.run?.queueId === job.id ||
+    (entry.businessHelper.startReceipts ?? []).includes(job.id);
   return {
     validate(args) {
       if (
@@ -68,7 +70,10 @@ export function queuedBusinessRunAdapter({ entry, getCatalogue }) {
     },
     async reconcile(job) {
       // The run and its queue ID are committed together before any game action.
-      return started(job) ? { status: "completed" } : { status: "retry" };
+      if (started(job)) return { status: "completed" };
+      if (entry.businessHelper.run)
+        return { status: "uncertain", reason: "Проверяем результат." };
+      return { status: "retry" };
     },
   };
 }

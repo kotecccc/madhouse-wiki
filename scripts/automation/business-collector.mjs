@@ -535,6 +535,15 @@ export function createBusinessCollector({
       auto.stop();
       goal.stop();
       generation++;
+      const previousQueueId = helper.run?.queueId;
+      if (
+        previousQueueId &&
+        !(helper.startReceipts ?? []).includes(previousQueueId)
+      )
+        helper.startReceipts = [
+          ...(helper.startReceipts ?? []).slice(-127),
+          previousQueueId,
+        ];
       helper.run = {
         id: randomUUID(),
         ...(queueId ? { queueId } : {}),
@@ -560,6 +569,11 @@ export function createBusinessCollector({
         ownsGoal: false,
         reason: null,
       };
+      if (queueId && !(helper.startReceipts ?? []).includes(queueId))
+        helper.startReceipts = [
+          ...(helper.startReceipts ?? []).slice(-127),
+          queueId,
+        ];
       armed = true;
       changed();
       queue();

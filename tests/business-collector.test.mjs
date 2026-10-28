@@ -219,19 +219,22 @@ function harness({
       if (!(await next())) break;
     }
   };
-  const start = () =>
-    collector.start({
-      businessId,
-      expectedPlan: structuredClone(config),
-      expectedMissing: [
-        ...(inventory[51] < 2
-          ? [{ itemId: 51, amount: 2 - inventory[51] }]
-          : []),
-        ...(inventory[52] < 1
-          ? [{ itemId: 52, amount: 1 - inventory[52] }]
-          : []),
-      ],
-    });
+  const start = (options) =>
+    collector.start(
+      {
+        businessId,
+        expectedPlan: structuredClone(config),
+        expectedMissing: [
+          ...(inventory[51] < 2
+            ? [{ itemId: 51, amount: 2 - inventory[51] }]
+            : []),
+          ...(inventory[52] < 1
+            ? [{ itemId: 52, amount: 1 - inventory[52] }]
+            : []),
+        ],
+      },
+      options,
+    );
   return {
     helper,
     catalogue,
@@ -250,6 +253,15 @@ function harness({
     },
   };
 }
+
+test("business start receipts survive replacement by a new run", () => {
+  const h = harness();
+  h.start({ queueId: "business-old" });
+  h.collector.stop();
+  h.start({ queueId: "business-new" });
+  assert.deepEqual(h.helper.startReceipts, ["business-old", "business-new"]);
+  assert.equal(h.helper.run.queueId, "business-new");
+});
 
 test("farms materials sequentially and switches to the next material boss after verification", async () => {
   const h = harness();

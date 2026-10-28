@@ -81,6 +81,13 @@ export function createRaidWaiter({
         status: "waiting",
         bossId,
         queueId,
+        startReceipts: [
+          ...new Set(
+            [...(value.startReceipts ?? []), value.queueId, queueId].filter(
+              Boolean,
+            ),
+          ),
+        ].slice(-128),
         nextCheckAt: now(),
         postBattleUntil: null,
         notice: "Ждём приглашения на выбранного босса.",

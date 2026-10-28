@@ -86,6 +86,20 @@ function setup({
     },
   };
 }
+test("raid start receipts survive actor replacement and reload", () => {
+  const h = setup();
+  assert.equal(h.worker.start(7, { queueId: "raid-old" }), true);
+  h.worker.stop();
+  assert.equal(h.worker.start(7, { queueId: "raid-new" }), true);
+  const saved = structuredClone(h.worker.getSnapshot());
+  assert.deepEqual(saved.startReceipts, ["raid-old", "raid-new"]);
+  const restored = setup({ saved });
+  assert.deepEqual(
+    restored.worker.getSnapshot().startReceipts,
+    saved.startReceipts,
+  );
+});
+
 const invitation = {
   invitationId: "invite-7",
   bossId: 7,

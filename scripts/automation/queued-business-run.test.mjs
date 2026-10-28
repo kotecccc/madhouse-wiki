@@ -40,3 +40,25 @@ test("restart after saving the business run does not start another run", async (
   assert.equal(queue.snapshot()[0].status, "completed");
   assert.equal(starts, 0);
 });
+
+test("a replaced business run retains evidence of the old start", async () => {
+  const entry = {
+    businessHelper: {
+      run: { queueId: "new-business" },
+      startReceipts: ["old-business"],
+    },
+  };
+  const adapter = queuedBusinessRunAdapter({ entry });
+  assert.deepEqual(await adapter.reconcile({ id: "old-business" }), {
+    status: "completed",
+  });
+  assert.deepEqual(await adapter.reconcile({ id: "unknown-business" }), {
+    status: "uncertain",
+    reason: "Проверяем результат.",
+  });
+  entry.businessHelper.run = { status: "running" };
+  assert.deepEqual(await adapter.reconcile({ id: "unknown-business" }), {
+    status: "uncertain",
+    reason: "Проверяем результат.",
+  });
+});

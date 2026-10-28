@@ -16,6 +16,7 @@ export function createBattleSeries({
   cancel = clearTimeout,
   random = Math.random,
   priorityActive = () => false,
+  savedStartReceipts = [],
 }) {
   let enabled = false,
     disposed = false,
@@ -30,8 +31,17 @@ export function createBattleSeries({
   let singleBattle = false;
   let singleBattleId = null;
   let queueId = null;
+  let startReceipts = Array.isArray(savedStartReceipts)
+    ? savedStartReceipts.slice(-128)
+    : [];
   const listeners = new Set();
-  let cached = { enabled: false, nextAttackAt: null, pause: false, phase };
+  let cached = {
+    enabled: false,
+    nextAttackAt: null,
+    pause: false,
+    phase,
+    startReceipts,
+  };
   const strike = createBossBattleAutoAttack({
     controller: {
       ...controller,
@@ -52,6 +62,7 @@ export function createBattleSeries({
       notice: current.notice ?? null,
       nextRecoveryAt,
       queueId,
+      startReceipts,
     };
     for (const listener of [...listeners]) listener(cached);
   }
@@ -343,6 +354,8 @@ export function createBattleSeries({
       if (controller.beginAutomation?.() === false) return false;
       singleBattle = restored?.singleBattle ?? single;
       queueId = restored?.queueId ?? queuedId;
+      if (queueId && !startReceipts.includes(queueId))
+        startReceipts = [...startReceipts.slice(-127), queueId];
       singleBattleId = singleBattle
         ? (restored?.singleBattleId ??
           (state.battle?.status === "active" ? state.battle.id : null))

@@ -94,3 +94,27 @@ test("restart before actor start releases only the queue-created goal", async ()
   assert.equal(entry.pendingAutomation, null);
   assert.equal(stopped, 1);
 });
+
+for (const mode of ["auto", "raid"])
+  test(`${mode} does not restart an older intent after its actor was replaced`, async () => {
+    const actor = {
+      getSnapshot: () => ({
+        queueId: "new-series",
+        startReceipts: ["old-series"],
+      }),
+    };
+    const entry = { auto: actor, raidWorker: actor };
+    const adapter = queuedBattleSeriesAdapter({ entry, mode });
+    assert.deepEqual(await adapter.reconcile({ id: "old-series" }), {
+      status: "completed",
+    });
+    assert.deepEqual(await adapter.reconcile({ id: "unknown-series" }), {
+      status: "uncertain",
+      reason: "Проверяем результат.",
+    });
+    actor.getSnapshot = () => ({ enabled: true, queueId: null });
+    assert.deepEqual(await adapter.reconcile({ id: "unknown-series" }), {
+      status: "uncertain",
+      reason: "Проверяем результат.",
+    });
+  });

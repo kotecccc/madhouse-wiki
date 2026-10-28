@@ -56,6 +56,47 @@ test("a ready farm defers the next fight and a waiting farm releases it", async 
   }
 });
 
+test("auto start receipts survive actor replacement and reload", () => {
+  const state = { boss: { id: 7 }, battle: null, canStart: true };
+  const options = {
+    controller: {
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+      attack: async () => {},
+    },
+    goal: {
+      getSnapshot: () => ({ status: "active" }),
+      canStart: () => true,
+      subscribe: () => () => {},
+    },
+    schedule: () => 1,
+    cancel: () => {},
+    now: () => 1000,
+  };
+  const series = createBattleSeries(options);
+  try {
+    assert.equal(series.start({ queueId: "auto-old" }), true);
+    series.stop();
+    assert.equal(series.start({ queueId: "auto-new" }), true);
+    const saved = series.exportState();
+    assert.deepEqual(saved.startReceipts, ["auto-old", "auto-new"]);
+    const restored = createBattleSeries({
+      ...options,
+      savedStartReceipts: saved.startReceipts,
+    });
+    try {
+      assert.deepEqual(
+        restored.getSnapshot().startReceipts,
+        saved.startReceipts,
+      );
+    } finally {
+      restored.dispose();
+    }
+  } finally {
+    series.dispose();
+  }
+});
+
 const token = "Bearer series.payload.sig";
 const startPath = "/api/bosses/7/battles";
 const bossPath = "/api/bosses/7";

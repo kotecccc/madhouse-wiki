@@ -974,6 +974,12 @@ export function createAutomationService({
         `${entry.controller.getSnapshot().boss?.id}:${entry.goal.getSnapshot()?.startedAt ?? "single"}`,
       );
     entry.auto = createBattleSeries({
+      savedStartReceipts: [
+        ...(Array.isArray(saved?.auto?.startReceipts)
+          ? saved.auto.startReceipts
+          : []),
+        ...(saved?.auto?.queueId ? [saved.auto.queueId] : []),
+      ].slice(-128),
       controller: {
         ...entry.controller,
         attack: (options) => entry.assistant.step(options),
@@ -1487,7 +1493,20 @@ export function createAutomationService({
         (job.type === "subscription.start" &&
           (entry.raidSubscription.getSnapshot().startReceipts ?? []).includes(
             job.id,
-          )));
+          )) ||
+        (job.type === "business.start" &&
+          (entry.businessHelper.run?.queueId === job.id ||
+            (entry.businessHelper.startReceipts ?? []).includes(job.id))) ||
+        (["auto.start", "raid.start"].includes(job.type) &&
+          (() => {
+            const state = (
+              job.type === "auto.start" ? entry.auto : entry.raidWorker
+            ).getSnapshot();
+            return (
+              state.queueId === job.id ||
+              (state.startReceipts ?? []).includes(job.id)
+            );
+          })()));
     const floorBlocksQueue = (job) => {
       const floor = entry.floorRunner.getSnapshot();
       if (floor.phase === "launching") return true;
