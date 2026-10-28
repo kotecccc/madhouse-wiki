@@ -33,6 +33,7 @@ export function createActionQueue({
   random = Math.random,
   allowed = () => true,
   ready = () => true,
+  canSettle = () => true,
   eligible = () => true,
   blockedBy = () => null,
   onAttempt = () => {},
@@ -196,16 +197,29 @@ export function createActionQueue({
   function hasDue() {
     return (
       !working &&
-      entries.some(
-        (item) =>
-          runnable.has(item.status) &&
-          (item.nextAt ?? 0) <= now() &&
-          adapters[item.type] &&
-          dependenciesConfirmed(item) &&
-          eligible(item) &&
-          allowed(item),
-      ) &&
-      ready()
+      ((canSettle() && entries.some(hasFailedDependency)) ||
+        (entries.some(
+          (item) =>
+            runnable.has(item.status) &&
+            (item.nextAt ?? 0) <= now() &&
+            adapters[item.type] &&
+            dependenciesConfirmed(item) &&
+            eligible(item) &&
+            allowed(item),
+        ) &&
+          ready()))
+    );
+  }
+  function hasFailedDependency(item) {
+    return (
+      ["queued", "waiting", "paused"].includes(item.status) &&
+      (item.dependsOn ?? []).some((id) =>
+        entries.some(
+          (dependency) =>
+            dependency.id === id &&
+            ["failed", "cancelled"].includes(dependency.status),
+        ),
+      )
     );
   }
   function dependenciesConfirmed(item) {
@@ -218,6 +232,14 @@ export function createActionQueue({
   }
   async function tick() {
     if (!hasDue()) return;
+    const failed = canSettle() && entries.find(hasFailedDependency);
+    if (failed) {
+      failed.status = "failed";
+      failed.reason = "dependency_failed";
+      failed.nextAt = null;
+      commit();
+      return;
+    }
     const entry = entries
       .filter(
         (item) =>

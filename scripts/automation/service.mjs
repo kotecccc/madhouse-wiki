@@ -1635,6 +1635,7 @@ export function createAutomationService({
       now,
       random,
       blockedBy: queueBlockedBy,
+      canSettle: () => !closed && !entry.storageFailed,
       ready: () => {
         try {
           const saved = store.getQueueCooldown?.();

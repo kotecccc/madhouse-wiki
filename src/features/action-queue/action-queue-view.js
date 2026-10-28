@@ -29,6 +29,7 @@ const handoffTypes = new Set([
   "subscription.start",
 ]);
 const failureMessages = {
+  dependency_failed: "Предыдущее действие не выполнено",
   game_session_required: "Требуется вход",
   inventory_price_changed: "Цена изменилась",
   inventory_balance_insufficient: "Недостаточно средств",
@@ -378,48 +379,50 @@ export function actionQueueCards(state, catalogue = {}) {
           ? handoffTypes.has(job.type)
             ? "Передано исполнителю"
             : phases.completed
-          : state.gameHealth?.status === "credentials_invalid" ||
-              job.reason === "game_session_required"
-            ? "Требуется вход"
-            : job.cancelRequested
-              ? "Ожидаем результат"
-              : job.status === "failed"
-                ? failureMessages[job.reason] || "Не удалось выполнить"
-                : job.reason === "Ожидаем приглашение."
-                  ? "Ожидает приглашение"
-                  : job.status === "running"
-                    ? phases.running
-                    : job.blockedBy === "credentials"
-                      ? "Требуется вход"
-                      : job.blockedBy === "storage"
-                        ? "Ожидает сервер"
-                        : job.blockedBy === "action"
-                          ? "Ожидает другие действия"
-                          : job.blockedBy === "dependency"
-                            ? "Ожидает подтверждения действия"
-                            : job.blockedBy === "game"
-                              ? "Ожидает игру"
-                              : job.blockedBy === "rate"
-                                ? "Ожидает очередь"
-                                : job.eligible === false
-                                  ? [
-                                      "work.booster",
-                                      "work.start",
-                                      "character.start",
-                                      "subscription.start",
-                                      "battle.start",
-                                      "battle.attack",
-                                      "battle.heal",
-                                      "battle.buy",
-                                      "invitation.accept",
-                                      "business.start",
-                                      "floor.start",
-                                      "auto.start",
-                                      "raid.start",
-                                    ].includes(job.type)
-                                    ? "Ожидает другие действия"
-                                    : "Ожидает окончания боя"
-                                  : phases[job.status] || "Ожидание",
+          : job.status === "failed" && job.reason === "dependency_failed"
+            ? failureMessages.dependency_failed
+            : state.gameHealth?.status === "credentials_invalid" ||
+                job.reason === "game_session_required"
+              ? "Требуется вход"
+              : job.cancelRequested
+                ? "Ожидаем результат"
+                : job.status === "failed"
+                  ? failureMessages[job.reason] || "Не удалось выполнить"
+                  : job.reason === "Ожидаем приглашение."
+                    ? "Ожидает приглашение"
+                    : job.status === "running"
+                      ? phases.running
+                      : job.blockedBy === "credentials"
+                        ? "Требуется вход"
+                        : job.blockedBy === "storage"
+                          ? "Ожидает сервер"
+                          : job.blockedBy === "action"
+                            ? "Ожидает другие действия"
+                            : job.blockedBy === "dependency"
+                              ? "Ожидает подтверждения действия"
+                              : job.blockedBy === "game"
+                                ? "Ожидает игру"
+                                : job.blockedBy === "rate"
+                                  ? "Ожидает очередь"
+                                  : job.eligible === false
+                                    ? [
+                                        "work.booster",
+                                        "work.start",
+                                        "character.start",
+                                        "subscription.start",
+                                        "battle.start",
+                                        "battle.attack",
+                                        "battle.heal",
+                                        "battle.buy",
+                                        "invitation.accept",
+                                        "business.start",
+                                        "floor.start",
+                                        "auto.start",
+                                        "raid.start",
+                                      ].includes(job.type)
+                                      ? "Ожидает другие действия"
+                                      : "Ожидает окончания боя"
+                                    : phases[job.status] || "Ожидание",
       detail:
         job.type === "character.start"
           ? job.args.quotes

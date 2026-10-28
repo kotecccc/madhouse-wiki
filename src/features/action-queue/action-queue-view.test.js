@@ -101,6 +101,25 @@ test("a dependent action explains that it waits for confirmation", () => {
   assert.equal(card.position, null);
 });
 
+test("a failed prerequisite is shown even when the session needs login", () => {
+  const [card] = actionQueueCards({
+    serverTime: 1000,
+    gameHealth: { status: "credentials_invalid" },
+    queuedActions: [
+      {
+        id: "dependent",
+        type: "inventory",
+        status: "failed",
+        reason: "dependency_failed",
+        priority: 30,
+        createdAt: 1,
+        args: { action: "buy" },
+      },
+    ],
+  });
+  assert.equal(card.status, "Предыдущее действие не выполнено");
+});
+
 test("shows floor and character progress using authoritative actor state", () => {
   const cards = actionQueueCards({
     floorRunner: { status: "paused" },

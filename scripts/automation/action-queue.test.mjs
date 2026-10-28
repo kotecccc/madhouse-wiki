@@ -474,11 +474,84 @@ test("failed or cancelled dependencies never authorize dependent dispatch after 
         },
       },
     });
-    assert.equal(queue.hasDue(), false);
+    assert.equal(queue.hasDue(), status !== "reconciling");
     await queue.tick();
     assert.equal(calls, 0);
-    assert.equal(queue.snapshot()[1].blockedBy, "dependency");
+    if (status === "reconciling") {
+      assert.equal(queue.snapshot()[1].blockedBy, "dependency");
+    } else {
+      assert.equal(queue.snapshot()[1].status, "failed");
+      assert.equal(queue.snapshot()[1].reason, "dependency_failed");
+    }
   }
+});
+
+test("failed prerequisites propagate through a chain without contacting the game", async () => {
+  const h = setup();
+  h.execute(async () => ({ status: "failed", reason: "denied" }));
+  h.queue.add({ id: "dependency-01", type: "buy", args: { id: 1 } });
+  h.queue.add({
+    id: "dependent-01",
+    type: "buy",
+    args: { id: 2 },
+    dependsOn: ["dependency-01"],
+  });
+  h.queue.add({
+    id: "dependent-02",
+    type: "buy",
+    args: { id: 3 },
+    dependsOn: ["dependent-01"],
+  });
+  await h.queue.tick();
+  await h.queue.tick();
+  await h.queue.tick();
+  assert.deepEqual(h.calls, ["execute"]);
+  assert.deepEqual(
+    h.stored().map((entry) => entry.status),
+    ["failed", "failed", "failed"],
+  );
+  assert.deepEqual(
+    h
+      .stored()
+      .slice(1)
+      .map((entry) => entry.reason),
+    ["dependency_failed", "dependency_failed"],
+  );
+});
+
+test("dependency failure is settled during an outage only while storage is available", async () => {
+  let available = false;
+  const saved = [
+    {
+      id: "dependency-01",
+      type: "buy",
+      args: {},
+      status: "failed",
+      priority: 0,
+      createdAt: 0,
+    },
+    {
+      id: "dependent-01",
+      type: "buy",
+      args: {},
+      status: "queued",
+      priority: 0,
+      createdAt: 1,
+      dependsOn: ["dependency-01"],
+    },
+  ];
+  const queue = createActionQueue({
+    saved,
+    adapters: {},
+    persist: () => true,
+    ready: () => false,
+    canSettle: () => available,
+  });
+  assert.equal(queue.hasDue(), false);
+  available = true;
+  assert.equal(queue.hasDue(), true);
+  await queue.tick();
+  assert.equal(queue.snapshot()[1].reason, "dependency_failed");
 });
 
 test("rejects missing, duplicate and self dependencies", () => {
