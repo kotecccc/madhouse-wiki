@@ -3,7 +3,11 @@ export async function isAllowedBridgeQueueCommand(request) {
   const url = new URL(request.url);
   if (
     request.method !== "POST" ||
-    url.pathname !== "/api/automation/commands" ||
+    ![
+      "/api/automation/commands",
+      "/api/automation/launch",
+      "/api/automation/friends/refresh",
+    ].includes(url.pathname) ||
     url.search ||
     request.headers.get("content-type")?.split(";")[0] !== "application/json"
   )
@@ -24,6 +28,8 @@ export async function isAllowedBridgeQueueCommand(request) {
       chunks.push(Buffer.from(value));
     }
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (url.pathname !== "/api/automation/commands")
+      return input && typeof input === "object" && !Array.isArray(input);
     return (
       (input?.command === "queue.enqueue" &&
         [
@@ -77,6 +83,8 @@ export async function isAllowedBridgeQueueCommand(request) {
         "raid.friend.check",
         "raid.friend.refresh",
         "friends.reconcile",
+        "inventory.refresh",
+        "equipment.refresh",
         "auto.pause",
         "auto.resume",
         "auto.stop",

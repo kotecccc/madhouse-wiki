@@ -66,6 +66,16 @@ test("only the supported durable queue command is admitted", async () => {
     ),
     true,
   );
+  assert.equal(
+    await isAllowedBridgeQueueCommand(request({}, "/api/automation/launch")),
+    true,
+  );
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
+      request({}, "/api/automation/friends/refresh"),
+    ),
+    true,
+  );
   const original = request(allowed);
   assert.equal(await isAllowedBridgeQueueCommand(original), true);
   assert.deepEqual(await original.json(), allowed);
