@@ -335,7 +335,10 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(overviewMarkup.includes("Тестовый игрок"));
     assert.ok(overviewMarkup.includes("Тестовая заначка"));
     assert.ok(overviewMarkup.includes("Осталось"));
-    assert.match(overviewMarkup, /<dd>950 \+ 50<\/dd>/);
+    assert.match(
+      overviewMarkup,
+      /<dd>950 <span class="status-text">\+ 50<\/span><\/dd>/,
+    );
     for (const name of ["Безумие", "Ярость"])
       assert.match(
         overviewMarkup,
@@ -347,7 +350,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       assert.ok(overviewMarkup.includes(`ui-icon--${stat}`));
     assert.doesNotMatch(overviewMarkup, /<dd>[^<]*(?:HP|урон|шанс крита)/);
     assert.ok(overviewMarkup.includes("HP"));
-    assert.match(overviewMarkup, /title="Безумие: 10\s000 HP"/);
+    assert.match(overviewMarkup, /title="Безумие: 10\s000 HP(?:\.|")/);
     assert.ok(overviewMarkup.includes('title="Ярость: 3,5% шанс крита"'));
     assert.ok(!overviewMarkup.includes('aria-label="Агрессия"'));
     assert.ok(!overviewMarkup.includes("Следующий уровень"));
