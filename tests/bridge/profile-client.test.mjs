@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   readGameOverBridge,
   readProfileOverBridge,
+  sendFriendResponseOverBridge,
 } from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
 
@@ -16,6 +17,36 @@ const cert = await readFile(
 const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
+
+test("queued action checks permission after TLS before sending any bytes", async () => {
+  let requests = 0;
+  const server = createServer({ cert, key }, (_req, res) => {
+    requests++;
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const validateTunnel = () => false;
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await assert.rejects(
+      sendFriendResponseOverBridge({
+        authorization: "Bearer fake-token",
+        method: "POST",
+        path: "/api/friends/requests/42/accept",
+        validateTunnel,
+        connector,
+      }),
+      { code: "bridge_mutation_not_admitted" },
+    );
+    assert.equal(requests, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("selected game reads preserve their query inside the verified tunnel", async () => {
   let seen;

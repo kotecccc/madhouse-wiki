@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
 import { createActionQueue } from "../../scripts/automation/action-queue.mjs";
+import { createAccountQueue } from "../../scripts/automation/account-queue.mjs";
 
 test("only the matching queued attempt receives one permission", async () => {
   const gate = createQueueActionGate();
@@ -17,21 +18,40 @@ test("only the matching queued attempt receives one permission", async () => {
     path: "/api/friends/requests/42/accept",
   };
   assert.equal(gate.claim(request), false);
-  await gate.run(job, false, "Bearer fake", async () => {
-    assert.equal(
-      gate.claim({ ...request, authorization: "Bearer other" }),
-      false,
-    );
-    assert.equal(
-      gate.claim({ ...request, path: "/api/friends/requests/43/accept" }),
-      false,
-    );
-    assert.equal(gate.claim(request), true);
-    assert.equal(gate.claim(request), false);
-  });
+  await gate.run(
+    job,
+    false,
+    "Bearer fake",
+    async () => {
+      assert.equal(
+        gate.claim({ ...request, authorization: "Bearer other" }),
+        false,
+      );
+      assert.equal(
+        gate.claim({ ...request, path: "/api/friends/requests/43/accept" }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+  );
   assert.equal(gate.claim(request), false);
-  await gate.run(job, true, "Bearer fake", async () =>
-    assert.equal(gate.claim(request), false),
+  await gate.run(
+    job,
+    true,
+    "Bearer fake",
+    async () => assert.equal(gate.claim(request), false),
+    () => true,
+  );
+  await gate.run(
+    job,
+    false,
+    "Bearer fake",
+    async () => {
+      assert.equal(gate.claim(request), false);
+    },
+    () => false,
   );
 });
 
@@ -44,21 +64,27 @@ test("permission expires for asynchronous work after an attempt ends", async () 
     type: "friend.response",
     args: { playerId: 42, decision: "decline" },
   };
-  await gate.run(job, false, "Bearer fake", async () => {
-    later = new Promise((resolve) =>
-      setTimeout(
-        () =>
-          resolve(
-            gate.claim({
-              authorization: "Bearer fake",
-              method: "DELETE",
-              path: "/api/friends/requests/42",
-            }),
-          ),
-        10,
-      ),
-    );
-  });
+  await gate.run(
+    job,
+    false,
+    "Bearer fake",
+    async () => {
+      later = new Promise((resolve) =>
+        setTimeout(
+          () =>
+            resolve(
+              gate.claim({
+                authorization: "Bearer fake",
+                method: "DELETE",
+                path: "/api/friends/requests/42",
+              }),
+            ),
+          10,
+        ),
+      );
+    },
+    () => true,
+  );
   assert.equal(await later, false);
 });
 
@@ -91,8 +117,8 @@ test("a persisted queue attempt grants once, while restart reconciliation grants
         saved = value;
       },
       now: () => 100,
-      runInContext: (job, reconcile, run) =>
-        gate.run(job, reconcile, "Bearer fake", run),
+      runInContext: (job, reconcile, run, _reservation, canDispatch) =>
+        gate.run(job, reconcile, "Bearer fake", run, canDispatch),
     });
   const queue = build();
   queue.add({
@@ -107,4 +133,55 @@ test("a persisted queue attempt grants once, while restart reconciliation grants
   const restarted = build(saved);
   await restarted.tick();
   assert.equal(saved[0].status, "reconciling");
+});
+
+test("account serialization preserves only the waiting attempt's permission", async () => {
+  const gate = createQueueActionGate();
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const authorization = "Bearer fake";
+  const target = "https://cargohustle.online/api/friends/requests/42/accept";
+  const queue = createAccountQueue(
+    async (url, init) => {
+      if (url.endsWith("/api/me")) {
+        await pending;
+        return new Response("{}");
+      }
+      assert.equal(
+        gate.claim({
+          authorization,
+          method: init.method,
+          path: new URL(url).pathname,
+        }),
+        true,
+      );
+      return new Response("{}");
+    },
+    { captureDispatchContext: gate.capture },
+  );
+  const first = queue("https://cargohustle.online/api/me", {
+    headers: { Authorization: authorization },
+  });
+  const job = {
+    id: "test-job-1",
+    status: "running",
+    type: "friend.response",
+    args: { playerId: 42, decision: "accept" },
+  };
+  const second = gate.run(
+    job,
+    false,
+    authorization,
+    () =>
+      queue(target, {
+        method: "POST",
+        headers: { Authorization: authorization },
+      }),
+    () => true,
+  );
+  release();
+  assert.equal((await first).status, 200);
+  assert.equal((await second).status, 200);
 });

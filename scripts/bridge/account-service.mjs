@@ -1,6 +1,7 @@
 import {
   readGameOverBridge,
   readProfileOverBridge,
+  sendFriendResponseOverBridge,
 } from "./profile-client.mjs";
 
 function failure(code) {
@@ -32,6 +33,8 @@ export function createBridgeAccountService({
   registry,
   readProfile = readProfileOverBridge,
   readGame = readGameOverBridge,
+  sendAction = sendFriendResponseOverBridge,
+  queueActionGate = null,
 } = {}) {
   if (
     !accounts ||
@@ -163,8 +166,50 @@ export function createBridgeAccountService({
     return result;
   }
 
+  async function send(verifiedOwner, method, path, { signal } = {}) {
+    const account = accounts.read(verifiedOwner);
+    if (!account || !queueActionGate) throw failure("bridge_unavailable");
+    const device = devices.listDevice(verifiedOwner);
+    if (!device) throw failure("device_unavailable");
+    const identity = {
+      owner: registry.ownerKey(verifiedOwner),
+      device: device.deviceId,
+      generation: device.generation,
+    };
+    let result;
+    try {
+      result = await sendAction({
+        authorization: account.authorization,
+        method,
+        path,
+        signal,
+        openTunnel: () => devices.open(verifiedOwner, { signal }),
+        validateTunnel: () =>
+          registry.isActive(identity) &&
+          accounts.getRevision(verifiedOwner) === account.revision &&
+          queueActionGate.claim({
+            authorization: account.authorization,
+            method,
+            path,
+          }),
+      });
+    } catch {
+      throw failure("bridge_unavailable");
+    }
+    if (
+      !registry.isActive(identity) ||
+      accounts.getRevision(verifiedOwner) !== account.revision ||
+      !Number.isInteger(result?.status) ||
+      result.status < 200 ||
+      result.status > 599 ||
+      !Buffer.isBuffer(result.body)
+    )
+      throw failure("bridge_unavailable");
+    return result;
+  }
+
   function status(verifiedOwner) {
     return accounts.getRevision(verifiedOwner) > 0 ? "saved" : "not_configured";
   }
-  return Object.freeze({ bind, profile, read, status });
+  return Object.freeze({ bind, profile, read, send, status });
 }

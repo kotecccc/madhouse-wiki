@@ -327,6 +327,7 @@ export function createActionQueue({
             ? adapter.reconcile(clone(entry), { canDispatch })
             : adapter.execute(clone(entry), { canDispatch }),
         reservation,
+        canDispatch,
       );
       if (
         !result ||

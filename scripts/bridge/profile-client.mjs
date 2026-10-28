@@ -25,9 +25,11 @@ export function isAllowedGameRead(path) {
 }
 
 /** Selected read-only game data over an authenticated tunnel. */
-export function readGameOverBridge({
+function requestGameOverBridge({
   authorization,
   path,
+  method,
+  body,
   openTunnel,
   validateTunnel = null,
   signal,
@@ -37,8 +39,7 @@ export function readGameOverBridge({
   if (
     typeof authorization !== "string" ||
     !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
-    typeof connector !== "function" ||
-    !isAllowedGameRead(path)
+    typeof connector !== "function"
   )
     throw new TypeError("invalid_profile_request");
 
@@ -50,9 +51,18 @@ export function readGameOverBridge({
         protocol: "https:",
         hostname: CARGO_HOST,
         port: 443,
-        method: "GET",
+        method,
         path,
-        headers: { Accept: "application/json", Authorization: authorization },
+        headers: {
+          Accept: "application/json",
+          Authorization: authorization,
+          ...(body
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(body),
+              }
+            : {}),
+        },
         agent,
         signal,
       },
@@ -99,7 +109,33 @@ export function readGameOverBridge({
       agent.destroy();
     });
     req.once("error", reject);
-    req.end();
+    req.end(body);
+  });
+}
+
+export function readGameOverBridge(options = {}) {
+  if (!isAllowedGameRead(options.path))
+    throw new TypeError("invalid_profile_request");
+  return requestGameOverBridge({ ...options, method: "GET", body: undefined });
+}
+
+/** Only the queue may supply the handshake-time permission for this action. */
+export function sendFriendResponseOverBridge(options = {}) {
+  const { method, path, validateTunnel } = options;
+  if (
+    typeof validateTunnel !== "function" ||
+    typeof path !== "string" ||
+    !(
+      (method === "POST" &&
+        /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path)) ||
+      (method === "DELETE" &&
+        /^\/api\/friends\/requests\/[1-9][0-9]*$/.test(path))
+    )
+  )
+    throw new TypeError("invalid_queued_action");
+  return requestGameOverBridge({
+    ...options,
+    body: method === "POST" ? "{}" : undefined,
   });
 }
 

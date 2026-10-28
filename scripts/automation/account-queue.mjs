@@ -7,6 +7,7 @@ export function createAccountQueue(
     now = Date.now,
     requestPriority = () => null,
     captureRequestContext = () => () => false,
+    captureDispatchContext = () => (callback) => callback(),
     beforeDispatch = () => {},
   } = {},
 ) {
@@ -41,7 +42,9 @@ export function createAccountQueue(
           if (canDispatch && !canDispatch())
             throw new DOMException("Queued action cancelled", "AbortError");
           dispatched = true;
-          const response = await fetcher(job.url, requestInit);
+          const response = await job.runContext(() =>
+            fetcher(job.url, requestInit),
+          );
           // Hold the lane through the body, with the same upper bound used by
           // account actors; an oversized response cannot exhaust the worker.
           const chunks = [];
@@ -103,6 +106,7 @@ export function createAccountQueue(
         reject,
         priority: priority(url, init),
         isQueuedAttempt: captureRequestContext(),
+        runContext: captureDispatchContext(),
       });
       void drain(key, lane);
     });

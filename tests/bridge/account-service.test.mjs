@@ -7,8 +7,9 @@ import { DatabaseSync } from "node:sqlite";
 import { createBridgeStorage } from "../../scripts/bridge/device-storage.mjs";
 import { createBridgeDeviceService } from "../../scripts/bridge/device-service.mjs";
 import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
+import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
 
-function fixture(readProfile, readGame) {
+function fixture(readProfile, readGame, extra = {}) {
   const dir = mkdtempSync(join(tmpdir(), "bridge-account-"));
   let storage = createBridgeStorage({ directory: dir });
   const devices = createBridgeDeviceService({ registry: storage.registry });
@@ -20,6 +21,7 @@ function fixture(readProfile, readGame) {
     registry: storage.registry,
     readProfile,
     ...(readGame ? { readGame } : {}),
+    ...extra,
   });
   return {
     dir,
@@ -46,6 +48,60 @@ const goodProfile = async ({ validateTunnel }) => {
   assert.equal(validateTunnel(), true);
   return { status: 200, body: Buffer.from('{"playerId":42,"telegramId":101}') };
 };
+
+test("queued mutation requires a matching live one-use permission", async () => {
+  const gate = createQueueActionGate();
+  let sent = 0;
+  const f = fixture(goodProfile, null, {
+    queueActionGate: gate,
+    sendAction: async ({ validateTunnel }) => {
+      if (!validateTunnel()) throw new Error("not admitted");
+      sent++;
+      return { status: 200, body: Buffer.from("{}") };
+    },
+  });
+  const job = {
+    id: "test-job-1",
+    status: "running",
+    type: "friend.response",
+    args: { playerId: 42, decision: "accept" },
+  };
+  const path = "/api/friends/requests/42/accept";
+  try {
+    f.pair("101");
+    await f.service.bind("101", "Bearer private-test-token");
+    await assert.rejects(f.service.send("101", "POST", path), {
+      code: "bridge_unavailable",
+    });
+    await gate.run(
+      job,
+      false,
+      "Bearer private-test-token",
+      async () => {
+        assert.equal((await f.service.send("101", "POST", path)).status, 200);
+        await assert.rejects(f.service.send("101", "POST", path), {
+          code: "bridge_unavailable",
+        });
+      },
+      () => true,
+    );
+    await gate.run(
+      job,
+      true,
+      "Bearer private-test-token",
+      async () => {
+        await assert.rejects(f.service.send("101", "POST", path), {
+          code: "bridge_unavailable",
+        });
+      },
+      () => true,
+    );
+    assert.equal(sent, 1);
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
 
 test("game reads use the stored account and reject a revoked device", async () => {
   let release;

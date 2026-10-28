@@ -14,6 +14,7 @@ import { createBridgeNodeAdapter } from "../../scripts/bridge/node-adapter.mjs";
 import {
   readGameOverBridge,
   readProfileOverBridge,
+  sendFriendResponseOverBridge,
 } from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
 
@@ -76,13 +77,19 @@ test(
     let requests = 0;
     const game = createHttpsServer({ cert, key }, (request, response) => {
       requests += 1;
-      assert.ok(["/api/me", "/api/friends"].includes(request.url));
+      assert.ok(
+        ["/api/me", "/api/friends", "/api/friends/requests/42/accept"].includes(
+          request.url,
+        ),
+      );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(
         request.url === "/api/friends"
           ? "[]"
-          : '{"playerId":42,"telegramId":101,"nickname":"fake"}',
+          : request.url.endsWith("/accept")
+            ? "{}"
+            : '{"playerId":42,"telegramId":101,"nickname":"fake"}',
       );
     });
     await listen(game);
@@ -105,6 +112,15 @@ test(
         }),
       readGame: (options) =>
         readGameOverBridge({
+          ...options,
+          connector: createGameTlsDuplexConnector({
+            openTunnel: options.openTunnel,
+            validateTunnel: options.validateTunnel,
+            tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
+          }),
+        }),
+      sendAction: (options) =>
+        sendFriendResponseOverBridge({
           ...options,
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
@@ -208,13 +224,43 @@ test(
       assert.equal(friends.status, 200);
       assert.deepEqual(await friends.json(), []);
       assert.equal(requests, 4);
+      const transport = bridge.wrapSnapshots({
+        identity: () => null,
+        fetch: () => assert.fail("unexpected direct fetch"),
+        liveFetch: () => assert.fail("unexpected direct fetch"),
+      });
+      const actionUrl =
+        "https://cargohustle.online/api/friends/requests/42/accept";
+      const action = () =>
+        transport.liveFetch(actionUrl, {
+          method: "POST",
+          body: "{}",
+          headers: { Authorization: "Bearer synthetic-token" },
+        });
+      await assert.rejects(action());
+      assert.equal(requests, 4);
+      const job = {
+        id: "test-job-1",
+        status: "running",
+        type: "friend.response",
+        args: { playerId: 42, decision: "accept" },
+      };
+      const result = await bridge.queueActionGate.run(
+        job,
+        false,
+        "Bearer synthetic-token",
+        action,
+        () => true,
+      );
+      assert.equal(result.status, 200);
+      assert.equal(requests, 5);
       agent.kill();
       await waitStatus("offline");
       const offline = await fetch(url, {
         headers: { Authorization: "Bearer synthetic-token" },
       });
       assert.ok(offline.status >= 500);
-      assert.equal(requests, 4);
+      assert.equal(requests, 5);
     } finally {
       agent?.kill();
       automation.close();

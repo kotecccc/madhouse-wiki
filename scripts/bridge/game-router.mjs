@@ -36,6 +36,7 @@ export function createGameRouter({
   directFetch,
   bridgeProfile,
   bridgeRead,
+  bridgeAction,
   withDirectLease,
 } = {}) {
   if (
@@ -122,21 +123,36 @@ export function createGameRouter({
     if (route.credentialCurrent === false) throw fail("game_credentials_stale");
     const method = String(init.method || "GET").toUpperCase();
     const path = parsed.pathname + parsed.search;
-    if (
-      method !== "GET" ||
-      init.body != null ||
-      !isAllowedGameRead(path) ||
-      (parsed.pathname === "/api/me" && parsed.search)
-    )
-      throw fail("bridge_operation_not_supported");
     // A bridge error is final; it is never retried via directFetch.
     let result;
-    if (path === "/api/me") {
-      result = await bridgeProfile(route.owner, { signal: init.signal });
+    if (
+      method === "GET" &&
+      init.body == null &&
+      isAllowedGameRead(path) &&
+      !(parsed.pathname === "/api/me" && parsed.search)
+    ) {
+      if (path === "/api/me") {
+        result = await bridgeProfile(route.owner, { signal: init.signal });
+      } else {
+        if (typeof bridgeRead !== "function")
+          throw fail("bridge_operation_not_supported");
+        result = await bridgeRead(route.owner, path, { signal: init.signal });
+      }
+    } else if (
+      typeof bridgeAction === "function" &&
+      !parsed.search &&
+      ((method === "POST" &&
+        /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
+        init.body === "{}") ||
+        (method === "DELETE" &&
+          /^\/api\/friends\/requests\/[1-9][0-9]*$/.test(path) &&
+          init.body == null))
+    ) {
+      result = await bridgeAction(route.owner, method, path, {
+        signal: init.signal,
+      });
     } else {
-      if (typeof bridgeRead !== "function")
-        throw fail("bridge_operation_not_supported");
-      result = await bridgeRead(route.owner, path, { signal: init.signal });
+      throw fail("bridge_operation_not_supported");
     }
     let current;
     try {

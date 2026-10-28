@@ -271,6 +271,9 @@ export function createAutomationService({
       now,
       requestPriority: requestPriority.current,
       captureRequestContext: requestPriority.capture,
+      ...(queueActionGate
+        ? { captureDispatchContext: queueActionGate.capture }
+        : {}),
       beforeDispatch: (_url, _init, isQueuedAttempt) => {
         const overallDeadline = queueNotBefore(null);
         const deadline =
@@ -1875,11 +1878,17 @@ export function createAutomationService({
         currentReservation = { until: actionQueueReadyAt };
         return currentReservation;
       },
-      runInContext: (job, reconcile, callback, reservation) => {
+      runInContext: (job, reconcile, callback, reservation, canDispatch) => {
         const run = () =>
           requestPriority.run(job, reconcile, callback, reservation);
         return queueActionGate
-          ? queueActionGate.run(job, reconcile, entry.credential, run)
+          ? queueActionGate.run(
+              job,
+              reconcile,
+              entry.credential,
+              run,
+              canDispatch,
+            )
           : run();
       },
       onResult: (result) => {
