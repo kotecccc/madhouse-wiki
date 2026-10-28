@@ -105,16 +105,17 @@ test(
       requests += 1;
       const path = new URL(request.url, "https://game.test").pathname;
       assert.ok(
-        [
-          "/api/me",
-          "/api/friends",
-          "/api/friends/requests/incoming",
-          "/api/friends/requests/outgoing",
-          "/api/friends/requests/42/accept",
-          "/api/friends/42",
-          "/api/works/open",
-          "/api/works/tasks/perform",
-        ].includes(path),
+        request.method === "GET" ||
+          [
+            "/api/me",
+            "/api/friends",
+            "/api/friends/requests/incoming",
+            "/api/friends/requests/outgoing",
+            "/api/friends/requests/42/accept",
+            "/api/friends/42",
+            "/api/works/open",
+            "/api/works/tasks/perform",
+          ].includes(path),
       );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
       if (path === "/api/works/tasks/perform") {

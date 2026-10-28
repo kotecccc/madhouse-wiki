@@ -50,6 +50,57 @@ export function createQueueActionGate() {
         return (
           context.workPermit({ authorization, method, path, body }) === true
         );
+      if (context?.job?.type === "energy.booster") {
+        const job = context.job;
+        if (
+          !context.active ||
+          context.used ||
+          context.reconcile ||
+          job.status !== "running" ||
+          !job.id ||
+          authorization !== context.authorization ||
+          method !== "POST" ||
+          !["/api/me/bag/boosters/use", "/api/me/bag/boosters/buy"].includes(
+            path,
+          ) ||
+          typeof body !== "string" ||
+          body.length > 512 ||
+          typeof context.canDispatch !== "function" ||
+          typeof context.checkpoint !== "function"
+        )
+          return false;
+        let value, pending;
+        try {
+          value = JSON.parse(body);
+          pending = context.checkpoint();
+        } catch {
+          return false;
+        }
+        const buying = path.endsWith("/buy");
+        if (
+          !value ||
+          pending?.id !== job.id ||
+          pending.type !== job.args?.type ||
+          value.type !== pending.type ||
+          !["small", "full"].includes(value.type) ||
+          (buying
+            ? pending.phase !== "buying" ||
+              Object.keys(value).sort().join(",") !==
+                "operationId,quantity,type" ||
+              value.quantity !== 1 ||
+              value.operationId !== pending.operationId
+            : pending.phase !== "using" ||
+              Object.keys(value).join(",") !== "type")
+        )
+          return false;
+        try {
+          if (context.canDispatch() !== true) return false;
+        } catch {
+          return false;
+        }
+        context.used = true;
+        return true;
+      }
       if (context?.job?.type === "friend.request") {
         const job = context.job;
         if (

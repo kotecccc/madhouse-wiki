@@ -1,4 +1,5 @@
 import { Agent, request } from "node:https";
+import { gameReadPaths } from "./game-read-paths.mjs";
 import {
   CARGO_HOST,
   createGameTlsDuplexConnector,
@@ -6,7 +7,17 @@ import {
 
 const MAX_PROFILE_BYTES = 4 * 1024 * 1024;
 const PROFILE_TIMEOUT_MS = 20_000;
+const documentedReadPaths = gameReadPaths.map(
+  (path) =>
+    new RegExp(
+      `^${path
+        .split("*")
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[A-Za-z0-9_$-]+")}$`,
+    ),
+);
 const readPaths = [
+  ...documentedReadPaths,
   /^\/api\/me$/,
   /^\/api\/me\/bag$/,
   /^\/api\/floors$/,
@@ -158,7 +169,11 @@ export function sendFriendResponseOverBridge(options = {}) {
     typeof path !== "string" ||
     !(
       (method === "POST" &&
-        (path === "/api/friends/requests" ||
+        ([
+          "/api/friends/requests",
+          "/api/me/bag/boosters/use",
+          "/api/me/bag/boosters/buy",
+        ].includes(path) ||
           /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path))) ||
       (method === "DELETE" &&
         /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path))
@@ -169,7 +184,11 @@ export function sendFriendResponseOverBridge(options = {}) {
     ...options,
     body:
       method === "POST"
-        ? path === "/api/friends/requests"
+        ? [
+            "/api/friends/requests",
+            "/api/me/bag/boosters/use",
+            "/api/me/bag/boosters/buy",
+          ].includes(path)
           ? options.body
           : "{}"
         : undefined,

@@ -396,3 +396,64 @@ test("friend request requires the matching persisted recipient and allows one se
     () => pending,
   );
 });
+
+test("booster purchase and use require their exact durable checkpoint", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "booster",
+    status: "running",
+    type: "energy.booster",
+    args: { type: "small" },
+  };
+  let pending = {
+    id: job.id,
+    type: "small",
+    phase: "buying",
+    operationId: "op",
+  };
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/me/bag/boosters/buy",
+    body: JSON.stringify({ type: "small", quantity: 1, operationId: "op" }),
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(
+        gate.claim({
+          ...request,
+          body: JSON.stringify({
+            type: "small",
+            quantity: 2,
+            operationId: "op",
+          }),
+        }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+    () => pending,
+  );
+  pending = { id: job.id, type: "small", phase: "using" };
+  const use = {
+    ...request,
+    path: "/api/me/bag/boosters/use",
+    body: JSON.stringify({ type: "small" }),
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(gate.claim(request), false);
+      assert.equal(gate.claim(use), true);
+    },
+    () => true,
+    () => pending,
+  );
+});

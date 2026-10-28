@@ -165,7 +165,11 @@ export function createGameRouter({
       typeof bridgeAction === "function" &&
       !parsed.search &&
       ((method === "POST" &&
-        path === "/api/friends/requests" &&
+        [
+          "/api/friends/requests",
+          "/api/me/bag/boosters/use",
+          "/api/me/bag/boosters/buy",
+        ].includes(path) &&
         typeof init.body === "string") ||
         (method === "POST" &&
           /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&

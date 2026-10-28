@@ -1937,7 +1937,10 @@ export function createAutomationService({
               entry.credential,
               run,
               canDispatch,
-              () => entry.raidFriend?.pending,
+              () =>
+                job.type === "energy.booster"
+                  ? entry.energyBooster?.pending
+                  : entry.raidFriend?.pending,
             )
           : run();
       },
