@@ -1,9 +1,39 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
+import { createWorkActionPermit } from "../../scripts/bridge/work-action-permit.mjs";
 import { createActionQueue } from "../../scripts/automation/action-queue.mjs";
 import { createAccountQueue } from "../../scripts/automation/account-queue.mjs";
 import { queuedFriendResponseAdapter } from "../../scripts/automation/queued-friend-response.mjs";
+
+test("work permission is scoped to its active context and consumed once", async () => {
+  const gate = createQueueActionGate();
+  const permit = createWorkActionPermit({
+    authorization: "Bearer fake",
+    workId: 7,
+    taskId: 2,
+    operationId: "op",
+    checkpointIsCurrent: () => true,
+  });
+  const req = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body: JSON.stringify({
+      workId: 7,
+      taskId: 2,
+      locale: "ru",
+      operationId: "op",
+    }),
+  };
+  assert.equal(gate.claim(req), false);
+  await gate.runWork(permit, async () => {
+    assert.equal(gate.claim({ ...req, path: "/api/other" }), false);
+    assert.equal(gate.claim(req), true);
+    assert.equal(gate.claim(req), false);
+  });
+  assert.equal(gate.claim(req), false);
+});
 
 test("only the matching queued attempt receives one permission", async () => {
   const gate = createQueueActionGate();

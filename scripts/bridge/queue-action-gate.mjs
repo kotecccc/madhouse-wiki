@@ -9,6 +9,16 @@ export function createQueueActionGate() {
       return (callback) =>
         context ? storage.run(context, callback) : callback();
     },
+    async runWork(permit, callback) {
+      if (typeof permit !== "function" || typeof callback !== "function")
+        throw new TypeError("work_permit_required");
+      const context = { workPermit: permit, active: true };
+      try {
+        return await storage.run(context, callback);
+      } finally {
+        context.active = false;
+      }
+    },
     async run(job, reconcile, authorization, callback, canDispatch) {
       if (typeof callback !== "function")
         throw new TypeError("callback_required");
@@ -26,8 +36,12 @@ export function createQueueActionGate() {
         context.active = false;
       }
     },
-    claim({ authorization, method, path }) {
+    claim({ authorization, method, path, body }) {
       const context = storage.getStore();
+      if (context?.active && typeof context.workPermit === "function")
+        return (
+          context.workPermit({ authorization, method, path, body }) === true
+        );
       const job = context?.job;
       if (
         !context?.active ||
