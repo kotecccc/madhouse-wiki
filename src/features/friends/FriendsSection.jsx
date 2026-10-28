@@ -84,6 +84,12 @@ export function FriendsSection({
   const [sort, setSort] = useState("name");
   const [page, setPage] = useState(0);
   useEffect(() => {
+    if (active)
+      void postSessionJson("/api/automation/friends/refresh", {}).catch(
+        () => {},
+      );
+  }, [active]);
+  useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
     let retryTimer;
