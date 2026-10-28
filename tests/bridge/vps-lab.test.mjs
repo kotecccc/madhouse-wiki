@@ -55,6 +55,53 @@ test("bridge lab is disabled by default and refuses public origins", () => {
   );
 });
 
+test("production bridge requires an explicit, unambiguous mode and exact origins", () => {
+  const productionOrigins = {
+    wikiOrigin: "https://madhouse-wiki.ru",
+    connectorOrigin: "https://connect.madhouse-wiki.ru",
+  };
+  const env = {
+    MADHOUSE_BRIDGE_PRODUCTION: "1",
+    MADHOUSE_BRIDGE_IPC_KEY: key,
+    WIKI_INITDATA_KEY: key,
+  };
+  assert.ok(
+    createVpsBridgeLab({ role: "connector", env, ...productionOrigins }).guard,
+  );
+  assert.throws(
+    () =>
+      createVpsBridgeLab({
+        role: "connector",
+        env,
+        ...productionOrigins,
+        wikiOrigin,
+      }),
+    { message: "bridge_lab_origin_forbidden" },
+  );
+  assert.throws(
+    () =>
+      createVpsBridgeLab({
+        role: "connector",
+        env: { ...env, MADHOUSE_BRIDGE_LAB: "1" },
+        ...productionOrigins,
+      }),
+    { message: "bridge_lab_configuration_invalid" },
+  );
+  assert.throws(
+    () =>
+      createVpsBridgeLab({
+        role: "connector",
+        env: { ...env, MADHOUSE_BRIDGE_IPC_KEY: "" },
+        ...productionOrigins,
+      }),
+    { message: "bridge_lab_key_required" },
+  );
+  assert.throws(
+    () => createVpsBridgeLab({ role: "wiki", env, ...productionOrigins }),
+    { message: "bridge_lab_storage_required" },
+  );
+});
+
 test(
   "VPS test mode exposes paired HTTP and WebSocket routes",
   { timeout: 15000 },

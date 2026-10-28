@@ -4,7 +4,7 @@ import { createBridgeNodeAdapter } from "./node-adapter.mjs";
 import { createConnectorPrivateServer } from "./connector-private-server.mjs";
 import { createRemoteConnectorGuard } from "./remote-connector-guard.mjs";
 
-/** Experimental wiring is restricted to isolated .test origins. */
+/** Explicitly gated wiring for isolated tests or the production origins. */
 export function createVpsBridgeLab({
   role,
   env,
@@ -13,17 +13,31 @@ export function createVpsBridgeLab({
 } = {}) {
   if (!env || !["wiki", "connector"].includes(role))
     throw new TypeError("bridge_lab_configuration_invalid");
-  if (!env.MADHOUSE_BRIDGE_LAB || env.MADHOUSE_BRIDGE_LAB === "0") return null;
-  if (env.MADHOUSE_BRIDGE_LAB !== "1")
+  const lab = env.MADHOUSE_BRIDGE_LAB || "0";
+  const production = env.MADHOUSE_BRIDGE_PRODUCTION || "0";
+  if (
+    !["0", "1"].includes(lab) ||
+    !["0", "1"].includes(production) ||
+    (lab === "1" && production === "1")
+  )
     throw new Error("bridge_lab_configuration_invalid");
-  for (const origin of [wikiOrigin, connectorOrigin]) {
-    const url = new URL(origin);
+  if (lab === "0" && production === "0") return null;
+  if (production === "1") {
     if (
-      url.protocol !== "https:" ||
-      url.origin !== origin ||
-      !url.hostname.endsWith(".test")
+      wikiOrigin !== "https://madhouse-wiki.ru" ||
+      connectorOrigin !== "https://connect.madhouse-wiki.ru"
     )
       throw new Error("bridge_lab_origin_forbidden");
+  } else {
+    for (const origin of [wikiOrigin, connectorOrigin]) {
+      const url = new URL(origin);
+      if (
+        url.protocol !== "https:" ||
+        url.origin !== origin ||
+        !url.hostname.endsWith(".test")
+      )
+        throw new Error("bridge_lab_origin_forbidden");
+    }
   }
   if (!/^[a-f0-9]{64}$/.test(env.MADHOUSE_BRIDGE_IPC_KEY || ""))
     throw new Error("bridge_lab_key_required");
