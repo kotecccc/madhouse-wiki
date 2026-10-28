@@ -37,6 +37,9 @@ export function ActionQueueSection({
                     {card.detail ? `${card.detail} · ` : ""}
                     {card.status}
                   </CardDescription>
+                  {card.cancelNotice && (
+                    <CardDescription>{card.cancelNotice}</CardDescription>
+                  )}
                   {card.position && (
                     <CardDescription>
                       В очереди: {card.position}

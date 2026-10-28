@@ -303,6 +303,36 @@ test("the retry lower bound includes the shared cooldown without promising depen
   assert.equal(byId.dependency.retryAt, null);
 });
 
+test("a cancellable running or uncertain action explains what can happen after removal", () => {
+  const base = {
+    type: "inventory",
+    priority: 0,
+    createdAt: 1,
+    args: { action: "buy" },
+  };
+  const cards = actionQueueCards({
+    queuedActions: [
+      { ...base, id: "running", status: "running" },
+      { ...base, id: "uncertain", status: "reconciling" },
+      { ...base, id: "waiting", status: "waiting" },
+      {
+        ...base,
+        id: "cancelled-request",
+        status: "reconciling",
+        cancelRequested: true,
+      },
+    ],
+  });
+  const byId = Object.fromEntries(cards.map((card) => [card.id, card]));
+  for (const id of ["running", "uncertain"]) {
+    assert.equal(byId[id].command, "queue.cancel");
+    assert.match(byId[id].cancelNotice, /уже отправлено/);
+    assert.match(byId[id].cancelNotice, /результат останется на проверке/);
+  }
+  assert.equal(byId.waiting.cancelNotice, null);
+  assert.equal(byId["cancelled-request"].cancelNotice, null);
+});
+
 test("shows floor and character progress using authoritative actor state", () => {
   const cards = actionQueueCards({
     floorRunner: { status: "paused" },
