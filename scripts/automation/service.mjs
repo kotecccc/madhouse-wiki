@@ -2109,6 +2109,27 @@ export function createAutomationService({
       throw wrapped;
     }
   }
+  function queuedFriendReadPending(entry) {
+    return entry.actionQueue
+      .snapshot()
+      .some(
+        (job) =>
+          [
+            "friend.request",
+            "friend.remove",
+            "friend.favorite",
+            "friend.buddy",
+          ].includes(job.type) &&
+          ["queued", "waiting", "running", "reconciling"].includes(
+            job.status,
+          ) &&
+          ((job.type === "friend.request" &&
+            entry.raidFriend.pending?.id === job.id) ||
+            (job.type === "friend.remove" &&
+              entry.friendRemoval.pending?.commandId === job.id) ||
+            (job.reason === "Ожидаем игру." && (job.nextAt ?? 0) > now())),
+      );
+  }
   async function refreshPendingFriend(entry) {
     if (
       closed ||
@@ -2117,6 +2138,7 @@ export function createAutomationService({
       entry.busy ||
       entry.inventoryBusy ||
       entry.raidFriendRefreshing ||
+      queuedFriendReadPending(entry) ||
       now() < entry.raidFriendRefreshAt ||
       (!["pending", "uncertain"].includes(entry.raidFriend.status) &&
         Object.keys(entry.raidFriendWatch).length === 0)
@@ -2144,6 +2166,7 @@ export function createAutomationService({
       entry.busy ||
       entry.inventoryBusy ||
       entry.actionQueue.hasDue() ||
+      queuedFriendReadPending(entry) ||
       entry.characterBatch.running() ||
       !entry.collector.idleForPriority() ||
       entry.controller.getSnapshot().pending ||

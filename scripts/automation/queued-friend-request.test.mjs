@@ -233,6 +233,85 @@ test("server executes a queued friend request and publishes the confirmed status
   }
 });
 
+test("background friend watchers respect a queued request deadline after restart", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "friend-request-rate-restart-"));
+  const store = createAutomationStateStore({ directory });
+  let clock = 1_000_000,
+    posts = 0,
+    reads = 0;
+  const fetcher = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (path === "/api/friends/requests" && init.method === "POST") {
+      posts++;
+      return new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "120" },
+      });
+    }
+    if (path.startsWith("/api/friends")) {
+      reads++;
+      if (path === "/api/friends/search")
+        return Response.json({ players: [{ playerId: 7, username: "Alice" }] });
+      return Response.json({ items: [], nextCursor: null });
+    }
+    if (path === "/api/bosses/invitations") return Response.json({ items: [] });
+    if (path === "/api/combat") return Response.json({ activeBattle: null });
+    return Response.json({ playerId: 1 });
+  };
+  const makeService = () =>
+    createAutomationService({
+      store,
+      fetcher,
+      identifyPlayer: async () => ({ playerId: 1 }),
+      getBoss: () => null,
+      now: () => clock,
+      random: () => 0,
+    });
+  let service = makeService();
+  try {
+    let entry = await service.identify("Bearer fake");
+    await service.boot();
+    await service.command(entry, {
+      id: "queued-rate-request",
+      command: "queue.enqueue",
+      expectedVersion: service.snapshot(entry).version,
+      args: {
+        type: "friend.request",
+        action: { playerId: 7, username: "Alice" },
+      },
+    });
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      service.snapshot(entry).queuedActions[0].status !== "reconciling"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(store.read("1").queuedActions[0].nextAt, clock + 120000);
+    service.close();
+    clock += 60000;
+    const before = reads;
+    service = makeService();
+    await service.boot();
+    entry = await service.identify("Bearer fake");
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    assert.equal(reads, before);
+    assert.equal(posts, 1);
+    assert.equal(
+      service.snapshot(entry).queuedActions[0].status,
+      "reconciling",
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("friend search respects Retry-After before attempting a request", async () => {
   let clock = 0;
   const entry = {
