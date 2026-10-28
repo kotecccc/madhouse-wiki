@@ -2038,7 +2038,20 @@ export function createAutomationService({
   async function refreshInvitations(entry, force = false) {
     if (entry.controller.getSnapshot().pendingInvitation) {
       await entry.controller.refresh();
-      const unresolved = entry.controller.getSnapshot().pendingInvitation;
+      const battleState = entry.controller.getSnapshot();
+      if (
+        battleState.error &&
+        (battleState.errorStatus === 429 ||
+          Number.isFinite(battleState.errorRetryAfterMs))
+      )
+        throw Object.assign(
+          failure(
+            battleState.errorStatus || 503,
+            "invitation_refresh_unavailable",
+          ),
+          { retryAfterMs: battleState.errorRetryAfterMs },
+        );
+      const unresolved = battleState.pendingInvitation;
       if (unresolved && unresolved.expiresAt <= now()) {
         const me = await gameJson(entry.credential, "/api/me");
         let confirmedNoBattle =
@@ -2053,7 +2066,9 @@ export function createAutomationService({
               detail?.id === unresolved.bossId &&
               Object.hasOwn(detail, "activeBattle") &&
               detail.activeBattle === null;
-          } catch {
+          } catch (error) {
+            if (error.status === 429 || Number.isFinite(error.retryAfterMs))
+              throw error;
             // Keep the durable uncertain-accept checkpoint on read failure.
           }
         }

@@ -1,3 +1,5 @@
+import { battleRetryAfter } from "./battle-preflight-error.mjs";
+
 // Invitation identity and expiry come from the server's saved invitation list.
 export function queuedInvitationAdapter({
   entry,
@@ -124,7 +126,15 @@ export function queuedInvitationAdapter({
           : { status: "retry", reason: "Ожидаем игру." };
       } catch (error) {
         if (entry.manualBattle.pending?.id === job.id)
-          return { status: "uncertain", reason: "Проверяем результат." };
+          return {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            ...battleRetryAfter(
+              Number.isFinite(error.retryAfterMs)
+                ? { errorRetryAfterMs: error.retryAfterMs }
+                : state(),
+            ),
+          };
         if (
           ["invitation_unavailable", "invitation_identity_changed"].includes(
             error.message,
@@ -134,7 +144,11 @@ export function queuedInvitationAdapter({
         return {
           status: "retry",
           reason: "Ожидаем игру.",
-          retryAfterMs: error.retryAfterMs,
+          ...battleRetryAfter(
+            Number.isFinite(error.retryAfterMs)
+              ? { errorRetryAfterMs: error.retryAfterMs }
+              : state(),
+          ),
         };
       } finally {
         entry.queueBattleDispatch = null;

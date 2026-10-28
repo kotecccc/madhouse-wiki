@@ -207,6 +207,11 @@ function setup(directory, options = {}) {
       accepted = true;
       if (options.acceptGate) await options.acceptGate();
       if (options.timeoutPost) throw new Error("simulated timeout");
+      if (options.rateLimitPost)
+        return new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "120" },
+        });
       return new Response(null, { status: 204 });
     }
     if (
@@ -214,6 +219,14 @@ function setup(directory, options = {}) {
       method === "POST"
     )
       return Response.json(invitationBattle());
+    if (
+      url.pathname === "/api/bosses/battles/battle-9" &&
+      options.rateLimitBattleRead
+    )
+      return new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "120" },
+      });
     if (url.pathname === "/api/bosses/battles/battle-9")
       return Response.json({
         ...invitationBattle(
@@ -2531,6 +2544,73 @@ test("queued invitation with lost response is reconciled after restart without r
       ).length,
       0,
     );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a rate-limited queued invitation remains uncertain until its retry deadline", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "queued-invite-rate-limit-"));
+  const ctx = setup(directory, { rateLimitPost: true });
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(
+      ctx.service,
+      entry,
+      "read-before-invite",
+      "invitations.refresh",
+    );
+    await ctx.service.boot();
+    await issue(ctx.service, entry, "rate-limit-invite", "queue.enqueue", {
+      type: "invitation.accept",
+      action: { invitationId: "invite-9" },
+    });
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "reconciling"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    const job = ctx.store.read("101").queuedActions[0];
+    assert.equal(job.status, "reconciling");
+    assert.equal(job.nextAt, now + 120000);
+    assert.ok(ctx.store.read("101").manualBattle.pending);
+    assert.equal(
+      ctx.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/accept"),
+      ).length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a rate-limited invitation reconciliation stops before further reads", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "invite-refresh-rate-limit-"));
+  const options = { timeoutPost: true };
+  const ctx = setup(directory, options);
+  try {
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "read-invite-first", "invitations.refresh");
+    await assert.rejects(
+      issue(ctx.service, entry, "accept-lost-invite", "invitations.accept", {
+        invitationId: "invite-9",
+      }),
+    );
+    options.rateLimitBattleRead = true;
+    const before = ctx.calls.length;
+    await assert.rejects(
+      issue(ctx.service, entry, "refresh-rate-limited", "invitations.refresh"),
+      (error) => error.retryAfterMs === 120000,
+    );
+    assert.deepEqual(
+      ctx.calls.slice(before).map((call) => call.path),
+      ["/api/bosses/battles/battle-9"],
+    );
+    assert.ok(ctx.store.read("101").battle.pendingInvitation);
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
