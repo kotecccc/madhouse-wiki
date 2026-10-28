@@ -11,6 +11,8 @@ import {
   sendFriendResponseOverBridge,
 } from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
+import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
+import { createWorkActionPermit } from "../../scripts/bridge/work-action-permit.mjs";
 
 const cert = await readFile(
   new URL("./fixtures/cargo-cert.pem", import.meta.url),
@@ -18,6 +20,63 @@ const cert = await readFile(
 const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
+
+test("work checkpoint permits a single TLS request and rejects a second", async () => {
+  let received = 0;
+  const server = createServer({ cert, key }, (req, res) => {
+    received++;
+    req.resume();
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const gate = createQueueActionGate();
+  const body = JSON.stringify({
+    workId: 7,
+    taskId: 2,
+    locale: "ru",
+    operationId: "op-1",
+  });
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body,
+  };
+  const permit = createWorkActionPermit({
+    authorization: request.authorization,
+    workId: 7,
+    taskId: 2,
+    operationId: "op-1",
+    checkpointIsCurrent: () => true,
+  });
+  const validateTunnel = () => gate.claim(request);
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await gate.runWork(permit, async () => {
+      assert.equal(
+        (
+          await sendWorkTaskOverBridge({
+            ...request,
+            validateTunnel,
+            connector,
+          })
+        ).status,
+        200,
+      );
+      await assert.rejects(
+        sendWorkTaskOverBridge({ ...request, validateTunnel, connector }),
+        { code: "bridge_mutation_not_admitted" },
+      );
+    });
+    assert.equal(received, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("work task transport rejects missing permission and altered payload", () => {
   const request = {
