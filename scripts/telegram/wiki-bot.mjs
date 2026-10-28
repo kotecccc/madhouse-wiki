@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { createBridgeInstallCommand } from "../../shared/bridge-install-command.js";
 import {
   businessCardFilename,
   departmentCardFilename,
@@ -880,6 +881,9 @@ export function createWikiBotApi({
   knowledgeBase,
   wikiOrigin,
   fetchImpl = globalThis.fetch,
+  bridgeDevices = null,
+  bridgeReporter = null,
+  bridgeBootstrapSha256 = "",
 } = {}) {
   const siteUrl = normalizeOrigin(wikiOrigin);
   const raidFeedUrl = new URL("/api/raids", siteUrl).toString();
@@ -1018,6 +1022,8 @@ export function createWikiBotApi({
       [{ text: "⚡ Энергия работ", callback_data: "menu:energy" }],
       [{ text: "🔥 Актуальные рейды", callback_data: "menu:raids" }],
     ];
+    if (chatType === "private" && bridgeDevices)
+      rows.push([{ text: "🔌 Мост устройства", callback_data: "bridge:menu" }]);
     rows.push(
       chatType === "private"
         ? [
@@ -1107,6 +1113,156 @@ export function createWikiBotApi({
     const chatId = callback.message?.chat?.id;
     if (!chatId || typeof callback.data !== "string") return;
     await callBotApi("answerCallbackQuery", { callback_query_id: callback.id });
+
+    if (callback.data.startsWith("bridge:")) {
+      const sender = callback.from?.id;
+      if (
+        !bridgeDevices ||
+        callback.message?.chat?.type !== "private" ||
+        !Number.isSafeInteger(sender) ||
+        sender < 1 ||
+        sender !== chatId
+      )
+        return;
+      const owner = String(sender);
+      const device = bridgeDevices.list(owner);
+      const menu = {
+        inline_keyboard: [
+          [
+            { text: "🍎 Mac", callback_data: "bridge:mac" },
+            { text: "📱 iPhone", callback_data: "bridge:iphone" },
+          ],
+          [{ text: "🔄 Проверить мост", callback_data: "bridge:check" }],
+          ...(bridgeReporter
+            ? [
+                [
+                  {
+                    text: "📊 Включить сводку",
+                    callback_data: "bridge:report",
+                  },
+                  { text: "🔕 Выключить", callback_data: "bridge:report-off" },
+                ],
+              ]
+            : []),
+          ...(device
+            ? [
+                [
+                  {
+                    text: "Отключить это устройство",
+                    callback_data: `bridge:disconnect:${device.deviceId}`,
+                  },
+                ],
+              ]
+            : []),
+          [{ text: "📖 Открыть Wiki", web_app: { url: siteUrl } }],
+        ],
+      };
+      if (callback.data === "bridge:menu" || callback.data === "bridge:check") {
+        const online =
+          device && (await bridgeDevices.status(owner)) === "online";
+        let reporting = false;
+        if (online && callback.data === "bridge:check" && bridgeReporter)
+          reporting = await bridgeReporter(owner, "auto").catch(() => false);
+        await sendMessage(
+          chatId,
+          `<b>Мост устройства</b>\n${device ? (online ? "Устройство подключено." : "Устройство привязано, но мост не запущен.") : "Устройство ещё не подключено."}${reporting ? "\nСводка боёв включена." : ""}\n\nВыберите устройство для установки.`,
+          menu,
+        );
+        return;
+      }
+      if (callback.data === "bridge:report") {
+        const enabled =
+          bridgeReporter && (await bridgeReporter(owner, "enable"));
+        await sendMessage(
+          chatId,
+          enabled
+            ? "Сводка включена. Во время боя здесь появится одно обновляемое сообщение; после серии в нём останется итог."
+            : "Сначала подключите мост и игровой аккаунт в Wiki.",
+          menu,
+        );
+        return;
+      }
+      if (callback.data === "bridge:report-off") {
+        const disabled =
+          bridgeReporter && (await bridgeReporter(owner, "disable"));
+        await sendMessage(
+          chatId,
+          disabled
+            ? "Сводка боёв выключена."
+            : "Не удалось изменить настройки сводки. Попробуйте позже.",
+          menu,
+        );
+        return;
+      }
+      if (callback.data.startsWith("bridge:disconnect:")) {
+        const id = callback.data.slice("bridge:disconnect:".length);
+        if (!device || id !== device.deviceId) {
+          await sendMessage(
+            chatId,
+            "Устройство уже изменилось. Откройте меню моста заново.",
+            menu,
+          );
+          return;
+        }
+        bridgeDevices.revoke(owner, id);
+        await sendMessage(
+          chatId,
+          "Устройство отключено. Теперь выберите Mac или iPhone.",
+          {
+            inline_keyboard: [
+              [{ text: "Выбрать устройство", callback_data: "bridge:menu" }],
+            ],
+          },
+        );
+        return;
+      }
+      if (!["bridge:mac", "bridge:iphone"].includes(callback.data)) return;
+      if (device) {
+        await sendMessage(
+          chatId,
+          "Уже привязано устройство. Чтобы подключить другое, сначала отключите его кнопкой ниже.",
+          menu,
+        );
+        return;
+      }
+      const { invitation } = bridgeDevices.invite(owner);
+      if (callback.data === "bridge:mac") {
+        await sendMessage(
+          chatId,
+          `<b>Мост на Mac</b>\n1. Скачайте архив и распакуйте его.\n2. Нажмите правой кнопкой на файл моста → «Открыть».\n3. Вставьте одноразовый ключ: <code>${escapeHtml(invitation)}</code>\n\nКлюч действует 5 минут. Оставьте окно моста открытым.`,
+          {
+            inline_keyboard: [
+              [
+                {
+                  text: "Скачать мост для Mac",
+                  url: new URL(
+                    "/bridge/MadhouseWikiBridge-macOS.zip",
+                    siteUrl,
+                  ).toString(),
+                },
+              ],
+              [{ text: "Скопировать ключ", copy_text: { text: invitation } }],
+              [{ text: "Проверить мост", callback_data: "bridge:check" }],
+            ],
+          },
+        );
+      } else {
+        const command = createBridgeInstallCommand({
+          invitation,
+          bootstrapSha256: bridgeBootstrapSha256,
+        });
+        await sendMessage(
+          chatId,
+          `<b>Мост на iPhone</b>\n1. Установите iSH.\n2. Скопируйте команду ниже и вставьте её в iSH.\n3. Разрешите геолокацию, если iPhone спросит.\n\nКоманда действует 5 минут:\n<code>${escapeHtml(command)}</code>`,
+          {
+            inline_keyboard: [
+              [{ text: "Проверить мост", callback_data: "bridge:check" }],
+            ],
+          },
+        );
+      }
+      return;
+    }
 
     if (callback.data === "menu:home") {
       await sendMessage(
@@ -1247,6 +1403,31 @@ export function createWikiBotApi({
       .split("@")[0]
       .toLocaleLowerCase("en-US");
     const chatId = message.chat.id;
+
+    if (command === "/bridge") {
+      if (
+        !bridgeDevices ||
+        message.chat.type !== "private" ||
+        !Number.isSafeInteger(message.from?.id) ||
+        message.from.id !== chatId
+      ) {
+        await sendMessage(
+          chatId,
+          "Для подключения моста откройте личный чат с ботом.",
+        );
+        return;
+      }
+      await sendMessage(
+        chatId,
+        "<b>Мост устройства</b>\nОткройте меню, чтобы выбрать устройство или проверить подключение.",
+        {
+          inline_keyboard: [
+            [{ text: "Открыть меню моста", callback_data: "bridge:menu" }],
+          ],
+        },
+      );
+      return;
+    }
 
     if (command === "/start") {
       await sendPhoto(

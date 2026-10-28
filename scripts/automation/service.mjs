@@ -1,4 +1,6 @@
 import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
+import { observeTelegramBattle } from "./telegram-battle-report.mjs";
+import { createTelegramBattleNotifier } from "./telegram-battle-notifier.mjs";
 import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
@@ -227,6 +229,8 @@ export function createAutomationService({
   schedule = setTimeout,
   cancel = clearTimeout,
   random = Math.random,
+  telegram = null,
+  telegramSiteUrl = "https://madhouse-wiki.ru",
 }) {
   const actors = new Map();
   const loading = new Map();
@@ -458,6 +462,7 @@ export function createAutomationService({
       raidObservations: observeRaids(entry.raidObservations, [], now()),
       raid: entry.raidWorker.getSnapshot(),
       raidSubscription: entry.raidSubscription?.getSnapshot() ?? null,
+      telegramReport: entry.telegramReport,
       receipts: entry.receipts,
       queuedActions: entry.queuedActions,
       updatedAt: now(),
@@ -467,13 +472,46 @@ export function createAutomationService({
     if (entry.restoring || closed) return;
     try {
       ensureLease();
+      if (entry.telegramReport?.enabled && entry.raidWorker && entry.auto) {
+        try {
+          const state = entry.controller.getSnapshot();
+          entry.telegramReport = observeTelegramBattle(entry.telegramReport, {
+            battle: state.battle,
+            boss: state.boss,
+            needsRefresh: state.needsRefresh,
+            auto: entry.auto.getSnapshot(),
+            pausedAuto: Boolean(entry.pausedAuto),
+            raid: entry.raidWorker.getSnapshot(),
+            subscription: entry.raidSubscription?.getSnapshot(),
+            healing: entry.assistant.projection(),
+            now: now(),
+          });
+        } catch {
+          // A broken notification must not stop or replay a game action.
+          entry.telegramReport = { enabled: false };
+        }
+      }
       entry.version++;
-      store.write(entry.playerId, persisted(entry));
+      try {
+        store.write(entry.playerId, persisted(entry));
+      } catch (error) {
+        if (!(error instanceof RangeError) || !entry.telegramReport?.enabled)
+          throw error;
+        // Drop oversized reporting data before deciding game storage failed.
+        entry.telegramReport = { enabled: false };
+        store.write(entry.playerId, persisted(entry));
+      }
     } catch {
       // No game call is allowed after a durability failure.
       entry.storageFailed = true;
     }
   }
+  const telegramNotifier = createTelegramBattleNotifier({
+    telegram,
+    now,
+    save,
+    siteUrl: telegramSiteUrl,
+  });
   async function submitCharacterPoint(
     entry,
     expected,
@@ -874,6 +912,7 @@ export function createAutomationService({
     saved = migration.value;
     const entry = {
       playerId,
+      telegramReport: saved?.telegramReport ?? { enabled: false },
       businessHelper: saved?.businessHelper ?? emptyBusinessHelper(),
       characterUpgrade: saved?.characterUpgrade ?? {
         pending: null,
@@ -4851,6 +4890,30 @@ export function createAutomationService({
     launch,
     snapshot,
     command,
+    async enableTelegramReport(playerId, owner, action = "enable") {
+      if (!telegram || telegram.ownerForPlayer(String(playerId)) !== owner)
+        throw failure(403, "telegram_owner_mismatch");
+      const entry = await actor(String(playerId));
+      const previous =
+        entry.telegramReport.owner === owner
+          ? entry.telegramReport
+          : { enabled: false };
+      if (action === "auto" && previous.optOut) return false;
+      if (action === "auto" && previous.enabled) return true;
+      entry.telegramReport = {
+        ...previous,
+        enabled: action !== "disable",
+        optOut: action === "disable",
+        owner,
+        ...(action === "enable" ? { pendingSend: false } : {}),
+        nextAt: 0,
+      };
+      entry.telegramNextCheckAt = 0;
+      save(entry);
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
+      return true;
+    },
     async refreshFriends(entry, authorization) {
       requireEntryCredential(entry, authorization);
       entry.friendSnapshot.enabled = true;
@@ -4924,6 +4987,7 @@ export function createAutomationService({
           return;
         }
         for (const entry of actors.values()) {
+          void telegramNotifier.tick(entry);
           if (!booting) tryResumePausedAuto(entry);
           const pendingInvite = entry.assistant.queuedState().pending;
           if (
