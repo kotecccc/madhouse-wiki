@@ -25,7 +25,7 @@ function harness({ device = null, bridgeReporter = null } = {}) {
   const handler = createWikiBotApi({
     token: "fake",
     webhookSecret: "secret",
-    knowledgeBase: {},
+    knowledgeBase: { floors: [], departments: [] },
     wikiOrigin: "https://wiki.example",
     bridgeDevices,
     bridgeReporter,
@@ -35,12 +35,12 @@ function harness({ device = null, bridgeReporter = null } = {}) {
         method: new URL(url).pathname.split("/").at(-1),
         body: JSON.parse(init.body),
       });
-      return Response.json({ ok: true, result: {} });
+      return Response.json({ ok: true, result: { message_id: 99 } });
     },
   });
   async function callback(
     data,
-    { chatId = 123, sender = 123, type = "private" } = {},
+    { chatId = 123, sender = 123, type = "private", photo = false } = {},
   ) {
     return handler(
       new Request("https://wiki.example/api/telegram/bot-webhook", {
@@ -51,7 +51,11 @@ function harness({ device = null, bridgeReporter = null } = {}) {
             id: "callback",
             data,
             from: { id: sender },
-            message: { message_id: 42, chat: { id: chatId, type } },
+            message: {
+              message_id: 42,
+              chat: { id: chatId, type },
+              ...(photo ? { photo: [{ file_id: "fake" }] } : {}),
+            },
           },
         }),
       }),
@@ -153,4 +157,18 @@ test("the bot refuses bridge requests without the webhook secret", async () => {
   );
   assert.equal(response.status, 403);
   assert.equal(touched, false);
+});
+
+test("menu navigation edits text and replaces a photo only after the replacement is sent", async () => {
+  const h = harness();
+  await h.callback("menu:floors");
+  assert.equal(h.calls.at(-1).method, "editMessageText");
+  assert.equal(h.calls.at(-1).body.message_id, 42);
+  h.calls.length = 0;
+  await h.callback("menu:floors", { photo: true });
+  assert.deepEqual(
+    h.calls.map((call) => call.method),
+    ["answerCallbackQuery", "sendMessage", "deleteMessage"],
+  );
+  assert.equal(h.calls.at(-1).body.message_id, 42);
 });
