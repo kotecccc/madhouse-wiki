@@ -19,7 +19,14 @@ export function createQueueActionGate() {
         context.active = false;
       }
     },
-    async run(job, reconcile, authorization, callback, canDispatch) {
+    async run(
+      job,
+      reconcile,
+      authorization,
+      callback,
+      canDispatch,
+      checkpoint,
+    ) {
       if (typeof callback !== "function")
         throw new TypeError("callback_required");
       const context = {
@@ -27,6 +34,7 @@ export function createQueueActionGate() {
         reconcile,
         authorization,
         canDispatch,
+        checkpoint,
         active: true,
         used: false,
       };
@@ -42,6 +50,48 @@ export function createQueueActionGate() {
         return (
           context.workPermit({ authorization, method, path, body }) === true
         );
+      if (context?.job?.type === "friend.request") {
+        const job = context.job;
+        if (
+          !context.active ||
+          context.used ||
+          context.reconcile ||
+          job.status !== "running" ||
+          !job.id ||
+          authorization !== context.authorization ||
+          method !== "POST" ||
+          path !== "/api/friends/requests" ||
+          typeof body !== "string" ||
+          body.length > 128 ||
+          typeof context.canDispatch !== "function" ||
+          typeof context.checkpoint !== "function"
+        )
+          return false;
+        let value, pending;
+        try {
+          value = JSON.parse(body);
+          pending = context.checkpoint();
+        } catch {
+          return false;
+        }
+        if (
+          !value ||
+          Object.keys(value).length !== 1 ||
+          !Number.isSafeInteger(value.playerId) ||
+          value.playerId <= 0 ||
+          pending?.id !== job.id ||
+          pending.playerId !== value.playerId ||
+          (job.args?.playerId != null && job.args.playerId !== value.playerId)
+        )
+          return false;
+        try {
+          if (context.canDispatch() !== true) return false;
+        } catch {
+          return false;
+        }
+        context.used = true;
+        return true;
+      }
       const job = context?.job;
       if (
         !context?.active ||

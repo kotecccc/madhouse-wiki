@@ -1937,6 +1937,7 @@ export function createAutomationService({
               entry.credential,
               run,
               canDispatch,
+              () => entry.raidFriend?.pending,
             )
           : run();
       },

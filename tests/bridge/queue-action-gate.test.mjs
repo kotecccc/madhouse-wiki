@@ -351,3 +351,48 @@ test("friend removal permission is bound to the queued friend and cannot be repl
     () => true,
   );
 });
+
+test("friend request requires the matching persisted recipient and allows one send", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "request-42",
+    type: "friend.request",
+    status: "running",
+    args: { playerId: null, username: "friend" },
+  };
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/friends/requests",
+    body: JSON.stringify({ playerId: 42 }),
+  };
+  let pending = { id: job.id, playerId: 43 };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(gate.claim(request), false);
+      pending = { id: job.id, playerId: 42 };
+      assert.equal(
+        gate.claim({
+          ...request,
+          body: JSON.stringify({ playerId: 42, extra: true }),
+        }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+    () => pending,
+  );
+  await gate.run(
+    job,
+    true,
+    request.authorization,
+    async () => assert.equal(gate.claim(request), false),
+    () => true,
+    () => pending,
+  );
+});

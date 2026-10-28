@@ -28,6 +28,7 @@ export async function isAllowedBridgeQueueCommand(request) {
       (input?.command === "queue.enqueue" &&
         ([
           "friend.response",
+          "friend.request",
           "friend.remove",
           "friend.favorite",
           "friend.buddy",

@@ -158,7 +158,8 @@ export function sendFriendResponseOverBridge(options = {}) {
     typeof path !== "string" ||
     !(
       (method === "POST" &&
-        /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path)) ||
+        (path === "/api/friends/requests" ||
+          /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path))) ||
       (method === "DELETE" &&
         /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path))
     )
@@ -166,7 +167,12 @@ export function sendFriendResponseOverBridge(options = {}) {
     throw new TypeError("invalid_queued_action");
   return requestGameOverBridge({
     ...options,
-    body: method === "POST" ? "{}" : undefined,
+    body:
+      method === "POST"
+        ? path === "/api/friends/requests"
+          ? options.body
+          : "{}"
+        : undefined,
   });
 }
 

@@ -165,14 +165,18 @@ export function createGameRouter({
       typeof bridgeAction === "function" &&
       !parsed.search &&
       ((method === "POST" &&
-        /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
-        init.body === "{}") ||
+        path === "/api/friends/requests" &&
+        typeof init.body === "string") ||
+        (method === "POST" &&
+          /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
+          init.body === "{}") ||
         (method === "DELETE" &&
           /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path) &&
           init.body == null))
     ) {
       result = await bridgeAction(route.owner, method, path, {
         signal: init.signal,
+        body: init.body,
       });
     } else {
       throw fail("bridge_operation_not_supported");
