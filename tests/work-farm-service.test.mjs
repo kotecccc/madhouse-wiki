@@ -7,6 +7,35 @@ import { createAutomationStateStore } from "../scripts/automation/state-store.mj
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createQueueActionGate } from "../scripts/bridge/queue-action-gate.mjs";
 
+test("automation rejects a bridge binding changed during profile verification", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-binding-race-"));
+  const store = createAutomationStateStore({ directory });
+  let credential = "Bearer first";
+  const service = createAutomationService({
+    store,
+    getBoss: () => null,
+    canonicalCredential: () => credential,
+    identifyPlayer: async () => {
+      credential = "Bearer replacement";
+      return { playerId: 101 };
+    },
+    fetcher: async () => Response.json({}),
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  try {
+    await assert.rejects(
+      service.identify("Bearer browser-session"),
+      /game_session_required/,
+    );
+    assert.equal(store.read("101"), null);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("automation keeps the server credential and revalidates a cached browser session", async () => {
   const directory = mkdtempSync(join(tmpdir(), "bridge-automation-session-"));
   const store = createAutomationStateStore({ directory });
