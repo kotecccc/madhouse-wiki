@@ -263,6 +263,13 @@ test("account-owned work runner persists before POST, resumes without browser an
       maxDollar: 0,
     };
     await command("work.plan", args);
+    assert.equal(
+      calls.filter(
+        (path) =>
+          path.startsWith("/api/works/tasks/") || path.includes("/boosters/"),
+      ).length,
+      mutationCount,
+    );
     assert.equal(service.snapshot(entry).workFarm.configs[7].targetCycles, 5);
     assert.equal(service.snapshot(entry).workFarm.view.plan.remainingEnergy, 2);
     // Background reads/other workers can advance the account version after
