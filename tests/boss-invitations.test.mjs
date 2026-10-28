@@ -9,6 +9,7 @@ import {
 } from "../scripts/automation/boss-invitations.mjs";
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { actionQueueCards } from "../src/features/action-queue/action-queue-view.js";
 
 const token = "Bearer invitations.token.sig";
 const now = 1_000_000;
@@ -1236,6 +1237,92 @@ test("after a subscribed battle and a quiet interval the saved raid goal resumes
         (call) => call.method === "POST" && call.path.endsWith("/accept"),
       ).length,
       1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a queued autobattle suspended by a subscription keeps its identity after restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "subscription-queued-auto-"));
+  const options = {
+    invitations: () => [
+      {
+        invitationId: "invite-9",
+        battleId: "battle-9",
+        bossId: 7,
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+        status: "pending",
+        battleStatus: "active",
+        expiresAtUtc: future,
+        battleExpiresAtUtc: future,
+      },
+    ],
+  };
+  let ctx = setup(directory, options);
+  try {
+    let entry = await ctx.service.identify(token);
+    await entry.controller.open({ numericId: 7, name: "Boss 7" });
+    await ctx.service.boot();
+    await issue(ctx.service, entry, "queued-auto", "queue.enqueue", {
+      type: "auto.start",
+      action: { settings: raidSettings },
+    });
+    const end = Date.now() + 4000;
+    while (Date.now() < end && !ctx.service.snapshot(entry).auto.enabled)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(ctx.service.snapshot(entry).auto.queueId, "queued-auto");
+    ctx.setNow(now + 5000);
+    await issue(
+      ctx.service,
+      entry,
+      "subscribe-queued-auto",
+      "subscription.start",
+      {
+        leaderPlayerId: 42,
+        bossId: 7,
+      },
+    );
+    await entry.raidSubscription.tick();
+    await entry.raidSubscription.tick();
+    assert.equal(ctx.service.snapshot(entry).subscription.suspendedAuto, true);
+    assert.equal(
+      ctx.store.read("101").raidSubscription.checkpoint.auto.queueId,
+      "queued-auto",
+    );
+    ctx.close();
+    ctx = setup(directory, { ...options, now: now + 10000 });
+    const saved = ctx.store.read("101");
+    for (let i = 0; i < 130; i++)
+      saved.queuedActions.push({
+        id: `older-completed-${i}`,
+        type: "friend.favorite",
+        args: { playerId: i + 1, enabled: false },
+        status: "completed",
+        priority: 30,
+        createdAt: now + i,
+        finishedAt: now + i,
+      });
+    ctx.store.write("101", saved);
+    await ctx.service.boot();
+    entry = await ctx.service.identify(token);
+    const view = ctx.service.snapshot(entry);
+    assert.equal(view.subscription.suspendedAuto, true);
+    assert.equal(view.auto.queueId, "queued-auto");
+    assert.ok(
+      !actionQueueCards(view).some((card) => card.id === "queued-auto"),
+    );
+    await issue(ctx.service, entry, "trigger-history-prune", "queue.enqueue", {
+      type: "friend.favorite",
+      action: { playerId: 999, enabled: false },
+    });
+    assert.ok(
+      ctx.store
+        .read("101")
+        .queuedActions.some((job) => job.id === "queued-auto"),
     );
   } finally {
     ctx.close();
