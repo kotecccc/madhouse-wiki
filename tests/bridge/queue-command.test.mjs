@@ -22,6 +22,15 @@ test("only the supported durable queue command is admitted", async () => {
   assert.deepEqual(await original.json(), allowed);
   assert.equal(
     await isAllowedBridgeQueueCommand(
+      request({
+        command: "queue.enqueue",
+        args: { type: "work.start", action: { mode: "energy" } },
+      }),
+    ),
+    true,
+  );
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
       request({ command: "queue.cancel", args: { id: "test-job-1" } }),
     ),
     true,
@@ -35,6 +44,17 @@ test("only the supported durable queue command is admitted", async () => {
   for (const input of [
     { command: "friends.respond", args: { playerId: 42 } },
     { command: "queue.enqueue", args: { type: "battle.attack" } },
+    {
+      command: "queue.enqueue",
+      args: { type: "work.start", action: { mode: "boosters" } },
+    },
+    {
+      command: "queue.enqueue",
+      args: {
+        type: "work.start",
+        action: { mode: "energy", collectStash: true },
+      },
+    },
     {},
     "bad-json",
     "x".repeat(16385),

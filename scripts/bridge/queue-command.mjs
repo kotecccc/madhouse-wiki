@@ -26,7 +26,10 @@ export async function isAllowedBridgeQueueCommand(request) {
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     return (
       (input?.command === "queue.enqueue" &&
-        input.args?.type === "friend.response") ||
+        (input.args?.type === "friend.response" ||
+          (input.args?.type === "work.start" &&
+            input.args?.action?.mode === "energy" &&
+            input.args?.action?.collectStash !== true))) ||
       (["queue.cancel", "queue.dismiss"].includes(input?.command) &&
         typeof input.args?.id === "string")
     );
