@@ -28,7 +28,14 @@ export async function createAutomationRuntime({
     ? createPlayerProgressReader({ fetcher: transport.fetch })
     : createPlayerProgressReader();
   const profileLevel = createProfileLevelHandler({
-    identity: snapshots.identity,
+    identity: bridge
+      ? async (authorization) => {
+          const route = await transport.verifyLocal(authorization);
+          if (route.policy === "bridge_required")
+            return (await service.identify(authorization)).player;
+          return snapshots.identity(authorization);
+        }
+      : snapshots.identity,
     readProgress: readPlayerProgress,
     origin: env.WIKI_PUBLIC_ORIGIN,
   });
@@ -131,7 +138,18 @@ export async function createAutomationRuntime({
       )
         return new Response(null, { status: 403, headers });
       const authorization = request.headers.get("authorization");
-      const identity = snapshots.identity(authorization);
+      let identity;
+      try {
+        const route = bridge
+          ? await transport.verifyLocal(authorization)
+          : null;
+        identity =
+          route?.policy === "bridge_required"
+            ? (await service.identify(authorization)).player
+            : snapshots.identity(authorization);
+      } catch {
+        identity = null;
+      }
       return identity
         ? new Response(JSON.stringify(identity), { headers })
         : new Response(null, { status: 404, headers });
@@ -154,7 +172,13 @@ export async function createAutomationRuntime({
       try {
         await service.identify(authorization);
         return new Response(
-          JSON.stringify(snapshots.inventory(authorization)),
+          JSON.stringify(
+            snapshots.inventory(
+              bridge
+                ? bridge.canonicalCredential(authorization)
+                : authorization,
+            ),
+          ),
           { headers },
         );
       } catch (error) {

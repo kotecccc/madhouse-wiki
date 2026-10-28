@@ -14,7 +14,12 @@ export function createProfileLevelHandler({ identity, readProgress, origin }) {
     )
       return new Response(null, { status: 403, headers });
     const authorization = request.headers.get("authorization");
-    const player = identity(authorization);
+    let player;
+    try {
+      player = await identity(authorization);
+    } catch {
+      return new Response(null, { status: 401, headers });
+    }
     if (!Number.isSafeInteger(player?.playerId))
       return new Response(null, { status: 401, headers });
     const progress = await readProgress(
