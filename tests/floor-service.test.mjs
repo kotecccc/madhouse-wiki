@@ -233,7 +233,7 @@ test("floor mode owns a persisted work goal and stops it without a browser", asy
   }
 });
 
-test("floor stop leaves the current boss fight running to completion", async () => {
+test("floor raid waits for an invitation and stops without starting its own fight", async () => {
   const directory = mkdtempSync(join(tmpdir(), "floor-boss-service-"));
   const store = createAutomationStateStore({ directory });
   const calls = [];
@@ -353,8 +353,7 @@ test("floor stop leaves the current boss fight running to completion", async () 
         ({ path, method }) =>
           path === "/api/bosses/7/battles" && method === "POST",
       ),
-      true,
-      JSON.stringify({ calls, raid: snapshot.raid, battle: snapshot.battle }),
+      false,
     );
     await service.command(entry, {
       id: "floor-stop-boss",
@@ -363,31 +362,8 @@ test("floor stop leaves the current boss fight running to completion", async () 
       args: {},
     });
     assert.equal(service.snapshot(entry).floorRunner.status, "stopped");
-    assert.equal(service.snapshot(entry).raid.stopAfterBattle, true);
-    assert.equal(service.snapshot(entry).auto.enabled, true);
-    for (
-      let i = 0;
-      i < 10 && !calls.some(({ path }) => path.endsWith("/attack"));
-      i++
-    ) {
-      const timer = timers.find((item) => !item.cancelled);
-      if (!timer) break;
-      timer.cancelled = true;
-      clockOffset += timer.delay + 1;
-      await timer.callback();
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-    assert.equal(
-      calls.some(
-        ({ path, method }) => path.endsWith("/attack") && method === "POST",
-      ),
-      true,
-      JSON.stringify({
-        calls,
-        snapshot: service.snapshot(entry),
-        timers: timers.map(({ delay, cancelled }) => ({ delay, cancelled })),
-      }),
-    );
+    assert.equal(service.snapshot(entry).raid.enabled, false);
+    assert.equal(service.snapshot(entry).auto.enabled, false);
   } finally {
     service.close();
     store.close();

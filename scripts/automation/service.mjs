@@ -1584,7 +1584,6 @@ export function createAutomationService({
       auto: entry.auto,
       priorityActive: () =>
         characterPriorityActive(entry) || entry.inventoryBusy,
-      workPriority: () => workPriorityActive(entry),
       canResume: () =>
         !entry.collector.running() &&
         !entry.auto.getSnapshot().enabled &&
@@ -1628,16 +1627,6 @@ export function createAutomationService({
       },
       invitations: () => entry.invitations.items,
       accept: (id, allowed) => acceptInvitation(entry, id, allowed),
-      startSolo: async (allowed) => {
-        if (!allowed() || workPriorityActive(entry) || !entry.goal.canStart())
-          return;
-        if (!entry.controller.allowSoloContinuation()) return;
-        startAssistant();
-        await entry.assistant.startBattle({
-          next: Boolean(entry.controller.getSnapshot().battle),
-          allowed: () => allowed() && !workPriorityActive(entry),
-        });
-      },
       onChange: () => save(entry),
     });
     const priority = createRaidPriority({
@@ -5132,13 +5121,11 @@ export function createAutomationService({
             entry.controller.getSnapshot().battle?.status === "active"
           ) {
             entry.auto.start({
-              checkpoint: value.raid.stopAfterBattle
-                ? {
-                    ...value.auto,
-                    singleBattle: true,
-                    singleBattleId: entry.controller.getSnapshot().battle.id,
-                  }
-                : value.auto,
+              checkpoint: {
+                ...value.auto,
+                singleBattle: true,
+                singleBattleId: entry.controller.getSnapshot().battle.id,
+              },
               resumeAt: value.auto?.nextAttackAt,
             });
           }
