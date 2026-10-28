@@ -11,6 +11,35 @@ const tokenA = "Bearer tokenA.payload.sig";
 const tokenARotated = "Bearer tokenA2.payload.sig";
 const tokenB = "Bearer tokenB.payload.sig";
 
+test("queue.cancel reports unavailable storage instead of acknowledging a failed write", async () => {
+  await withContext(async ({ service, store }) => {
+    const entry = await service.identify(tokenA);
+    await service.command(entry, {
+      id: "storage-queued-job",
+      command: "queue.enqueue",
+      expectedVersion: service.snapshot(entry).version,
+      args: {
+        type: "friend.favorite",
+        action: { playerId: 10, enabled: false },
+      },
+    });
+    store.write = () => {
+      throw new Error("disk unavailable");
+    };
+    await assert.rejects(
+      service.command(entry, {
+        id: "storage-cancel-test",
+        command: "queue.cancel",
+        expectedVersion: service.snapshot(entry).version,
+        args: { id: "storage-queued-job" },
+      }),
+      (error) =>
+        error.status === 503 &&
+        error.message === "automation_storage_unavailable",
+    );
+  });
+});
+
 function battle(now, id = "battle-1", status = "active", bossHealth = 40) {
   return {
     battleId: id,

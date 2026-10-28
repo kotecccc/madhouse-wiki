@@ -2736,13 +2736,25 @@ export function createAutomationService({
     if (input.command === "queue.dismiss") {
       if (typeof input.args?.id !== "string")
         throw failure(400, "invalid_queue_id");
-      entry.actionQueue.dismiss(input.args.id);
+      try {
+        entry.actionQueue.dismiss(input.args.id);
+      } catch (error) {
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        throw error;
+      }
       return snapshot(entry);
     }
     if (input.command === "queue.cancel") {
       if (typeof input.args?.id !== "string")
         throw failure(400, "invalid_queue_id");
-      entry.actionQueue.stop(input.args.id);
+      try {
+        entry.actionQueue.stop(input.args.id);
+      } catch (error) {
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        throw error;
+      }
       if (
         entry.floorRunner.getSnapshot().queueId === input.args.id &&
         entry.floorRunner.getSnapshot().status !== "stopped"
@@ -2762,6 +2774,8 @@ export function createAutomationService({
         entry.raidSubscription.getSnapshot().queueId === input.args.id
       )
         entry.raidSubscription.stop();
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
       return snapshot(entry);
     }
     // The client may have observed an idle batch just before another request
