@@ -54,7 +54,7 @@ function initData() {
 
 test(
   "Wiki runtime proxy routes a bound profile through the Python agent and fails closed offline",
-  { skip: !agentPath, timeout: 20000 },
+  { skip: !agentPath, timeout: 30000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "bridge-runtime-e2e-"));
     const ca = join(root, "gateway-cert.pem");
@@ -87,6 +87,19 @@ test(
     let workRunnerActive = false;
     let workStore;
     let workProgress = 0;
+    let battleActive = false;
+    let battlePosts = 0;
+    let battleStore;
+    const fakeBattle = () => ({
+      battleId: "battle-1",
+      bossId: 7,
+      status: "active",
+      playerHealth: 100,
+      playerMaxHealth: 100,
+      bossHealth: 200,
+      bossMaxHealth: 200,
+      retryAfterMilliseconds: 0,
+    });
     const workViewData = () => ({
       workId: 7,
       title: "Work",
@@ -115,9 +128,34 @@ test(
             "/api/friends/42",
             "/api/works/open",
             "/api/works/tasks/perform",
+            "/api/bosses/7/battles",
           ].includes(path),
       );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
+      if (path === "/api/bosses/7/battles" && request.method === "POST") {
+        battlePosts++;
+        assert.ok(battleStore.read("42").manualBattle.pending.operationId);
+        battleActive = true;
+        request.resume();
+        request.once("end", () => request.socket.destroy());
+        return;
+      }
+      if (path === "/api/bosses/7") {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify({
+            id: 7,
+            state: { canStartFight: !battleActive },
+            activeBattle: battleActive ? fakeBattle() : null,
+          }),
+        );
+        return;
+      }
+      if (path === "/api/bosses/battles/battle-1") {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify(fakeBattle()));
+        return;
+      }
       if (path === "/api/works/tasks/perform") {
         sends++;
         request.resume();
@@ -545,6 +583,74 @@ test(
         workService.close();
         store.close();
         workRunnerActive = false;
+      }
+      // A real queued battle start survives a lost reply through the Python tunnel.
+      battleStore = createAutomationStateStore({
+        directory: join(root, "battle-state"),
+      });
+      const battleTimers = [];
+      let battleClock = Date.now();
+      const battleService = createAutomationService({
+        store: battleStore,
+        now: () => battleClock,
+        queueActionGate: bridge.queueActionGate,
+        canonicalCredential: bridge.canonicalCredential,
+        identifyPlayer: async () => ({ playerId: 42, nickname: "fake" }),
+        fetcher: transport.liveFetch,
+        getBoss: () => ({ numericId: 7, name: "Test" }),
+        getBusinessCatalogue: () => ({
+          businesses: [],
+          works: [],
+          businessUpgrades: [],
+          bosses: [],
+        }),
+        schedule: (callback) => {
+          const timer = { callback };
+          battleTimers.push(timer);
+          return timer;
+        },
+        cancel: () => {},
+      });
+      try {
+        await battleService.boot();
+        const entry = await battleService.identify(`Bearer ${session}`);
+        await battleService.command(entry, {
+          id: "bridge-battle-queue-test",
+          command: "queue.enqueue",
+          expectedVersion: battleService.snapshot(entry).version,
+          args: { type: "battle.start", action: { bossId: 7 } },
+        });
+        for (let n = 0; n < 180 && !battlePosts; n++) {
+          battleClock += 1000;
+          battleTimers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(
+          battlePosts,
+          1,
+          JSON.stringify(entry.actionQueue.snapshot()),
+        );
+        for (
+          let n = 0;
+          n < 100 && entry.actionQueue.snapshot()[0]?.status !== "completed";
+          n++
+        ) {
+          battleClock += 1000;
+          battleTimers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(battlePosts, 1);
+        assert.equal(
+          entry.controller.getSnapshot().battle?.id,
+          "battle-1",
+          JSON.stringify({
+            queue: entry.actionQueue.snapshot(),
+            battle: entry.controller.getSnapshot(),
+          }),
+        );
+      } finally {
+        battleService.close();
+        battleStore.close();
       }
       const accountIdentity = await automation.handle(
         new Request(`${origin}/api/automation/profile-identity`, {
