@@ -101,6 +101,34 @@ export function LoginControl() {
   const progressAttempts = useRef(new Set());
   const authenticated = session.status === "ready";
   useEffect(() => {
+    if (
+      !bridgeAvailable ||
+      bridgeAccountStatus !== "saved" ||
+      readSession().status === "ready"
+    )
+      return undefined;
+    const controller = new AbortController();
+    const owner = telegramContext().userId;
+    bridgeClient
+      .session(controller.signal)
+      .then((credential) => {
+        if (
+          !controller.signal.aborted &&
+          owner &&
+          owner === telegramContext().userId &&
+          readSession().status !== "ready"
+        ) {
+          saveToken(credential);
+          setSession(readSession());
+          setRestoring(false);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setRestoring(false);
+      });
+    return () => controller.abort();
+  }, [bridgeAvailable, bridgeAccountStatus, bridgeClient]);
+  useEffect(() => {
     if (!bridgeAvailable) return undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => {

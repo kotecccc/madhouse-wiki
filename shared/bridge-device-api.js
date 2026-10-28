@@ -61,6 +61,18 @@ export function createBridgeDeviceClient({
     return value;
   }
   return Object.freeze({
+    async session(signal) {
+      const value = await command("session", {}, signal);
+      if (
+        typeof value.session !== "string" ||
+        !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+          value.session,
+        ) ||
+        value.session.length > 2048
+      )
+        throw failure("bridge_unavailable");
+      return value.session;
+    },
     async status(signal) {
       const value = await command("status", {}, signal);
       if (
