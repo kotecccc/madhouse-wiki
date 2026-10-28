@@ -96,7 +96,7 @@ export function LoginControl() {
     const cached = peekSessionJson("/api/me", { allowStale: true });
     return cached ? normalizePlayerProfile(cached) : null;
   });
-  const profileRef = useRef(null);
+  const [profileAnchor, setProfileAnchor] = useState(null);
   const refreshProfileRef = useRef(() => {});
   const progressAttempts = useRef(new Set());
   const bridgeSessionRef = useRef(null);
@@ -412,14 +412,14 @@ export function LoginControl() {
   return (
     <>
       <div className="login-control">
-        {restoring && !profile ? (
+        {restoring && !profile && !authenticated ? (
           <div role="status" aria-label="Загружаем профиль" aria-busy="true">
             <Skeleton variant="profile" />
           </div>
         ) : activeProfile ? (
           <BaseCard
             as="button"
-            ref={profileRef}
+            ref={setProfileAnchor}
             type="button"
             padding="4"
             className="profile-control"
@@ -468,9 +468,9 @@ export function LoginControl() {
             {pendingLogin ? "Продолжить вход" : "Войти"}
           </Button>
         )}
-        {open && authenticated && (
+        {open && authenticated && activeProfile && profileAnchor && (
           <CardActionMenu
-            anchor={profileRef.current}
+            anchor={profileAnchor}
             label="Сеанс пользователя"
             closing={menuClosing}
             fullWidth

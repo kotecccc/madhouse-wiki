@@ -19,7 +19,7 @@ export function CardActionMenu({
   onCloseRef.current = onClose;
   useLayoutEffect(() => {
     const element = menu.current;
-    if (!element) return;
+    if (!element || !anchor) return;
     (element.querySelector("button:not(:disabled)") || element).focus({
       preventScroll: true,
     });
@@ -90,7 +90,7 @@ export function CardActionMenu({
     const pointerDown = (event) => {
       if (
         !menu.current?.contains(event.target) &&
-        !anchor.contains(event.target)
+        !anchor?.contains(event.target)
       )
         onCloseRef.current();
     };
@@ -98,7 +98,7 @@ export function CardActionMenu({
       if (event.key !== "Escape") return;
       event.preventDefault();
       onCloseRef.current();
-      anchor.focus({ preventScroll: true });
+      anchor?.focus({ preventScroll: true });
     };
     document.addEventListener("pointerdown", pointerDown);
     document.addEventListener("keydown", keyDown);
