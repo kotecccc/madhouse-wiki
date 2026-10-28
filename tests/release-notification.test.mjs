@@ -109,3 +109,43 @@ test("Telegram rejection exposes only the HTTP status and is never retried", asy
   );
   assert.equal(calls, 3);
 });
+
+test("known Telegram 403 causes are reduced to safe diagnostic categories", async () => {
+  for (const [description, category] of [
+    ["Forbidden: bot was blocked by the user", "recipient_blocked"],
+    [
+      "Forbidden: bot can't initiate conversation with a user",
+      "recipient_unavailable",
+    ],
+    [
+      "Forbidden: bot is not a member and has no write rights",
+      "write_forbidden",
+    ],
+  ]) {
+    let calls = 0;
+    await assert.rejects(
+      notifyHealthyRelease({
+        env,
+        fetcher: async () => {
+          calls++;
+          if (calls < 3)
+            return Response.json({
+              service: calls === 1 ? "wiki" : "connector",
+              sourceCommit: sha,
+            });
+          return Response.json({ description }, { status: 403 });
+        },
+      }),
+      (error) => {
+        assert.equal(
+          error.message,
+          `release_notification_http_403_telegram_${category}`,
+        );
+        assert.ok(!error.message.includes(description));
+        assert.ok(!error.message.includes(env.TELEGRAM_BOT_TOKEN));
+        return true;
+      },
+    );
+    assert.equal(calls, 3);
+  }
+});

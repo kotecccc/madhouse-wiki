@@ -41,8 +41,38 @@ export async function notifyHealthyRelease({
       signal: AbortSignal.timeout(10000),
     },
   );
-  if (!response.ok)
-    throw new Error(`release_notification_http_${response.status}`);
+  if (!response.ok) {
+    let telegramReason = "";
+    if (response.status === 403) {
+      try {
+        const body = await response.json();
+        const description =
+          typeof body?.description === "string" &&
+          body.description.length <= 256
+            ? body.description.toLowerCase()
+            : "";
+        if (/blocked (?:the )?bot|bot was blocked/.test(description))
+          telegramReason = "_telegram_recipient_blocked";
+        else if (
+          /chat not found|can't initiate|cannot initiate|start a conversation/.test(
+            description,
+          )
+        )
+          telegramReason = "_telegram_recipient_unavailable";
+        else if (
+          /not enough rights|can't write|cannot write|write forbidden|not a member|was kicked/.test(
+            description,
+          )
+        )
+          telegramReason = "_telegram_write_forbidden";
+      } catch {
+        // Keep response bodies private; the status remains the safe fallback.
+      }
+    }
+    throw new Error(
+      `release_notification_http_${response.status}${telegramReason}`,
+    );
+  }
   if ((await response.json()).ok !== true)
     throw new Error("release_notification_rejected");
 }
@@ -57,7 +87,7 @@ if (
   } catch (error) {
     // Do not print fetch errors, Bot API URLs, responses or environment values.
     const reason =
-      /^release_(?:notification_http_\d{3}|notification_rejected|notification_not_configured|health_not_confirmed)$/.test(
+      /^release_(?:notification_http_\d{3}(?:_telegram_(?:recipient_blocked|recipient_unavailable|write_forbidden))?|notification_rejected|notification_not_configured|health_not_confirmed)$/.test(
         error?.message,
       )
         ? error.message
