@@ -7,7 +7,10 @@ import { createBridgeAwareAccountFetch } from "./bridge-aware-fetch.mjs";
 import { createConnectorLeaseIpcHandler } from "./connector-lease-ipc.mjs";
 import { createQueueActionGate } from "./queue-action-gate.mjs";
 import { createHmac } from "node:crypto";
-import { createBridgeBrowserSessions } from "./browser-session.mjs";
+import {
+  createBridgeBrowserSessions,
+  resolveBridgeBrowserSession,
+} from "./browser-session.mjs";
 
 /**
  * Isolated composition boundary. The hosting server must gate activation,
@@ -40,6 +43,12 @@ export function createBridgeRuntime({
   let service;
   let gateway;
   const queueActionGate = createQueueActionGate();
+  const browserSessions = createBridgeBrowserSessions({
+    key: createHmac("sha256", botToken)
+      .update("madhouse-bridge-browser-session-v1")
+      .digest(),
+    ...(now ? { now } : {}),
+  });
   try {
     service = createBridgeDeviceService({ registry: storage.registry });
     const accountService = createBridgeAccountService({
@@ -56,12 +65,7 @@ export function createBridgeRuntime({
       service,
       accountService,
       accounts: storage.accounts,
-      browserSessions: createBridgeBrowserSessions({
-        key: createHmac("sha256", botToken)
-          .update("madhouse-bridge-browser-session-v1")
-          .digest(),
-        ...(now ? { now } : {}),
-      }),
+      browserSessions,
       botToken,
       origin,
       consume,
@@ -96,7 +100,28 @@ export function createBridgeRuntime({
         if (closed) throw new Error("bridge_unavailable");
         return createBridgeAwareAccountFetch({
           snapshots,
-          accounts: storage.accounts,
+          accounts: {
+            ...storage.accounts,
+            resolveCredential(authorization) {
+              const session =
+                typeof authorization === "string" &&
+                authorization.startsWith("Bearer ")
+                  ? resolveBridgeBrowserSession(authorization.slice(7), {
+                      sessions: browserSessions,
+                      accounts: storage.accounts,
+                      devices: service,
+                    })
+                  : null;
+              if (session)
+                return {
+                  policy: "bridge_required",
+                  owner: session.owner,
+                  epoch: session.revision,
+                  credentialCurrent: true,
+                };
+              return storage.accounts.resolveCredential(authorization);
+            },
+          },
           directCredentials: storage.directCredentials,
           directRoutes: storage.directRoutes,
           accountService,

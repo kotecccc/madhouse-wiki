@@ -236,6 +236,10 @@ test(
       await waitStatus("online");
       const bound = await command("bind", { accessToken: "synthetic-token" });
       assert.equal(bound.status, 200);
+      const sessionResponse = await command("session");
+      assert.equal(sessionResponse.status, 200);
+      const { session } = await sessionResponse.json();
+      assert.ok(session);
       // Allow the single-use data connection to close and the agent to reconnect.
       await waitStatus("offline");
       await waitStatus("online");
@@ -256,6 +260,11 @@ test(
       assert.equal(next.status, 200);
       assert.equal((await next.json()).playerId, 42);
       assert.equal(requests, 3);
+      const restored = await fetch(url, {
+        headers: { Authorization: `Bearer ${session}` },
+      });
+      assert.equal(restored.status, 200);
+      assert.equal((await restored.json()).playerId, 42);
       const friends = await fetch(
         `http://127.0.0.1:${proxy.address().port}/api/friends`,
         {
@@ -264,7 +273,7 @@ test(
       );
       assert.equal(friends.status, 200);
       assert.deepEqual(await friends.json(), { items: [], nextCursor: null });
-      assert.equal(requests, 4);
+      assert.equal(requests, 5);
       const transport = bridge.wrapSnapshots({
         identity: () => null,
         fetch: () => assert.fail("unexpected direct fetch"),
@@ -288,7 +297,7 @@ test(
           headers: { Authorization: "Bearer synthetic-token" },
         });
       await assert.rejects(action());
-      assert.equal(requests, 5);
+      assert.equal(requests, 6);
       let saved = [];
       const authorization = "Bearer synthetic-token";
       const fetcher = createAccountQueue(transport.liveFetch, {
