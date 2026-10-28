@@ -18,11 +18,10 @@ const clone = (value) => structuredClone(value);
 
 export function retryDelay(attempt, random = Math.random) {
   const base = delays[Math.min(Math.max(attempt, 0), delays.length - 1)];
-  // Never retry sooner than the nominal interval. Spread accounts over 25%.
-  return Math.min(
-    3_600_000,
-    Math.round(base * (1 + Math.max(0, Math.min(1, random())) * 0.25)),
-  );
+  const spread = Math.max(0, Math.min(1, random()));
+  // The final interval must keep a spread while remaining within one hour.
+  if (base === 3_600_000) return Math.round(base * (0.75 + spread * 0.25));
+  return Math.round(base * (1 + spread * 0.25));
 }
 
 export function createActionQueue({

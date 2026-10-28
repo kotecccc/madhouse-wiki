@@ -96,6 +96,14 @@ test("Retry-After may exceed the automatic backoff limit", async () => {
   assert.equal(h.stored()[0].nextAt, 7_201_000);
 });
 
+test("the maximum retry interval keeps a spread without exceeding one hour", () => {
+  const delays = [0, 0.25, 0.5, 0.75, 1].map((value) =>
+    retryDelay(99, () => value),
+  );
+  assert.deepEqual(delays, [2700000, 2925000, 3150000, 3375000, 3600000]);
+  assert.ok(delays[0] > retryDelay(8, () => 1));
+});
+
 test("a retry deadline survives queue reconstruction", async () => {
   const first = setup();
   first.execute(async () => ({ status: "retry" }));
