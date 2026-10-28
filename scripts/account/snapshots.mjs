@@ -766,6 +766,21 @@ export function createAccountSnapshots({
     return response;
   }
   return {
+    routingIdentity(authorization) {
+      const identity = this.identity(authorization);
+      if (!identity) return null;
+      const record = accounts.get(String(identity.playerId));
+      const raw = record?.sections?.["/api/me"]?.data?.telegramId;
+      const owner =
+        typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0
+          ? String(raw)
+          : typeof raw === "string" &&
+              /^[1-9][0-9]{0,15}$/.test(raw) &&
+              Number.isSafeInteger(Number(raw))
+            ? raw
+            : null;
+      return { playerId: identity.playerId, ...(owner ? { owner } : {}) };
+    },
     identity(authorization) {
       const playerId = authorization && credentials.get(hash(authorization));
       const record = accounts.get(playerId);

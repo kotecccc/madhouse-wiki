@@ -12,6 +12,7 @@ import { readKnowledgeBase } from "../catalogue/query.mjs";
 export async function createAutomationRuntime({
   root = process.cwd(),
   env = process.env,
+  bridge = null,
 } = {}) {
   const enabled = env.MADHOUSE_AUTOMATION_GAME_ENABLED !== "0";
   const store = createAutomationStateStore({
@@ -20,22 +21,26 @@ export async function createAutomationRuntime({
       resolve(root, "local-data/automation"),
   });
   const snapshots = createAccountSnapshots({ store });
-  const readPlayerProgress = createPlayerProgressReader();
+  // Bridge admission is injected only after the host has satisfied all gates.
+  const transport = bridge ? bridge.wrapSnapshots(snapshots) : snapshots;
+  const readPlayerProgress = bridge
+    ? createPlayerProgressReader({ fetcher: transport.fetch })
+    : createPlayerProgressReader();
   const profileLevel = createProfileLevelHandler({
     identity: snapshots.identity,
     readProgress: readPlayerProgress,
     origin: env.WIKI_PUBLIC_ORIGIN,
   });
-  const proxy = createProxy(snapshots.fetch);
+  const proxy = createProxy(transport.fetch);
   let catalogue;
   const getCatalogue = () => (catalogue ??= readKnowledgeBase(root));
   const service = createAutomationService({
     store,
-    fetcher: snapshots.liveFetch,
-    snapshotFetch: snapshots.fetch,
+    fetcher: transport.liveFetch,
+    snapshotFetch: transport.fetch,
     accountHealth: snapshots.health,
     identifyPlayer: async (authorization) => {
-      const response = await snapshots.read(
+      const response = await transport.fetch(
         "https://cargohustle.online/api/me",
         {
           headers: {
@@ -72,12 +77,36 @@ export async function createAutomationRuntime({
   });
   const bossCardsHandle = createBossCardsHttp({
     identify: service.identify,
-    snapshots,
+    snapshots: bridge ? { ...snapshots, read: transport.fetch } : snapshots,
     getCatalogue,
     origin: env.WIKI_PUBLIC_ORIGIN || null,
   });
   const handle = async (request) => {
     const url = new URL(request.url);
+    if (bridge && url.pathname.startsWith("/api/automation/")) {
+      let route;
+      try {
+        route = await transport.verifyLocal(
+          request.headers.get("authorization"),
+        );
+      } catch {
+        return new Response(null, {
+          status: 401,
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
+      if (route.policy === "bridge_required" && request.method !== "GET")
+        return new Response(
+          JSON.stringify({ error: "bridge_actions_disabled" }),
+          {
+            status: 403,
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "private, no-store",
+            },
+          },
+        );
+    }
     if (url.pathname === "/api/automation/profile-level")
       return profileLevel(request);
     if (url.pathname === "/api/automation/profile-identity") {
@@ -94,7 +123,8 @@ export async function createAutomationRuntime({
             (env.WIKI_PUBLIC_ORIGIN || url.origin))
       )
         return new Response(null, { status: 403, headers });
-      const identity = snapshots.identity(request.headers.get("authorization"));
+      const authorization = request.headers.get("authorization");
+      const identity = snapshots.identity(authorization);
       return identity
         ? new Response(JSON.stringify(identity), { headers })
         : new Response(null, { status: 404, headers });
@@ -134,6 +164,8 @@ export async function createAutomationRuntime({
   return {
     handle,
     proxy,
+    gameFetch: transport.fetch,
+    bridgeActive: Boolean(bridge),
     nodeHandler: nodeAutomationHandler(handle, {
       origin: env.WIKI_PUBLIC_ORIGIN,
     }),

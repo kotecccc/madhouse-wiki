@@ -1,0 +1,206 @@
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { createHmac } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { connect as connectTls } from "node:tls";
+import { test } from "node:test";
+import { createAutomationRuntime } from "../../scripts/automation/runtime.mjs";
+import { createBridgeRuntime } from "../../scripts/bridge/runtime.mjs";
+import { createBridgeNodeAdapter } from "../../scripts/bridge/node-adapter.mjs";
+import { readProfileOverBridge } from "../../scripts/bridge/profile-client.mjs";
+import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
+
+const agentPath = process.env.MADHOUSE_FAKE_AGENT_PATH;
+const cert = await readFile(
+  new URL("./fixtures/cargo-cert.pem", import.meta.url),
+);
+const key = await readFile(
+  new URL("./fixtures/cargo-key.pem", import.meta.url),
+);
+const origin = "https://wiki.example";
+const botToken = "fake-bot";
+const now = 1_800_000_000_000;
+const listen = (server) =>
+  new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const close = (server) => new Promise((resolve) => server.close(resolve));
+function initData() {
+  const data = new URLSearchParams({
+    auth_date: String(now / 1000),
+    user: JSON.stringify({ id: 101 }),
+  });
+  const input = [...data.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+  const secret = createHmac("sha256", "WebAppData").update(botToken).digest();
+  data.set("hash", createHmac("sha256", secret).update(input).digest("hex"));
+  return data.toString();
+}
+
+test(
+  "Wiki runtime proxy routes a bound profile through the Python agent and fails closed offline",
+  { skip: !agentPath, timeout: 20000 },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "bridge-runtime-e2e-"));
+    const ca = join(root, "gateway-cert.pem");
+    const caKey = join(root, "gateway-key.pem");
+    const made = spawnSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-days",
+        "1",
+        "-keyout",
+        caKey,
+        "-out",
+        ca,
+        "-subj",
+        "/CN=fake-game.test",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+      ],
+      { stdio: "ignore" },
+    );
+    assert.equal(made.status, 0);
+    let requests = 0;
+    const game = createHttpsServer({ cert, key }, (request, response) => {
+      requests += 1;
+      assert.equal(request.url, "/api/me");
+      assert.equal(request.headers.authorization, "Bearer synthetic-token");
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end('{"playerId":42,"telegramId":101,"nickname":"fake"}');
+    });
+    await listen(game);
+    const bridge = createBridgeRuntime({
+      directory: join(root, "bridge"),
+      witnessPath: join(root, "witness.sqlite"),
+      provisionWitness: true,
+      botToken,
+      origin,
+      now: () => now,
+      consume: () => true,
+      readProfile: (options) =>
+        readProfileOverBridge({
+          ...options,
+          connector: createGameTlsDuplexConnector({
+            openTunnel: options.openTunnel,
+            validateTunnel: options.validateTunnel,
+            tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
+          }),
+        }),
+    });
+    const gateway = createHttpsServer({
+      cert: await readFile(ca),
+      key: await readFile(caKey),
+    });
+    const adapter = createBridgeNodeAdapter({ runtime: bridge, origin });
+    gateway.on("upgrade", adapter.upgrade);
+    await listen(gateway);
+    const management = createHttpServer(adapter.handle);
+    await listen(management);
+    const automation = await createAutomationRuntime({
+      bridge,
+      env: {
+        MADHOUSE_AUTOMATION_STATE_DIR: join(root, "automation"),
+        MADHOUSE_AUTOMATION_GAME_ENABLED: "0",
+        WIKI_PUBLIC_ORIGIN: origin,
+      },
+    });
+    const proxy = createHttpServer(
+      (request, response) => void automation.proxy(request, response),
+    );
+    await listen(proxy);
+    const command = (operation, fields = {}) =>
+      fetch(`http://127.0.0.1:${management.address().port}/api/bridge/device`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify({ operation, initData: initData(), ...fields }),
+      });
+    let agent;
+    try {
+      const invitation = await (await command("invite")).json();
+      const paired = await (
+        await fetch(
+          `http://127.0.0.1:${management.address().port}/api/bridge/redeem`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invitation: invitation.invitation }),
+          },
+        )
+      ).json();
+      agent = spawn(
+        "python3",
+        [
+          agentPath,
+          "--gateway-port",
+          String(gateway.address().port),
+          "--target-port",
+          String(game.address().port),
+          "--ca",
+          ca,
+          "--token",
+          `${paired.deviceId}.${paired.deviceKey}`,
+        ],
+        { stdio: "ignore" },
+      );
+      async function waitStatus(expected) {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const state = await (await command("status")).json();
+          if (state.device === expected) return;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        assert.fail(`device did not become ${expected}`);
+      }
+      await waitStatus("online");
+      const bound = await command("bind", { accessToken: "synthetic-token" });
+      assert.equal(bound.status, 200);
+      // Allow the single-use data connection to close and the agent to reconnect.
+      await waitStatus("offline");
+      await waitStatus("online");
+      const url = `http://127.0.0.1:${proxy.address().port}/api/me`;
+      const response = await fetch(url, {
+        headers: { Authorization: "Bearer synthetic-token" },
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        playerId: 42,
+        telegramId: 101,
+        nickname: "fake",
+      });
+      // A second request can wait for a fresh tunnel without replaying the first.
+      const next = await fetch(url, {
+        headers: { Authorization: "Bearer synthetic-token" },
+      });
+      assert.equal(next.status, 200);
+      assert.equal((await next.json()).playerId, 42);
+      assert.equal(requests, 3);
+      agent.kill();
+      await waitStatus("offline");
+      const offline = await fetch(url, {
+        headers: { Authorization: "Bearer synthetic-token" },
+      });
+      assert.ok(offline.status >= 500);
+      assert.equal(requests, 3);
+    } finally {
+      agent?.kill();
+      automation.close();
+      bridge.close();
+      await Promise.all([
+        close(proxy),
+        close(management),
+        close(gateway),
+        close(game),
+      ]);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

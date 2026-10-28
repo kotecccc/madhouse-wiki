@@ -88,7 +88,14 @@ if (role === "wiki") {
     ["/api/automation/launch", automationRuntime.nodeHandler],
     ["/api/automation/commands", automationRuntime.nodeHandler],
     ["/api", automationRuntime.proxy],
-    ["/api/catalogue", catalogue.default],
+    [
+      "/api/catalogue",
+      automationRuntime.bridgeActive
+        ? catalogue.createCatalogueHandler({
+            fetcher: automationRuntime.gameFetch,
+          })
+        : catalogue.default,
+    ],
     ["/api/raids", raids.default],
     ["/api/feedback", feedback.default],
     ["/api/analytics", analytics.default],

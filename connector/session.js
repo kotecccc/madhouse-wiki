@@ -165,7 +165,11 @@ export function createConnection({
         }
         submitted.add(initData);
         try {
-          exchanged = await exchange(initData);
+          exchanged = await exchange(
+            initData,
+            client,
+            () => started === generation,
+          );
           break;
         } catch (error) {
           if (error?.message !== "game_unavailable" || attempt === 2)

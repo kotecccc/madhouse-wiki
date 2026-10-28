@@ -14,17 +14,30 @@ export function createVercelConnectorHandler({
     apiHash: process.env.TELEGRAM_API_HASH,
   }),
   fetcher = fetch,
+  connectorGuard,
 }) {
+  if (
+    connectorGuard &&
+    (typeof connectorGuard.withGameSessionLease !== "function" ||
+      typeof connectorGuard.withOwnerLease !== "function")
+  )
+    throw new TypeError("invalid_connector_guard");
   const security = connectorHeaders(wikiOrigins);
   const api = createConnectorApi({
     appParams,
     wikiOrigins,
     fetcher,
+    ...(connectorGuard
+      ? { withGameSessionLease: connectorGuard.withGameSessionLease }
+      : {}),
     accountSessions: createAccountSessions({
       store: createBlobSessionStore(),
       verificationKey: process.env.WIKI_INITDATA_KEY,
       encryptionKey: process.env.ACCOUNT_SESSION_KEY,
       fetcher,
+      ...(connectorGuard
+        ? { withOwnerLease: connectorGuard.withOwnerLease }
+        : {}),
     }),
   });
   return async (request, response) => {

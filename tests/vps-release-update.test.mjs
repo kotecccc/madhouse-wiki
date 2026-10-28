@@ -34,6 +34,10 @@ function fixture({
   freeAfterDownloadKb = null,
   flockFailure = false,
   notificationFailure = false,
+  floorSha = null,
+  compareMode = "ahead",
+  floorChangeAtProbe = null,
+  floorChangeOnUp = null,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "vps-release-update-test-"));
   const root = join(directory, "root");
@@ -63,6 +67,11 @@ function fixture({
       join(root, "previous-release.env"),
       `MADHOUSE_PREVIOUS_RELEASE_SHA=${priorPreviousSha}\n`,
     );
+  if (floorSha)
+    writeFileSync(
+      join(root, "rollback-floor.env"),
+      `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${floorSha}\n`,
+    );
   if (malformedMarker)
     writeFileSync(
       join(root, "previous-release.env"),
@@ -84,6 +93,14 @@ while [ "$#" -gt 0 ]; do
   case "$1" in --output) out=$2; shift 2 ;; https://*) url=$1; shift ;; *) shift ;; esac
 done
 case "$url" in
+  https://api.github.com/*/compare/*)
+    [ '${compareMode}' = 'network-error' ] && exit 22
+    pair=\${url##*/}; base=\${pair%%...*}; head=\${pair#*...}
+    status='${compareMode}'; merge="$base"; ahead=1; behind=0
+    [ "$status" = 'behind' ] && { ahead=0; behind=1; }
+    [ "$status" = 'diverged' ] && { merge='${"f".repeat(40)}'; behind=1; }
+    printf '{"base_commit":{"sha":"%s"},"head_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"},"status":"%s","ahead_by":%s,"behind_by":%s}\n' "$base" "$head" "$merge" "$status" "$ahead" "$behind" >"$out"
+    ;;
   https://api.github.com/*)
     cat >"$out" <<'JSON'
 {"test":"fixture"}
@@ -97,7 +114,8 @@ printf 'curl %s\\n' "$url" >>'${log}'`,
   );
   put(
     "python3",
-    `printf '%s\\n' \\
+    `if [ "$#" -ge 4 ]; then exec /usr/bin/python3 "$@"; fi
+printf '%s\\n' \\
   'https://github.com/kotecccc/madhouse-wiki/releases/download/test/madhouse-wiki-image.tar.gz' \\
   'https://github.com/kotecccc/madhouse-wiki/releases/download/test/madhouse-wiki-image.tar.gz.sha256' \\
   '${candidate}'`,
@@ -172,6 +190,7 @@ if [ "$1" = container ] && [ "$2" = inspect ]; then
   exit 0
 fi
 if [ "$1" = image ] && [ "$2" = rm ]; then : >'${directory}/image-removed'; exit 0; fi
+if [ "$1" = create ] && [ '${floorChangeAtProbe}' != null ]; then printf 'MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=%s\\n' '${floorChangeAtProbe}' >'${root}/rollback-floor.env'; fi
 if [ "$1" = create ] && [ '${probeFailure}' = true ]; then exit 1; fi
 case "$action" in
   stop)
@@ -183,6 +202,7 @@ case "$action" in
     count_file='${directory}/up-count'; count=0
     [ ! -f "$count_file" ] || read count <"$count_file"
     printf '%s\\n' "$((count + 1))" >"$count_file"
+    if [ '${floorChangeOnUp}' != null ]; then printf 'MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=%s\\n' '${floorChangeOnUp}' >'${root}/rollback-floor.env'; fi
     case " ${upFailures.join(" ") || "-1"} " in *" $count "*) exit 1 ;; esac ;;
   load) : >'${directory}/loaded' ;;
 esac
@@ -562,5 +582,77 @@ test("does not notify on no-op, check-space, rollback or failed activation", () 
     } finally {
       f.cleanup();
     }
+  }
+});
+
+test("rollback floor permits descendants and keeps rollback above the floor", () => {
+  const f = fixture({ floorSha: previous, upFailures: [0] });
+  try {
+    assert.equal(f.run.status, 1);
+    assert.deepEqual(lifecycle(f.calls), [
+      "stop",
+      "sleep 16",
+      "up",
+      "stop",
+      "sleep 16",
+      "up",
+    ]);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("rollback floor rejects older, diverged, and unverifiable candidates before stopping", () => {
+  for (const compareMode of ["behind", "diverged", "network-error"]) {
+    const f = fixture({ floorSha: previous, compareMode });
+    try {
+      assert.notEqual(f.run.status, 0, compareMode);
+      assert.deepEqual(lifecycle(f.calls), [], compareMode);
+      assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+test("rollback floor refuses missing current release and malformed markers", () => {
+  for (const options of [
+    { floorSha: previous, priorSha: null },
+    { floorSha: "bad" },
+  ]) {
+    const f = fixture(options);
+    try {
+      assert.notEqual(f.run.status, 0);
+      assert.deepEqual(lifecycle(f.calls), []);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+test("floor changed during preparation stops before touching the running Wiki", () => {
+  const f = fixture({ floorChangeAtProbe: previous });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.deepEqual(lifecycle(f.calls), []);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("floor changed after failed candidate prevents unsafe automatic rollback", () => {
+  const f = fixture({
+    floorSha: previous,
+    floorChangeOnUp: candidate,
+    upFailures: [0],
+  });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.deepEqual(lifecycle(f.calls), ["stop", "sleep 16", "up"]);
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${candidate}\n`);
+  } finally {
+    f.cleanup();
   }
 });
