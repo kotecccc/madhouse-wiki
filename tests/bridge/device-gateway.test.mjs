@@ -78,3 +78,37 @@ test("WSS admission requires valid device identity and revocation closes it", as
     await f.close();
   }
 });
+
+test("valid devices can reconnect more than 30 times through the shared proxy", async () => {
+  const { createBridgeRateLimiter } =
+    await import("../../scripts/bridge/rate-limiter.mjs");
+  const limiter = createBridgeRateLimiter({ now: () => 100 });
+  const gateway = createDeviceGateway({
+    registry: { authenticateDevice: () => true },
+    service: { admit: async (_identity, ws) => ws.close() },
+    consume: (ip, device) => limiter.consume(ip, "/bridge/data", device),
+  });
+  const server = createServer();
+  server.on(
+    "upgrade",
+    (req, socket, head) => void gateway.upgrade(req, socket, head, "127.0.0.1"),
+  );
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    for (let i = 0; i < 40; i++) {
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${server.address().port}/bridge/data`,
+        {
+          headers: {
+            Authorization: `MadhouseBridge 11111111-1111-4111-8111-111111111111.${"A".repeat(43)}`,
+          },
+        },
+      );
+      await once(ws, "open");
+      await once(ws, "close");
+    }
+  } finally {
+    gateway.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

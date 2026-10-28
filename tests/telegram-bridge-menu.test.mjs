@@ -51,7 +51,7 @@ function harness({ device = null, bridgeReporter = null } = {}) {
             id: "callback",
             data,
             from: { id: sender },
-            message: { chat: { id: chatId, type } },
+            message: { message_id: 42, chat: { id: chatId, type } },
           },
         }),
       }),
@@ -63,7 +63,7 @@ function harness({ device = null, bridgeReporter = null } = {}) {
 test("private Mac setup provides a download and a single-use key", async () => {
   const h = harness();
   assert.equal((await h.callback("bridge:mac")).status, 200);
-  const msg = h.calls.find((call) => call.method === "sendMessage").body;
+  const msg = h.calls.find((call) => call.method === "editMessageText").body;
   assert.match(msg.text, /Мост на Mac/);
   assert.equal(
     msg.reply_markup.inline_keyboard[0][0].url,
@@ -80,7 +80,7 @@ test("bridge secrets never go to group chats or a different sender", async () =>
   await h.callback("bridge:mac", { type: "group" });
   await h.callback("bridge:mac", { sender: 124 });
   assert.equal(
-    h.calls.some((call) => call.method === "sendMessage"),
+    h.calls.some((call) => call.method === "editMessageText"),
     false,
   );
 });

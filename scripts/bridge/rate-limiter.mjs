@@ -22,17 +22,25 @@ export function createBridgeRateLimiter({
   const key = randomBytes(32);
   const buckets = new Map();
   let lastTime = 0;
-  function consume(ip, route) {
+  function consume(ip, route, device = null) {
     if (typeof ip !== "string" || !isIP(ip) || !Object.hasOwn(limits, route))
+      return false;
+    if (
+      device !== null &&
+      (route !== "/bridge/data" || !/^[0-9a-f-]{36}$/.test(device))
+    )
       return false;
     const time = now();
     if (!Number.isFinite(time) || time < lastTime || time < 0) return false;
     lastTime = time;
-    const [limit, windowMs] = limits[route];
+    const [defaultLimit, windowMs] = limits[route];
+    const limit = device ? 600 : defaultLimit;
     const opaque = createHmac("sha256", key)
       .update(ip)
       .update("\0")
       .update(route)
+      .update("\0")
+      .update(device || "")
       .digest("hex");
     let bucket = buckets.get(opaque);
     if (bucket && time >= bucket.expires) {
