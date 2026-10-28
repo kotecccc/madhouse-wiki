@@ -5,6 +5,10 @@ import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
+import {
+  AUTOMATION_STATE_SCHEMA_VERSION,
+  migrateAutomationState,
+} from "./state-migrations.mjs";
 import { queuedInventoryAdapter } from "./queued-inventory.mjs";
 import { queuedFriendRemovalAdapter } from "./queued-friend-removal.mjs";
 import { queuedFriendSettingAdapter } from "./queued-friend-setting.mjs";
@@ -339,6 +343,7 @@ export function createAutomationService({
   };
   function persisted(entry) {
     return {
+      schemaVersion: AUTOMATION_STATE_SCHEMA_VERSION,
       version: entry.version,
       credential: entry.credential,
       player: entry.player,
@@ -724,6 +729,8 @@ export function createAutomationService({
     };
   }
   function createActor(playerId, saved = null) {
+    const migration = migrateAutomationState(saved);
+    saved = migration.value;
     const entry = {
       playerId,
       businessHelper: saved?.businessHelper ?? emptyBusinessHelper(),
@@ -1810,6 +1817,7 @@ export function createAutomationService({
       }
     }
     actors.set(playerId, entry);
+    if (migration.changed) save(entry);
     if (
       entry.credential &&
       (entry.characterBatch.running() || entry.characterBatch.recovering())

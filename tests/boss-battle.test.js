@@ -507,6 +507,25 @@ test("invitation acceptance transport is guarded and discards the unknown succes
   await assert.rejects(request("GET", "/api/bosses/invitations/invite-1"));
 });
 
+test("invitation Retry-After is exposed to the durable queue", async () => {
+  const request = createBossBattleRequest({
+    now: () => Date.parse("2026-10-28T12:00:00Z"),
+    authorize: (r) => ({ ...r, headers: { Authorization: "test-only" } }),
+    fetcher: async () =>
+      new Response(JSON.stringify({ error: "rate_limited" }), {
+        status: 429,
+        headers: { "Retry-After": "45" },
+      }),
+  });
+
+  await assert.rejects(
+    request("POST", "/api/bosses/invitations/invite-1/accept", {
+      operationId: "accept-once",
+    }),
+    { status: 429, retryAfterMs: 45000 },
+  );
+});
+
 test("reconciliation never shortens the cooldown returned by the mutation", async () => {
   const { store } = setup((method, path) => {
     if (path === "/api/bosses/7") return detail();

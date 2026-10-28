@@ -138,6 +138,28 @@ async function withContext(run, options = {}) {
   }
 }
 
+test("service persists the schema migration and preserves legacy checkpoints", async () => {
+  await withContext(async ({ store, service }) => {
+    const pending = {
+      id: "pending-invitation",
+      kind: "invitation",
+      operationId: "accepted-once",
+      battleId: "battle-1",
+    };
+    await store.write(101, {
+      version: 4,
+      credential: tokenA,
+      player: { playerId: 101, nickname: "Alice" },
+      manualBattle: { pending, receipts: [] },
+    });
+
+    await service.identify(tokenA);
+    const migrated = await store.read(101);
+    assert.equal(migrated.schemaVersion, 1);
+    assert.deepEqual(migrated.manualBattle.pending, pending);
+  });
+});
+
 const command = (id, commandName, expectedVersion, args = {}) => ({
   id,
   command: commandName,

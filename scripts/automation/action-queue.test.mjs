@@ -88,6 +88,26 @@ test("retry uses increasing persisted deadlines and honors cancellation", async 
   );
 });
 
+test("a retry deadline survives queue reconstruction", async () => {
+  const first = setup();
+  first.execute(async () => ({ status: "retry" }));
+  first.queue.add({ id: "action-0001", type: "buy", args: { id: 1 } });
+  await first.queue.tick();
+  const saved = first.stored();
+  assert.equal(saved[0].nextAt, 11000);
+
+  const restarted = setup(saved);
+  await restarted.queue.tick();
+  assert.deepEqual(restarted.calls, []);
+  restarted.advance(9999);
+  await restarted.queue.tick();
+  assert.deepEqual(restarted.calls, []);
+  restarted.advance(1);
+  await restarted.queue.tick();
+  assert.deepEqual(restarted.calls, ["execute"]);
+  assert.equal(restarted.stored()[0].status, "completed");
+});
+
 test("restart after dispatch only reconciles and never replays", async () => {
   const h = setup([
     {
@@ -206,6 +226,31 @@ test("an ineligible older action does not block an independent ready action", as
   allowFirst = true;
   await queue.tick();
   assert.deepEqual(executed, [2, 1]);
+});
+
+test("aging lets an older low-priority action outrank a new urgent action", async () => {
+  const executed = [];
+  let time = 1000;
+  const queue = createActionQueue({
+    persist: () => true,
+    now: () => time,
+    adapters: {
+      buy: {
+        validate: (args) => args,
+        execute: async (job) => {
+          executed.push(job.args.id);
+          return { status: "completed" };
+        },
+        reconcile: async () => ({ status: "uncertain" }),
+      },
+    },
+  });
+  queue.add({ id: "action-older", type: "buy", args: { id: 1 }, priority: 0 });
+  time += 61 * 60_000;
+  queue.add({ id: "action-newer", type: "buy", args: { id: 2 }, priority: 60 });
+
+  await queue.tick();
+  assert.deepEqual(executed, [1]);
 });
 
 test("terminal history stays bounded while uncertain checkpoints remain", async () => {

@@ -4,6 +4,7 @@ import { authorizeRequest } from "../../../../shared/auth-session.js";
 export function createBossBattleRequest({
   authorize = authorizeRequest,
   fetcher = fetch,
+  now = Date.now,
 } = {}) {
   return async function requestBossBattle(method, path, body, { signal } = {}) {
     if (!(
@@ -61,6 +62,13 @@ export function createBossBattleRequest({
     if (!response.ok) {
       const error = new Error("Не удалось выполнить действие боя");
       error.status = response.status;
+      const retryAfter = response.headers?.get?.("Retry-After");
+      if (retryAfter) {
+        const delay = /^\d+$/.test(retryAfter)
+          ? Number(retryAfter) * 1000
+          : Date.parse(retryAfter) - now();
+        if (Number.isFinite(delay) && delay >= 0) error.retryAfterMs = delay;
+      }
       if (path.endsWith("/invitations/bulk")) {
         let value;
         try {
