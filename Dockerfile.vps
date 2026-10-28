@@ -90,8 +90,9 @@ COPY --from=build --chown=node:node /app/src ./src
 COPY --from=build --chown=node:node /opt/puppeteer /opt/puppeteer
 RUN chown -R node:node /opt/puppeteer
 
-RUN mkdir -p /data/automation /data/telegram-cards \
-    && chown node:node /data/automation /data/telegram-cards
+RUN mkdir -p /data/automation /data/telegram-cards /data/bridge-state /data/bridge-witness \
+    && chown node:node /data/automation /data/telegram-cards /data/bridge-state /data/bridge-witness \
+    && chmod 700 /data/bridge-state /data/bridge-witness
 USER node
 EXPOSE 9092 9093
 ENTRYPOINT ["node", "scripts/deploy/vps-server.mjs"]
