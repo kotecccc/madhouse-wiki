@@ -2,6 +2,7 @@ import {
   readGameOverBridge,
   readProfileOverBridge,
   sendFriendResponseOverBridge,
+  sendWorkTaskOverBridge,
 } from "./profile-client.mjs";
 
 function failure(code) {
@@ -168,7 +169,7 @@ export function createBridgeAccountService({
     return result;
   }
 
-  async function send(verifiedOwner, method, path, { signal } = {}) {
+  async function send(verifiedOwner, method, path, { signal, body } = {}) {
     const account = accounts.read(verifiedOwner);
     if (!account || !queueActionGate) throw failure("bridge_unavailable");
     const device = devices.listDevice(verifiedOwner);
@@ -180,10 +181,15 @@ export function createBridgeAccountService({
     };
     let result;
     try {
-      result = await sendAction({
+      const sender =
+        path === "/api/works/tasks/perform"
+          ? sendWorkTaskOverBridge
+          : sendAction;
+      result = await sender({
         authorization: account.authorization,
         method,
         path,
+        body,
         signal,
         openTunnel: () => devices.open(verifiedOwner, { signal }),
         validateTunnel: () =>
@@ -193,6 +199,7 @@ export function createBridgeAccountService({
             authorization: account.authorization,
             method,
             path,
+            body,
           }),
       });
     } catch {

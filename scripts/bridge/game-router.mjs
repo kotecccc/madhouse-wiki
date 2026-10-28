@@ -153,6 +153,16 @@ export function createGameRouter({
       });
     } else if (
       typeof bridgeAction === "function" &&
+      method === "POST" &&
+      path === "/api/works/tasks/perform" &&
+      typeof init.body === "string"
+    ) {
+      result = await bridgeAction(route.owner, method, path, {
+        signal: init.signal,
+        body: init.body,
+      });
+    } else if (
+      typeof bridgeAction === "function" &&
       !parsed.search &&
       ((method === "POST" &&
         /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
