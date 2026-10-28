@@ -438,6 +438,7 @@ export function createAutomationService({
       auto: entry.auto.exportState(),
       pausedAuto: entry.pausedAuto,
       manualBattle: entry.manualBattle,
+      bridgeInvitation: entry.bridgeInvitation,
       pendingAutomation: entry.pendingAutomation,
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
@@ -927,6 +928,7 @@ export function createAutomationService({
       queueActiveBooster: false,
       pausedAuto: saved?.pausedAuto ?? null,
       manualBattle: saved?.manualBattle ?? { pending: null, receipts: [] },
+      bridgeInvitation: saved?.bridgeInvitation ?? null,
       pendingAutomation: saved?.pendingAutomation ?? null,
       queueBattleDispatch: null,
       version: saved?.version ?? 0,
@@ -1059,6 +1061,51 @@ export function createAutomationService({
                 entry.raidWorker?.getSnapshot().enabled ||
                 entry.collector?.running()
               )
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          sent = queueActionGate.runWork(permit, send);
+        } else if (
+          queueActionGate &&
+          !entry.queueBattleDispatch &&
+          init.method === "POST" &&
+          entry.bridgeInvitation &&
+          new URL(url).pathname ===
+            `/api/bosses/invitations/${entry.bridgeInvitation.invitationId}/accept`
+        ) {
+          const pendingInvitation = entry.bridgeInvitation;
+          const path = new URL(url).pathname;
+          let parsed;
+          try {
+            parsed = JSON.parse(init.body);
+          } catch {
+            throw failure(409, "invitation_checkpoint_missing");
+          }
+          if (
+            !parsed ||
+            Object.keys(parsed).join(",") !== "operationId" ||
+            parsed.operationId !== pendingInvitation.operationId
+          )
+            throw failure(409, "invitation_checkpoint_missing");
+          let used = false;
+          const permit = ({ authorization, method, path: target, body }) => {
+            const current = entry.bridgeInvitation;
+            const state = entry.controller.getSnapshot().pendingInvitation;
+            if (
+              used ||
+              authorization !== credential ||
+              method !== "POST" ||
+              target !== path ||
+              body !== init.body ||
+              current?.operationId !== pendingInvitation.operationId ||
+              current?.invitationId !== pendingInvitation.invitationId ||
+              state?.invitationId !== pendingInvitation.invitationId ||
+              state?.battleId !== pendingInvitation.battleId ||
+              typeof entry.bridgeInvitationAllowed !== "function" ||
+              !entry.bridgeInvitationAllowed() ||
+              !options.canDispatch()
             )
               return false;
             used = true;
@@ -2820,7 +2867,26 @@ export function createAutomationService({
         (goal.boss.id !== invitation.bossId || goal.status !== "active")
       )
         entry.goal.reset();
-      await entry.controller.acceptInvitation(boss, invitation, { beforeSend });
+      const reserveInvitation = (operation) => {
+        if (!beforeSend(operation)) return false;
+        if (queueActionGate && !entry.queueBattleDispatch) {
+          if (!allowed()) return false;
+          entry.bridgeInvitationAllowed = allowed;
+          entry.bridgeInvitation = {
+            invitationId: invitation.invitationId,
+            battleId: invitation.battleId,
+            bossId: invitation.bossId,
+            operationId: operation.operationId,
+          };
+          save(entry);
+          if (entry.storageFailed)
+            throw failure(503, "automation_storage_unavailable");
+        }
+        return true;
+      };
+      await entry.controller.acceptInvitation(boss, invitation, {
+        beforeSend: reserveInvitation,
+      });
       if (
         entry.controller.getSnapshot().pendingInvitation ||
         entry.controller.getSnapshot().needsRefresh ||
@@ -2829,6 +2895,8 @@ export function createAutomationService({
       )
         throw failure(409, "invitation_state_uncertain");
     }
+    if (entry.bridgeInvitation?.invitationId === invitationId)
+      entry.bridgeInvitation = null;
     entry.invitations.items = entry.invitations.items.filter(
       (item) => item.invitationId !== invitationId,
     );

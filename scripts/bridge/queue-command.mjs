@@ -53,6 +53,7 @@ export async function isAllowedBridgeQueueCommand(request) {
           "stash.craft",
           "invitation.accept",
           "floor.start",
+          "subscription.start",
         ].includes(input.args?.type)) ||
       (input?.command === "work.refresh" &&
         Number.isSafeInteger(input.args?.workId) &&
@@ -101,6 +102,7 @@ export async function isAllowedBridgeQueueCommand(request) {
         "character.refresh",
         "character.stop",
         "invitations.refresh",
+        "subscription.stop",
       ].includes(input?.command) ||
       (["buddy.set", "friends.favorite"].includes(input?.command) &&
         Number.isSafeInteger(input.args?.playerId) &&
