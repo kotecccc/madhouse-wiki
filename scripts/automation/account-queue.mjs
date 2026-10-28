@@ -6,6 +6,8 @@ export function createAccountQueue(
     accountKey = (authorization) => authorization,
     now = Date.now,
     requestPriority = () => null,
+    captureRequestContext = () => () => false,
+    beforeDispatch = () => {},
   } = {},
 ) {
   const accounts = new Map();
@@ -34,6 +36,7 @@ export function createAccountQueue(
         let dispatched = false;
         try {
           job.init.signal?.throwIfAborted();
+          beforeDispatch(job.url, job.init, job.isQueuedAttempt);
           const { canDispatch, ...requestInit } = job.init;
           if (canDispatch && !canDispatch())
             throw new DOMException("Queued action cancelled", "AbortError");
@@ -99,6 +102,7 @@ export function createAccountQueue(
         resolve,
         reject,
         priority: priority(url, init),
+        isQueuedAttempt: captureRequestContext(),
       });
       void drain(key, lane);
     });

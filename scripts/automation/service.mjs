@@ -241,7 +241,8 @@ export function createAutomationService({
       }
       return Math.max(actionQueueReadyAt, currentGameOutage().readyAt);
     } catch {
-      entry.storageFailed = true;
+      if (entry) entry.storageFailed = true;
+      else for (const actor of actors.values()) actor.storageFailed = true;
       return null;
     }
   }
@@ -255,6 +256,16 @@ export function createAutomationService({
         authorization,
       now,
       requestPriority: requestPriority.current,
+      captureRequestContext: requestPriority.capture,
+      beforeDispatch: (_url, _init, isQueuedAttempt) => {
+        if (isQueuedAttempt()) return;
+        const deadline = queueNotBefore(null);
+        if (deadline == null || now() < deadline)
+          throw Object.assign(new Error("game_outage_wait"), {
+            notDispatched: true,
+            retryAfterMs: deadline == null ? 0 : deadline - now(),
+          });
+      },
     }),
     now,
     random,

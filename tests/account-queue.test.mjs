@@ -4,6 +4,40 @@ import { createAccountQueue } from "../scripts/automation/account-queue.mjs";
 import { createActionQueue } from "../scripts/automation/action-queue.mjs";
 import { createRequestPriorityContext } from "../scripts/automation/request-priority-context.mjs";
 
+test("dispatch barrier checks the current deadline after waiting in the account lane", async () => {
+  let release,
+    blocked = false,
+    calls = 0;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fetcher = createAccountQueue(
+    async () => {
+      calls++;
+      await gate;
+      return Response.json({ ok: true });
+    },
+    {
+      beforeDispatch: () => {
+        if (blocked)
+          throw Object.assign(new Error("cooldown"), { retryAfterMs: 120000 });
+      },
+    },
+  );
+  const init = { headers: { Authorization: "Bearer account" } };
+  const first = fetcher("https://game/api/first", init);
+  const second = fetcher("https://game/api/second", init);
+  const rejected = assert.rejects(
+    second,
+    (error) => error.notDispatched === true && error.retryAfterMs === 120000,
+  );
+  blocked = true;
+  release();
+  await first;
+  await rejected;
+  assert.equal(calls, 1);
+});
+
 test("restored reconciliation reaches the account lane ahead of a farm step", async () => {
   let release;
   const gate = new Promise((resolve) => {

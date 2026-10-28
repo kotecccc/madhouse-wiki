@@ -9,6 +9,10 @@ export function createRequestPriorityContext() {
       const context = storage.getStore();
       return context?.active ? context.priority : null;
     },
+    capture() {
+      const context = storage.getStore();
+      return () => Boolean(context?.active);
+    },
     async run(job, reconcile, callback) {
       const context = { active: true, priority: reconcile ? 60 : job.priority };
       try {

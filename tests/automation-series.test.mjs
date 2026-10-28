@@ -542,6 +542,35 @@ test("goal-bound series wins two battles and does not start a third", async () =
   });
 });
 
+test("restoring autobattle respects the durable shared queue cooldown", async () => {
+  const ctx = setup();
+  let restored;
+  try {
+    const entry = await ctx.openAndConfigure();
+    await ctx.command(entry, "auto-before-shared-cooldown", "auto.start");
+    assert.equal(ctx.store.read("101").auto.enabled, true);
+    ctx.service.close();
+    const clock = 1_000_000;
+    ctx.store.acquireLease("cooldown-test", clock, 1000);
+    ctx.store.setQueueCooldown(clock + 120000, 1, "cooldown-test", clock);
+    ctx.store.releaseLease("cooldown-test");
+    const before = ctx.calls.length;
+    restored = createAutomationService({
+      store: ctx.store,
+      fetcher: ctx.fetcher,
+      getBoss: (id) => ({ numericId: id, name: "Boss", possibleDrops: [] }),
+      now: () => clock,
+      schedule: () => ({ unref() {} }),
+      cancel: () => {},
+    });
+    await restored.boot();
+    assert.deepEqual(ctx.calls.slice(before), []);
+  } finally {
+    restored?.close();
+    ctx.close();
+  }
+});
+
 test("a ready work goal runs before the next automatic boss fight", async () => {
   await withSetup({ work: true }, async (ctx) => {
     const entry = await ctx.openAndConfigure();
