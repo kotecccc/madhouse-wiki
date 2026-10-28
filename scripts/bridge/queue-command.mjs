@@ -43,6 +43,7 @@ export async function isAllowedBridgeQueueCommand(request) {
           "business.start",
           "work.start",
           "work.booster",
+          "character.start",
         ].includes(input.args?.type)) ||
       (input?.command === "work.refresh" &&
         Number.isSafeInteger(input.args?.workId) &&
@@ -65,6 +66,8 @@ export async function isAllowedBridgeQueueCommand(request) {
         "business.save",
         "business.refresh",
         "business.goal",
+        "character.refresh",
+        "character.stop",
       ].includes(input?.command) ||
       (["buddy.set", "friends.favorite"].includes(input?.command) &&
         Number.isSafeInteger(input.args?.playerId) &&

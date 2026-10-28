@@ -498,16 +498,17 @@ export function createAutomationService({
       onConfirmed,
       runId,
       post: async (body) => {
-        const response = await fetcher(
-          "https://cargohustle.online/api/character-stats/upgrade",
-          {
+        const path = "/api/character-stats/upgrade";
+        const requestBody = JSON.stringify(body);
+        const send = () =>
+          fetcher(`https://cargohustle.online${path}`, {
             method: "POST",
             headers: {
               Authorization: credential,
               Accept: "application/json",
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(body),
+            body: requestBody,
             redirect: "error",
             cache: "no-store",
             signal: AbortSignal.timeout(20000),
@@ -515,8 +516,43 @@ export function createAutomationService({
               ensureLease();
               return permitted();
             },
-          },
-        );
+          });
+        const pending = entry.characterUpgrade.pending;
+        let response;
+        if (queueActionGate) {
+          if (
+            !pending ||
+            pending.id !== body.operationId ||
+            pending.stat !== body.stat ||
+            (pending.amount ?? 1) !== body.amount ||
+            Object.keys(body).sort().join(",") !== "amount,operationId,stat"
+          )
+            throw failure(409, "character_checkpoint_missing");
+          let used = false;
+          const permit = ({
+            authorization,
+            method,
+            path: target,
+            body: outgoing,
+          }) => {
+            const current = entry.characterUpgrade.pending;
+            if (
+              used ||
+              authorization !== credential ||
+              method !== "POST" ||
+              target !== path ||
+              outgoing !== requestBody ||
+              current?.id !== pending.id ||
+              current?.stat !== pending.stat ||
+              (current?.amount ?? 1) !== body.amount ||
+              !permitted()
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          response = await queueActionGate.runWork(permit, send);
+        } else response = await send();
         const result = await response.json();
         if (
           !response.ok &&
