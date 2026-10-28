@@ -8,6 +8,8 @@ readonly COMPARE_API="https://api.github.com/repos/${REPOSITORY}/compare"
 readonly IMAGE_ARCHIVE=madhouse-wiki-image.tar.gz
 readonly CHECKSUM_FILE="${IMAGE_ARCHIVE}.sha256"
 readonly COMPOSE_FILE="${ROOT}/vps-compose.yml"
+readonly BRIDGE_COMPOSE_FILE="${ROOT}/vps-bridge-compose.yml"
+readonly BRIDGE_ENABLED_MARKER="${ROOT}/bridge-enabled"
 readonly RELEASE_ENV="${ROOT}/release.env"
 readonly PREVIOUS_RELEASE_ENV="${ROOT}/previous-release.env"
 readonly ROLLBACK_FLOOR_ENV="${ROOT}/rollback-floor.env"
@@ -60,6 +62,16 @@ read_marker() {
 previous_sha="$(read_marker "${RELEASE_ENV}" MADHOUSE_RELEASE_SHA)"
 retained_previous_sha="$(read_marker "${PREVIOUS_RELEASE_ENV}" MADHOUSE_PREVIOUS_RELEASE_SHA)"
 minimum_safe_sha="$(read_marker "${ROLLBACK_FLOOR_ENV}" MADHOUSE_MINIMUM_SAFE_RELEASE_SHA)"
+bridge_enabled=0
+compose_files=(--file "${COMPOSE_FILE}")
+if [[ -e "${BRIDGE_ENABLED_MARKER}" ]]; then
+  if [[ ! -f "${BRIDGE_ENABLED_MARKER}" || "$(cat "${BRIDGE_ENABLED_MARKER}")" != "enabled" || -z "${minimum_safe_sha}" || ! -f "${BRIDGE_COMPOSE_FILE}" || ! -f "${ROOT}/bridge.env" ]]; then
+    echo "Bridge configuration or rollback floor is missing; refusing update" >&2
+    exit 1
+  fi
+  bridge_enabled=1
+  compose_files+=(--file "${BRIDGE_COMPOSE_FILE}")
+fi
 protected_release_sha="${previous_sha}"
 protected_previous_sha="${retained_previous_sha}"
 retention_known=0
@@ -274,9 +286,17 @@ require_free_space "${RESERVE_KB}"
 compose() {
   docker compose \
     --project-name madhouse-wiki \
-    --file "${COMPOSE_FILE}" \
+    "${compose_files[@]}" \
     --env-file "${RELEASE_ENV}" \
     "$@"
+}
+
+verify_bridge_configuration() {
+  if [[ "${bridge_enabled}" -eq 1 ]]; then
+    [[ -f "${BRIDGE_ENABLED_MARKER}" && "$(cat "${BRIDGE_ENABLED_MARKER}")" == "enabled" && -f "${BRIDGE_COMPOSE_FILE}" && -f "${ROOT}/bridge.env" ]]
+  else
+    [[ ! -e "${BRIDGE_ENABLED_MARKER}" ]]
+  fi
 }
 
 stop_wiki_and_wait_for_lease() {
@@ -284,13 +304,17 @@ stop_wiki_and_wait_for_lease() {
   # durable worker lease may still live for 15 seconds; never delete it or
   # start the candidate/rollback worker until that window has elapsed.
   if [[ -f "${RELEASE_ENV}" ]]; then
-    compose stop wiki
+    if [[ "${bridge_enabled}" -eq 1 ]]; then
+      compose stop connector wiki
+    else
+      compose stop wiki
+    fi
   else
     # First deployment has no release marker yet. Supply only the image SHA
     # needed to resolve Compose and stop any existing Wiki container safely.
     MADHOUSE_RELEASE_SHA="${candidate_sha}" docker compose \
       --project-name madhouse-wiki \
-      --file "${COMPOSE_FILE}" \
+      "${compose_files[@]}" \
       --env-file /dev/null \
       stop wiki
   fi
@@ -325,6 +349,7 @@ if [[ "${current_floor}" != "${minimum_safe_sha}" ]]; then
   echo "Rollback floor changed during update; refusing to stop Wiki" >&2
   exit 1
 fi
+verify_bridge_configuration || { echo "Bridge configuration changed during update; refusing to stop services" >&2; exit 1; }
 stop_wiki_and_wait_for_lease
 # Persist the rollback pointer before publishing the candidate marker, so a
 # process interruption cannot leave the prior current image unprotected.
@@ -352,6 +377,7 @@ if [[ -n "${previous_sha}" ]]; then
     echo "Rollback floor changed or previous release is unsafe; operator attention required" >&2
     exit 1
   fi
+  verify_bridge_configuration || { echo "Bridge configuration changed; refusing rollback" >&2; exit 1; }
   stop_wiki_and_wait_for_lease
   write_release_env "${previous_sha}"
   restore_previous_release_env

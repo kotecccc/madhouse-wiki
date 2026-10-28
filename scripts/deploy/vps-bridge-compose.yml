@@ -4,6 +4,7 @@ services:
     env_file:
       - /opt/madhouse-wiki/bridge.env
     environment:
+      MADHOUSE_BRIDGE_PRODUCTION: "1"
       MADHOUSE_BRIDGE_STATE_DIR: /data/bridge-state
       MADHOUSE_BRIDGE_WITNESS_PATH: /data/bridge-witness/witness.sqlite
       MADHOUSE_BRIDGE_RELEASE_DIR: /opt/bridge-release
@@ -15,6 +16,8 @@ services:
   connector:
     env_file:
       - /opt/madhouse-wiki/bridge.env
+    environment:
+      MADHOUSE_BRIDGE_PRODUCTION: "1"
 
 volumes:
   bridge_state:

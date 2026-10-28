@@ -13,6 +13,7 @@ readonly NGINX_AVAILABLE=/etc/nginx/sites-available
 
 install -d -m 0750 "${DEPLOY_DIR}"
 install -m 0644 "${ROOT}/scripts/deploy/vps-compose.yml" "${DEPLOY_DIR}/vps-compose.yml"
+install -m 0644 "${ROOT}/scripts/deploy/vps-bridge-compose.yml" "${DEPLOY_DIR}/vps-bridge-compose.yml"
 install -m 0750 "${ROOT}/scripts/deploy/vps-release-update.sh" "${DEPLOY_DIR}/vps-release-update.sh"
 install -m 0644 "${ROOT}/scripts/deploy/nginx-vps.conf" "${NGINX_AVAILABLE}/madhouse-wiki.conf"
 install -m 0644 "${ROOT}/scripts/deploy/madhouse-wiki-release.service" "${SYSTEMD_DIR}/madhouse-wiki-release.service"

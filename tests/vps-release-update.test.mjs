@@ -38,6 +38,8 @@ function fixture({
   compareMode = "ahead",
   floorChangeAtProbe = null,
   floorChangeOnUp = null,
+  bridgeEnabled = false,
+  bridgeConfigured = true,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "vps-release-update-test-"));
   const root = join(directory, "root");
@@ -72,6 +74,13 @@ function fixture({
       join(root, "rollback-floor.env"),
       `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${floorSha}\n`,
     );
+  if (bridgeEnabled) {
+    writeFileSync(join(root, "bridge-enabled"), "enabled\n");
+    if (bridgeConfigured) {
+      writeFileSync(join(root, "vps-bridge-compose.yml"), "services: {}\n");
+      writeFileSync(join(root, "bridge.env"), "MADHOUSE_BRIDGE_IPC_KEY=test\n");
+    }
+  }
   if (malformedMarker)
     writeFileSync(
       join(root, "previous-release.env"),
@@ -600,6 +609,37 @@ test("rollback floor permits descendants and keeps rollback above the floor", ()
     assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${previous}\n`);
   } finally {
     f.cleanup();
+  }
+});
+
+test("bridge updates keep the overlay and stop both services together", () => {
+  const f = fixture({ bridgeEnabled: true, floorSha: previous });
+  try {
+    assert.equal(f.run.status, 0, f.run.stderr);
+    const calls = f.calls.filter((call) => call.includes("docker compose"));
+    assert.ok(calls.some((call) => call.includes(" stop connector wiki")));
+    assert.ok(
+      calls
+        .filter((call) => call.includes(" stop ") || call.includes(" up "))
+        .every((call) => call.includes("vps-bridge-compose.yml")),
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("bridge updates refuse missing overlay or rollback floor", () => {
+  for (const options of [
+    { bridgeEnabled: true, floorSha: previous, bridgeConfigured: false },
+    { bridgeEnabled: true },
+  ]) {
+    const f = fixture(options);
+    try {
+      assert.notEqual(f.run.status, 0);
+      assert.deepEqual(lifecycle(f.calls), []);
+    } finally {
+      f.cleanup();
+    }
   }
 });
 
