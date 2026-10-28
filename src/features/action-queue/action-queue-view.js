@@ -293,7 +293,9 @@ export function actionQueueCards(state, catalogue = {}) {
           ? character
           : job.type === "business.start"
             ? business
-            : null;
+            : job.type === "floor.start"
+              ? floor
+              : null;
     if (
       actor?.queueId !== job.id ||
       !["completed", "limited", "stopped", "error"].includes(actor.status) ||
@@ -328,7 +330,11 @@ export function actionQueueCards(state, catalogue = {}) {
           business?.queueId === job.id &&
           !terminalActor(job)
         ) &&
-        !(job.type === "floor.start" && floor?.queueId === job.id) &&
+        !(
+          job.type === "floor.start" &&
+          floor?.queueId === job.id &&
+          !terminalActor(job)
+        ) &&
         !(
           job.type === "work.start" &&
           work?.queueId === job.id &&

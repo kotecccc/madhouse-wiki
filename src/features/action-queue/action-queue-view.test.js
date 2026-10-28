@@ -128,6 +128,25 @@ test("a finished long-running actor reports its own outcome and can be dismissed
   }
 });
 
+test("a stopped floor runner retains a dismissible outcome", () => {
+  const cards = actionQueueCards({
+    floorRunner: { queueId: "floor-job", status: "stopped", target: null },
+    queuedActions: [
+      {
+        id: "floor-job",
+        type: "floor.start",
+        status: "completed",
+        priority: 0,
+        createdAt: 1,
+        args: {},
+      },
+    ],
+  });
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].status, "Остановлено");
+  assert.equal(cards[0].command, "queue.dismiss");
+});
+
 test("a stopped work actor with an unresolved checkpoint remains on reconciliation", () => {
   const cards = actionQueueCards({
     workFarm: {
