@@ -30,6 +30,11 @@ const files = new Map([
     ["releases/manifest.sig", 64, "application/octet-stream"],
   ],
 ]);
+const macDownload = [
+  "MadhouseWikiBridge-macOS.zip",
+  2 * 1024 * 1024,
+  "application/zip",
+];
 
 /** Verify public files are readable and the bootstrap matches the Wiki build. */
 export function verifyBridgeRelease(directory, bootstrapSha) {
@@ -70,7 +75,11 @@ export function createBridgeReleaseHttp(directory) {
   if (typeof directory !== "string" || !isAbsolute(directory))
     throw new TypeError("bridge_release_directory_required");
   return (request, response) => {
-    const entry = files.get(request.url);
+    const entry =
+      files.get(request.url) ||
+      (request.url === "/bridge/MadhouseWikiBridge-macOS.zip"
+        ? macDownload
+        : null);
     if (!entry || !["GET", "HEAD"].includes(request.method)) {
       response.writeHead(404, { "Cache-Control": "no-store" });
       response.end();
@@ -90,6 +99,12 @@ export function createBridgeReleaseHttp(directory) {
       response.writeHead(200, {
         "Content-Type": entry[2],
         "Content-Length": data.length,
+        ...(entry === macDownload
+          ? {
+              "Content-Disposition":
+                'attachment; filename="MadhouseWikiBridge-macOS.zip"',
+            }
+          : {}),
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       });

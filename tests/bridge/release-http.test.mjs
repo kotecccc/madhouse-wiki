@@ -48,6 +48,7 @@ test("release endpoint serves only exact public files and rejects symlinks", asy
   const dir = mkdtempSync(join(tmpdir(), "bridge-public-release-"));
   mkdirSync(join(dir, "releases"));
   writeFileSync(join(dir, "bootstrap.pyz"), "fake-bootstrap");
+  writeFileSync(join(dir, "MadhouseWikiBridge-macOS.zip"), "fake-zip");
   writeFileSync(join(dir, "releases", "manifest.json"), "{}");
   writeFileSync(join(dir, "private.pem"), "private-secret");
   symlinkSync(join(dir, "private.pem"), join(dir, "releases", "manifest.sig"));
@@ -59,6 +60,9 @@ test("release endpoint serves only exact public files and rejects symlinks", asy
     assert.equal(good.status, 200);
     assert.equal(await good.text(), "fake-bootstrap");
     assert.equal(good.headers.get("cache-control"), "no-store");
+    const mac = await fetch(base + "/bridge/MadhouseWikiBridge-macOS.zip");
+    assert.equal(await mac.text(), "fake-zip");
+    assert.match(mac.headers.get("content-disposition"), /attachment/);
     assert.equal(
       (await fetch(base + "/bridge/releases/manifest.sig")).status,
       404,
