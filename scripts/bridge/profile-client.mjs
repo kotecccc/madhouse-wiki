@@ -165,7 +165,8 @@ export function readGameOverBridge(options = {}) {
 export function isBattleActionRoute(method, path) {
   return (
     method === "POST" &&
-    (path === "/api/stash/craft" ||
+    (/^\/api\/bosses\/invitations\/[A-Za-z0-9_-]{1,120}\/accept$/.test(path) ||
+      path === "/api/stash/craft" ||
       path === "/api/character-stats/upgrade" ||
       /^\/api\/businesses\/[1-9][0-9]*\/upgrade$/.test(path) ||
       path === "/api/me/bag/combat-items/buy" ||

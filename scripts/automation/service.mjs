@@ -2152,7 +2152,11 @@ export function createAutomationService({
                   ? entry.stashCraft?.pending
                   : ["battle.heal", "battle.buy"].includes(job.type)
                     ? entry.assistant?.queuedState().pending
-                    : ["battle.start", "battle.attack"].includes(job.type)
+                    : [
+                          "battle.start",
+                          "battle.attack",
+                          "invitation.accept",
+                        ].includes(job.type)
                       ? entry.manualBattle?.pending
                       : job.type === "inventory"
                         ? entry.equipment?.pending

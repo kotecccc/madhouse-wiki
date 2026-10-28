@@ -51,6 +51,51 @@ export function createQueueActionGate() {
         return (
           context.workPermit({ authorization, method, path, body }) === true
         );
+      if (context?.job?.type === "invitation.accept") {
+        const job = context.job;
+        if (
+          !context.active ||
+          context.used ||
+          context.reconcile ||
+          job.status !== "running" ||
+          !job.id ||
+          authorization !== context.authorization ||
+          method !== "POST" ||
+          typeof body !== "string" ||
+          body.length > 512 ||
+          typeof context.canDispatch !== "function" ||
+          typeof context.checkpoint !== "function"
+        )
+          return false;
+        let value, pending;
+        try {
+          value = JSON.parse(body);
+          pending = context.checkpoint();
+        } catch {
+          return false;
+        }
+        if (
+          !value ||
+          Object.keys(value).join(",") !== "operationId" ||
+          path !== `/api/bosses/invitations/${job.args?.invitationId}/accept` ||
+          pending?.id !== job.id ||
+          pending.kind !== "invitation" ||
+          pending.invitationId !== job.args?.invitationId ||
+          pending.battleId !== job.args?.battleId ||
+          pending.bossId !== job.args?.bossId ||
+          typeof pending.operationId !== "string" ||
+          !pending.operationId ||
+          value.operationId !== pending.operationId
+        )
+          return false;
+        try {
+          if (context.canDispatch() !== true) return false;
+        } catch {
+          return false;
+        }
+        context.used = true;
+        return true;
+      }
       if (context?.job?.type === "stash.craft") {
         const job = context.job;
         if (

@@ -613,3 +613,43 @@ test("stash craft matches its durable reservation and sends only once", async ()
     () => pending,
   );
 });
+
+test("invitation acceptance is bound to the saved invitation", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "join",
+    type: "invitation.accept",
+    status: "running",
+    args: { invitationId: "invite-1", battleId: "battle-1", bossId: 7 },
+  };
+  const pending = {
+    id: job.id,
+    kind: "invitation",
+    ...job.args,
+    operationId: "op",
+  };
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/bosses/invitations/invite-1/accept",
+    body: JSON.stringify({ operationId: "op" }),
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(
+        gate.claim({
+          ...request,
+          path: "/api/bosses/invitations/invite-2/accept",
+        }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+    () => pending,
+  );
+});
