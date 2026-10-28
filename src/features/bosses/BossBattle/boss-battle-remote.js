@@ -923,7 +923,9 @@ export function createRemoteBattleSession({
       });
       if (
         accepted &&
+        server?.battle?.invitationOnly &&
         server?.battle?.battle &&
+        server.battle.battle.status === "active" &&
         !server.battle.pendingInvitation
       ) {
         openingBossId = null;

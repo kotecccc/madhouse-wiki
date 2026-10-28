@@ -1034,6 +1034,40 @@ test("invitations are server-backed and accepting opens only the confirmed joine
   assert.equal(h.bossInvitations.getSnapshot().items.length, 0);
 });
 
+test("accepting an invitation does not open a stale completed battle", async () => {
+  const stale = {
+    ...initialState(),
+    battle: {
+      boss: { id: 7, name: "Old boss" },
+      battle: { id: "old-fight", status: "won" },
+    },
+  };
+  const h = harness({
+    request: async (method, path, body) => {
+      if (method === "GET") return stale;
+      assert.equal(body.command, "queue.enqueue");
+      return {
+        ...stale,
+        version: 8,
+        queuedActions: [
+          {
+            id: "accept-1",
+            type: "invitation.accept",
+            status: "running",
+            args: { invitationId: "invite-1" },
+          },
+        ],
+      };
+    },
+  });
+
+  await h.connect();
+  assert.equal(await h.bossInvitations.accept("invite-1"), true);
+  assert.equal(h.bossBattle.getSnapshot().visible, false);
+  assert.equal(h.bossBattle.getSnapshot().battle.id, "old-fight");
+  h.disconnect();
+});
+
 test("uncertain invitation acceptance never opens the prior battle or retries the command", async () => {
   let posts = 0;
   const h = harness({
