@@ -1,3 +1,4 @@
+import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
 import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
@@ -1116,7 +1117,12 @@ export function createAutomationService({
             try {
               const maintenance = await recoverBrokenWeapon({
                 entry,
-                fetcher,
+                fetcher: createWeaponRecoveryFetch({
+                  fetcher,
+                  gate: queueActionGate,
+                  entry,
+                  allowed: automated,
+                }),
                 save,
                 allowed: automated,
               });
