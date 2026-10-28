@@ -37,6 +37,7 @@ export function createActionQueue({
   blockedBy = () => null,
   onAttempt = () => {},
   onResult = () => {},
+  runInContext = (_entry, _reconcile, run) => run(),
   limit = 100,
 }) {
   let entries = Array.isArray(saved) ? clone(saved) : [];
@@ -205,9 +206,11 @@ export function createActionQueue({
       const canDispatch = () =>
         allowed(entry) && eligible(entry) && !entry.cancelRequested;
       onAttempt();
-      const result = reconcile
-        ? await adapter.reconcile(clone(entry), { canDispatch })
-        : await adapter.execute(clone(entry), { canDispatch });
+      const result = await runInContext(entry, reconcile, () =>
+        reconcile
+          ? adapter.reconcile(clone(entry), { canDispatch })
+          : adapter.execute(clone(entry), { canDispatch }),
+      );
       if (
         !result ||
         !["completed", "retry", "uncertain", "failed"].includes(result.status)

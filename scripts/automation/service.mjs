@@ -37,6 +37,7 @@ import {
   BUSINESS_NOTICES,
 } from "./business-assistant.mjs";
 import { createHash, randomUUID } from "node:crypto";
+import { createRequestPriorityContext } from "./request-priority-context.mjs";
 import { createBossBattleController } from "../../src/features/bosses/BossBattle/boss-battle-controller.js";
 import {
   resolveBossGoal,
@@ -213,6 +214,7 @@ export function createAutomationService({
   const actors = new Map();
   const loading = new Map();
   const identities = new Map();
+  const requestPriority = createRequestPriorityContext();
   let closed = false;
   let booting = false;
   let heartbeat = null;
@@ -238,6 +240,7 @@ export function createAutomationService({
           ?.playerId ??
         authorization,
       now,
+      requestPriority: requestPriority.current,
     }),
     now,
     random,
@@ -1754,6 +1757,7 @@ export function createAutomationService({
       onAttempt: () => {
         actionQueueReadyAt = now() + 1000;
       },
+      runInContext: requestPriority.run,
       onResult: (result) => {
         if (Number.isFinite(result.retryAfterMs) && result.retryAfterMs > 0)
           actionQueueReadyAt = Math.max(

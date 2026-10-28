@@ -2,13 +2,20 @@
 // never interrupt an uncertain mutation or replay it through this queue.
 export function createAccountQueue(
   fetcher,
-  { accountKey = (authorization) => authorization, now = Date.now } = {},
+  {
+    accountKey = (authorization) => authorization,
+    now = Date.now,
+    requestPriority = () => null,
+  } = {},
 ) {
   const accounts = new Map();
   function priority(url, init) {
+    const explicit = requestPriority();
+    if (Number.isSafeInteger(explicit)) return explicit;
     const path = new URL(url).pathname;
-    if (path === "/api/works/tasks/perform") return 30;
-    if (/\/attack$/.test(path) || /invitations/.test(path)) return 20;
+    if (/invitations/.test(path)) return 60;
+    if (path === "/api/works/tasks/perform") return 20;
+    if (/\/attack$/.test(path)) return 10;
     return init.method === "POST" ? 10 : 0;
   }
   async function drain(key, lane) {

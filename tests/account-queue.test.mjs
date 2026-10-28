@@ -67,6 +67,78 @@ test("a failed account does not block another account or poison its own lane", a
   assert.equal((await next).ok, true);
 });
 
+test("reconciliation and invitations precede farm steps at the next request boundary", async () => {
+  let release,
+    priority = null;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const calls = [];
+  const fetcher = createAccountQueue(
+    async (url) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      if (path === "/api/hold") await gate;
+      return Response.json({ ok: true });
+    },
+    { requestPriority: () => priority, now: () => 1000 },
+  );
+  const init = { headers: { Authorization: "Bearer account" } };
+  const hold = fetcher("https://game/api/hold", init);
+  const farm = fetcher("https://game/api/works/tasks/perform", {
+    ...init,
+    method: "POST",
+  });
+  const invite = fetcher("https://game/api/bosses/invitations/42/accept", {
+    ...init,
+    method: "POST",
+  });
+  priority = 60;
+  const reconcile = fetcher("https://game/api/me/bag", init);
+  priority = null;
+  release();
+  await Promise.all([hold, farm, invite, reconcile]);
+  assert.deepEqual(calls, [
+    "/api/hold",
+    "/api/bosses/invitations/42/accept",
+    "/api/me/bag",
+    "/api/works/tasks/perform",
+  ]);
+});
+
+test("an older low-priority request eventually precedes newer urgent work", async () => {
+  let release,
+    clock = 0;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const calls = [];
+  const fetcher = createAccountQueue(
+    async (url) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      if (path === "/api/hold") await gate;
+      return Response.json({ ok: true });
+    },
+    { now: () => clock },
+  );
+  const init = { headers: { Authorization: "Bearer account" } };
+  const hold = fetcher("https://game/api/hold", init);
+  const old = fetcher("https://game/api/me/bag", init);
+  clock = 61000;
+  const urgent = fetcher("https://game/api/bosses/invitations/42/accept", {
+    ...init,
+    method: "POST",
+  });
+  release();
+  await Promise.all([hold, old, urgent]);
+  assert.deepEqual(calls, [
+    "/api/hold",
+    "/api/me/bag",
+    "/api/bosses/invitations/42/accept",
+  ]);
+});
+
 test("aborted queued requests never reach the game", async () => {
   let release;
   const gate = new Promise((resolve) => {

@@ -172,6 +172,33 @@ test("due reconciliation runs before a newer ordinary action", async () => {
   );
 });
 
+test("request context identifies reconciliation while the adapter runs", async () => {
+  const observed = [];
+  const queue = createActionQueue({
+    saved: [
+      {
+        id: "old-uncertain",
+        type: "buy",
+        args: { id: 1 },
+        priority: 15,
+        createdAt: 1000,
+        status: "reconciling",
+        attempts: 0,
+        nextAt: 1000,
+      },
+    ],
+    adapters: { buy: { reconcile: async () => ({ status: "completed" }) } },
+    persist: () => true,
+    now: () => 1000,
+    runInContext: async (job, reconcile, run) => {
+      observed.push({ id: job.id, reconcile });
+      return run();
+    },
+  });
+  await queue.tick();
+  assert.deepEqual(observed, [{ id: "old-uncertain", reconcile: true }]);
+});
+
 test("stop during an attempt invalidates dispatch permission", async () => {
   const h = setup();
   let proceed;
