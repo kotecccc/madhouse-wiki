@@ -529,6 +529,26 @@ test(
         store.close();
         workRunnerActive = false;
       }
+      const accountIdentity = await automation.handle(
+        new Request(`${origin}/api/automation/profile-identity`, {
+          headers: { Authorization: `Bearer ${session}` },
+        }),
+      );
+      assert.equal(accountIdentity.status, 200);
+      assert.deepEqual(await accountIdentity.json(), {
+        playerId: 42,
+        nickname: "fake",
+      });
+      const inventorySnapshots = await automation.handle(
+        new Request(`${origin}/api/automation/inventory-snapshots`, {
+          headers: { Authorization: `Bearer ${session}` },
+        }),
+      );
+      assert.equal(inventorySnapshots.status, 200);
+      assert.deepEqual(await inventorySnapshots.json(), {
+        sections: {},
+        dirty: [],
+      });
       now += 901_000;
       await assert.rejects(transport.verifyLocal(`Bearer ${session}`));
       const backgroundProfile = await transport.liveFetch(
