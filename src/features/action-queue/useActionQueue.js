@@ -15,7 +15,6 @@ const inventoryPath = (args) =>
     pet: "/api/clothing/by-category/9",
     room: "/api/rooms",
     clothing_item: "/api/clothing",
-    ornament: `/api/ornaments/zones/${args.zoneId}`,
   })[args.type];
 
 export function useActionQueue(

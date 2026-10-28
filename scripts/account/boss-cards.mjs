@@ -107,7 +107,10 @@ export function createBossCardsHttp({
       for (const path of allPaths) {
         try {
           const headers = new Headers({ Authorization: credential });
-          if (!refreshPaths.has(path))
+          if (
+            !refreshPaths.has(path) ||
+            path.startsWith("/api/ornaments/zones/")
+          )
             headers.set("X-Madhouse-Snapshot-Only", "1");
           const response = await snapshots.read(`${GAME_ORIGIN}${path}`, {
             headers,
