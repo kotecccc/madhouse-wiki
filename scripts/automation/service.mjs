@@ -224,8 +224,12 @@ export function createAutomationService({
   let closed = false;
   let booting = false;
   let heartbeat = null;
-  let actionQueueReadyAt = 0;
-  let actionQueueFailures = 0;
+  const savedQueueCooldown = store.getQueueCooldown?.() ?? {
+    readyAt: 0,
+    failures: 0,
+  };
+  let actionQueueReadyAt = savedQueueCooldown.readyAt;
+  let actionQueueFailures = savedQueueCooldown.failures;
   const owner = randomUUID();
   function ensureLease() {
     if (closed || !store.acquireLease(owner, now(), 15000))
@@ -1586,7 +1590,19 @@ export function createAutomationService({
       now,
       random,
       blockedBy: queueBlockedBy,
-      ready: () => now() >= actionQueueReadyAt,
+      ready: () => {
+        try {
+          const saved = store.getQueueCooldown?.();
+          if (saved) {
+            actionQueueReadyAt = Math.max(actionQueueReadyAt, saved.readyAt);
+            actionQueueFailures = saved.failures;
+          }
+          return now() >= actionQueueReadyAt;
+        } catch {
+          entry.storageFailed = true;
+          return false;
+        }
+      },
       eligible: (job) =>
         job.type === "character.start"
           ? job.status === "reconciling" ||
@@ -1702,16 +1718,26 @@ export function createAutomationService({
             now() + result.retryAfterMs,
           );
         if (result.reason === "Ожидаем игру.") {
-          const delay = Math.min(
-            300000,
-            10000 * 2 ** Math.min(actionQueueFailures++, 5),
-          );
+          const delay = retryDelay(actionQueueFailures++, random);
           actionQueueReadyAt = Math.max(
             actionQueueReadyAt,
             now() + delay,
             now() + (result.retryAfterMs ?? 0),
           );
         } else if (result.status === "completed") actionQueueFailures = 0;
+        try {
+          ensureLease();
+          store.setQueueCooldown?.(
+            actionQueueReadyAt,
+            actionQueueFailures,
+            owner,
+            now(),
+          );
+        } catch (error) {
+          for (const actor of actors.values()) actor.storageFailed = true;
+          entry.storageFailed = true;
+          throw error;
+        }
       },
       allowed: (job) => {
         try {

@@ -83,6 +83,38 @@ test("lost mutation response is reconciled after restart and never submitted aga
   assert.equal(game.mutations().length, 1);
 });
 
+test("a blocked confirmation read never clears a submitted purchase checkpoint", async () => {
+  const game = inventoryGame();
+  let blockConfirmation = true;
+  const fetcher = async (...args) => {
+    if (blockConfirmation && game.mutations().length > 0) {
+      blockConfirmation = false;
+      throw Object.assign(new Error("read was not dispatched"), {
+        notDispatched: true,
+      });
+    }
+    return game.fetcher(...args);
+  };
+  const first = harness(fetcher);
+  first.queue.add({
+    id: "purchase-confirmation",
+    type: "inventory",
+    args: purchase,
+  });
+  await first.queue.tick();
+  assert.equal(game.mutations().length, 1);
+  assert.equal(first.state()[0].status, "reconciling");
+  assert.ok(first.entry.equipment.pending);
+  const second = harness(fetcher, {
+    queue: first.state(),
+    equipment: first.entry.equipment,
+  });
+  second.advance(10000);
+  await second.queue.tick();
+  assert.equal(second.state()[0].status, "completed");
+  assert.equal(game.mutations().length, 1);
+});
+
 test("unconfirmed operation is kept for reconciliation even after cancel", async () => {
   const game = inventoryGame({ failMutation: true });
   const h = harness(game.fetcher);
@@ -182,6 +214,134 @@ test("server worker executes a persisted intent without a browser connection", a
       await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
     assert.equal(game.mutations().length, 1);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("worker honors a shared cooldown restored from storage", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "queue-cooldown-worker-"));
+  const store = createAutomationStateStore({ directory });
+  const game = inventoryGame();
+  const service = createAutomationService({
+    store,
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 1 }),
+    getBoss: () => null,
+  });
+  // Another owner can persist the deadline after this service was created.
+  const seededAt = Date.now();
+  store.acquireLease("prior-worker", seededAt, 1000);
+  store.setQueueCooldown(seededAt + 2500, 1, "prior-worker", seededAt);
+  store.releaseLease("prior-worker");
+  try {
+    const entry = await service.identify("Bearer fake");
+    await service.command(entry, {
+      id: "purchase-cooldown-1",
+      expectedVersion: service.snapshot(entry).version,
+      command: "queue.enqueue",
+      args: { type: "inventory", action: purchase },
+    });
+    await service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    assert.equal(game.mutations().length, 0);
+    assert.notEqual(
+      service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+    const end = Date.now() + 5000;
+    while (
+      Date.now() < end &&
+      service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
+    assert.equal(game.mutations().length, 1);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("cooldown storage failure stops further game mutations", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "queue-cooldown-failure-"));
+  const store = createAutomationStateStore({ directory });
+  store.setQueueCooldown = () => {
+    throw new Error("disk failure");
+  };
+  const game = inventoryGame();
+  const service = createAutomationService({
+    store,
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 1 }),
+    getBoss: () => null,
+  });
+  try {
+    const entry = await service.identify("Bearer fake");
+    await service.command(entry, {
+      id: "purchase-failure-1",
+      expectedVersion: service.snapshot(entry).version,
+      command: "queue.enqueue",
+      args: { type: "inventory", action: purchase },
+    });
+    await service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    assert.equal(game.mutations().length, 1);
+    assert.equal(entry.storageFailed, true);
+    assert.notEqual(
+      service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("cooldown read failure prevents dispatch", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "queue-cooldown-read-"));
+  const store = createAutomationStateStore({ directory });
+  const game = inventoryGame();
+  const service = createAutomationService({
+    store,
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 1 }),
+    getBoss: () => null,
+  });
+  try {
+    const entry = await service.identify("Bearer fake");
+    await service.command(entry, {
+      id: "purchase-read-failure",
+      expectedVersion: service.snapshot(entry).version,
+      command: "queue.enqueue",
+      args: { type: "inventory", action: purchase },
+    });
+    store.getQueueCooldown = () => {
+      throw new Error("disk failure");
+    };
+    await service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    assert.equal(game.mutations().length, 0);
+    assert.equal(entry.storageFailed, true);
   } finally {
     service.close();
     store.close();

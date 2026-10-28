@@ -282,6 +282,7 @@ export async function inventoryAction({
   };
   save(entry);
   if (entry.storageFailed) throw fail(503, "automation_storage_unavailable");
+  let mutationReturned = false;
   try {
     if (!allowed()) {
       entry.equipment.pending = null;
@@ -301,6 +302,7 @@ export async function inventoryAction({
       signal: AbortSignal.timeout(20000),
       canDispatch: allowed,
     });
+    mutationReturned = true;
     if (!response.ok) {
       if (response.status >= 400 && response.status < 500) {
         entry.equipment.pending = null;
@@ -328,7 +330,8 @@ export async function inventoryAction({
     save(entry);
   } catch (error) {
     // The account lane proves this request never reached the game.
-    if (error?.notDispatched) entry.equipment.pending = null;
+    if (!mutationReturned && error?.notDispatched)
+      entry.equipment.pending = null;
     save(entry);
     throw error;
   }

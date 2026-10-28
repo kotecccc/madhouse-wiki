@@ -826,6 +826,7 @@ export function createWorkFarm({
       )
         throw new Error("Дождитесь завершения текущего действия.");
       working = true;
+      let mutationReturned = false;
       try {
         const before = await readView(workId);
         const booster = before.boosters.find((item) => item.type === type);
@@ -854,12 +855,14 @@ export function createWorkFarm({
           { type },
           { canDispatch: permitted },
         );
+        mutationReturned = true;
         if (result?.success === false)
           throw new Error("Применение дефибриллятора не подтверждено.");
         record.view = await readView(workId);
         reconcileManual(record.view);
       } catch (error) {
         if (
+          !mutationReturned &&
           error?.notDispatched &&
           record.manualPending?.commandId === commandId
         )

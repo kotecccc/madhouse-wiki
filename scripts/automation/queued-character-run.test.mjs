@@ -142,6 +142,7 @@ test("a second character goal waits for the current batch and can be cancelled",
 test("a restarted service reconciles a started character goal without starting it again", async () => {
   const directory = mkdtempSync(join(tmpdir(), "queued-character-restart-"));
   const store = createAutomationStateStore({ directory });
+  let clock = 1_000_000;
   const makeService = () =>
     createAutomationService({
       store,
@@ -150,6 +151,7 @@ test("a restarted service reconciles a started character goal without starting i
         throw new Error("offline");
       },
       getBoss: () => null,
+      now: () => clock,
       schedule: () => 1,
       cancel: () => {},
     });
@@ -174,6 +176,7 @@ test("a restarted service reconciles a started character goal without starting i
     saved.queuedActions[0].status = "running";
     service.close();
     store.write("17", saved);
+    clock += 1000;
     service = makeService();
     entry = await service.identify("Bearer fake-token");
     assert.equal(entry.actionQueue.hasDue(), true);

@@ -18,6 +18,7 @@ function makeHarness({
   holdPerform = false,
   losePerformReply = false,
   failReads = () => false,
+  blockConfirmation = () => false,
   failBag = () => false,
   available = () => true,
   onProfileRead = () => {},
@@ -81,6 +82,10 @@ function makeHarness({
   }
   const request = async (method, path, body = {}) => {
     calls.push({ method, path, body });
+    if (blockConfirmation() && path === "/api/works/open")
+      throw Object.assign(new Error("read was not dispatched"), {
+        notDispatched: true,
+      });
     if (path === "/api/me/bag" && failBag())
       throw new TypeError("inventory offline");
     if (path !== "/api/works/tasks/perform" && failReads())
@@ -714,6 +719,35 @@ test("lost manual refill response survives restart and reconciles with reads wit
   await restored.refresh(7);
   assert.equal(restored.getSnapshot().manualPending, null);
   assert.equal(h.game.boosters.small, 1);
+  assert.equal(
+    h.calls.filter((call) => call.path.endsWith("boosters/use")).length,
+    1,
+  );
+});
+
+test("blocked confirmation read preserves the submitted booster checkpoint", async () => {
+  let block = true;
+  const h = makeHarness({
+    energy: 0,
+    boosters: { small: 2, full: 0 },
+    blockConfirmation: () =>
+      block && h.calls.some((call) => call.path.endsWith("boosters/use")),
+  });
+  await assert.rejects(
+    h.farm.useBooster(7, "small", { commandId: "booster-confirmation" }),
+    /read was not dispatched/,
+  );
+  const saved = structuredClone(h.farm.exportState());
+  assert.equal(saved.manualPending.commandId, "booster-confirmation");
+  const restored = createWorkFarm({
+    saved,
+    request: h.request,
+    getWork: () => ({ workId: 7 }),
+  });
+  await assert.rejects(restored.useBooster(7, "small"));
+  block = false;
+  await restored.refresh(7);
+  assert.equal(restored.getSnapshot().manualPending, null);
   assert.equal(
     h.calls.filter((call) => call.path.endsWith("boosters/use")).length,
     1,

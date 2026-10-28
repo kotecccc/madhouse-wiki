@@ -199,6 +199,11 @@ export function createAutomationStateStore({ directory }) {
       owner TEXT NOT NULL,
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS queue_cooldown (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      ready_at INTEGER NOT NULL,
+      failures INTEGER NOT NULL
+    );
   `);
   for (const suffix of ["-wal", "-shm"]) {
     const sidecar = databasePath + suffix;
@@ -233,6 +238,15 @@ export function createAutomationStateStore({ directory }) {
   const releaseLeaseStatement = db.prepare(
     "DELETE FROM worker_lease WHERE singleton = 1 AND owner = ?",
   );
+  const selectCooldown = db.prepare(
+    "SELECT ready_at, failures FROM queue_cooldown WHERE singleton = 1",
+  );
+  const selectLease = db.prepare(
+    "SELECT owner, expires_at FROM worker_lease WHERE singleton = 1",
+  );
+  const saveCooldown =
+    db.prepare(`INSERT INTO queue_cooldown (singleton, ready_at, failures) VALUES (1, ?, ?)
+    ON CONFLICT(singleton) DO UPDATE SET ready_at = excluded.ready_at, failures = excluded.failures`);
 
   function transaction(run) {
     db.exec("BEGIN IMMEDIATE;");
@@ -312,6 +326,30 @@ export function createAutomationStateStore({ directory }) {
         result.push({ playerId: record.playerId, value: record.value });
       }
       return result;
+    },
+    getQueueCooldown() {
+      const row = selectCooldown.get();
+      return row
+        ? { readyAt: row.ready_at, failures: row.failures }
+        : { readyAt: 0, failures: 0 };
+    },
+    setQueueCooldown(readyAt, failures, owner, nowMs) {
+      if (
+        !Number.isSafeInteger(readyAt) ||
+        readyAt < 0 ||
+        !Number.isSafeInteger(failures) ||
+        failures < 0 ||
+        typeof owner !== "string" ||
+        !owner ||
+        !Number.isSafeInteger(nowMs)
+      )
+        throw new TypeError("invalid_queue_cooldown");
+      transaction(() => {
+        const lease = selectLease.get();
+        if (!lease || lease.owner !== owner || lease.expires_at <= nowMs)
+          throw new Error("automation_worker_unavailable");
+        saveCooldown.run(readyAt, failures);
+      });
     },
     acquireLease(owner, nowMs, ttlMs) {
       if (
