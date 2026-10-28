@@ -168,6 +168,7 @@ export function createDirectRouteLeases({
       ).run(leaseId, playerKey, ownerKey, epoch, effect, Date.now());
     });
     let dispatched = false;
+    let readFinished = false;
     const release = () => {
       db.prepare(
         "DELETE FROM mobile_bridge_direct_leases WHERE lease_id = ?",
@@ -175,20 +176,27 @@ export function createDirectRouteLeases({
       routeWitness?.finishLease(leaseId);
     };
     try {
-      const result = await run(() => {
-        const changed = db
-          .prepare(
-            "UPDATE mobile_bridge_direct_leases SET phase = 'dispatched' WHERE lease_id = ? AND phase = 'prepared'",
-          )
-          .run(leaseId).changes;
-        if (changed !== 1) throw fail("direct_lease_invalid");
-        dispatched = true;
-      });
+      const result = await run(
+        () => {
+          const changed = db
+            .prepare(
+              "UPDATE mobile_bridge_direct_leases SET phase = 'dispatched' WHERE lease_id = ? AND phase = 'prepared'",
+            )
+            .run(leaseId).changes;
+          if (changed !== 1) throw fail("direct_lease_invalid");
+          dispatched = true;
+        },
+        () => {
+          if (effect !== "read" || !dispatched)
+            throw fail("direct_lease_invalid");
+          readFinished = true;
+        },
+      );
       release();
       return result;
     } catch (error) {
       // A dispatched request with an uncertain result remains durably blocked.
-      if (!dispatched) release();
+      if (!dispatched || readFinished) release();
       throw error;
     }
   }
