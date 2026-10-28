@@ -4,6 +4,7 @@ import { ContentSection } from "../../../components/ui/ContentSection/ContentSec
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
 import { RaidArchive } from "../RaidArchive/RaidArchive.jsx";
+import { BossInvitationsButton } from "../../bosses/BossInvitations/BossInvitations.jsx";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { raidSubscriptions } from "../../bosses/BossBattle/boss-battle-session.js";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
@@ -87,6 +88,7 @@ export function RaidScheduleSection({
       <h2 id="raids-title" className="sr-only">
         Рейды
       </h2>
+      {authenticated && <BossInvitationsButton />}
       {state.status === "error" && (
         <ErrorToast message="Расписание временно недоступно.">
           <Button variant="secondary" size="sm" onClick={onRetry}>
