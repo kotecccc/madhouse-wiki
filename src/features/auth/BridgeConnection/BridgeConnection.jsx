@@ -14,9 +14,12 @@ const errors = {
   device_changed: "Устройство отключилось. Повторите проверку.",
   account_mismatch: "Этот токен относится к другому игровому аккаунту.",
   account_already_bound: "Игровой аккаунт уже привязан к другому пользователю.",
+  profile_unavailable: "Игра не ответила на запрос профиля. Попробуйте позже.",
+  profile_invalid: "Игра вернула непонятный ответ. Попробуйте позже.",
   direct_requests_in_flight:
     "Есть незавершённый запрос к игре. Подключение станет доступно после его проверки.",
-  not_authorized: "Откройте Wiki из Telegram заново.",
+  not_authorized:
+    "Закройте мини-приложение и откройте Wiki из Telegram заново.",
   rate_limited: "Слишком много попыток. Попробуйте позже.",
 };
 
@@ -31,27 +34,48 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
   const [loaded, setLoaded] = useState(false);
   const [expiresAt, setExpiresAt] = useState(0);
   const busyRef = useRef(false);
+  const statusRequestRef = useRef(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([
-      client.list(controller.signal),
-      client.status(controller.signal),
-    ])
-      .then(([nextDevice, nextStatus]) => {
-        if (!controller.signal.aborted) {
-          setDevice(nextDevice);
-          setStatus(nextStatus);
-          setLoaded(true);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setError("Не удалось получить состояние моста.");
-      });
-    return () => controller.abort();
+    function load() {
+      const current = ++statusRequestRef.current;
+      Promise.all([
+        client.list(controller.signal),
+        client.status(controller.signal),
+      ])
+        .then(([nextDevice, nextStatus]) => {
+          if (
+            !controller.signal.aborted &&
+            current === statusRequestRef.current
+          ) {
+            setDevice(nextDevice);
+            setStatus(nextStatus);
+            setLoaded(true);
+          }
+        })
+        .catch((reason) => {
+          if (
+            !controller.signal.aborted &&
+            current === statusRequestRef.current
+          )
+            setError(
+              errors[reason?.code] || "Не удалось получить состояние моста.",
+            );
+        });
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") load();
+    }
+    load();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      controller.abort();
+      statusRequestRef.current += 1;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [client]);
 
   useEffect(() => {
@@ -85,10 +109,12 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
     }
   }
   async function refresh() {
+    const current = ++statusRequestRef.current;
     const [nextDevice, nextStatus] = await Promise.all([
       client.list(),
       client.status(),
     ]);
+    if (current !== statusRequestRef.current) return;
     setDevice(nextDevice);
     setStatus(nextStatus);
     setLoaded(true);
@@ -165,6 +191,12 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
       )}
       {device && (
         <>
+          {status?.device === "offline" && (
+            <CardDescription>
+              Если мост остановился, откройте iSH или Терминал и выполните:
+              python3 ~/.madhouse-bridge/bootstrap.pyz
+            </CardDescription>
+          )}
           {status?.account === "saved" && (
             <Button
               disabled={busy || status.device !== "online"}
