@@ -100,6 +100,7 @@ export function LoginControl() {
   const refreshProfileRef = useRef(() => {});
   const progressAttempts = useRef(new Set());
   const bridgeSessionRef = useRef(null);
+  const bridgeRestoreGeneration = useRef(0);
   const authenticated = session.status === "ready";
   useEffect(() => {
     if (
@@ -110,6 +111,7 @@ export function LoginControl() {
       return undefined;
     const controller = new AbortController();
     const owner = telegramContext().userId;
+    const generation = bridgeRestoreGeneration.current;
     let epoch;
     try {
       epoch = window.localStorage.getItem(
@@ -123,6 +125,7 @@ export function LoginControl() {
       .then((credential) => {
         if (
           !controller.signal.aborted &&
+          generation === bridgeRestoreGeneration.current &&
           owner &&
           owner === telegramContext().userId &&
           (() => {
@@ -361,6 +364,8 @@ export function LoginControl() {
       }
     : null;
   const logout = async () => {
+    bridgeRestoreGeneration.current += 1;
+    bridgeSessionRef.current = null;
     try {
       setAutoConnect(false);
       try {
