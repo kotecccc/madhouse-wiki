@@ -1,6 +1,6 @@
 # Игровые маршруты вне очереди: инвентаризация прокси
 
-Срез контракта `public/api-docs/openapi.json` для релиза 1.4.7. Контракт получен из клиентских наблюдений и не является гарантией поведения игрового сервера. Таблица охватывает все операции с методами POST, PUT, PATCH и DELETE, допущенные документированным прокси; она не утверждает, что каждая такая операция изменяет данные.
+Срез контракта `public/api-docs/openapi.json` для релиза 1.4.8. Контракт получен из клиентских наблюдений и не является гарантией поведения игрового сервера. Таблица охватывает все операции с методами POST, PUT, PATCH и DELETE, допущенные документированным прокси; она не утверждает, что каждая такая операция изменяет данные.
 
 ## Общая граница для прямого обращения к прокси
 
@@ -39,109 +39,113 @@
 
 ## Операции контракта
 
-| Метод  | Путь                                                            | Примечание                               |
-| ------ | --------------------------------------------------------------- | ---------------------------------------- |
-| DELETE | `/api/clothing/equip/{id}`                                      | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/notifications/non-actionable`                             | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/ornaments/equip/{id}`                                     | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/pets/select`                                              | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/pets/select`                                              | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/weapons/select`                                           | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/weapons/select`                                           | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/notifications/settings`                                   | Семантика прямого вызова не подтверждена |
-| POST   | `/api/auth/dev-userid`                                          | Авторизация                              |
-| POST   | `/api/auth/telegram`                                            | Авторизация                              |
-| POST   | `/api/bank/purchases`                                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/businesses/collect-all`                                   | Семантика прямого вызова не подтверждена |
-| POST   | `/api/character-stats/upgrade`                                  | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans`                                                    | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clothing/equip`                                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clothing/items/buy`                                       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clothing/items/mutagens/extract`                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clothing/items/mutagens/install`                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/combat/battles`                                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/combat/battles/direct`                                    | Семантика прямого вызова не подтверждена |
-| POST   | `/api/combat/candidates/refresh`                                | Семантика прямого вызова не подтверждена |
-| POST   | `/api/combat/energy/refill`                                     | Семантика прямого вызова не подтверждена |
-| POST   | `/api/daily-rewards/claim`                                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/dice-game/start`                                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/me/bag/boosters/buy`                                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/me/bag/boosters/use`                                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/me/bag/combat-items/buy`                                  | Семантика прямого вызова не подтверждена |
-| POST   | `/api/me/energy/spend`                                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/me/offer/accept`                                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mutagens/chests/openings/claim`                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mutagens/chests/openings/speedup`                         | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mutagens/chests/openings/start`                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mutagens/chests/slots/unlock`                             | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mutagens/craft`                                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mutagens/exchange`                                        | Семантика прямого вызова не подтверждена |
-| POST   | `/api/notifications/read`                                       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/ornaments/elements/buy`                                   | Семантика прямого вызова не подтверждена |
-| POST   | `/api/ornaments/equip`                                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/partner-campaigns/hooligans/confirm`                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/pets/buy`                                                 | Семантика прямого вызова не подтверждена |
-| POST   | `/api/pets/upgrade`                                             | Семантика прямого вызова не подтверждена |
-| POST   | `/api/player-interactions/booster-requests`                     | Семантика прямого вызова не подтверждена |
-| POST   | `/api/player-interactions/pill-gift-campaigns/all-friends`      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/player-interactions/pill-gifts`                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/poker-game/chips/purchase`                                | Семантика прямого вызова не подтверждена |
-| POST   | `/api/poker-game/start`                                         | Семантика прямого вызова не подтверждена |
-| POST   | `/api/rooms/buy`                                                | Семантика прямого вызова не подтверждена |
-| POST   | `/api/stash/craft`                                              | Семантика прямого вызова не подтверждена |
-| POST   | `/api/stash/help-gifts`                                         | Семантика прямого вызова не подтверждена |
-| POST   | `/api/stash/help-requests`                                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/stash/ingredients/purchase`                               | Семантика прямого вызова не подтверждена |
-| POST   | `/api/weapons/buy`                                              | Семантика прямого вызова не подтверждена |
-| POST   | `/api/weapons/repair`                                           | Семантика прямого вызова не подтверждена |
-| POST   | `/api/weapons/upgrade`                                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/works/open`                                               | Чтение состояния в ферме                 |
-| POST   | `/api/works/tasks/perform`                                      | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/me/nickname`                                              | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/me/settings`                                              | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/player/customization`                                     | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/rooms/select`                                             | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/join`                                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/applications/cancel`                       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/applications/{applicationId}/accept`       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/applications/{applicationId}/reject`       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/invitations`                               | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/invitations/{invitationId}/accept`                  | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/invitations/{invitationId}/decline`                 | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/leave`                                     | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/members/{playerId}/kick`                   | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/clans/{clanId}/members/{playerId}/role`                   | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/leader/transfer`                           | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/clans/{clanId}/settings`                                  | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/clans/{clanId}/daily-message`                             | Семантика прямого вызова не подтверждена |
-| PUT    | `/api/clans/{clanId}/permissions`                               | Семантика прямого вызова не подтверждена |
-| POST   | `/api/clans/{clanId}/disband`                                   | Семантика прямого вызова не подтверждена |
-| POST   | `/api/combat/battles/{battleId}/attack`                         | Семантика прямого вызова не подтверждена |
-| POST   | `/api/combat/battles/{battleId}/items/use`                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/businesses/{businessId}/upgrade`                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/businesses/{businessId}/collect`                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/{bossId}/battles`                                  | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/battles/{battleId}/attack`                         | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/battles/{battleId}/items/use`                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/battles/{battleId}/surrender`                      | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/battles/{battleId}/invitations`                    | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/battles/{battleId}/invitations/bulk`               | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/invitations/{invitationId}/accept`                 | Семантика прямого вызова не подтверждена |
-| POST   | `/api/bosses/invitations/{invitationId}/decline`                | Семантика прямого вызова не подтверждена |
-| POST   | `/api/quests/{section}/{taskId}/claim`                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mini-game/cards/{cardId}/try`                             | Семантика прямого вызова не подтверждена |
-| POST   | `/api/mini-game/cards/{cardId}/cancel`                          | Семантика прямого вызова не подтверждена |
-| POST   | `/api/dice-game/{gameId}/reroll`                                | Семантика прямого вызова не подтверждена |
-| POST   | `/api/dice-game/{gameId}/collect`                               | Семантика прямого вызова не подтверждена |
-| POST   | `/api/poker-game/{gameId}/exchange`                             | Семантика прямого вызова не подтверждена |
-| POST   | `/api/poker-game/{gameId}/showdown`                             | Семантика прямого вызова не подтверждена |
-| POST   | `/api/poker-game/{gameId}/collect`                              | Семантика прямого вызова не подтверждена |
-| POST   | `/api/floors/{floorCode}/tribute/collect`                       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/friends/requests/{playerId}/accept`                       | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/friends/requests/{playerId}`                              | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/friends/{playerId}`                                       | Семантика прямого вызова не подтверждена |
-| POST   | `/api/player-interactions/booster-requests/{requestId}/fulfill` | Семантика прямого вызова не подтверждена |
-| POST   | `/api/player-interactions/booster-gifts/{giftId}/claim`         | Семантика прямого вызова не подтверждена |
-| POST   | `/api/hubs/game/negotiate`                                      | Семантика прямого вызова не подтверждена |
-| DELETE | `/api/stash/help-requests/{setId}/{ingredientId}`               | Семантика прямого вызова не подтверждена |
-| POST   | `/api/friends/requests`                                         | Семантика прямого вызова не подтверждена |
+В примечаниях ссылки на очередь и исполнителя означают, что отдельный серверный код вызывает соответствующий игровой маршрут. Они не меняют поведение прямого вызова через прокси, описанное выше. Неотмеченные маршруты остаются несопоставленными, а не признанными неподдерживаемыми.
+
+Статический поиск по `src` и `scripts/automation` не обнаружил буквальных путей семейств `/api/bank`, `/api/clans`, `/api/daily-rewards`, `/api/dice-game`, `/api/poker-game`, `/api/mini-game`, `/api/mutagens`, `/api/quests`, `/api/partner-campaigns` и `/api/notifications`. Это ограниченное свидетельство: динамически составленные пути и внешние клиенты оно не исключает, а поддержку очередью или отсутствие такой поддержки не доказывает.
+
+| Метод  | Путь                                                            | Примечание                                                            |
+| ------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| DELETE | `/api/clothing/equip/{id}`                                      | Очередь inventory: inventory-actions.mjs                              |
+| DELETE | `/api/notifications/non-actionable`                             | Семантика прямого вызова не подтверждена                              |
+| DELETE | `/api/ornaments/equip/{id}`                                     | Очередь inventory: inventory-actions.mjs                              |
+| DELETE | `/api/pets/select`                                              | Очередь inventory: inventory-actions.mjs                              |
+| PUT    | `/api/pets/select`                                              | Очередь inventory: inventory-actions.mjs                              |
+| DELETE | `/api/weapons/select`                                           | Очередь inventory: inventory-actions.mjs                              |
+| PUT    | `/api/weapons/select`                                           | Очередь inventory: inventory-actions.mjs                              |
+| PUT    | `/api/notifications/settings`                                   | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/auth/dev-userid`                                          | Авторизация                                                           |
+| POST   | `/api/auth/telegram`                                            | Авторизация                                                           |
+| POST   | `/api/bank/purchases`                                           | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/businesses/collect-all`                                   | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/character-stats/upgrade`                                  | Исполнитель character.start: service.mjs                              |
+| POST   | `/api/clans`                                                    | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clothing/equip`                                           | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/clothing/items/buy`                                       | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/clothing/items/mutagens/extract`                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clothing/items/mutagens/install`                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/combat/battles`                                           | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/combat/battles/direct`                                    | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/combat/candidates/refresh`                                | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/combat/energy/refill`                                     | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/daily-rewards/claim`                                      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/dice-game/start`                                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/me/bag/boosters/buy`                                      | Исполнитель work.start: work-farm.mjs                                 |
+| POST   | `/api/me/bag/boosters/use`                                      | Очередь work.booster и исполнитель work.start: work-farm.mjs          |
+| POST   | `/api/me/bag/combat-items/buy`                                  | Очередь battle.buy и помощник боя: boss-battle-controller.js          |
+| POST   | `/api/me/energy/spend`                                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/me/offer/accept`                                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mutagens/chests/openings/claim`                           | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mutagens/chests/openings/speedup`                         | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mutagens/chests/openings/start`                           | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mutagens/chests/slots/unlock`                             | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mutagens/craft`                                           | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mutagens/exchange`                                        | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/notifications/read`                                       | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/ornaments/elements/buy`                                   | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/ornaments/equip`                                          | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/partner-campaigns/hooligans/confirm`                      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/pets/buy`                                                 | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/pets/upgrade`                                             | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/player-interactions/booster-requests`                     | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/player-interactions/pill-gift-campaigns/all-friends`      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/player-interactions/pill-gifts`                           | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/poker-game/chips/purchase`                                | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/poker-game/start`                                         | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/rooms/buy`                                                | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/stash/craft`                                              | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/stash/help-gifts`                                         | Исполнитель Buddy: buddy-stash.mjs                                    |
+| POST   | `/api/stash/help-requests`                                      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/stash/ingredients/purchase`                               | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/weapons/buy`                                              | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/weapons/repair`                                           | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/weapons/upgrade`                                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/works/open`                                               | Чтение состояния в ферме                                              |
+| POST   | `/api/works/tasks/perform`                                      | Исполнитель work.start: work-farm.mjs                                 |
+| PUT    | `/api/me/nickname`                                              | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/me/settings`                                              | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/player/customization`                                     | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/rooms/select`                                             | Очередь inventory: inventory-actions.mjs                              |
+| POST   | `/api/clans/{clanId}/join`                                      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/applications/cancel`                       | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/applications/{applicationId}/accept`       | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/applications/{applicationId}/reject`       | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/invitations`                               | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/invitations/{invitationId}/accept`                  | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/invitations/{invitationId}/decline`                 | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/leave`                                     | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/members/{playerId}/kick`                   | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/clans/{clanId}/members/{playerId}/role`                   | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/leader/transfer`                           | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/clans/{clanId}/settings`                                  | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/clans/{clanId}/daily-message`                             | Семантика прямого вызова не подтверждена                              |
+| PUT    | `/api/clans/{clanId}/permissions`                               | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/clans/{clanId}/disband`                                   | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/combat/battles/{battleId}/attack`                         | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/combat/battles/{battleId}/items/use`                      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/businesses/{businessId}/upgrade`                          | Исполнитель business.start: business-upgrade.mjs                      |
+| POST   | `/api/businesses/{businessId}/collect`                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/bosses/{bossId}/battles`                                  | Очередь battle.start и боевые исполнители: boss-battle-controller.js  |
+| POST   | `/api/bosses/battles/{battleId}/attack`                         | Очередь battle.attack и боевые исполнители: boss-battle-controller.js |
+| POST   | `/api/bosses/battles/{battleId}/items/use`                      | Очередь battle.heal и помощник боя: boss-battle-controller.js         |
+| POST   | `/api/bosses/battles/{battleId}/surrender`                      | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/bosses/battles/{battleId}/invitations`                    | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/bosses/battles/{battleId}/invitations/bulk`               | Боевой исполнитель: boss-battle-controller.js                         |
+| POST   | `/api/bosses/invitations/{invitationId}/accept`                 | Очередь invitation.accept и рейд: boss-battle-controller.js           |
+| POST   | `/api/bosses/invitations/{invitationId}/decline`                | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/quests/{section}/{taskId}/claim`                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mini-game/cards/{cardId}/try`                             | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/mini-game/cards/{cardId}/cancel`                          | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/dice-game/{gameId}/reroll`                                | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/dice-game/{gameId}/collect`                               | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/poker-game/{gameId}/exchange`                             | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/poker-game/{gameId}/showdown`                             | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/poker-game/{gameId}/collect`                              | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/floors/{floorCode}/tribute/collect`                       | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/friends/requests/{playerId}/accept`                       | Семантика прямого вызова не подтверждена                              |
+| DELETE | `/api/friends/requests/{playerId}`                              | Семантика прямого вызова не подтверждена                              |
+| DELETE | `/api/friends/{playerId}`                                       | Очередь friend.remove: friend-removal.mjs                             |
+| POST   | `/api/player-interactions/booster-requests/{requestId}/fulfill` | Исполнитель Buddy: buddy-booster.mjs                                  |
+| POST   | `/api/player-interactions/booster-gifts/{giftId}/claim`         | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/hubs/game/negotiate`                                      | Семантика прямого вызова не подтверждена                              |
+| DELETE | `/api/stash/help-requests/{setId}/{ingredientId}`               | Семантика прямого вызова не подтверждена                              |
+| POST   | `/api/friends/requests`                                         | Очередь friend.request: raid-friends.mjs                              |

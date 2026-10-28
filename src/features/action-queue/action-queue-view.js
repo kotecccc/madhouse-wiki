@@ -1,4 +1,5 @@
 import { workFarmProgress } from "../works/WorkFarm/work-farm-presentation.js";
+import { actionQueuePriority } from "../../lib/action-queue-priority.js";
 
 const visible = new Set([
   "queued",
@@ -285,10 +286,7 @@ export function actionQueueCards(state, catalogue = {}) {
     .sort(
       (a, b) =>
         Number(ready(b)) - Number(ready(a)) ||
-        b.priority +
-          (time - b.createdAt) / 60000 -
-          a.priority -
-          (time - a.createdAt) / 60000 ||
+        actionQueuePriority(b, time) - actionQueuePriority(a, time) ||
         a.createdAt - b.createdAt,
     );
   let position = 0;

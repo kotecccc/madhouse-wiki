@@ -1,3 +1,5 @@
+import { actionQueuePriority } from "../../src/lib/action-queue-priority.js";
+
 // Durable user intentions. Adapters must prove that a failed attempt did not
 // dispatch a mutation before returning retry; unknown outcomes are reconciled.
 const delays = [
@@ -187,9 +189,7 @@ export function createActionQueue({
       )
       .sort(
         (a, b) =>
-          b.priority +
-            (now() - b.createdAt) / 60_000 -
-            (a.priority + (now() - a.createdAt) / 60_000) ||
+          actionQueuePriority(b, now()) - actionQueuePriority(a, now()) ||
           a.createdAt - b.createdAt,
       )[0];
     if (!entry) return;

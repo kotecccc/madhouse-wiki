@@ -332,6 +332,30 @@ test("blocked jobs do not get a misleading ready position", () => {
   assert.equal(card.position, 1);
 });
 
+test("visible ordering places due reconciliation before ordinary actions", () => {
+  const common = {
+    type: "inventory",
+    eligible: true,
+    createdAt: 1000,
+    args: { type: "weapon", id: 1, action: "buy" },
+  };
+  const cards = actionQueueCards({
+    serverTime: 1000,
+    queuedActions: [
+      { ...common, id: "ordinary", status: "queued", priority: 30 },
+      { ...common, id: "uncertain", status: "reconciling", priority: 15 },
+    ],
+  });
+  assert.deepEqual(
+    cards.map((card) => card.id),
+    ["uncertain", "ordinary"],
+  );
+  assert.deepEqual(
+    cards.map((card) => card.position),
+    [1, 2],
+  );
+});
+
 test("a queued floor start is replaced by its active runner card", () => {
   const job = {
     id: "floor-job",

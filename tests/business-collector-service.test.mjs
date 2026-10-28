@@ -659,6 +659,34 @@ test("business collection can wait behind a raid and starts without replacing it
       service.snapshot(entry).businessAssistant.run.queueId,
       "business-queue-4",
     );
+    const saved = store.read("101");
+    assert.ok(saved.businessHelper.startReceipts.includes("business-queue-4"));
+    saved.queuedActions[0].status = "running";
+    saved.queuedActions[0].nextAt = 0;
+    saved.businessHelper.run.queueId = "newer-business-run";
+    service.close();
+    store.write("101", saved);
+    const restoredService = createAutomationService({
+      store,
+      fetcher,
+      identifyPlayer: async () => ({ playerId: 101 }),
+      getBoss: (id) => catalogue.bosses.find((boss) => boss.numericId === id),
+      getBusinessCatalogue: () => catalogue,
+      now: () => Date.now() + 5000,
+      schedule: () => ({}),
+      cancel: () => {},
+      random: () => 0,
+    });
+    try {
+      const restored = await restoredService.identify(
+        "Bearer queued.payload.sig",
+      );
+      await restored.actionQueue.tick();
+      assert.equal(restored.actionQueue.snapshot()[0].status, "completed");
+      assert.equal(restored.businessHelper.run.queueId, "newer-business-run");
+    } finally {
+      restoredService.close();
+    }
   } finally {
     service.close();
     store.close();

@@ -141,6 +141,37 @@ test("restart after dispatch only reconciles and never replays", async () => {
   assert.deepEqual(h.calls, ["reconcile", "reconcile"]);
 });
 
+test("due reconciliation runs before a newer ordinary action", async () => {
+  const h = setup([
+    {
+      id: "old-uncertain",
+      type: "buy",
+      args: { id: 1 },
+      priority: 15,
+      createdAt: 1000,
+      status: "reconciling",
+      attempts: 0,
+      nextAt: 1000,
+    },
+  ]);
+  h.queue.add({
+    id: "ordinary-action",
+    type: "buy",
+    args: { id: 2 },
+    priority: 30,
+  });
+  await h.queue.tick();
+  assert.deepEqual(h.calls, ["reconcile"]);
+  assert.equal(
+    h.stored().find((item) => item.id === "old-uncertain").status,
+    "completed",
+  );
+  assert.equal(
+    h.stored().find((item) => item.id === "ordinary-action").status,
+    "queued",
+  );
+});
+
 test("stop during an attempt invalidates dispatch permission", async () => {
   const h = setup();
   let proceed;
