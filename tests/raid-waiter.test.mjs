@@ -15,6 +15,7 @@ function setup({
   const state = { boss: { id: 7 }, battle: null };
   const goal = { status: "active" };
   const calls = [];
+  const autoStarts = [];
   const refreshOptions = [];
   let items = [];
   const worker = createRaidWaiter({
@@ -29,7 +30,8 @@ function setup({
     },
     auto: {
       getSnapshot: () => ({ enabled }),
-      start() {
+      start(options) {
+        autoStarts.push(options);
         calls.push("auto.start");
         enabled = true;
         return true;
@@ -39,6 +41,10 @@ function setup({
       },
       finishCurrent() {
         calls.push("auto.finishCurrent");
+        return true;
+      },
+      resumeSeries(options) {
+        autoStarts.push(options);
         return true;
       },
     },
@@ -73,6 +79,7 @@ function setup({
     state,
     goal,
     calls,
+    autoStarts,
     refreshOptions,
     setItems(value) {
       items = value;
@@ -107,6 +114,19 @@ const invitation = {
   available: true,
   expiresAt: 999999,
 };
+
+test("resuming a finishing raid keeps the current battle as the only fight", async () => {
+  const ctx = setup();
+  ctx.worker.start(7);
+  ctx.setItems([invitation]);
+  await ctx.worker.tick();
+  ctx.worker.finishAfterCurrent();
+  assert.equal(ctx.worker.resumePaused(), true);
+  assert.deepEqual(ctx.autoStarts, [
+    { singleBattle: true },
+    { singleBattle: true },
+  ]);
+});
 
 test("a ready farm delays solo fights while a live invitation can still be accepted", async () => {
   let soloStarts = 0;
@@ -325,68 +345,55 @@ test("a successful state refresh clears a temporary error and resumes invitation
   ]);
 });
 
-test("adaptive raid opens a solo fight when invitations stop and returns to checking after that fight", async () => {
-  let ctx;
-  ctx = setup({
-    startSolo: async (allowed) => {
-      assert.equal(allowed(), true);
-      ctx.calls.push("solo.start");
-      ctx.state.invitationOnly = false;
-      ctx.state.battle = { id: "solo-7", status: "active" };
+test("restored legacy raid never starts solo without an invitation", async () => {
+  let starts = 0;
+  const ctx = setup({
+    saved: {
+      enabled: true,
+      status: "waiting",
+      bossId: 7,
+      allowSolo: true,
+      nextCheckAt: 0,
+    },
+    startSolo: async () => {
+      starts++;
     },
   });
-  ctx.worker.start(7);
+  ctx.worker.resume();
   await ctx.worker.tick();
-  assert.deepEqual(ctx.calls, ["refresh", "solo.start", "auto.start"]);
-  assert.equal(ctx.worker.getSnapshot().enabled, true);
-  ctx.finish();
-  ctx.advance(1000);
+  ctx.advance();
+  await ctx.worker.tick();
+  assert.equal(starts, 0);
+  assert.deepEqual(ctx.calls, ["refresh", "refresh"]);
   ctx.setItems([invitation]);
+  ctx.advance();
   await ctx.worker.tick();
-  assert.equal(ctx.calls.filter((x) => x === "solo.start").length, 1);
-  assert.equal(ctx.calls.at(-2), "invite-7");
-  assert.equal(ctx.worker.getSnapshot().status, "fighting");
+  assert.deepEqual(ctx.calls.slice(-2), ["invite-7", "auto.start"]);
+  assert.deepEqual(ctx.autoStarts, [{ singleBattle: true }]);
 });
 
-test("stop while the adaptive fallback waits cancels the late solo start", async () => {
-  let release, ctx;
-  const gate = new Promise((resolve) => {
-    release = resolve;
-  });
-  ctx = setup({
-    startSolo: async (allowed) => {
-      await gate;
-      if (allowed()) ctx.calls.push("solo.start");
+test("invitation discovery failure never starts a fight or accepts stale invitations", async () => {
+  let starts = 0;
+  const ctx = setup({
+    saved: {
+      enabled: true,
+      status: "waiting",
+      bossId: 7,
+      allowSolo: true,
+      nextCheckAt: 0,
     },
-  });
-  ctx.worker.start(7);
-  const tick = ctx.worker.tick();
-  await new Promise((resolve) => setImmediate(resolve));
-  ctx.worker.stop();
-  release();
-  await tick;
-  assert.equal(ctx.worker.getSnapshot().enabled, false);
-  assert.equal(ctx.calls.includes("solo.start"), false);
-  assert.equal(ctx.calls.includes("auto.start"), false);
-});
-
-test("an invitation discovery outage falls back to a solo preflight without accepting stale rows", async () => {
-  let ctx;
-  ctx = setup({
     refresh: async () => {
       throw new Error("invitations offline");
     },
-    startSolo: async (allowed) => {
-      assert.equal(allowed(), true);
-      ctx.calls.push("solo.start");
-      ctx.state.battle = { id: "solo-7", status: "active" };
-      ctx.state.invitationOnly = false;
+    startSolo: async () => {
+      starts++;
     },
   });
-  ctx.worker.start(7);
+  ctx.worker.resume();
   ctx.setItems([invitation]);
   await ctx.worker.tick();
-  assert.deepEqual(ctx.calls, ["refresh", "solo.start", "auto.start"]);
+  assert.equal(starts, 0);
+  assert.deepEqual(ctx.calls, ["refresh"]);
 });
 
 test("raid waits through character priority and resumes its checks", async () => {

@@ -335,10 +335,12 @@ export function createBattleSeries({
       publish();
       return true;
     },
-    resumeSeries() {
+    resumeSeries({ singleBattle: keepSingleBattle = false } = {}) {
       if (!enabled) return false;
-      singleBattle = false;
-      singleBattleId = null;
+      singleBattle = keepSingleBattle;
+      singleBattleId = keepSingleBattle
+        ? (controller.getSnapshot().battle?.id ?? null)
+        : null;
       stopAfterBattle = false;
       publish();
       return true;

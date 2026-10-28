@@ -766,103 +766,15 @@ test("stopping during an in-flight strike finishes that fight without starting a
   );
 });
 
-test("raid.stop keeps invitations and auto attacks until the current fight ends", async () => {
-  await withSetup({ inviteAvailable: true }, async (ctx) => {
+test("stopping a waiting raid never opens a fight", async () => {
+  await withSetup({}, async (ctx) => {
     const entry = await ctx.openAndConfigure("battles", 3);
     assert.equal(entry.raidWorker.start(7), true);
     await entry.raidWorker.tick();
-    assert.equal(ctx.service.snapshot(entry).battle.battle.status, "active");
-    await ctx.command(entry, "raidstopfinish01", "raid.stop");
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
-    assert.equal(ctx.store.read("101").raid.stopAfterBattle, true);
-    await ctx.advance(10000, entry);
-    await ctx.advance(10000, entry);
-    await entry.raidWorker.tick();
-    await ctx.advance(10000, entry);
-    assert.equal(
-      ctx.calls.filter(
-        (call) => call.path.endsWith("/attack") && call.method === "POST",
-      ).length,
-      1,
-    );
-    assert.equal(
-      ctx.calls.filter(
-        (call) =>
-          call.path.endsWith("/invitations/bulk") && call.method === "POST",
-      ).length,
-      1,
-    );
-    assert.equal(ctx.starts, 1);
+    await ctx.command(entry, "raidstopwaiting01", "raid.stop");
+    await ctx.advance(30000, entry);
+    assert.equal(ctx.starts, 0);
     assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
-  });
-});
-
-test("resuming a finishing raid preserves its goal and current battle", async () => {
-  await withSetup({ inviteAvailable: true }, async (ctx) => {
-    const entry = await ctx.openAndConfigure("battles", 3);
-    assert.equal(entry.raidWorker.start(7), true);
-    await entry.raidWorker.tick();
-    await ctx.command(entry, "raidfinishresume01", "raid.stop");
-    const before = ctx.service.snapshot(entry);
-    const callsBefore = ctx.calls.length;
-    assert.equal(before.raid.stopAfterBattle, true);
-    await ctx.command(entry, "raidfinishresume02", "raid.resume");
-    const after = ctx.service.snapshot(entry);
-    assert.equal(after.raid.stopAfterBattle, false);
-    assert.equal(after.battle.battle.id, before.battle.battle.id);
-    assert.equal(after.goal.target, before.goal.target);
-    assert.equal(after.goal.completedBattles, before.goal.completedBattles);
-    assert.equal(ctx.store.read("101").raid.stopAfterBattle, false);
-    assert.equal(ctx.store.read("101").auto.singleBattle, false);
-    assert.equal(ctx.calls.length, callsBefore);
-  });
-});
-
-test("a stopped raid continues its current fight after the original time limit", async () => {
-  await withSetup({ battleTtl: 7200000 }, async (ctx) => {
-    const entry = await ctx.openAndConfigure("time", null, {
-      durationHours: 1,
-    });
-    assert.equal(entry.raidWorker.start(7), true);
-    await entry.raidWorker.tick();
-    await ctx.command(entry, "raidstopdeadline", "raid.stop");
-    await ctx.advance(3600001, entry);
-    assert.equal(
-      ctx.calls.filter(
-        (call) => call.path.endsWith("/attack") && call.method === "POST",
-      ).length,
-      1,
-    );
-    assert.equal(ctx.starts, 1);
-  });
-});
-
-test("raid.stop lets an already submitted invitation finish and then attacks", async () => {
-  await withSetup({ inviteAvailable: true, holdInvite: true }, async (ctx) => {
-    const entry = await ctx.openAndConfigure("battles", 3);
-    assert.equal(entry.raidWorker.start(7), true);
-    await entry.raidWorker.tick();
-    await ctx.advance(2000, entry);
-    assert.equal(ctx.service.snapshot(entry).battle.pending, "invite");
-    await ctx.command(entry, "stop-invitation", "raid.stop");
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
-    ctx.releaseInvite();
-    await ctx.flush();
-    await ctx.advance(5000, entry);
-    assert.equal(
-      ctx.calls.filter(
-        (call) =>
-          call.path.endsWith("/invitations/bulk") && call.method === "POST",
-      ).length,
-      1,
-    );
-    assert.equal(
-      ctx.calls.filter(
-        (call) => call.path.endsWith("/attack") && call.method === "POST",
-      ).length,
-      1,
-    );
   });
 });
 
@@ -1157,58 +1069,18 @@ test("invitation series attacks its active joined battle but never starts a solo
   series.dispose();
 });
 
-for (const { joined, outage } of [
-  { joined: false, outage: false },
-  { joined: true, outage: false },
-  { joined: false, outage: true },
-])
-  test(`adaptive raid reaches its goal without invitations, previous joined ${joined}, outage ${outage}`, async () => {
-    await withSetup(
-      {
-        invitationOutage: outage,
-        ...(joined
-          ? { initial: makeBattle("joined-finished", "won", 1_000_000) }
-          : {}),
-      },
-      async (ctx) => {
-        const entry = await ctx.openAndConfigure();
-        if (joined)
-          entry.controller.restoreState({
-            ...entry.controller.getSnapshot(),
-            invitationOnly: true,
-          });
-        await ctx.service.command(entry, {
-          id: "adaptive-raid-start",
-          command: "raid.start",
-          expectedVersion: ctx.service.snapshot(entry).version,
-          args: {
-            settings: {
-              bossId: 7,
-              kind: "battles",
-              countWins: true,
-              targetCount: 2,
-              durationHours: 1,
-            },
-          },
-        });
-        await entry.raidWorker.tick();
-        assert.equal(ctx.starts, 1);
-        await ctx.advance(2000, entry);
-        assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
-        assert.equal(ctx.service.snapshot(entry).raid.enabled, true);
-        await entry.raidWorker.tick();
-        assert.equal(ctx.starts, 2);
-        await ctx.advance(2000, entry);
-        await entry.raidWorker.tick();
-        assert.equal(ctx.service.snapshot(entry).goal.status, "completed");
-        assert.equal(ctx.service.snapshot(entry).raid.enabled, false);
-        assert.equal(ctx.starts, 2);
-        assert.ok(
-          ctx.calls.filter((c) => c.path === "/api/bosses/invitations")
-            .length >= 2,
-        );
-      },
-    );
+for (const outage of [false, true])
+  test(`raid waits without starting a fight when invitations are absent or unavailable: ${outage}`, async () => {
+    await withSetup({ invitationOutage: outage }, async (ctx) => {
+      const entry = await ctx.openAndConfigure("battles", 2);
+      assert.equal(entry.raidWorker.start(7), true);
+      await entry.raidWorker.tick();
+      await ctx.advance(30000, entry);
+      await entry.raidWorker.tick();
+      assert.equal(ctx.starts, 0);
+      assert.equal(ctx.service.snapshot(entry).raid.enabled, true);
+      assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    });
   });
 
 for (const phase of ["attacking", "waiting"])
@@ -1557,54 +1429,32 @@ test("pausing during a submitted strike never repeats it and preserves the goal"
   });
 });
 
-test("a paused raid retains its battle and goal and can safely resume or stop", async () => {
-  await withSetup({ inviteAvailable: true }, async (ctx) => {
+test("a waiting raid pauses, resumes and stops without starting a fight", async () => {
+  await withSetup({}, async (ctx) => {
     const entry = await ctx.openAndConfigure("battles", 3);
     assert.equal(entry.raidWorker.start(7), true);
     await entry.raidWorker.tick();
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
     await ctx.command(entry, "raid-pause-0001", "raid.pause");
     assert.equal(ctx.service.snapshot(entry).raid.userPaused, true);
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
-    assert.equal(ctx.service.snapshot(entry).goal.status, "active");
-    const originalGoal = structuredClone(ctx.service.snapshot(entry).goal);
-    await assert.rejects(
-      ctx.command(entry, "raid-replace-paused", "raid.start"),
-      /raid_start_unavailable/,
-    );
-    assert.deepEqual(ctx.service.snapshot(entry).goal, originalGoal);
-    await ctx.advance(30000, entry);
-    assert.equal(
-      ctx.calls.filter(
-        (call) => call.path.endsWith("/attack") && call.method === "POST",
-      ).length,
-      0,
-    );
     await ctx.command(entry, "raid-resume-001", "raid.resume");
     await entry.raidWorker.tick();
     assert.equal(ctx.service.snapshot(entry).raid.enabled, true);
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, true);
-    await ctx.command(entry, "raid-pause-0002", "raid.pause");
-    await ctx.command(entry, "raid-stop-paused", "raid.stop");
-    assert.equal(ctx.service.snapshot(entry).raid.userPaused, false);
+    await ctx.command(entry, "raid-stop-00001", "raid.stop");
     assert.equal(ctx.service.snapshot(entry).goal.status, "stopped");
-    assert.equal(ctx.service.snapshot(entry).auto.enabled, false);
+    assert.equal(ctx.starts, 0);
   });
 });
 
-test("raid pause marker prevents a pre-pause auto checkpoint from restarting after a crash", async () => {
-  const ctx = setup({ inviteAvailable: true });
+test("a paused raid ignores an old enabled autobattle checkpoint after restart", async () => {
+  const ctx = setup();
   let restored;
   try {
     const entry = await ctx.openAndConfigure("battles", 3);
     entry.raidWorker.start(7);
-    await entry.raidWorker.tick();
-    const oldAuto = structuredClone(ctx.store.read("101").auto);
-    assert.equal(oldAuto.enabled, true);
     await ctx.command(entry, "raid-crash-pause", "raid.pause");
-    const paused = ctx.store.read("101");
-    paused.auto = oldAuto;
-    ctx.store.write("101", paused);
+    const saved = ctx.store.read("101");
+    saved.auto = { ...saved.auto, enabled: true, singleBattle: false };
+    ctx.store.write("101", saved);
     ctx.service.close();
     restored = createAutomationService({
       store: ctx.store,
@@ -1618,12 +1468,7 @@ test("raid pause marker prevents a pre-pause auto checkpoint from restarting aft
     const after = await restored.identify(token);
     assert.equal(restored.snapshot(after).raid.userPaused, true);
     assert.equal(restored.snapshot(after).auto.enabled, false);
-    assert.equal(
-      ctx.calls.filter(
-        (call) => call.path.endsWith("/attack") && call.method === "POST",
-      ).length,
-      0,
-    );
+    assert.equal(ctx.starts, 0);
   } finally {
     restored?.close();
     ctx.close();
