@@ -7,6 +7,38 @@ import { createAutomationStateStore } from "../scripts/automation/state-store.mj
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createQueueActionGate } from "../scripts/bridge/queue-action-gate.mjs";
 
+test("automation keeps the server credential and revalidates a cached browser session", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-automation-session-"));
+  const store = createAutomationStateStore({ directory });
+  let valid = true;
+  const service = createAutomationService({
+    store,
+    getBoss: () => null,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    canonicalCredential: (value) => {
+      if (value !== "Bearer browser-session" || !valid)
+        throw new Error("invalid");
+      return "Bearer server-credential";
+    },
+    fetcher: async () => Response.json({}),
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  try {
+    await service.identify("Bearer browser-session");
+    assert.equal(store.read("101").credential, "Bearer server-credential");
+    valid = false;
+    await assert.rejects(
+      service.identify("Bearer browser-session"),
+      /game_session_required/,
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("energy work persists its checkpoint before granting bridge dispatch", async () => {
   const directory = mkdtempSync(join(tmpdir(), "work-bridge-checkpoint-"));
   const store = createAutomationStateStore({ directory });
