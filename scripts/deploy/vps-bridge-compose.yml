@@ -18,6 +18,16 @@ services:
       - /opt/madhouse-wiki/bridge.env
     environment:
       MADHOUSE_BRIDGE_PRODUCTION: "1"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:9093/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
 
 volumes:
   bridge_state:
