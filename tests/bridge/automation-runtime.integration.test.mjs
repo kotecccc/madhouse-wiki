@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect as connectTls } from "node:tls";
 import { test } from "node:test";
+import { createAutomationService } from "../../scripts/automation/service.mjs";
+import { createAutomationStateStore } from "../../scripts/automation/state-store.mjs";
 import { createAutomationRuntime } from "../../scripts/automation/runtime.mjs";
 import { createActionQueue } from "../../scripts/automation/action-queue.mjs";
 import { createAccountQueue } from "../../scripts/automation/account-queue.mjs";
@@ -82,6 +84,23 @@ test(
     let requests = 0;
     let sends = 0;
     let accepted = false;
+    let workRunnerActive = false;
+    let workStore;
+    let workProgress = 0;
+    const workViewData = () => ({
+      workId: 7,
+      title: "Work",
+      completedCycles: workProgress,
+      tasks: [
+        { id: 1, required: 1, progress: 0, energyCost: 1, canPerform: true },
+      ],
+      energy: {
+        current: 5,
+        max: 10,
+        regenIntervalSeconds: 120,
+        secondsToNext: 100,
+      },
+    });
     const game = createHttpsServer({ cert, key }, (request, response) => {
       requests += 1;
       const path = new URL(request.url, "https://game.test").pathname;
@@ -100,7 +119,17 @@ test(
       if (path === "/api/works/tasks/perform") {
         sends++;
         request.resume();
-        request.once("end", () => request.socket.destroy());
+        request.once("end", () => {
+          if (workRunnerActive) {
+            assert.equal(
+              workStore.read("42").workFarm.run.pending.kind,
+              "performing",
+            );
+            workProgress++;
+            response.writeHead(200, { "Content-Type": "application/json" });
+            response.end(JSON.stringify(workViewData()));
+          } else request.socket.destroy();
+        });
         return;
       }
       if (path.endsWith("/accept")) {
@@ -112,16 +141,23 @@ test(
       }
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(
-        path === "/api/me"
-          ? '{"playerId":42,"telegramId":101,"nickname":"fake"}'
-          : JSON.stringify({
-              items:
-                (path === "/api/friends" && accepted) ||
-                (path === "/api/friends/requests/incoming" && !accepted)
-                  ? [{ player: { playerId: 42 } }]
-                  : [],
-              nextCursor: null,
-            }),
+        path === "/api/works/open" && workRunnerActive
+          ? JSON.stringify(workViewData())
+          : path === "/api/me"
+            ? JSON.stringify({
+                playerId: 42,
+                telegramId: 101,
+                nickname: "fake",
+                ...(workRunnerActive ? { energy: workViewData().energy } : {}),
+              })
+            : JSON.stringify({
+                items:
+                  (path === "/api/friends" && accepted) ||
+                  (path === "/api/friends/requests/incoming" && !accepted)
+                    ? [{ player: { playerId: 42 } }]
+                    : [],
+                nextCursor: null,
+              }),
       );
     });
     await listen(game);
@@ -397,6 +433,60 @@ test(
         );
       });
       assert.equal(sends, 3);
+      // Exercise the real work runner, checkpoint and bridge transport together.
+      const store = createAutomationStateStore({
+        directory: join(root, "work-state"),
+      });
+      workStore = store;
+      const timers = [];
+      const workService = createAutomationService({
+        store,
+        queueActionGate: bridge.queueActionGate,
+        identifyPlayer: async () => ({ playerId: 42 }),
+        fetcher: transport.liveFetch,
+        getBoss: () => null,
+        getBusinessCatalogue: () => ({
+          businesses: [],
+          works: [{ workId: 7 }],
+          businessUpgrades: [],
+          bosses: [],
+        }),
+        schedule: (callback) => {
+          const timer = { callback };
+          timers.push(timer);
+          return timer;
+        },
+        cancel: () => {},
+      });
+      try {
+        workRunnerActive = true;
+        const entry = await workService.identify(authorization);
+        entry.workFarm.start({
+          workId: 7,
+          targetCycles: 1,
+          mode: "energy",
+          energyBudget: 1,
+          maxActions: 5,
+          durationHours: null,
+          maxBoosters: 0,
+          maxDollar: 0,
+          allowPurchase: false,
+        });
+        for (let n = 0; n < 100 && !workProgress; n++) {
+          timers.shift()?.callback();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        assert.equal(
+          workProgress,
+          1,
+          JSON.stringify(entry.workFarm.getSnapshot()),
+        );
+        assert.equal(sends, 4);
+      } finally {
+        workService.close();
+        store.close();
+        workRunnerActive = false;
+      }
       now += 901_000;
       await assert.rejects(transport.verifyLocal(`Bearer ${session}`));
       const backgroundProfile = await transport.liveFetch(
