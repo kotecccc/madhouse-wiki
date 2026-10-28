@@ -131,7 +131,11 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
         return { status: "completed" };
       } catch (error) {
         if (entry.equipment?.pending?.id === job.id)
-          return { status: "uncertain", reason: "Проверяем результат." };
+          return {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            retryAfterMs: error.retryAfterMs,
+          };
         if (error.message === "inventory_action_cancelled")
           return { status: "retry" };
         if ([401, 403].includes(error.status))

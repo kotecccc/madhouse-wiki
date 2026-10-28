@@ -74,7 +74,11 @@ export function queuedFriendRequestAdapter({ entry, fetcher, save }) {
         return confirmed(job) ? finish() : { status: "uncertain" };
       } catch (error) {
         if (entry.raidFriend?.pending?.id === job.id)
-          return { status: "uncertain", reason: "Проверяем результат." };
+          return {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            retryAfterMs: error.retryAfterMs,
+          };
         if ([401, 403].includes(error.status))
           return { status: "failed", reason: "game_session_required" };
         if (error?.notDispatched || !canDispatch())

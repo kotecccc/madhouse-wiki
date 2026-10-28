@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { createActionQueue } from "./action-queue.mjs";
 import { queuedFriendRemovalAdapter } from "./queued-friend-removal.mjs";
 
-function harness({ offline = false, lostReply = false } = {}) {
+function harness({
+  offline = false,
+  lostReply = false,
+  rateLimited = false,
+} = {}) {
   let present = true,
     deleted = 0,
     clock = 0,
@@ -25,6 +29,11 @@ function harness({ offline = false, lostReply = false } = {}) {
       deleted++;
       present = false;
       if (lostReply) throw new Error("reply lost");
+      if (rateLimited)
+        return new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "120" },
+        });
       return new Response(null, { status: 204 });
     }
     const friends = new URL(url).pathname === "/api/friends";
@@ -93,6 +102,26 @@ test("lost removal response is reconciled without repeating DELETE", async () =>
   assert.equal(h.state()[0].status, "completed");
   assert.equal(h.deleted(), 1);
   assert.equal(h.entry.friendRemoval.pending, null);
+});
+
+test("rate-limited deletion keeps its checkpoint until the retry deadline", async () => {
+  const h = harness({ rateLimited: true });
+  h.queue.add({
+    id: "remove-rate-limit",
+    type: "friend.remove",
+    args: { playerId: 7 },
+  });
+  await h.queue.tick();
+  assert.equal(h.state()[0].status, "reconciling");
+  assert.equal(h.state()[0].nextAt, 120000);
+  assert.ok(h.entry.friendRemoval.pending);
+  h.advance(119999);
+  await h.queue.tick();
+  assert.equal(h.deleted(), 1);
+  h.advance(1);
+  await h.queue.tick();
+  assert.equal(h.state()[0].status, "completed");
+  assert.equal(h.deleted(), 1);
 });
 
 test("cancellation before deletion clears only a proven unsent checkpoint", async () => {

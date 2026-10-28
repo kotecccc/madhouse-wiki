@@ -15,7 +15,7 @@ function rememberRequest(entry, id) {
     ];
 }
 
-function unavailable(response, message) {
+export function unavailable(response, message) {
   const error = fail(
     [401, 403, 429].includes(response.status) ? response.status : 503,
     message,
@@ -389,7 +389,7 @@ export async function requestRaidFriend({
     throw error;
   }
   if (!sent.ok) {
-    throw fail(503, "friend_request_failed");
+    throw unavailable(sent, "friend_request_failed");
   }
   const after = await readRaidFriendStatus({
     fetcher,

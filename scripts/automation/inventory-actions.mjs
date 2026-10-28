@@ -304,11 +304,15 @@ export async function inventoryAction({
     });
     mutationReturned = true;
     if (!response.ok) {
-      if (response.status >= 400 && response.status < 500) {
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 429
+      ) {
         entry.equipment.pending = null;
         save(entry);
       }
-      throw fail(503, "inventory_action_failed");
+      throw readFailure(response, "inventory_action_failed");
     }
     await response.body?.cancel();
     const confirmed = await inventoryRead({ entry, type, zoneId, fetcher });

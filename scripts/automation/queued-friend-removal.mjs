@@ -98,7 +98,11 @@ export function queuedFriendRemovalAdapter({ entry, fetcher, save }) {
           : { status: "uncertain", reason: "Проверяем результат." };
       } catch (error) {
         if (entry.friendRemoval?.pending?.commandId === job.id)
-          return { status: "uncertain", reason: "Проверяем результат." };
+          return {
+            status: "uncertain",
+            reason: "Проверяем результат.",
+            retryAfterMs: error.retryAfterMs,
+          };
         if ([401, 403].includes(error.status))
           return { status: "failed", reason: "game_session_required" };
         if (error?.notDispatched)

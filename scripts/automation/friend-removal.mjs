@@ -1,4 +1,4 @@
-import { readRaidFriendStatus } from "./raid-friends.mjs";
+import { readRaidFriendStatus, unavailable } from "./raid-friends.mjs";
 const fail = (status, code) => Object.assign(new Error(code), { status });
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
 
@@ -51,7 +51,7 @@ export async function removeFriend({
     }
     throw error;
   }
-  if (!response.ok) throw fail(503, "friend_removal_uncertain");
+  if (!response.ok) throw unavailable(response, "friend_removal_uncertain");
   return reconcileFriendRemoval({ entry, fetcher, save });
 }
 export async function reconcileFriendRemoval({ entry, fetcher, save }) {

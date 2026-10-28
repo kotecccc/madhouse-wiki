@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { createActionQueue } from "./action-queue.mjs";
 import { queuedFriendRequestAdapter } from "./queued-friend-request.mjs";
 
-function harness({ offline = false, lostReply = false } = {}) {
+function harness({
+  offline = false,
+  lostReply = false,
+  rateLimited = false,
+} = {}) {
   let clock = 0,
     sent = 0,
     outgoing = false,
@@ -24,6 +28,11 @@ function harness({ offline = false, lostReply = false } = {}) {
       sent++;
       outgoing = true;
       if (lostReply) throw new Error("reply lost");
+      if (rateLimited)
+        return new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "120" },
+        });
       return new Response(null, { status: 204 });
     }
     if (path.endsWith("/search"))
@@ -99,6 +108,24 @@ test("lost request response is read-only reconciled after restart", async () => 
   assert.equal(h.state()[0].status, "completed");
   assert.equal(h.sent(), 1);
   assert.deepEqual(h.entry.raidFriendReceipts, ["request-0001"]);
+});
+
+test("rate-limited friend request delays reconciliation across restart without resending", async () => {
+  const h = harness({ rateLimited: true });
+  let queue = h.makeQueue();
+  add(queue);
+  await queue.tick();
+  assert.equal(h.state()[0].status, "reconciling");
+  assert.equal(h.state()[0].nextAt, 120000);
+  assert.ok(h.entry.raidFriend.pending);
+  queue = h.makeQueue(h.state());
+  h.advance(119999);
+  await queue.tick();
+  assert.equal(h.state()[0].status, "reconciling");
+  h.advance(1);
+  await queue.tick();
+  assert.equal(h.state()[0].status, "completed");
+  assert.equal(h.sent(), 1);
 });
 
 test("restart after confirmation uses durable receipt without sending again", async () => {

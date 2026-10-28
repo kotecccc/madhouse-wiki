@@ -97,6 +97,37 @@ test("lost mutation response is reconciled after restart and never submitted aga
   assert.equal(game.mutations().length, 1);
 });
 
+test("a rate-limited submitted purchase keeps its checkpoint and delays reconciliation after restart", async () => {
+  const game = inventoryGame();
+  const fetcher = async (...args) => {
+    const response = await game.fetcher(...args);
+    return args[1]?.method === "POST"
+      ? new Response(null, { status: 429, headers: { "Retry-After": "120" } })
+      : response;
+  };
+  const first = harness(fetcher);
+  first.queue.add({
+    id: "purchase-rate-limit",
+    type: "inventory",
+    args: purchase,
+  });
+  await first.queue.tick();
+  assert.equal(first.state()[0].status, "reconciling");
+  assert.equal(first.state()[0].nextAt, 120000);
+  assert.ok(first.entry.equipment.pending);
+  const second = harness(fetcher, {
+    queue: first.state(),
+    equipment: first.entry.equipment,
+  });
+  second.advance(119999);
+  await second.queue.tick();
+  assert.equal(second.state()[0].status, "reconciling");
+  second.advance(1);
+  await second.queue.tick();
+  assert.equal(second.state()[0].status, "completed");
+  assert.equal(game.mutations().length, 1);
+});
+
 test("a blocked confirmation read never clears a submitted purchase checkpoint", async () => {
   const game = inventoryGame();
   let blockConfirmation = true;
