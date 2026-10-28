@@ -18,6 +18,7 @@ const catalogue = {
 function harness({
   fetcher = async () => new Response("{}"),
   auth = async () => ({ credential: authorization }),
+  referenceCatalogue = catalogue,
 } = {}) {
   const reads = [];
   const health = [];
@@ -37,7 +38,7 @@ function harness({
   const handle = createBossCardsHttp({
     identify: auth,
     snapshots,
-    getCatalogue: () => catalogue,
+    getCatalogue: () => referenceCatalogue,
     origin: "https://wiki.example",
   });
   const request = (
@@ -51,6 +52,25 @@ function harness({
     );
   return { handle, request, reads, health };
 }
+
+test("boss refresh reads tattoo zones from saved snapshots only", async () => {
+  const h = harness({
+    referenceCatalogue: {
+      bosses: [
+        {
+          numericId: 12,
+          possibleDrops: [
+            { type: "ornament", elementId: 2, zoneId: 4, mode: "grant" },
+          ],
+        },
+      ],
+    },
+  });
+  await h.request(undefined, { "X-Madhouse-Refresh-Boss": "12" });
+  assert.equal(h.reads.length, 1);
+  assert.equal(h.reads[0].url, "/api/ornaments/zones/4");
+  assert.equal(h.reads[0].headers.get("X-Madhouse-Snapshot-Only"), "1");
+});
 
 test("aggregate reads each section through snapshot-only and returns shared card summary", async () => {
   const { request, reads, health } = harness({

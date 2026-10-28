@@ -276,6 +276,26 @@ test("manual profile refresh bypasses TTL once per minute and persists its limit
   assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
 });
 
+test("snapshot-only tattoo reads never request a missing zone from the game", async () => {
+  const upstream = queueFetcher([reply({ playerId: 82, name: "player" })]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: upstream.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("tattoo-snapshot-user"));
+  const response = await snapshots.read(`${origin}/api/ornaments/zones/2`, {
+    headers: {
+      Authorization: "Bearer tattoo-snapshot-user",
+      "X-Madhouse-Snapshot-Only": "1",
+    },
+  });
+  assert.equal(response.status, 404);
+  assert.deepEqual(
+    upstream.calls.map(({ url }) => new URL(url).pathname),
+    ["/api/me"],
+  );
+});
+
 test("manual profile refresh is performed before unrelated failed sections", async () => {
   let now = 200_000;
   const store = memoryStore();
@@ -309,11 +329,6 @@ test("manual profile refresh is performed before unrelated failed sections", asy
       assert.equal(new URL(url).pathname, "/api/weapons/7");
       assert.equal(init.method, "GET");
       return reply({ weapon: 7 });
-    },
-    (url, init) => {
-      assert.equal(new URL(url).pathname, "/api/ornaments/zones/2");
-      assert.equal(init.method, "GET");
-      return reply({ error: "still unavailable" }, 503);
     },
   ]);
   const snapshots = createAccountSnapshots({
@@ -367,7 +382,6 @@ test("manual profile refresh is performed before unrelated failed sections", asy
   const recovered = queueFetcher([
     reply({ playerId: 82, name: "current" }),
     reply({ weapon: 7 }),
-    reply({ tattoo: 2 }),
   ]);
   const restarted = createAccountSnapshots({
     store,
@@ -382,10 +396,9 @@ test("manual profile refresh is performed before unrelated failed sections", asy
   });
   assert.deepEqual(
     recovered.calls.map(({ url }) => new URL(url).pathname),
-    ["/api/me", "/api/weapons/7", "/api/ornaments/zones/2"],
+    ["/api/me", "/api/weapons/7"],
   );
-  assert.equal(healthy.headers.get("X-Madhouse-Game-Status"), "available");
-  assert.equal(healthy.headers.get("X-Madhouse-Failed-Features"), "");
+  assert.equal(healthy.headers.get("X-Madhouse-Failed-Features"), "ornaments");
 });
 
 test("manual health refresh stops when a failed endpoint invalidates credentials", async () => {

@@ -317,6 +317,9 @@ export function createAccountSnapshots({
             record.health.retryAt > now()),
         ),
       );
+    // Boss cards can use a saved tattoo zone, but must not fetch missing zones.
+    if (snapshotOnly && path.startsWith("/api/ornaments/zones/"))
+      return json({ error: "snapshot_unavailable" }, 404);
     const key = `${playerId || digest}:${path}:${fallback ? "view" : "live"}`;
     if (pending.has(key)) return (await pending.get(key)).clone();
     const run = async () => {
@@ -656,7 +659,12 @@ export function createAccountSnapshots({
     const remaining = record?.health?.failedSections || [];
     const retryPaths = [
       ...new Set(
-        remaining.filter((path) => path !== "/api/me" && isSnapshotPath(path)),
+        remaining.filter(
+          (path) =>
+            path !== "/api/me" &&
+            !path.startsWith("/api/ornaments/zones/") &&
+            isSnapshotPath(path),
+        ),
       ),
     ];
     for (const path of retryPaths) {
