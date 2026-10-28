@@ -16,7 +16,8 @@ const errors = {
   account_already_bound: "Игровой аккаунт уже привязан к другому пользователю.",
   direct_requests_in_flight:
     "Есть незавершённый запрос к игре. Подключение станет доступно после его проверки.",
-  not_authorized: "Откройте Wiki из Telegram заново.",
+  not_authorized:
+    "Закройте мини-приложение и откройте Wiki из Telegram заново.",
   rate_limited: "Слишком много попыток. Попробуйте позже.",
 };
 
@@ -47,9 +48,11 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
           setLoaded(true);
         }
       })
-      .catch(() => {
+      .catch((reason) => {
         if (!controller.signal.aborted)
-          setError("Не удалось получить состояние моста.");
+          setError(
+            errors[reason?.code] || "Не удалось получить состояние моста.",
+          );
       });
     return () => controller.abort();
   }, [client]);
