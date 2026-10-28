@@ -149,7 +149,11 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
           (error.status && error.status < 500)
         )
           return { status: "failed", reason: error.message };
-        return { status: "retry", reason: "Ожидаем игру." };
+        return {
+          status: "retry",
+          reason: "Ожидаем игру.",
+          retryAfterMs: error.retryAfterMs,
+        };
       }
     },
     reconcile,

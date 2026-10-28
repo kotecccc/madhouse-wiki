@@ -320,6 +320,39 @@ test("booster preflight honors the upstream retry deadline", async () => {
   assert.equal(queue.snapshot()[0].nextAt, 90000);
 });
 
+test("booster queue distinguishes an expired session from an outage deadline", async () => {
+  const { queuedWorkBoosterAdapter } =
+    await import("./queued-work-booster.mjs");
+  let error = Object.assign(new Error("expired"), {
+    status: 401,
+    notDispatched: true,
+  });
+  const entry = {
+    workFarm: {
+      running: () => false,
+      getSnapshot: () => ({ manualPending: null, manualReceipts: [] }),
+      useBooster: async () => {
+        throw error;
+      },
+    },
+  };
+  const adapter = queuedWorkBoosterAdapter({ entry });
+  const job = { id: "booster-job-1", args: { workId: 7, type: "small" } };
+  assert.deepEqual(await adapter.execute(job, { canDispatch: () => true }), {
+    status: "failed",
+    reason: "game_session_required",
+  });
+  error = Object.assign(new Error("game_outage_wait"), {
+    notDispatched: true,
+    retryAfterMs: 120000,
+  });
+  assert.deepEqual(await adapter.execute(job, { canDispatch: () => true }), {
+    status: "retry",
+    reason: "Ожидаем игру.",
+    retryAfterMs: 120000,
+  });
+});
+
 test("queued manual booster runs between farm steps and resumes the same goal", async () => {
   const directory = mkdtempSync(join(tmpdir(), "queued-booster-farm-"));
   const store = createAutomationStateStore({ directory });

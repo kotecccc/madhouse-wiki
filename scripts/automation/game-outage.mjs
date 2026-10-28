@@ -127,6 +127,16 @@ export function createGameOutageFetch({
         redirect: "error",
         signal: AbortSignal.timeout(20000),
       });
+      if (response.status === 401) {
+        // The game answered; this credential is invalid, not evidence that
+        // every account must remain behind the shared outage barrier.
+        store(gameProbeSucceeded());
+        return {
+          invalidCredential: createHash("sha256")
+            .update(authorization)
+            .digest("hex"),
+        };
+      }
       if (!response.ok) {
         const delay = retryAfterMs(response, now());
         if (delay > 0) {
@@ -142,6 +152,7 @@ export function createGameOutageFetch({
       if (!Number.isSafeInteger(body?.playerId) || body.playerId <= 0)
         throw new Error("game_probe_invalid");
       store(gameProbeSucceeded());
+      return null;
     } catch {
       throw denied(reserved.readyAt - now());
     }
@@ -149,15 +160,27 @@ export function createGameOutageFetch({
   return async (url, init = {}) => {
     const state = current();
     if (state.readyAt) {
+      let probeResult;
       if (!probing) {
         const pending = probe(url, init, state);
         probing = pending;
         try {
-          await pending;
+          probeResult = await pending;
         } finally {
           if (probing === pending) probing = null;
         }
-      } else await probing;
+      } else probeResult = await probing;
+      const authorization = new Headers(init.headers).get("authorization");
+      if (
+        probeResult?.invalidCredential &&
+        authorization &&
+        createHash("sha256").update(authorization).digest("hex") ===
+          probeResult.invalidCredential
+      )
+        throw Object.assign(new Error("game_session_required"), {
+          status: 401,
+          notDispatched: true,
+        });
     }
     try {
       const response = await fetcher(url, {

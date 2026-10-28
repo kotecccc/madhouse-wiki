@@ -75,7 +75,14 @@ export function queuedFriendRequestAdapter({ entry, fetcher, save }) {
       } catch (error) {
         if (entry.raidFriend?.pending?.id === job.id)
           return { status: "uncertain", reason: "Проверяем результат." };
-        if (error?.notDispatched || !canDispatch()) return { status: "retry" };
+        if ([401, 403].includes(error.status))
+          return { status: "failed", reason: "game_session_required" };
+        if (error?.notDispatched || !canDispatch())
+          return {
+            status: "retry",
+            reason: error.retryAfterMs ? "Ожидаем игру." : null,
+            retryAfterMs: error.retryAfterMs,
+          };
         if (error.status && error.status < 500 && error.status !== 429)
           return { status: "failed", reason: error.message };
         return {

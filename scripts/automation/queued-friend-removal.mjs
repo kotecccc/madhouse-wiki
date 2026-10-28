@@ -99,9 +99,14 @@ export function queuedFriendRemovalAdapter({ entry, fetcher, save }) {
       } catch (error) {
         if (entry.friendRemoval?.pending?.commandId === job.id)
           return { status: "uncertain", reason: "Проверяем результат." };
-        if (error?.notDispatched) return { status: "retry" };
         if ([401, 403].includes(error.status))
           return { status: "failed", reason: "game_session_required" };
+        if (error?.notDispatched)
+          return {
+            status: "retry",
+            reason: error.retryAfterMs ? "Ожидаем игру." : null,
+            retryAfterMs: error.retryAfterMs,
+          };
         if (error.status === 429)
           return {
             status: "retry",
@@ -110,7 +115,11 @@ export function queuedFriendRemovalAdapter({ entry, fetcher, save }) {
           };
         if (error.status && error.status < 500)
           return { status: "failed", reason: error.message };
-        return { status: "retry", reason: "Ожидаем игру." };
+        return {
+          status: "retry",
+          reason: "Ожидаем игру.",
+          retryAfterMs: error.retryAfterMs,
+        };
       }
     },
     reconcile,

@@ -56,6 +56,20 @@ test("inventory intent survives preflight outage and is executed once after reco
   assert.equal(game.mutations().length, 1);
 });
 
+test("outage barrier deadline is retained in the inventory queue", async () => {
+  const h = harness(async () => {
+    throw Object.assign(new Error("game_outage_wait"), {
+      notDispatched: true,
+      retryAfterMs: 120000,
+    });
+  });
+  h.queue.add({ id: "purchase-outage", type: "inventory", args: purchase });
+  await h.queue.tick();
+  assert.equal(h.state()[0].status, "waiting");
+  assert.equal(h.state()[0].nextAt, 120000);
+  assert.equal(h.entry.equipment.pending, null);
+});
+
 test("lost mutation response is reconciled after restart and never submitted again", async () => {
   const game = inventoryGame();
   let loseReply = true;

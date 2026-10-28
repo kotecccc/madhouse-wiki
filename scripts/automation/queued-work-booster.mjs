@@ -85,14 +85,18 @@ export function queuedWorkBoosterAdapter({ entry }) {
             : "Проверяем результат.",
           retryAfterMs: error.retryAfterMs,
         };
+      if ([401, 403].includes(error.status))
+        return { status: "failed", reason: "game_session_required" };
       if (
         !canDispatch() ||
         error?.notDispatched ||
         /Дождитесь завершения/.test(error.message)
       )
-        return { status: "retry" };
-      if ([401, 403].includes(error.status))
-        return { status: "failed", reason: "game_session_required" };
+        return {
+          status: "retry",
+          reason: error.retryAfterMs ? "Ожидаем игру." : null,
+          retryAfterMs: error.retryAfterMs,
+        };
       if (
         /Нет доступного|отсутствует в справочнике|Выберите дефибриллятор/.test(
           error.message,
