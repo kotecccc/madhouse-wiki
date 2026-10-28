@@ -102,6 +102,40 @@ test("production bridge requires an explicit, unambiguous mode and exact origins
   );
 });
 
+test("production bridge reopens its provisioned private storage after restart", () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-production-config-"));
+  const options = {
+    role: "wiki",
+    wikiOrigin: "https://madhouse-wiki.ru",
+    connectorOrigin: "https://connect.madhouse-wiki.ru",
+    env: {
+      MADHOUSE_BRIDGE_PRODUCTION: "1",
+      MADHOUSE_BRIDGE_IPC_KEY: key,
+      MADHOUSE_BRIDGE_STATE_DIR: join(directory, "state"),
+      MADHOUSE_BRIDGE_WITNESS_PATH: join(directory, "witness.sqlite"),
+      MADHOUSE_BRIDGE_PROVISION_WITNESS: "1",
+      TELEGRAM_BOT_TOKEN: botToken,
+    },
+  };
+  try {
+    const first = createVpsBridgeLab(options);
+    first.privateServer.close();
+    first.runtime.close();
+    const second = createVpsBridgeLab({
+      ...options,
+      env: { ...options.env, MADHOUSE_BRIDGE_PROVISION_WITNESS: "0" },
+    });
+    assert.ok(second.runtime && second.privateServer);
+    second.privateServer.close();
+    second.runtime.close();
+    assert.throws(() => createVpsBridgeLab(options), {
+      message: "route_witness_provision_requires_fresh_storage",
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test(
   "VPS test mode exposes paired HTTP and WebSocket routes",
   { timeout: 15000 },
