@@ -232,6 +232,19 @@ export function createAutomationService({
   }
   let temporaryOutage = emptyGameOutage();
   const currentGameOutage = () => store.getGameOutage?.() ?? temporaryOutage;
+  function queueNotBefore(entry) {
+    try {
+      const saved = store.getQueueCooldown?.();
+      if (saved) {
+        actionQueueReadyAt = Math.max(actionQueueReadyAt, saved.readyAt);
+        actionQueueFailures = saved.failures;
+      }
+      return Math.max(actionQueueReadyAt, currentGameOutage().readyAt);
+    } catch {
+      entry.storageFailed = true;
+      return null;
+    }
+  }
   fetcher = createGameOutageFetch({
     fetcher: createAccountQueue(fetcher, {
       accountKey: (authorization) =>
@@ -585,6 +598,7 @@ export function createAutomationService({
     updateGoal(entry);
     reconcileFinishedBattle(entry);
     const state = entry.controller.getSnapshot();
+    const queueReadyAt = queueNotBefore(entry);
     return {
       raid: entry.raidWorker.getSnapshot(),
       subscription: (() => {
@@ -669,6 +683,7 @@ export function createAutomationService({
         now(),
       ),
       queuedActions: entry.actionQueue.snapshot(),
+      queueNotBefore: queueReadyAt,
       gameHealth: accountHealth(entry.credential),
       version: entry.version,
       serverTime: now(),
@@ -1637,19 +1652,8 @@ export function createAutomationService({
       blockedBy: queueBlockedBy,
       canSettle: () => !closed && !entry.storageFailed,
       ready: () => {
-        try {
-          const saved = store.getQueueCooldown?.();
-          if (saved) {
-            actionQueueReadyAt = Math.max(actionQueueReadyAt, saved.readyAt);
-            actionQueueFailures = saved.failures;
-          }
-          return (
-            now() >= actionQueueReadyAt && now() >= currentGameOutage().readyAt
-          );
-        } catch {
-          entry.storageFailed = true;
-          return false;
-        }
+        const deadline = queueNotBefore(entry);
+        return deadline != null && now() >= deadline;
       },
       eligible: (job) =>
         job.type === "character.start"

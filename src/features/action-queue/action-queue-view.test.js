@@ -154,6 +154,54 @@ test("retry deadlines are shown only when a future attempt or reconciliation is 
     assert.equal(byId[id].retryAt, null);
 });
 
+test("the retry lower bound includes the shared cooldown without promising dependency readiness", () => {
+  const base = {
+    type: "inventory",
+    priority: 0,
+    createdAt: 1,
+    args: { action: "buy" },
+  };
+  const cards = actionQueueCards({
+    serverTime: 1000,
+    queueNotBefore: 5000,
+    queuedActions: [
+      {
+        ...base,
+        id: "shared",
+        status: "waiting",
+        nextAt: 2000,
+        blockedBy: "game",
+      },
+      {
+        ...base,
+        id: "later",
+        status: "reconciling",
+        nextAt: 7000,
+        blockedBy: "rate",
+      },
+      {
+        ...base,
+        id: "queued",
+        status: "queued",
+        nextAt: 1000,
+        blockedBy: "rate",
+      },
+      {
+        ...base,
+        id: "dependency",
+        status: "waiting",
+        nextAt: 2000,
+        blockedBy: "dependency",
+      },
+    ],
+  });
+  const byId = Object.fromEntries(cards.map((card) => [card.id, card]));
+  assert.equal(byId.shared.retryAt, 5000);
+  assert.equal(byId.later.retryAt, 7000);
+  assert.equal(byId.queued.retryAt, 5000);
+  assert.equal(byId.dependency.retryAt, null);
+});
+
 test("shows floor and character progress using authoritative actor state", () => {
   const cards = actionQueueCards({
     floorRunner: { status: "paused" },

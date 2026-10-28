@@ -313,6 +313,12 @@ export function actionQueueCards(state, catalogue = {}) {
     );
   let position = 0;
   for (const job of queued) {
+    const validDeadline = (value) =>
+      Number.isFinite(value) && value > 0 && value <= 8_640_000_000_000_000;
+    const retryDeadline = Math.max(
+      validDeadline(job.nextAt) ? job.nextAt : 0,
+      validDeadline(state.queueNotBefore) ? state.queueNotBefore : 0,
+    );
     const item = catalogue.inventoryItems?.find(
       (ref) =>
         ref.type === job.args?.type &&
@@ -502,14 +508,12 @@ export function actionQueueCards(state, catalogue = {}) {
             ? null
             : "queue.cancel",
       retryAt:
-        ["waiting", "reconciling"].includes(job.status) &&
-        Number.isFinite(job.nextAt) &&
-        job.nextAt > time &&
-        job.nextAt <= 8_640_000_000_000_000 &&
+        ["queued", "waiting", "reconciling"].includes(job.status) &&
+        retryDeadline > time &&
         !["credentials", "storage", "dependency"].includes(job.blockedBy) &&
         job.reason !== "game_session_required" &&
         state.gameHealth?.status !== "credentials_invalid"
-          ? job.nextAt
+          ? retryDeadline
           : null,
       retryIsReconciliation: job.status === "reconciling",
       position: ready(job) ? ++position : null,

@@ -50,7 +50,7 @@ export function ActionQueueSection({
                       <time dateTime={new Date(card.retryAt).toISOString()}>
                         {new Intl.DateTimeFormat("ru-RU", {
                           dateStyle: "short",
-                          timeStyle: "short",
+                          timeStyle: "medium",
                         }).format(card.retryAt)}
                       </time>
                     </CardDescription>

@@ -269,6 +269,7 @@ test("a persisted common outage pauses due cards without executing them", async 
     });
     assert.equal(entry.actionQueue.hasDue(), false);
     assert.equal(entry.actionQueue.snapshot()[0].blockedBy, "game");
+    assert.equal(service.snapshot(entry).queueNotBefore, clock + 120000);
     await entry.actionQueue.tick();
     assert.equal(entry.actionQueue.snapshot()[0].attempts, 0);
     assert.equal(game.mutations().length, 0);
@@ -309,6 +310,7 @@ test("worker honors a shared cooldown restored from storage", async () => {
       command: "queue.enqueue",
       args: { type: "inventory", action: purchase },
     });
+    assert.equal(service.snapshot(entry).queueNotBefore, seededAt + 2500);
     await service.boot();
     await new Promise((resolve) => setTimeout(resolve, 1200));
     assert.equal(game.mutations().length, 0);
