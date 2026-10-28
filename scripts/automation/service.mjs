@@ -1938,9 +1938,11 @@ export function createAutomationService({
               run,
               canDispatch,
               () =>
-                job.type === "energy.booster"
-                  ? entry.energyBooster?.pending
-                  : entry.raidFriend?.pending,
+                job.type === "inventory"
+                  ? entry.equipment?.pending
+                  : job.type === "energy.booster"
+                    ? entry.energyBooster?.pending
+                    : entry.raidFriend?.pending,
             )
           : run();
       },

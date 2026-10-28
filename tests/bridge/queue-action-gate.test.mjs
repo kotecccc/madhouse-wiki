@@ -457,3 +457,45 @@ test("booster purchase and use require their exact durable checkpoint", async ()
     () => pending,
   );
 });
+
+test("inventory action must match the saved item and operation", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "inventory",
+    type: "inventory",
+    status: "running",
+    args: { type: "weapon", id: 7, action: "buy" },
+  };
+  const pending = {
+    id: job.id,
+    type: "weapon",
+    entityId: 7,
+    action: "buy",
+    zoneId: null,
+    operationId: "op",
+  };
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/weapons/buy",
+    body: JSON.stringify({ weaponId: 7, operationId: "op" }),
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(
+        gate.claim({
+          ...request,
+          body: JSON.stringify({ weaponId: 8, operationId: "op" }),
+        }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+    () => pending,
+  );
+});

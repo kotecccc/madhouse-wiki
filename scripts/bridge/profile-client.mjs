@@ -1,3 +1,4 @@
+import { INVENTORY_ACTION_TYPES } from "../automation/inventory-actions.mjs";
 import { Agent, request } from "node:https";
 import { gameReadPaths } from "./game-read-paths.mjs";
 import {
@@ -161,6 +162,20 @@ export function readGameOverBridge(options = {}) {
   return requestGameOverBridge({ ...options, method: options.method || "GET" });
 }
 
+export function isInventoryActionRoute(method, path) {
+  if (method === "POST" && path === "/api/weapons/repair") return true;
+  return Object.values(INVENTORY_ACTION_TYPES).some(
+    (def) =>
+      (method === "POST" && path === def.buy) ||
+      (method === def.method && path === def.equip) ||
+      (method === "DELETE" &&
+        def.remove &&
+        (def.remove.endsWith("/")
+          ? new RegExp(`^${def.remove}[1-9][0-9]*$`).test(path)
+          : path === def.remove)),
+  );
+}
+
 /** Only the queue may supply the handshake-time permission for this action. */
 export function sendFriendResponseOverBridge(options = {}) {
   const { method, path, validateTunnel } = options;
@@ -168,6 +183,7 @@ export function sendFriendResponseOverBridge(options = {}) {
     typeof validateTunnel !== "function" ||
     typeof path !== "string" ||
     !(
+      isInventoryActionRoute(method, path) ||
       (method === "POST" &&
         ([
           "/api/friends/requests",
@@ -182,8 +198,9 @@ export function sendFriendResponseOverBridge(options = {}) {
     throw new TypeError("invalid_queued_action");
   return requestGameOverBridge({
     ...options,
-    body:
-      method === "POST"
+    body: isInventoryActionRoute(method, path)
+      ? options.body
+      : method === "POST"
         ? [
             "/api/friends/requests",
             "/api/me/bag/boosters/use",

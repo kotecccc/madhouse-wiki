@@ -1,5 +1,9 @@
 const GAME_ORIGIN = "https://cargohustle.online";
-import { isAllowedGameRead, isAllowedWorkView } from "./profile-client.mjs";
+import {
+  isAllowedGameRead,
+  isAllowedWorkView,
+  isInventoryActionRoute,
+} from "./profile-client.mjs";
 const fail = (code) => Object.assign(new Error(code), { code });
 
 const MAX_DIRECT_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -164,13 +168,15 @@ export function createGameRouter({
     } else if (
       typeof bridgeAction === "function" &&
       !parsed.search &&
-      ((method === "POST" &&
-        [
-          "/api/friends/requests",
-          "/api/me/bag/boosters/use",
-          "/api/me/bag/boosters/buy",
-        ].includes(path) &&
-        typeof init.body === "string") ||
+      ((isInventoryActionRoute(method, path) &&
+        (init.body == null || typeof init.body === "string")) ||
+        (method === "POST" &&
+          [
+            "/api/friends/requests",
+            "/api/me/bag/boosters/use",
+            "/api/me/bag/boosters/buy",
+          ].includes(path) &&
+          typeof init.body === "string") ||
         (method === "POST" &&
           /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
           init.body === "{}") ||
