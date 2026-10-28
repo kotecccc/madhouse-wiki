@@ -163,54 +163,56 @@ test("simultaneous requests share one recovery probe", async () => {
   assert.equal(requests, 2);
 });
 
-test("an expired probe credential does not block a different account", async () => {
-  let state = { evidence: [], readyAt: 1000, failures: 1 };
-  let releaseProbe,
-    mutations = 0,
-    probeStarted;
-  const started = new Promise((resolve) => {
-    probeStarted = resolve;
+for (const status of [401, 403]) {
+  test(`probe auth error ${status} does not block a different account`, async () => {
+    let state = { evidence: [], readyAt: 1000, failures: 1 };
+    let releaseProbe,
+      mutations = 0,
+      probeStarted;
+    const started = new Promise((resolve) => {
+      probeStarted = resolve;
+    });
+    const guarded = createGameOutageFetch({
+      load: () => state,
+      save: (next) => {
+        state = next;
+      },
+      now: () => 1000,
+      random: () => 0,
+      fetcher: async (_url, init) => {
+        if (init.method === "GET") {
+          probeStarted();
+          return new Promise((resolve) => {
+            releaseProbe = resolve;
+          });
+        }
+        assert.equal(
+          new Headers(init.headers).get("authorization"),
+          "Bearer valid",
+        );
+        mutations++;
+        return Response.json({ success: true });
+      },
+    });
+    const invalid = guarded("https://game.test/api/buy", {
+      method: "POST",
+      headers: { Authorization: "Bearer expired" },
+    });
+    await started;
+    const valid = guarded("https://game.test/api/buy", {
+      method: "POST",
+      headers: { Authorization: "Bearer valid" },
+    });
+    releaseProbe(new Response(null, { status }));
+    await assert.rejects(
+      invalid,
+      (error) => error.status === status && error.notDispatched,
+    );
+    assert.equal((await valid).status, 200);
+    assert.equal(mutations, 1);
+    assert.deepEqual(state, emptyGameOutage());
   });
-  const guarded = createGameOutageFetch({
-    load: () => state,
-    save: (next) => {
-      state = next;
-    },
-    now: () => 1000,
-    random: () => 0,
-    fetcher: async (_url, init) => {
-      if (init.method === "GET") {
-        probeStarted();
-        return new Promise((resolve) => {
-          releaseProbe = resolve;
-        });
-      }
-      assert.equal(
-        new Headers(init.headers).get("authorization"),
-        "Bearer valid",
-      );
-      mutations++;
-      return Response.json({ success: true });
-    },
-  });
-  const invalid = guarded("https://game.test/api/buy", {
-    method: "POST",
-    headers: { Authorization: "Bearer expired" },
-  });
-  await started;
-  const valid = guarded("https://game.test/api/buy", {
-    method: "POST",
-    headers: { Authorization: "Bearer valid" },
-  });
-  releaseProbe(new Response(null, { status: 401 }));
-  await assert.rejects(
-    invalid,
-    (error) => error.status === 401 && error.notDispatched,
-  );
-  assert.equal((await valid).status, 200);
-  assert.equal(mutations, 1);
-  assert.deepEqual(state, emptyGameOutage());
-});
+}
 
 test("failed recovery probe honors Retry-After for all waiting requests", async () => {
   let state = { evidence: [], readyAt: 1000, failures: 1 },

@@ -228,6 +228,7 @@ export function createAutomationService({
       throw failure(503, "automation_worker_unavailable");
   }
   let temporaryOutage = emptyGameOutage();
+  const currentGameOutage = () => store.getGameOutage?.() ?? temporaryOutage;
   fetcher = createGameOutageFetch({
     fetcher: createAccountQueue(fetcher, {
       accountKey: (authorization) =>
@@ -240,7 +241,7 @@ export function createAutomationService({
     }),
     now,
     random,
-    load: () => store.getGameOutage?.() ?? temporaryOutage,
+    load: currentGameOutage,
     save: (state) => {
       ensureLease();
       if (store.setGameOutage) store.setGameOutage(state, owner, now());
@@ -1508,6 +1509,12 @@ export function createAutomationService({
         accountHealth(entry.credential)?.status === "credentials_invalid"
       )
         return "credentials";
+      try {
+        if (now() < currentGameOutage().readyAt) return "game";
+      } catch {
+        entry.storageFailed = true;
+        return "storage";
+      }
       if (startedQueueActor(job)) return null;
       if (entry.busy || entry.inventoryBusy) return "action";
       if (
@@ -1612,7 +1619,9 @@ export function createAutomationService({
             actionQueueReadyAt = Math.max(actionQueueReadyAt, saved.readyAt);
             actionQueueFailures = saved.failures;
           }
-          return now() >= actionQueueReadyAt;
+          return (
+            now() >= actionQueueReadyAt && now() >= currentGameOutage().readyAt
+          );
         } catch {
           entry.storageFailed = true;
           return false;

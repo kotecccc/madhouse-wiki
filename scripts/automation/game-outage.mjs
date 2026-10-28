@@ -127,7 +127,7 @@ export function createGameOutageFetch({
         redirect: "error",
         signal: AbortSignal.timeout(20000),
       });
-      if (response.status === 401) {
+      if ([401, 403].includes(response.status)) {
         // The game answered; this credential is invalid, not evidence that
         // every account must remain behind the shared outage barrier.
         store(gameProbeSucceeded());
@@ -135,6 +135,7 @@ export function createGameOutageFetch({
           invalidCredential: createHash("sha256")
             .update(authorization)
             .digest("hex"),
+          status: response.status,
         };
       }
       if (!response.ok) {
@@ -178,7 +179,7 @@ export function createGameOutageFetch({
           probeResult.invalidCredential
       )
         throw Object.assign(new Error("game_session_required"), {
-          status: 401,
+          status: probeResult.status,
           notDispatched: true,
         });
     }

@@ -235,6 +235,52 @@ test("server worker executes a persisted intent without a browser connection", a
   }
 });
 
+test("a persisted common outage pauses due cards without executing them", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createAutomationStateStore } = await import("./state-store.mjs");
+  const { createAutomationService } = await import("./service.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "queue-outage-ready-"));
+  const store = createAutomationStateStore({ directory });
+  let clock = 1000000;
+  store.acquireLease("prior", clock, 1000);
+  store.setGameOutage(
+    { evidence: [], readyAt: clock + 120000, failures: 1 },
+    "prior",
+    clock,
+  );
+  store.releaseLease("prior");
+  const game = inventoryGame();
+  const service = createAutomationService({
+    store,
+    fetcher: game.fetcher,
+    identifyPlayer: async () => ({ playerId: 1 }),
+    getBoss: () => null,
+    now: () => clock,
+  });
+  try {
+    const entry = await service.identify("Bearer fake");
+    await service.command(entry, {
+      id: "purchase-outage-ready",
+      expectedVersion: service.snapshot(entry).version,
+      command: "queue.enqueue",
+      args: { type: "inventory", action: purchase },
+    });
+    assert.equal(entry.actionQueue.hasDue(), false);
+    assert.equal(entry.actionQueue.snapshot()[0].blockedBy, "game");
+    await entry.actionQueue.tick();
+    assert.equal(entry.actionQueue.snapshot()[0].attempts, 0);
+    assert.equal(game.mutations().length, 0);
+    clock += 120000;
+    assert.equal(entry.actionQueue.hasDue(), true);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("worker honors a shared cooldown restored from storage", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
