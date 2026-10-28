@@ -128,7 +128,7 @@ export function createBridgeAccountService({
     return { profile: sanitize(result.profile) };
   }
 
-  async function read(verifiedOwner, path, { signal } = {}) {
+  async function read(verifiedOwner, path, { signal, method, body } = {}) {
     const account = accounts.read(verifiedOwner);
     if (!account) throw failure("account_not_configured");
     const device = devices.listDevice(verifiedOwner);
@@ -143,6 +143,8 @@ export function createBridgeAccountService({
       result = await readGame({
         authorization: account.authorization,
         path,
+        method,
+        body,
         signal,
         openTunnel: () => devices.open(verifiedOwner, { signal }),
         validateTunnel: () => registry.isActive(identity),
