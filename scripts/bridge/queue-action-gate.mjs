@@ -51,6 +51,49 @@ export function createQueueActionGate() {
         return (
           context.workPermit({ authorization, method, path, body }) === true
         );
+      if (context?.job?.type === "stash.craft") {
+        const job = context.job;
+        if (
+          !context.active ||
+          context.used ||
+          context.reconcile ||
+          job.status !== "running" ||
+          !job.id ||
+          authorization !== context.authorization ||
+          method !== "POST" ||
+          path !== "/api/stash/craft" ||
+          typeof body !== "string" ||
+          body.length > 512 ||
+          typeof context.canDispatch !== "function" ||
+          typeof context.checkpoint !== "function"
+        )
+          return false;
+        let value, pending;
+        try {
+          value = JSON.parse(body);
+          pending = context.checkpoint();
+        } catch {
+          return false;
+        }
+        if (
+          !value ||
+          Object.keys(value).sort().join(",") !== "operationId,setId" ||
+          pending?.id !== job.id ||
+          pending.setId !== job.args?.setId ||
+          value.setId !== pending.setId ||
+          typeof pending.operationId !== "string" ||
+          !pending.operationId ||
+          value.operationId !== pending.operationId
+        )
+          return false;
+        try {
+          if (context.canDispatch() !== true) return false;
+        } catch {
+          return false;
+        }
+        context.used = true;
+        return true;
+      }
       if (["battle.heal", "battle.buy"].includes(context?.job?.type)) {
         const job = context.job;
         if (

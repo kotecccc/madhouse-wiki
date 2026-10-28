@@ -44,6 +44,7 @@ export async function isAllowedBridgeQueueCommand(request) {
           "work.start",
           "work.booster",
           "character.start",
+          "stash.craft",
         ].includes(input.args?.type)) ||
       (input?.command === "work.refresh" &&
         Number.isSafeInteger(input.args?.workId) &&

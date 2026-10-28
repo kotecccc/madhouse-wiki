@@ -578,3 +578,38 @@ test("battle medicine is bound to the saved job, type and battle", async () => {
     () => pending,
   );
 });
+
+test("stash craft matches its durable reservation and sends only once", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "craft",
+    type: "stash.craft",
+    status: "running",
+    args: { setId: 7 },
+  };
+  const pending = { id: job.id, setId: 7, operationId: "op" };
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/stash/craft",
+    body: JSON.stringify({ setId: 7, operationId: "op" }),
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(
+        gate.claim({
+          ...request,
+          body: JSON.stringify({ setId: 8, operationId: "op" }),
+        }),
+        false,
+      );
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+    () => pending,
+  );
+});
