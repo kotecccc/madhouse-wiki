@@ -55,6 +55,61 @@ test("friend snapshots require a complete bounded traversal and strip unrelated 
   );
 });
 
+test("combat defers background friends and invitations but allows a requested friends refresh", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "combat-background-"));
+  const store = createAutomationStateStore({ directory });
+  const calls = [];
+  const service = createAutomationService({
+    store,
+    identifyPlayer: async () => ({ playerId: 1 }),
+    getBoss: () => null,
+    fetcher: async (url) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      if (path === "/api/friends")
+        return Response.json({ items: [row(2, "Bob")], nextCursor: null });
+      if (path === "/api/bosses/invitations")
+        return Response.json({ items: [] });
+      if (path === "/api/combat") return Response.json({ activeBattle: null });
+      return Response.json({ playerId: 1 });
+    },
+  });
+  try {
+    const entry = await service.identify("Bearer account-a");
+    entry.controller.restoreState({
+      ...entry.controller.getSnapshot(),
+      boss: { id: 7, name: "Boss" },
+      battle: { id: "fight-1", status: "active" },
+    });
+    service.friends(entry, "Bearer account-a");
+    await service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    assert.equal(calls.filter((path) => path === "/api/friends").length, 0);
+    assert.equal(
+      calls.filter((path) => path === "/api/bosses/invitations").length,
+      0,
+    );
+    entry.busy = true;
+    await service.refreshFriends(entry, "Bearer account-a");
+    assert.equal(calls.filter((path) => path === "/api/friends").length, 0);
+    entry.busy = false;
+    await waitFor(
+      () => calls.filter((path) => path === "/api/friends").length === 1,
+    );
+    entry.controller.reset();
+    entry.controller.restoreState({
+      ...entry.controller.getSnapshot(),
+      boss: { id: 7, name: "Boss" },
+      battle: { id: "fight-1", status: "won" },
+    });
+    await waitFor(() => calls.includes("/api/bosses/invitations"));
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("a complete friend snapshot stays account-isolated through a partial outage and restart", async () => {
   const directory = mkdtempSync(join(tmpdir(), "friend-snapshot-"));
   const store = createAutomationStateStore({ directory });

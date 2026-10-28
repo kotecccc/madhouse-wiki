@@ -908,6 +908,7 @@ export function createAutomationService({
         enabled: false,
       },
       friendSnapshotRefreshing: false,
+      friendSnapshotRequested: false,
       friendRemovalRefreshing: false,
       raidFriend: saved?.raidFriend ?? { pending: null, status: null },
       raidFriendReceipts: saved?.raidFriendReceipts ?? [],
@@ -2604,6 +2605,8 @@ export function createAutomationService({
       !entry.credential ||
       entry.busy ||
       entry.inventoryBusy ||
+      (entry.controller.getSnapshot().battle?.status === "active" &&
+        !["pending", "uncertain"].includes(entry.raidFriend.status)) ||
       entry.raidFriendRefreshing ||
       backgroundReadDeferred(entry) ||
       queuedFriendReadPending(entry) ||
@@ -2622,7 +2625,7 @@ export function createAutomationService({
       entry.raidFriendRefreshing = false;
     }
   }
-  async function refreshFriendSnapshot(entry) {
+  async function refreshFriendSnapshot(entry, { interactive = false } = {}) {
     const record = entry.friendSnapshot;
     if (
       closed ||
@@ -2633,6 +2636,9 @@ export function createAutomationService({
       entry.storageFailed ||
       entry.busy ||
       entry.inventoryBusy ||
+      (!interactive &&
+        !entry.friendSnapshotRequested &&
+        entry.controller.getSnapshot().battle?.status === "active") ||
       entry.actionQueue.hasDue() ||
       backgroundReadDeferred(entry) ||
       queuedFriendReadPending(entry) ||
@@ -2644,6 +2650,7 @@ export function createAutomationService({
     )
       return;
     const credential = entry.credential;
+    entry.friendSnapshotRequested = false;
     entry.friendSnapshotRefreshing = true;
     entry.busy = true;
     entry.inventoryBusy = true;
@@ -2731,6 +2738,13 @@ export function createAutomationService({
   }
   function discoverInvitations(entry) {
     const state = entry.controller.getSnapshot();
+    if (state.battle?.status === "active") {
+      // A fight prevents joining another. Do not count this unobserved time as
+      // a quiet interval for an active subscription, and refresh after combat.
+      entry.raidSubscription?.observe([], false);
+      entry.invitationDiscoveryAt = 0;
+      return;
+    }
     if (
       closed ||
       entry.storageFailed ||
@@ -4840,11 +4854,12 @@ export function createAutomationService({
     async refreshFriends(entry, authorization) {
       requireEntryCredential(entry, authorization);
       entry.friendSnapshot.enabled = true;
+      entry.friendSnapshotRequested = true;
       if (!entry.friendSnapshot.failures) entry.friendSnapshot.nextAt = 0;
       save(entry);
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
-      await refreshFriendSnapshot(entry);
+      await refreshFriendSnapshot(entry, { interactive: true });
       return { scheduled: true };
     },
     friends(entry, authorization) {
