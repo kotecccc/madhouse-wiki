@@ -168,7 +168,7 @@ export function createGameRouter({
         /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
         init.body === "{}") ||
         (method === "DELETE" &&
-          /^\/api\/friends\/requests\/[1-9][0-9]*$/.test(path) &&
+          /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path) &&
           init.body == null))
     ) {
       result = await bridgeAction(route.owner, method, path, {

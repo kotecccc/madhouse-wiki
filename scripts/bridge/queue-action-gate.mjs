@@ -50,17 +50,22 @@ export function createQueueActionGate() {
         typeof context.canDispatch !== "function" ||
         typeof authorization !== "string" ||
         authorization !== context.authorization ||
-        job?.type !== "friend.response" ||
+        !["friend.response", "friend.remove"].includes(job?.type) ||
         job.status !== "running" ||
         typeof job.id !== "string" ||
         !job.id ||
         !Number.isSafeInteger(job.args?.playerId) ||
         job.args.playerId <= 0 ||
-        !["accept", "decline"].includes(job.args.decision)
+        (job.type === "friend.response" &&
+          !["accept", "decline"].includes(job.args.decision))
       )
         return false;
-      const accept = job.args.decision === "accept";
-      const expectedPath = `/api/friends/requests/${job.args.playerId}${accept ? "/accept" : ""}`;
+      const accept =
+        job.type === "friend.response" && job.args.decision === "accept";
+      const expectedPath =
+        job.type === "friend.remove"
+          ? `/api/friends/${job.args.playerId}`
+          : `/api/friends/requests/${job.args.playerId}${accept ? "/accept" : ""}`;
       if (path !== expectedPath || method !== (accept ? "POST" : "DELETE"))
         return false;
       try {

@@ -17,6 +17,15 @@ test("only the supported durable queue command is admitted", async () => {
       action: { playerId: 42, decision: "accept" },
     },
   };
+  assert.equal(
+    await isAllowedBridgeQueueCommand(
+      request({
+        command: "queue.enqueue",
+        args: { type: "friend.remove", action: { playerId: 42 } },
+      }),
+    ),
+    true,
+  );
   const original = request(allowed);
   assert.equal(await isAllowedBridgeQueueCommand(original), true);
   assert.deepEqual(await original.json(), allowed);

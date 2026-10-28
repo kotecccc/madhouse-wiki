@@ -111,6 +111,7 @@ test(
           "/api/friends/requests/incoming",
           "/api/friends/requests/outgoing",
           "/api/friends/requests/42/accept",
+          "/api/friends/42",
           "/api/works/open",
           "/api/works/tasks/perform",
         ].includes(path),
@@ -130,6 +131,13 @@ test(
             response.end(JSON.stringify(workViewData()));
           } else request.socket.destroy();
         });
+        return;
+      }
+      if (path === "/api/friends/42" && request.method === "DELETE") {
+        sends++;
+        accepted = false;
+        request.resume();
+        request.once("end", () => request.socket.destroy());
         return;
       }
       if (path.endsWith("/accept")) {
@@ -385,6 +393,39 @@ test(
       await queue.tick();
       assert.equal(sends, 1);
       assert.equal(saved[0].status, "completed");
+      const removal = {
+        id: "remove-42",
+        type: "friend.remove",
+        status: "running",
+        args: { playerId: 42 },
+      };
+      await bridge.queueActionGate.run(
+        removal,
+        false,
+        authorization,
+        async () => {
+          await assert.rejects(
+            transport.liveFetch("https://cargohustle.online/api/friends/42", {
+              method: "DELETE",
+              headers: { Authorization: authorization },
+            }),
+          );
+          await assert.rejects(
+            transport.liveFetch("https://cargohustle.online/api/friends/42", {
+              method: "DELETE",
+              headers: { Authorization: authorization },
+            }),
+          );
+        },
+        () => true,
+      );
+      assert.equal(sends, 2);
+      const afterRemoval = await transport.liveFetch(
+        "https://cargohustle.online/api/friends",
+        { headers: { Authorization: authorization } },
+      );
+      assert.deepEqual((await afterRemoval.json()).items, []);
+
       const body = JSON.stringify({
         workId: 7,
         taskId: 2,
@@ -408,7 +449,7 @@ test(
         await assert.rejects(transport.liveFetch(workUrl, workRequest));
         await assert.rejects(transport.liveFetch(workUrl, workRequest));
       });
-      assert.equal(sends, 2);
+      assert.equal(sends, 3);
       const sessionAuthorization = `Bearer ${session}`;
       const sessionBody = JSON.stringify({
         workId: 7,
@@ -432,7 +473,7 @@ test(
           }),
         );
       });
-      assert.equal(sends, 3);
+      assert.equal(sends, 4);
       // Exercise the real work runner, checkpoint and bridge transport together.
       const store = createAutomationStateStore({
         directory: join(root, "work-state"),
@@ -481,7 +522,7 @@ test(
           1,
           JSON.stringify(entry.workFarm.getSnapshot()),
         );
-        assert.equal(sends, 4);
+        assert.equal(sends, 5);
       } finally {
         workService.close();
         store.close();

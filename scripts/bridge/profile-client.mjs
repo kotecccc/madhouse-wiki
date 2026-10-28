@@ -160,7 +160,7 @@ export function sendFriendResponseOverBridge(options = {}) {
       (method === "POST" &&
         /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path)) ||
       (method === "DELETE" &&
-        /^\/api\/friends\/requests\/[1-9][0-9]*$/.test(path))
+        /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path))
     )
   )
     throw new TypeError("invalid_queued_action");

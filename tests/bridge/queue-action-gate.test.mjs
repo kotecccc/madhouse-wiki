@@ -315,3 +315,39 @@ test("a lost friend response is reconciled without a second send", async () => {
   assert.equal(sends, 1);
   assert.equal(saved[0].status, "completed");
 });
+
+test("friend removal permission is bound to the queued friend and cannot be replayed", async () => {
+  const gate = createQueueActionGate();
+  const job = {
+    id: "remove-42",
+    status: "running",
+    type: "friend.remove",
+    args: { playerId: 42 },
+  };
+  const request = {
+    authorization: "Bearer fake",
+    method: "DELETE",
+    path: "/api/friends/42",
+  };
+  await gate.run(
+    job,
+    false,
+    request.authorization,
+    async () => {
+      assert.equal(gate.claim({ ...request, path: "/api/friends/43" }), false);
+      assert.equal(gate.claim({ ...request, method: "POST" }), false);
+      assert.equal(gate.claim(request), true);
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+  );
+  await gate.run(
+    job,
+    true,
+    request.authorization,
+    async () => {
+      assert.equal(gate.claim(request), false);
+    },
+    () => true,
+  );
+});
