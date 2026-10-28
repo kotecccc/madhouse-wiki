@@ -71,6 +71,15 @@ jobs:
             --tmpfs /tmp:rw,nosuid,nodev,size=256m,mode=1777 \
             --tmpfs /data/automation:rw,nosuid,nodev,size=32m,uid=1000,gid=1000,mode=0700 \
             --env MADHOUSE_AUTOMATION_STATE_DIR=/data/automation \
+            --env MADHOUSE_AUTOMATION_GAME_ENABLED=0 \
+            --env WIKI_PUBLIC_ORIGIN=https://wiki.test \
+            --env CONNECTOR_PUBLIC_ORIGIN=https://connector.test \
+            --env MADHOUSE_BRIDGE_LAB=1 \
+            --env MADHOUSE_BRIDGE_IPC_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --env MADHOUSE_BRIDGE_STATE_DIR=/tmp/bridge-state \
+            --env MADHOUSE_BRIDGE_WITNESS_PATH=/tmp/bridge-witness.sqlite \
+            --env MADHOUSE_BRIDGE_PROVISION_WITNESS=1 \
+            --env TELEGRAM_BOT_TOKEN=fake-bot \
             --cap-drop ALL \
             --security-opt no-new-privileges:true \
             --memory 1280m \
@@ -83,11 +92,16 @@ jobs:
             --tmpfs /tmp:rw,nosuid,nodev,size=64m,mode=1777 \
             --cap-drop ALL \
             --security-opt no-new-privileges:true \
+            --env WIKI_PUBLIC_ORIGIN=https://wiki.test \
+            --env CONNECTOR_PUBLIC_ORIGIN=https://connector.test \
+            --env MADHOUSE_BRIDGE_LAB=1 \
+            --env MADHOUSE_BRIDGE_IPC_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --env WIKI_INITDATA_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
             --memory 384m \
             --pids-limit 96 \
             --publish 127.0.0.1:19093:9093 \
             "madhouse-wiki:vps-${GITHUB_SHA}" connector >/dev/null
-          node scripts/deploy/smoke-vps-image.mjs \
+          SMOKE_WIKI_ORIGIN=https://wiki.test SMOKE_CONNECTOR_ORIGIN=https://connector.test node scripts/deploy/smoke-vps-image.mjs \
             http://127.0.0.1:19092 \
             http://127.0.0.1:19093 \
             "${GITHUB_SHA}"
