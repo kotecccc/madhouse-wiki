@@ -276,11 +276,14 @@ export function FriendsRequests({
             return credential;
           },
           makeId: () => crypto.randomUUID(),
-          command: "friends.respond",
+          command: "queue.enqueue",
           args: {
-            playerId: player.playerId,
-            name: player.nickname || player.username || "Игрок",
-            decision,
+            type: "friend.response",
+            action: {
+              playerId: player.playerId,
+              name: player.nickname || player.username || "Игрок",
+              decision,
+            },
           },
         });
         submitted++;
@@ -291,12 +294,12 @@ export function FriendsRequests({
       }
       onNotice?.({
         success: true,
-        message: `Обработано заявок: ${submitted}.${players.length > remaining.length ? ` Уже обрабатываются: ${players.length - remaining.length}.` : ""}`,
+        message: `Добавлено в очередь: ${submitted}.${players.length > remaining.length ? ` Уже обрабатываются: ${players.length - remaining.length}.` : ""}`,
       });
     } catch {
       onNotice?.({
         success: false,
-        message: `Обработано заявок: ${submitted} из ${remaining.length}. Проверьте оставшиеся заявки.`,
+        message: `Добавлено в очередь: ${submitted} из ${remaining.length}. Проверьте оставшиеся заявки.`,
       });
     } finally {
       setBusy(null);
