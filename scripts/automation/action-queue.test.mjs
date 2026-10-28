@@ -48,6 +48,30 @@ function setup(saved = []) {
   };
 }
 
+test("history pruning retains a current actor handoff without keeping unrelated old entries", () => {
+  const saved = Array.from({ length: 130 }, (_, i) => ({
+    id: `old-${String(i).padStart(5, "0")}`,
+    type: "buy",
+    args: { id: i },
+    status: "completed",
+    priority: 0,
+    createdAt: i,
+    finishedAt: i,
+  }));
+  const queue = createActionQueue({
+    saved,
+    now: () => 1000,
+    persist: () => true,
+    retainIds: () => ["old-00000"],
+    adapters: { buy: { validate: (args) => args } },
+  });
+  queue.add({ id: "new-action", type: "buy", args: { id: 999 } });
+  const ids = queue.snapshot().map((item) => item.id);
+  assert.ok(ids.includes("old-00000"));
+  assert.ok(!ids.includes("old-00001"));
+  assert.equal(ids.length, 130);
+});
+
 test("saves validated intent, deduplicates ID and runs priority first", async () => {
   const h = setup();
   h.queue.add({

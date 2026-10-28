@@ -109,6 +109,42 @@ test("stopped battle and subscription handoffs remain visible after their actors
   }
 });
 
+test("a stopped current handoff remains visible beyond the five recent completions", () => {
+  for (const [type, actorName] of [
+    ["auto.start", "auto"],
+    ["raid.start", "raid"],
+    ["subscription.start", "subscription"],
+  ]) {
+    const job = {
+      id: "old-handoff",
+      type,
+      status: "completed",
+      priority: 15,
+      createdAt: 1,
+      finishedAt: 1,
+      args: {},
+    };
+    const later = Array.from({ length: 6 }, (_, i) => ({
+      id: `later-${i}`,
+      type: "inventory",
+      status: "completed",
+      priority: 30,
+      createdAt: i + 2,
+      finishedAt: i + 2,
+      args: { action: "buy" },
+    }));
+    const state = {
+      [actorName]: { queueId: job.id, enabled: false },
+      queuedActions: [job, ...later],
+    };
+    const card = actionQueueCards(state).find((item) => item.id === job.id);
+    assert.equal(card.status, "Передано исполнителю");
+    assert.equal(card.command, "queue.dismiss");
+    job.dismissed = true;
+    assert.ok(!actionQueueCards(state).some((item) => item.id === job.id));
+  }
+});
+
 test("recent completions are selected by completion time, not creation order", () => {
   const completed = Array.from({ length: 6 }, (_, index) => ({
     id: `done-${index}`,

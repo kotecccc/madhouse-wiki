@@ -315,6 +315,10 @@ export function actionQueueCards(state, catalogue = {}) {
       .slice(-5)
       .map((job) => job.id),
   );
+  const currentBattleHandoff = (job) =>
+    (job.type === "auto.start" && state.auto?.queueId === job.id) ||
+    (job.type === "raid.start" && raid?.queueId === job.id) ||
+    (job.type === "subscription.start" && subscription?.queueId === job.id);
   const queued = (state.queuedActions || [])
     .filter(
       (job) =>
@@ -322,6 +326,7 @@ export function actionQueueCards(state, catalogue = {}) {
         !job.dismissed &&
         (job.status !== "completed" ||
           recentCompleted.has(job.id) ||
+          currentBattleHandoff(job) ||
           terminalActor(job)) &&
         !(
           job.type === "auto.start" &&

@@ -38,6 +38,7 @@ export function createActionQueue({
   onAttempt = () => {},
   onResult = () => {},
   runInContext = (_entry, _reconcile, run) => run(),
+  retainIds = () => [],
   limit = 100,
 }) {
   let entries = Array.isArray(saved) ? clone(saved) : [];
@@ -128,6 +129,7 @@ export function createActionQueue({
     const retained = new Set(terminal);
     const referenced = new Set([
       ...dependsOn,
+      ...retainIds(),
       ...entries
         .filter((item) => active.has(item.status))
         .flatMap((item) => item.dependsOn ?? []),

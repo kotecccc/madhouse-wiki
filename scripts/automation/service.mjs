@@ -1685,6 +1685,16 @@ export function createAutomationService({
       now,
       random,
       blockedBy: queueBlockedBy,
+      retainIds: () =>
+        [
+          entry.workFarm.getSnapshot().run?.queueId,
+          entry.characterUpgrade.run?.queueId,
+          entry.businessHelper.run?.queueId,
+          entry.floorRunner.getSnapshot().queueId,
+          entry.auto.getSnapshot().queueId,
+          entry.raidWorker.getSnapshot().queueId,
+          entry.raidSubscription.getSnapshot().queueId,
+        ].filter((id) => typeof id === "string"),
       canSettle: () => !closed && !entry.storageFailed,
       ready: () => {
         const deadline = queueNotBefore(entry);
