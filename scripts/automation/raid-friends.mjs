@@ -1,3 +1,5 @@
+import { annotateFriendError } from "./friend-diagnostics.mjs";
+
 const root = "https://cargohustle.online";
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const positive = (n) => Number.isSafeInteger(n) && n > 0;
@@ -22,6 +24,7 @@ export function unavailable(response, message) {
       : 503,
     message,
   );
+  error.friendUpstreamStatus = response.status;
   const header = response.headers?.get?.("Retry-After");
   if (header) {
     const delay = /^\d+$/.test(header)
@@ -55,7 +58,7 @@ export function resolveRaidLeader(body, { playerId, username }) {
   return matches[0].playerId;
 }
 
-async function readList(fetcher, headers, path) {
+async function readListInner(fetcher, headers, path) {
   let cursor = null;
   const ids = new Set();
   const names = new Set();
@@ -97,6 +100,19 @@ async function readList(fetcher, headers, path) {
     cursor = next;
   }
   throw fail(503, "friend_status_unavailable");
+}
+
+async function readList(fetcher, headers, path) {
+  const stage = {
+    "/api/friends": "friends",
+    "/api/friends/requests/outgoing": "outgoing",
+    "/api/friends/requests/incoming": "incoming",
+  }[path];
+  try {
+    return await readListInner(fetcher, headers, path);
+  } catch (error) {
+    throw annotateFriendError(error, stage);
+  }
 }
 
 export async function readRaidFriendStatus({

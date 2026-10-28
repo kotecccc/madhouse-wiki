@@ -1,3 +1,4 @@
+import { logFriendError } from "./friend-diagnostics.mjs";
 import { reconcileRaidFriend, requestRaidFriend } from "./raid-friends.mjs";
 import { terminalBattlePreflight } from "./battle-preflight-error.mjs";
 
@@ -28,6 +29,7 @@ export function queuedFriendRequestAdapter({ entry, fetcher, save }) {
         };
       return { status: "retry", reason: "Ожидаем игру." };
     } catch (error) {
+      logFriendError("friend.request.reconcile", error);
       return {
         status: pending.id === job.id ? "uncertain" : "retry",
         reason: "Ожидаем игру.",
@@ -74,6 +76,7 @@ export function queuedFriendRequestAdapter({ entry, fetcher, save }) {
         });
         return confirmed(job) ? finish() : { status: "uncertain" };
       } catch (error) {
+        logFriendError("friend.request.execute", error);
         if (entry.raidFriend?.pending?.id === job.id)
           return {
             status: "uncertain",

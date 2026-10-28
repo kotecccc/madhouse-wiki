@@ -1,3 +1,4 @@
+import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
 import { weaponEquipment } from "./weapon-equipment.mjs";
@@ -2258,6 +2259,7 @@ export function createAutomationService({
       }
       save(entry);
     } catch (error) {
+      logFriendError("snapshot.refresh", error);
       if (Number.isFinite(error.retryAfterMs))
         record.nextAt = Math.max(record.nextAt, now() + error.retryAfterMs);
       save(entry);
@@ -2616,7 +2618,7 @@ export function createAutomationService({
       save(entry);
     }
   }
-  async function command(entry, input) {
+  async function commandInner(entry, input) {
     if (
       !input ||
       typeof input !== "object" ||
@@ -4157,6 +4159,20 @@ export function createAutomationService({
       entry.busy = wasBusy;
     }
   }
+  async function command(entry, input) {
+    try {
+      return await commandInner(entry, input);
+    } catch (error) {
+      if (input?.command?.startsWith("raid.friend."))
+        logFriendError(input.command, error);
+      else if (
+        input?.command === "queue.enqueue" &&
+        input.args?.type === "friend.request"
+      )
+        logFriendError("friend.request.enqueue", error);
+      throw error;
+    }
+  }
   return {
     identify,
     launch,
@@ -4175,13 +4191,41 @@ export function createAutomationService({
         if (entry.storageFailed)
           throw failure(503, "automation_storage_unavailable");
       }
+      const stale =
+        entry.friendSnapshot.failures > 0 ||
+        (Number.isFinite(entry.friendSnapshot.updatedAt) &&
+          now() - entry.friendSnapshot.updatedAt >= 300000);
+      if (stale && now() >= (entry.friendStaleDiagnosticAt ?? 0)) {
+        entry.friendStaleDiagnosticAt = now() + 300000;
+        const reason =
+          entry.friendSnapshot.failures > 0
+            ? "refresh_failed_or_in_progress"
+            : entry.friendSnapshotRefreshing
+              ? "refreshing"
+              : entry.storageFailed
+                ? "storage_unavailable"
+                : !entry.credential
+                  ? "missing_credential"
+                  : entry.busy || entry.inventoryBusy
+                    ? "account_busy"
+                    : entry.actionQueue.hasDue() ||
+                        queuedFriendReadPending(entry)
+                      ? "queue_pending"
+                      : backgroundReadDeferred(entry)
+                        ? "background_deferred"
+                        : entry.characterBatch.running() ||
+                            !entry.collector.idleForPriority() ||
+                            entry.controller.getSnapshot().pending
+                          ? "automation_busy"
+                          : now() < (entry.friendSnapshot.nextAt ?? 0)
+                            ? "retry_scheduled"
+                            : "awaiting_refresh";
+        console.warn("madhouse-friend-stale", JSON.stringify({ reason }));
+      }
       return {
         items: entry.friendSnapshot.items,
         updatedAt: entry.friendSnapshot.updatedAt,
-        stale:
-          entry.friendSnapshot.failures > 0 ||
-          (Number.isFinite(entry.friendSnapshot.updatedAt) &&
-            now() - entry.friendSnapshot.updatedAt >= 300000),
+        stale,
         refreshing: entry.friendSnapshotRefreshing,
       };
     },

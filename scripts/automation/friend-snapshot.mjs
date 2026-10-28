@@ -1,8 +1,9 @@
+import { annotateFriendError } from "./friend-diagnostics.mjs";
 import { normalizeFriend } from "../../src/features/friends/friends.js";
 
 // Commit only a complete, bounded traversal. This snapshot is presentation
 // data and is never consulted to authorize a game mutation.
-export async function readFriendSnapshot({ fetcher, credential }) {
+async function readSnapshot({ fetcher, credential }) {
   const items = new Map(),
     seen = new Set();
   let cursor = null;
@@ -60,4 +61,12 @@ export async function readFriendSnapshot({ fetcher, credential }) {
     cursor = next;
   }
   throw new Error("friends_incomplete");
+}
+
+export async function readFriendSnapshot(options) {
+  try {
+    return await readSnapshot(options);
+  } catch (error) {
+    throw annotateFriendError(error, "snapshot");
+  }
 }
