@@ -117,6 +117,7 @@ export function BusinessAssistantDialog({
   const busy = state.pending;
   const run = state.run;
   const queued = state.queuedBusinessIds?.includes(business.id);
+  const ownTerminalRun = !queued && run?.businessId === business.id;
   const running = ["running", "paused"].includes(run?.status);
   const selectedBoss = (item) => {
     const choices = item.bosses || [];
@@ -526,10 +527,11 @@ export function BusinessAssistantDialog({
           </Button>
         </BaseCard>
       )}
-      {run && !["running", "paused", "completed"].includes(run.status) && (
-        <ErrorToast message={run.reason || "Выполнение остановлено."} />
-      )}
-      {run && run.status === "completed" && (
+      {ownTerminalRun &&
+        !["running", "paused", "completed"].includes(run.status) && (
+          <ErrorToast message={run.reason || "Выполнение остановлено."} />
+        )}
+      {ownTerminalRun && run.status === "completed" && (
         <BaseCard role="status" className="business-assistant-column">
           <CardTitle as="h3">
             {run.status === "completed"

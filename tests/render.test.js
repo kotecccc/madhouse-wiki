@@ -1444,6 +1444,38 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       subscribe: () => () => {},
       getSnapshot: () => snapshot,
     });
+    const renderBusinessRun = (run, queuedBusinessIds = []) =>
+      renderToStaticMarkup(
+        createElement(BusinessAssistantDialog, {
+          business: kb.businesses[0],
+          onClose: () => {},
+          assistantStore: externalStore({
+            plans: [],
+            loaded: true,
+            run,
+            queuedBusinessIds,
+          }),
+          battleStore: externalStore({}),
+          goalStore: externalStore(null),
+        }),
+      );
+    const completedRun = {
+      businessId: kb.businesses[0].id,
+      status: "completed",
+      config: { autoUpgrade: true },
+    };
+    assert.ok(renderBusinessRun(completedRun).includes("Улучшение завершено"));
+    assert.ok(
+      !renderBusinessRun({
+        ...completedRun,
+        businessId: "another-business",
+      }).includes("Улучшение завершено"),
+    );
+    assert.ok(
+      !renderBusinessRun(completedRun, [kb.businesses[0].id]).includes(
+        "Улучшение завершено",
+      ),
+    );
     const assistantHtml = renderToStaticMarkup(
       createElement(BusinessAssistantDialog, {
         business: kb.businesses[0],
