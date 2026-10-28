@@ -219,6 +219,7 @@ export function createAutomationService({
   identifyPlayer,
   accountHealth = () => null,
   snapshotFetch = fetcher,
+  queueActionGate = null,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -1874,7 +1875,13 @@ export function createAutomationService({
         currentReservation = { until: actionQueueReadyAt };
         return currentReservation;
       },
-      runInContext: requestPriority.run,
+      runInContext: (job, reconcile, callback, reservation) => {
+        const run = () =>
+          requestPriority.run(job, reconcile, callback, reservation);
+        return queueActionGate
+          ? queueActionGate.run(job, reconcile, entry.credential, run)
+          : run();
+      },
       onResult: (result) => {
         const refill = entry.energyBooster.pending;
         if (

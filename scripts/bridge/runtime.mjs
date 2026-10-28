@@ -5,6 +5,7 @@ import { createBridgeDeviceService } from "./device-service.mjs";
 import { createBridgeStorage } from "./device-storage.mjs";
 import { createBridgeAwareAccountFetch } from "./bridge-aware-fetch.mjs";
 import { createConnectorLeaseIpcHandler } from "./connector-lease-ipc.mjs";
+import { createQueueActionGate } from "./queue-action-gate.mjs";
 
 /**
  * Isolated composition boundary. The hosting server must gate activation,
@@ -34,6 +35,7 @@ export function createBridgeRuntime({
   });
   let service;
   let gateway;
+  const queueActionGate = createQueueActionGate();
   try {
     service = createBridgeDeviceService({ registry: storage.registry });
     const accountService = createBridgeAccountService({
@@ -68,6 +70,7 @@ export function createBridgeRuntime({
       : null;
     let closed = false;
     return Object.freeze({
+      queueActionGate,
       handle,
       upgrade: gateway.upgrade,
       connectorLease(request, trustedPeer) {

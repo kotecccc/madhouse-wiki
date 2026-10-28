@@ -38,6 +38,7 @@ export async function createAutomationRuntime({
     store,
     fetcher: transport.liveFetch,
     snapshotFetch: transport.fetch,
+    ...(bridge ? { queueActionGate: bridge.queueActionGate } : {}),
     accountHealth: snapshots.health,
     identifyPlayer: async (authorization) => {
       const response = await transport.fetch(
