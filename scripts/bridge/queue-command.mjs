@@ -26,7 +26,7 @@ export async function isAllowedBridgeQueueCommand(request) {
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     return (
       (input?.command === "queue.enqueue" &&
-        ([
+        [
           "friend.response",
           "friend.request",
           "friend.remove",
@@ -41,10 +41,9 @@ export async function isAllowedBridgeQueueCommand(request) {
           "auto.start",
           "raid.start",
           "business.start",
-        ].includes(input.args?.type) ||
-          (input.args?.type === "work.start" &&
-            input.args?.action?.mode === "energy" &&
-            input.args?.action?.collectStash !== true))) ||
+          "work.start",
+          "work.booster",
+        ].includes(input.args?.type)) ||
       (input?.command === "work.refresh" &&
         Number.isSafeInteger(input.args?.workId) &&
         input.args.workId > 0) ||

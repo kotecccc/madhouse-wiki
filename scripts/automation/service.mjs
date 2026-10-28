@@ -1381,8 +1381,6 @@ export function createAutomationService({
                 !fetchOptions.signal.aborted &&
                 entry.credential === credential &&
                 run?.status === "running" &&
-                run.config?.mode === "energy" &&
-                run.config?.collectStash !== true &&
                 run.workId === body.workId &&
                 run.pending?.kind === "performing" &&
                 run.pending.operationId === body.operationId &&
@@ -1390,6 +1388,69 @@ export function createAutomationService({
               );
             },
           });
+          response = await queueActionGate.runWork(permit, send);
+        } else if (
+          queueActionGate &&
+          method === "POST" &&
+          ["/api/me/bag/boosters/use", "/api/me/bag/boosters/buy"].includes(
+            path,
+          )
+        ) {
+          const credential = entry.credential;
+          const state = entry.workFarm.getSnapshot();
+          const buying = path.endsWith("/buy");
+          const pending = state.manualPending ?? state.run?.pending;
+          const manual = Boolean(state.manualPending);
+          if (
+            !pending ||
+            !["small", "full"].includes(body?.type) ||
+            body.type !== pending.type ||
+            (manual
+              ? buying || Object.keys(body).join(",") !== "type"
+              : buying
+                ? pending.kind !== "buying" ||
+                  Object.keys(body).sort().join(",") !==
+                    "operationId,quantity,type" ||
+                  body.quantity !== 1 ||
+                  body.operationId !== pending.operationId
+                : pending.kind !== "refilling" ||
+                  Object.keys(body).join(",") !== "type")
+          )
+            throw failure(409, "work_checkpoint_missing");
+          let used = false;
+          const permit = ({
+            authorization,
+            method: requestMethod,
+            path: target,
+            body: outgoing,
+          }) => {
+            const current = entry.workFarm.getSnapshot();
+            const checkpoint = manual
+              ? current.manualPending
+              : current.run?.pending;
+            if (
+              used ||
+              authorization !== credential ||
+              requestMethod !== "POST" ||
+              target !== path ||
+              outgoing !== fetchOptions.body ||
+              closed ||
+              entry.restoring ||
+              entry.storageFailed ||
+              entry.credential !== credential ||
+              fetchOptions.signal.aborted ||
+              checkpoint?.operationId !== pending.operationId ||
+              checkpoint?.type !== pending.type ||
+              (manual
+                ? checkpoint?.commandId !== pending.commandId
+                : current.run?.status !== "running" ||
+                  checkpoint?.kind !== pending.kind) ||
+              (canDispatch && !canDispatch())
+            )
+              return false;
+            used = true;
+            return true;
+          };
           response = await queueActionGate.runWork(permit, send);
         } else response = await send();
         if (!response.ok) {
