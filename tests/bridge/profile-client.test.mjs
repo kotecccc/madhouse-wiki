@@ -21,6 +21,52 @@ const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
 
+test("a stopped work checkpoint sends no request after TLS connects", async () => {
+  let received = 0;
+  const server = createServer({ cert, key }, (_req, res) => {
+    received++;
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const gate = createQueueActionGate();
+  const body = JSON.stringify({
+    workId: 7,
+    taskId: 2,
+    locale: "ru",
+    operationId: "op-stopped",
+  });
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body,
+  };
+  const permit = createWorkActionPermit({
+    authorization: request.authorization,
+    workId: 7,
+    taskId: 2,
+    operationId: "op-stopped",
+    checkpointIsCurrent: () => false,
+  });
+  const validateTunnel = () => gate.claim(request);
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await gate.runWork(permit, async () =>
+      assert.rejects(
+        sendWorkTaskOverBridge({ ...request, validateTunnel, connector }),
+        { code: "bridge_mutation_not_admitted" },
+      ),
+    );
+    assert.equal(received, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("a lost work response cannot reuse the dispatch permit", async () => {
   let received = 0;
   const server = createServer({ cert, key }, (req) => {
