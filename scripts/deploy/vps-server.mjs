@@ -8,6 +8,7 @@ import { connectorHeaders } from "../../connector/worker.js";
 import { startVpsInlineCards } from "../telegram/inline-cards-vps.mjs";
 import { VERSION } from "../../connector/protocol.js";
 import { createVpsBridgeLab } from "../bridge/vps-lab.mjs";
+import { createBridgeReleaseHttp } from "../bridge/release-http.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
@@ -53,6 +54,10 @@ const bridgeLab = createVpsBridgeLab({
   wikiOrigin,
   connectorOrigin,
 });
+const bridgeRelease =
+  bridgeLab?.runtime && process.env.MADHOUSE_BRIDGE_RELEASE_DIR
+    ? createBridgeReleaseHttp(process.env.MADHOUSE_BRIDGE_RELEASE_DIR)
+    : null;
 if (bridgeLab?.privateServer) bridgeLab.privateServer.listen(9094, "0.0.0.0");
 
 const wikiOrigins = [
@@ -205,6 +210,14 @@ const server = createServer(async (request, response) => {
   try {
     const method = request.method || "GET";
     const url = new URL(request.url || "/", "http://localhost");
+    if (
+      role === "wiki" &&
+      bridgeRelease &&
+      url.pathname.startsWith("/bridge/")
+    ) {
+      bridgeRelease(request, response);
+      return;
+    }
     if (url.pathname === "/healthz" && method === "GET") {
       await writeFetchResponse(
         response,

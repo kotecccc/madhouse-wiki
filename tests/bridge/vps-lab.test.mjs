@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -60,6 +60,9 @@ test(
   { timeout: 15000 },
   async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-vps-lab-"));
+    const releaseDir = join(directory, "release");
+    mkdirSync(releaseDir);
+    writeFileSync(join(releaseDir, "bootstrap.pyz"), "synthetic bootstrap");
     const probe = createServer();
     await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
     const port = probe.address().port;
@@ -77,6 +80,7 @@ test(
       MADHOUSE_BRIDGE_IPC_KEY: key,
       MADHOUSE_BRIDGE_STATE_DIR: join(directory, "bridge"),
       MADHOUSE_BRIDGE_WITNESS_PATH: join(directory, "witness.sqlite"),
+      MADHOUSE_BRIDGE_RELEASE_DIR: releaseDir,
       MADHOUSE_BRIDGE_PROVISION_WITNESS: "1",
       TELEGRAM_BOT_TOKEN: botToken,
     };
@@ -102,6 +106,9 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 30));
       }
       assert.ok(ready);
+      const bootstrap = await fetch(base + "/bridge/bootstrap.pyz");
+      assert.equal(bootstrap.status, 200);
+      assert.equal(await bootstrap.text(), "synthetic bootstrap");
       const post = (path, body) =>
         fetch(base + path, {
           method: "POST",
