@@ -22,6 +22,7 @@ export function createBridgeRuntime({
   readProfile,
   readGame,
   sendAction,
+  sendWork,
   connectorIpcKey,
   witnessPath,
   provisionWitness = false,
@@ -47,6 +48,7 @@ export function createBridgeRuntime({
       ...(readProfile ? { readProfile } : {}),
       ...(readGame ? { readGame } : {}),
       ...(sendAction ? { sendAction } : {}),
+      ...(sendWork ? { sendWork } : {}),
     });
     const handle = createBridgeDeviceHttp({
       service,

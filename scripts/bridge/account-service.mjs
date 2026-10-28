@@ -35,6 +35,7 @@ export function createBridgeAccountService({
   readProfile = readProfileOverBridge,
   readGame = readGameOverBridge,
   sendAction = sendFriendResponseOverBridge,
+  sendWork = sendWorkTaskOverBridge,
   queueActionGate = null,
 } = {}) {
   if (
@@ -182,9 +183,7 @@ export function createBridgeAccountService({
     let result;
     try {
       const sender =
-        path === "/api/works/tasks/perform"
-          ? sendWorkTaskOverBridge
-          : sendAction;
+        path === "/api/works/tasks/perform" ? sendWork : sendAction;
       result = await sender({
         authorization: account.authorization,
         method,

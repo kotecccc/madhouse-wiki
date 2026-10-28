@@ -18,7 +18,9 @@ import {
   readGameOverBridge,
   readProfileOverBridge,
   sendFriendResponseOverBridge,
+  sendWorkTaskOverBridge,
 } from "../../scripts/bridge/profile-client.mjs";
+import { createWorkActionPermit } from "../../scripts/bridge/work-action-permit.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
 
 const agentPath = process.env.MADHOUSE_FAKE_AGENT_PATH;
@@ -90,9 +92,17 @@ test(
           "/api/friends/requests/incoming",
           "/api/friends/requests/outgoing",
           "/api/friends/requests/42/accept",
+          "/api/works/open",
+          "/api/works/tasks/perform",
         ].includes(path),
       );
       assert.equal(request.headers.authorization, "Bearer synthetic-token");
+      if (path === "/api/works/tasks/perform") {
+        sends++;
+        request.resume();
+        request.once("end", () => request.socket.destroy());
+        return;
+      }
       if (path.endsWith("/accept")) {
         sends++;
         accepted = true;
@@ -143,6 +153,15 @@ test(
         }),
       sendAction: (options) =>
         sendFriendResponseOverBridge({
+          ...options,
+          connector: createGameTlsDuplexConnector({
+            openTunnel: options.openTunnel,
+            validateTunnel: options.validateTunnel,
+            tlsConnect: (tlsOptions) => connectTls({ ...tlsOptions, ca: cert }),
+          }),
+        }),
+      sendWork: (options) =>
+        sendWorkTaskOverBridge({
           ...options,
           connector: createGameTlsDuplexConnector({
             openTunnel: options.openTunnel,
@@ -293,6 +312,30 @@ test(
       await queue.tick();
       assert.equal(sends, 1);
       assert.equal(saved[0].status, "completed");
+      const body = JSON.stringify({
+        workId: 7,
+        taskId: 2,
+        locale: "ru",
+        operationId: "test-work",
+      });
+      const workRequest = {
+        method: "POST",
+        body,
+        headers: { Authorization: authorization },
+      };
+      const workUrl = "https://cargohustle.online/api/works/tasks/perform";
+      const permit = createWorkActionPermit({
+        authorization,
+        workId: 7,
+        taskId: 2,
+        operationId: "test-work",
+        checkpointIsCurrent: () => true,
+      });
+      await bridge.queueActionGate.runWork(permit, async () => {
+        await assert.rejects(transport.liveFetch(workUrl, workRequest));
+        await assert.rejects(transport.liveFetch(workUrl, workRequest));
+      });
+      assert.equal(sends, 2);
       const requestsBeforeOffline = requests;
       agent.kill();
       await waitStatus("offline");
