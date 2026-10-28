@@ -84,8 +84,16 @@ test("retry uses increasing persisted deadlines and honors cancellation", async 
   assert.equal(h.stored()[0].status, "cancelled");
   assert.equal(
     retryDelay(99, () => 1),
-    4500000,
+    3600000,
   );
+});
+
+test("Retry-After may exceed the automatic backoff limit", async () => {
+  const h = setup();
+  h.execute(async () => ({ status: "retry", retryAfterMs: 7_200_000 }));
+  h.queue.add({ id: "action-0001", type: "buy", args: { id: 1 } });
+  await h.queue.tick();
+  assert.equal(h.stored()[0].nextAt, 7_201_000);
 });
 
 test("a retry deadline survives queue reconstruction", async () => {

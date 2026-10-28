@@ -5,6 +5,7 @@ import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
+import { createGameOutageFetch, emptyGameOutage } from "./game-outage.mjs";
 import {
   AUTOMATION_STATE_SCHEMA_VERSION,
   migrateAutomationState,
@@ -212,15 +213,6 @@ export function createAutomationService({
   const actors = new Map();
   const loading = new Map();
   const identities = new Map();
-  fetcher = createAccountQueue(fetcher, {
-    accountKey: (authorization) =>
-      [...actors.values()].find((entry) => entry.credential === authorization)
-        ?.playerId ??
-      identities.get(createHash("sha256").update(authorization).digest("hex"))
-        ?.playerId ??
-      authorization,
-    now,
-  });
   let closed = false;
   let booting = false;
   let heartbeat = null;
@@ -235,6 +227,29 @@ export function createAutomationService({
     if (closed || !store.acquireLease(owner, now(), 15000))
       throw failure(503, "automation_worker_unavailable");
   }
+  let temporaryOutage = emptyGameOutage();
+  fetcher = createGameOutageFetch({
+    fetcher: createAccountQueue(fetcher, {
+      accountKey: (authorization) =>
+        [...actors.values()].find((entry) => entry.credential === authorization)
+          ?.playerId ??
+        identities.get(createHash("sha256").update(authorization).digest("hex"))
+          ?.playerId ??
+        authorization,
+      now,
+    }),
+    now,
+    random,
+    load: () => store.getGameOutage?.() ?? temporaryOutage,
+    save: (state) => {
+      ensureLease();
+      if (store.setGameOutage) store.setGameOutage(state, owner, now());
+      else temporaryOutage = state;
+    },
+    onStorageError: () => {
+      for (const entry of actors.values()) entry.storageFailed = true;
+    },
+  });
   const gameJson = async (authorization, path) => {
     const response = await fetcher(`https://cargohustle.online${path}`, {
       headers: {

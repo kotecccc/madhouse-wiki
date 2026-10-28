@@ -26,6 +26,34 @@ const KEY_FILE = "encryption.key";
 const DATABASE_FILE = "automation.sqlite";
 const encoder = new TextEncoder();
 
+function validGameOutage(state) {
+  return (
+    state &&
+    typeof state === "object" &&
+    !Array.isArray(state) &&
+    Object.keys(state).sort().join(",") === "evidence,failures,readyAt" &&
+    Number.isSafeInteger(state.readyAt) &&
+    state.readyAt >= 0 &&
+    Number.isSafeInteger(state.failures) &&
+    state.failures >= 0 &&
+    Array.isArray(state.evidence) &&
+    state.evidence.length <= 1 &&
+    state.evidence.every(
+      (item) =>
+        item &&
+        Object.keys(item).sort().join(",") === "at,id,retryAt" &&
+        /^[0-9a-f]{64}$/.test(item.id) &&
+        Number.isSafeInteger(item.at) &&
+        item.at >= 0 &&
+        Number.isSafeInteger(item.retryAt) &&
+        item.retryAt >= item.at,
+    ) &&
+    (state.readyAt === 0
+      ? state.failures === 0
+      : state.failures > 0 && state.evidence.length === 0)
+  );
+}
+
 function ensureDirectory(directory) {
   const absolute = resolve(directory);
   mkdirSync(absolute, { recursive: true, mode: 0o700 });
@@ -204,6 +232,10 @@ export function createAutomationStateStore({ directory }) {
       ready_at INTEGER NOT NULL,
       failures INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS game_outage (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      record TEXT NOT NULL
+    );
   `);
   for (const suffix of ["-wal", "-shm"]) {
     const sidecar = databasePath + suffix;
@@ -244,6 +276,12 @@ export function createAutomationStateStore({ directory }) {
   const selectLease = db.prepare(
     "SELECT owner, expires_at FROM worker_lease WHERE singleton = 1",
   );
+  const selectGameOutage = db.prepare(
+    "SELECT record FROM game_outage WHERE singleton = 1",
+  );
+  const saveGameOutage =
+    db.prepare(`INSERT INTO game_outage (singleton, record) VALUES (1, ?)
+    ON CONFLICT(singleton) DO UPDATE SET record = excluded.record`);
   const saveCooldown =
     db.prepare(`INSERT INTO queue_cooldown (singleton, ready_at, failures) VALUES (1, ?, ?)
     ON CONFLICT(singleton) DO UPDATE SET ready_at = excluded.ready_at, failures = excluded.failures`);
@@ -332,6 +370,33 @@ export function createAutomationStateStore({ directory }) {
       return row
         ? { readyAt: row.ready_at, failures: row.failures }
         : { readyAt: 0, failures: 0 };
+    },
+    getGameOutage() {
+      const row = selectGameOutage.get();
+      if (!row) return { evidence: [], readyAt: 0, failures: 0 };
+      let state;
+      try {
+        state = JSON.parse(row.record);
+      } catch {
+        throw new Error("game_outage_state_corrupt");
+      }
+      if (!validGameOutage(state)) throw new Error("game_outage_state_corrupt");
+      return state;
+    },
+    setGameOutage(state, owner, nowMs) {
+      if (
+        !validGameOutage(state) ||
+        typeof owner !== "string" ||
+        !owner ||
+        !Number.isSafeInteger(nowMs)
+      )
+        throw new TypeError("invalid_game_outage");
+      transaction(() => {
+        const lease = selectLease.get();
+        if (!lease || lease.owner !== owner || lease.expires_at <= nowMs)
+          throw new Error("automation_worker_unavailable");
+        saveGameOutage.run(JSON.stringify(state));
+      });
     },
     setQueueCooldown(readyAt, failures, owner, nowMs) {
       if (
