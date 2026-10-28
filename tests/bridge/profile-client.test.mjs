@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   readGameOverBridge,
   readProfileOverBridge,
+  sendWorkTaskOverBridge,
   sendFriendResponseOverBridge,
 } from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
@@ -17,6 +18,41 @@ const cert = await readFile(
 const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
+
+test("work task transport rejects missing permission and altered payload", () => {
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body: JSON.stringify({
+      workId: 7,
+      taskId: 2,
+      locale: "ru",
+      operationId: "op-1",
+    }),
+  };
+  assert.throws(() => sendWorkTaskOverBridge(request), {
+    message: "invalid_work_action",
+  });
+  assert.throws(
+    () =>
+      sendWorkTaskOverBridge({
+        ...request,
+        validateTunnel: () => true,
+        body: '{"workId":7,"taskId":2,"locale":"ru","operationId":"op-1","extra":true}',
+      }),
+    { message: "invalid_work_action" },
+  );
+  assert.throws(
+    () =>
+      sendWorkTaskOverBridge({
+        ...request,
+        validateTunnel: () => true,
+        path: "/api/me/bag/boosters/buy",
+      }),
+    { message: "invalid_work_action" },
+  );
+});
 
 test("queued action checks permission after TLS before sending any bytes", async () => {
   let requests = 0;

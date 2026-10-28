@@ -170,6 +170,40 @@ export function sendFriendResponseOverBridge(options = {}) {
   });
 }
 
+/** A work mutation requires a separate checkpoint-bound handshake permission. */
+export function sendWorkTaskOverBridge(options = {}) {
+  const { method, path, body, validateTunnel } = options;
+  if (
+    method !== "POST" ||
+    path !== "/api/works/tasks/perform" ||
+    typeof body !== "string" ||
+    body.length > 1024 ||
+    typeof validateTunnel !== "function"
+  )
+    throw new TypeError("invalid_work_action");
+  let value;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    throw new TypeError("invalid_work_action");
+  }
+  if (
+    !value ||
+    Object.keys(value).sort().join(",") !==
+      "locale,operationId,taskId,workId" ||
+    value.locale !== "ru" ||
+    !Number.isSafeInteger(value.workId) ||
+    value.workId <= 0 ||
+    !Number.isSafeInteger(value.taskId) ||
+    value.taskId <= 0 ||
+    typeof value.operationId !== "string" ||
+    !value.operationId ||
+    value.operationId.length > 256
+  )
+    throw new TypeError("invalid_work_action");
+  return requestGameOverBridge(options);
+}
+
 /** Read-only profile over one authenticated tunnel. Never performs a direct retry. */
 export function readProfileOverBridge(options = {}) {
   return readGameOverBridge({ ...options, path: "/api/me" });
