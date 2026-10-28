@@ -1,4 +1,5 @@
 import { validateTelegramInitData } from "../telegram/telegram-init-data.mjs";
+import { resolveBridgeBrowserSession } from "./browser-session.mjs";
 
 const MAX_BYTES = 8192;
 const headers = {
@@ -90,6 +91,34 @@ export function createBridgeDeviceHttp({
       }
       if (request.headers.get("origin") !== origin)
         return json(403, { error: "forbidden" });
+      if (
+        body.operation === "renew" &&
+        Object.keys(body).sort().join(",") === "operation"
+      ) {
+        if (!browserSessions || !accounts)
+          return json(503, { error: "bridge_unavailable" });
+        const authorization = request.headers.get("authorization") || "";
+        if (!authorization.startsWith("Bearer "))
+          return json(401, { error: "not_authorized" });
+        const token = authorization.slice(7);
+        const verified = browserSessions.verify(token);
+        const binding = resolveBridgeBrowserSession(token, {
+          sessions: browserSessions,
+          accounts,
+          devices: service,
+        });
+        if (!verified || !binding)
+          return json(401, { error: "not_authorized" });
+        const device = service.listDevice(binding.owner);
+        return json(200, {
+          session: browserSessions.issue(
+            binding.owner,
+            binding.revision,
+            device,
+            verified.until,
+          ),
+        });
+      }
       const owner = validateTelegramInitData(body.initData, botToken, {
         now: now(),
         maxAgeSeconds: 300,
