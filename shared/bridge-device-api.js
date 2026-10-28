@@ -61,6 +61,55 @@ export function createBridgeDeviceClient({
     return value;
   }
   return Object.freeze({
+    async renew(authorization, signal) {
+      if (
+        typeof authorization !== "string" ||
+        !/^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+          authorization,
+        )
+      )
+        throw failure("not_authorized");
+      let response;
+      try {
+        response = await fetcher("/api/bridge/device", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authorization,
+          },
+          body: JSON.stringify({ operation: "renew" }),
+          cache: "no-store",
+          credentials: "same-origin",
+          redirect: "error",
+          signal,
+        });
+      } catch {
+        throw failure("bridge_unavailable");
+      }
+      const value = await response.json().catch(() => null);
+      if (
+        !response.ok ||
+        typeof value?.session !== "string" ||
+        !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+          value.session,
+        ) ||
+        value.session.length > 2048
+      )
+        throw failure("bridge_unavailable");
+      return value.session;
+    },
+    async session(signal) {
+      const value = await command("session", {}, signal);
+      if (
+        typeof value.session !== "string" ||
+        !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+          value.session,
+        ) ||
+        value.session.length > 2048
+      )
+        throw failure("bridge_unavailable");
+      return value.session;
+    },
     async status(signal) {
       const value = await command("status", {}, signal);
       if (

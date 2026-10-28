@@ -5,6 +5,165 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 import { createAutomationService } from "../scripts/automation/service.mjs";
+import { createQueueActionGate } from "../scripts/bridge/queue-action-gate.mjs";
+
+test("automation rejects a bridge binding changed during profile verification", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-binding-race-"));
+  const store = createAutomationStateStore({ directory });
+  let credential = "Bearer first";
+  const service = createAutomationService({
+    store,
+    getBoss: () => null,
+    canonicalCredential: () => credential,
+    identifyPlayer: async () => {
+      credential = "Bearer replacement";
+      return { playerId: 101 };
+    },
+    fetcher: async () => Response.json({}),
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  try {
+    await assert.rejects(
+      service.identify("Bearer browser-session"),
+      /game_session_required/,
+    );
+    assert.equal(store.read("101"), null);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("automation keeps the server credential and revalidates a cached browser session", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-automation-session-"));
+  const store = createAutomationStateStore({ directory });
+  let valid = true;
+  const service = createAutomationService({
+    store,
+    getBoss: () => null,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    canonicalCredential: (value) => {
+      if (value !== "Bearer browser-session" || !valid)
+        throw new Error("invalid");
+      return "Bearer server-credential";
+    },
+    fetcher: async () => Response.json({}),
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  try {
+    const entry = await service.identify("Bearer browser-session");
+    assert.equal(store.read("101").credential, "Bearer server-credential");
+    assert.doesNotThrow(() => service.friends(entry, "Bearer browser-session"));
+    valid = false;
+    assert.throws(
+      () => service.friends(entry, "Bearer browser-session"),
+      /game_session_required/,
+    );
+    await assert.rejects(
+      service.refreshFriends(entry, "Bearer browser-session"),
+      /game_session_required/,
+    );
+    await assert.rejects(
+      service.identify("Bearer browser-session"),
+      /game_session_required/,
+    );
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("energy work persists its checkpoint before granting bridge dispatch", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "work-bridge-checkpoint-"));
+  const store = createAutomationStateStore({ directory });
+  const gate = createQueueActionGate();
+  const timers = [];
+  let progress = 0,
+    sends = 0;
+  const view = () => ({
+    workId: 7,
+    title: "Work",
+    completedCycles: progress,
+    tasks: [
+      { id: 1, required: 1, progress: 0, energyCost: 1, canPerform: true },
+    ],
+    energy: {
+      current: 5,
+      max: 10,
+      regenIntervalSeconds: 120,
+      secondsToNext: 100,
+    },
+  });
+  const service = createAutomationService({
+    store,
+    queueActionGate: gate,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    getBoss: () => null,
+    getBusinessCatalogue: () => ({
+      businesses: [],
+      works: [{ workId: 7 }],
+      businessUpgrades: [],
+      bosses: [],
+    }),
+    schedule: (callback) => {
+      const timer = { callback };
+      timers.push(timer);
+      return timer;
+    },
+    cancel: () => {},
+    fetcher: async (url, init = {}) => {
+      const path = new URL(url).pathname;
+      if (path === "/api/me")
+        return Response.json({ playerId: 101, energy: view().energy });
+      if (path === "/api/works/open") return Response.json(view());
+      if (path === "/api/works/tasks/perform") {
+        const saved = store.read("101").workFarm.run;
+        const body = JSON.parse(init.body);
+        assert.equal(saved.pending.operationId, body.operationId);
+        assert.equal(
+          gate.claim({
+            authorization: "Bearer fake",
+            method: "POST",
+            path,
+            body: init.body,
+          }),
+          true,
+        );
+        sends++;
+        progress++;
+        return Response.json(view());
+      }
+      return Response.json({});
+    },
+  });
+  try {
+    const entry = await service.identify("Bearer fake");
+    entry.workFarm.start({
+      workId: 7,
+      targetCycles: 1,
+      mode: "energy",
+      energyBudget: 1,
+      maxActions: 5,
+      durationHours: null,
+      maxBoosters: 0,
+      maxDollar: 0,
+      allowPurchase: false,
+    });
+    for (let n = 0; n < 20 && !sends; n++) {
+      timers.shift()?.callback();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(sends, 1, JSON.stringify(entry.workFarm.getSnapshot()));
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("account-owned work runner persists before POST, resumes without browser and isolates accounts", async () => {
   const directory = mkdtempSync(join(tmpdir(), "work-farm-service-"));
@@ -174,6 +333,13 @@ test("account-owned work runner persists before POST, resumes without browser an
       maxDollar: 0,
     };
     await command("work.plan", args);
+    assert.equal(
+      calls.filter(
+        (path) =>
+          path.startsWith("/api/works/tasks/") || path.includes("/boosters/"),
+      ).length,
+      mutationCount,
+    );
     assert.equal(service.snapshot(entry).workFarm.configs[7].targetCycles, 5);
     assert.equal(service.snapshot(entry).workFarm.view.plan.remainingEnergy, 2);
     // Background reads/other workers can advance the account version after

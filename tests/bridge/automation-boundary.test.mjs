@@ -41,6 +41,27 @@ test("bridge identity guard rejects stale sessions and all automation mutations"
     const response = await runtime.handle(post);
     assert.equal(response.status, 403);
     assert.equal((await response.json()).error, "bridge_actions_disabled");
+    const queued = await runtime.handle(
+      new Request("http://localhost/api/automation/commands", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer current",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          command: "queue.enqueue",
+          args: {
+            type: "friend.response",
+            action: { playerId: 42, decision: "accept" },
+          },
+        }),
+      }),
+    );
+    assert.equal(queued.status, 503);
+    assert.equal(
+      (await queued.json()).error,
+      "automation_game_requests_disabled",
+    );
     const stale = await runtime.handle(
       new Request("http://localhost/api/automation/profile-level", {
         headers: { Authorization: "Bearer stale" },
@@ -53,7 +74,7 @@ test("bridge identity guard rejects stale sessions and all automation mutations"
       }),
     );
     assert.equal(current.status, 503);
-    assert.equal(checks, 3);
+    assert.equal(checks, 4);
   } finally {
     runtime?.close();
     rmSync(directory, { recursive: true, force: true });

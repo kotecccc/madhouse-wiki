@@ -5,6 +5,79 @@ import { createGameRouter } from "../../scripts/bridge/game-router.mjs";
 const identity = Object.freeze({ verifiedPlayer: "101" });
 const url = "https://cargohustle.online/api/me";
 
+test("work task is passed only to the guarded bridge action", async () => {
+  let captured;
+  const router = createGameRouter({
+    resolveRoute: async () => ({
+      policy: "bridge_required",
+      owner: "101",
+      epoch: 1,
+    }),
+    directFetch: () => assert.fail("direct fallback"),
+    bridgeProfile: () => assert.fail("unexpected profile"),
+    bridgeAction: async (owner, method, path, options) => {
+      captured = { owner, method, path, body: options.body };
+      throw Object.assign(new Error("denied"), { code: "denied" });
+    },
+  });
+  const body = JSON.stringify({
+    workId: 7,
+    taskId: 2,
+    locale: "ru",
+    operationId: "op",
+  });
+  await assert.rejects(
+    router.fetchGame({
+      url: "https://cargohustle.online/api/works/tasks/perform",
+      init: { method: "POST", body },
+      verifiedIdentity: identity,
+    }),
+    { code: "denied" },
+  );
+  assert.deepEqual(captured, {
+    owner: "101",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body,
+  });
+});
+
+test("only the fixed work-view POST is routed as a bridge read", async () => {
+  let observed;
+  const router = createGameRouter({
+    resolveRoute: async () => ({
+      policy: "bridge_required",
+      owner: "101",
+      epoch: 1,
+    }),
+    directFetch: () => assert.fail("direct fallback"),
+    bridgeProfile: () => assert.fail("unexpected profile"),
+    bridgeRead: async (_owner, path, options) => {
+      observed = { path, ...options };
+      return new Response("{}");
+    },
+  });
+  const body = JSON.stringify({ workId: 7, locale: "ru" });
+  await router.fetchGame({
+    url: "https://cargohustle.online/api/works/open",
+    init: { method: "POST", body },
+    verifiedIdentity: identity,
+  });
+  assert.equal(observed.body, body);
+  assert.equal(observed.method, "POST");
+  await assert.rejects(
+    router.fetchGame({
+      url: "https://cargohustle.online/api/works/open",
+      init: {
+        method: "POST",
+        body: '{"workId":7,"locale":"ru","action":true}',
+      },
+      verifiedIdentity: identity,
+    }),
+    { code: "bridge_operation_not_supported" },
+  );
+});
+
 test("bridge profile never falls back to direct on outage", async () => {
   let direct = 0;
   const router = createGameRouter({

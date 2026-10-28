@@ -7,8 +7,12 @@ import { test } from "node:test";
 import {
   readGameOverBridge,
   readProfileOverBridge,
+  sendWorkTaskOverBridge,
+  sendFriendResponseOverBridge,
 } from "../../scripts/bridge/profile-client.mjs";
 import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-connector.mjs";
+import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
+import { createWorkActionPermit } from "../../scripts/bridge/work-action-permit.mjs";
 
 const cert = await readFile(
   new URL("./fixtures/cargo-cert.pem", import.meta.url),
@@ -16,6 +20,272 @@ const cert = await readFile(
 const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
+
+test("a stopped work checkpoint sends no request after TLS connects", async () => {
+  let received = 0;
+  const server = createServer({ cert, key }, (_req, res) => {
+    received++;
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const gate = createQueueActionGate();
+  const body = JSON.stringify({
+    workId: 7,
+    taskId: 2,
+    locale: "ru",
+    operationId: "op-stopped",
+  });
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body,
+  };
+  const permit = createWorkActionPermit({
+    authorization: request.authorization,
+    workId: 7,
+    taskId: 2,
+    operationId: "op-stopped",
+    checkpointIsCurrent: () => false,
+  });
+  const validateTunnel = () => gate.claim(request);
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await gate.runWork(permit, async () =>
+      assert.rejects(
+        sendWorkTaskOverBridge({ ...request, validateTunnel, connector }),
+        { code: "bridge_mutation_not_admitted" },
+      ),
+    );
+    assert.equal(received, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a lost work response cannot reuse the dispatch permit", async () => {
+  let received = 0;
+  const server = createServer({ cert, key }, (req) => {
+    received++;
+    req.resume();
+    req.on("end", () => req.socket.destroy());
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const gate = createQueueActionGate();
+  const body = JSON.stringify({
+    workId: 7,
+    taskId: 2,
+    locale: "ru",
+    operationId: "op-lost",
+  });
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body,
+  };
+  const permit = createWorkActionPermit({
+    authorization: request.authorization,
+    workId: 7,
+    taskId: 2,
+    operationId: "op-lost",
+    checkpointIsCurrent: () => true,
+  });
+  const validateTunnel = () => gate.claim(request);
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await gate.runWork(permit, async () => {
+      await assert.rejects(
+        sendWorkTaskOverBridge({ ...request, validateTunnel, connector }),
+      );
+      await assert.rejects(
+        sendWorkTaskOverBridge({ ...request, validateTunnel, connector }),
+        { code: "bridge_mutation_not_admitted" },
+      );
+    });
+    assert.equal(received, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("work checkpoint permits a single TLS request and rejects a second", async () => {
+  let received = 0;
+  const server = createServer({ cert, key }, (req, res) => {
+    received++;
+    req.resume();
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const gate = createQueueActionGate();
+  const body = JSON.stringify({
+    workId: 7,
+    taskId: 2,
+    locale: "ru",
+    operationId: "op-1",
+  });
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body,
+  };
+  const permit = createWorkActionPermit({
+    authorization: request.authorization,
+    workId: 7,
+    taskId: 2,
+    operationId: "op-1",
+    checkpointIsCurrent: () => true,
+  });
+  const validateTunnel = () => gate.claim(request);
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await gate.runWork(permit, async () => {
+      assert.equal(
+        (
+          await sendWorkTaskOverBridge({
+            ...request,
+            validateTunnel,
+            connector,
+          })
+        ).status,
+        200,
+      );
+      await assert.rejects(
+        sendWorkTaskOverBridge({ ...request, validateTunnel, connector }),
+        { code: "bridge_mutation_not_admitted" },
+      );
+    });
+    assert.equal(received, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("work task transport rejects missing permission and altered payload", () => {
+  const request = {
+    authorization: "Bearer fake",
+    method: "POST",
+    path: "/api/works/tasks/perform",
+    body: JSON.stringify({
+      workId: 7,
+      taskId: 2,
+      locale: "ru",
+      operationId: "op-1",
+    }),
+  };
+  assert.throws(() => sendWorkTaskOverBridge(request), {
+    message: "invalid_work_action",
+  });
+  assert.throws(
+    () =>
+      sendWorkTaskOverBridge({
+        ...request,
+        validateTunnel: () => true,
+        body: '{"workId":7,"taskId":2,"locale":"ru","operationId":"op-1","extra":true}',
+      }),
+    { message: "invalid_work_action" },
+  );
+  assert.throws(
+    () =>
+      sendWorkTaskOverBridge({
+        ...request,
+        validateTunnel: () => true,
+        path: "/api/me/bag/boosters/buy",
+      }),
+    { message: "invalid_work_action" },
+  );
+});
+
+test("queued action checks permission after TLS before sending any bytes", async () => {
+  let requests = 0;
+  const server = createServer({ cert, key }, (_req, res) => {
+    requests++;
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const validateTunnel = () => false;
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await assert.rejects(
+      sendFriendResponseOverBridge({
+        authorization: "Bearer fake-token",
+        method: "POST",
+        path: "/api/friends/requests/42/accept",
+        validateTunnel,
+        connector,
+      }),
+      { code: "bridge_mutation_not_admitted" },
+    );
+    assert.equal(requests, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("work view accepts only the bounded read request over the verified tunnel", async () => {
+  let seen;
+  const server = createServer({ cert, key }, async (req, res) => {
+    const parts = [];
+    for await (const part of req) parts.push(part);
+    seen = {
+      method: req.method,
+      url: req.url,
+      body: JSON.parse(Buffer.concat(parts)),
+    };
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+  });
+  try {
+    const request = {
+      authorization: "Bearer fake-token",
+      path: "/api/works/open",
+      method: "POST",
+      body: JSON.stringify({ workId: 7, locale: "ru" }),
+      connector,
+    };
+    assert.equal((await readGameOverBridge(request)).status, 200);
+    assert.deepEqual(seen, {
+      method: "POST",
+      url: "/api/works/open",
+      body: { workId: 7, locale: "ru" },
+    });
+    for (const body of [
+      '{"workId":7,"locale":"ru","action":true}',
+      '{"workId":0,"locale":"ru"}',
+      "{}",
+    ])
+      assert.throws(() => readGameOverBridge({ ...request, body }), {
+        message: "invalid_profile_request",
+      });
+    assert.throws(
+      () => readGameOverBridge({ ...request, path: "/api/works/open?x=1" }),
+      { message: "invalid_profile_request" },
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("selected game reads preserve their query inside the verified tunnel", async () => {
   let seen;
@@ -168,6 +438,39 @@ test("rejects a truncated profile rather than treating it as a result", async ()
     await assert.rejects(
       readProfileOverBridge({ authorization: "Bearer fake-token", connector }),
     );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("queued battle action forwards its exact operation through TLS", async () => {
+  let seen;
+  const server = createServer({ cert, key }, async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    seen = { path: req.url, body: JSON.parse(Buffer.concat(chunks)) };
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const validateTunnel = () => true;
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  try {
+    await sendFriendResponseOverBridge({
+      authorization: "Bearer fake-token",
+      method: "POST",
+      path: "/api/bosses/battles/battle-1/attack",
+      body: JSON.stringify({ operationId: "op" }),
+      validateTunnel,
+      connector,
+    });
+    assert.deepEqual(seen, {
+      path: "/api/bosses/battles/battle-1/attack",
+      body: { operationId: "op" },
+    });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

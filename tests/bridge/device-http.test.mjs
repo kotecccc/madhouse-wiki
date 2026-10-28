@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { createBridgeDeviceHttp } from "../../scripts/bridge/device-http.mjs";
 import { createDeviceRegistry } from "../../scripts/bridge/device-registry.mjs";
 import { createBridgeDeviceService } from "../../scripts/bridge/device-service.mjs";
+import { createBridgeBrowserSessions } from "../../scripts/bridge/browser-session.mjs";
 
 const botToken = "fake-bot-token";
 const origin = "https://wiki.example";
@@ -29,6 +30,89 @@ function request(path, body, requestOrigin = origin) {
     body: JSON.stringify(body),
   });
 }
+
+test("session renewal requires a current binding and preserves its deadline", async () => {
+  let current = now;
+  let device = { deviceId: "device", generation: 1 };
+  const sessions = createBridgeBrowserSessions({
+    key: Buffer.alloc(32, 7),
+    now: () => current,
+  });
+  const handler = createBridgeDeviceHttp({
+    service: { listDevice: () => device },
+    accounts: {
+      read: () => ({ revision: 2, authorization: "Bearer private" }),
+    },
+    browserSessions: sessions,
+    botToken,
+    origin,
+    now: () => current,
+    consume: () => true,
+  });
+  const token = sessions.issue("101", 2, device);
+  const send = () =>
+    handler(
+      new Request(`${origin}/api/bridge/device`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin,
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ operation: "renew" }),
+      }),
+      "127.0.0.1",
+    );
+  current += 600000;
+  const renewed = await send();
+  assert.equal(renewed.status, 200);
+  assert.equal(
+    sessions.verify((await renewed.json()).session).until,
+    sessions.verify(token).until,
+  );
+  device = null;
+  assert.equal((await send()).status, 401);
+});
+
+test("session issuance requires a verified owner and existing device binding", async () => {
+  const handler = createBridgeDeviceHttp({
+    service: {
+      listDevice: (owner) =>
+        owner === "101" ? { deviceId: "device", generation: 1 } : null,
+    },
+    accounts: { getRevision: (owner) => (owner === "101" ? 2 : 0) },
+    browserSessions: {
+      issue: (owner, revision, device) =>
+        `${owner}-${revision}-${device.deviceId}`,
+    },
+    botToken,
+    origin,
+    now: () => now,
+    consume: () => true,
+  });
+  const send = (id) =>
+    handler(
+      request("/api/bridge/device", {
+        operation: "session",
+        initData: initData(id),
+      }),
+      "127.0.0.1",
+    );
+  assert.deepEqual(await (await send(101)).json(), { session: "101-2-device" });
+  assert.equal((await send(102)).status, 409);
+  assert.equal(
+    (
+      await handler(
+        request("/api/bridge/device", {
+          operation: "session",
+          initData: "invalid",
+        }),
+        "127.0.0.1",
+      )
+    ).status,
+    401,
+  );
+});
 
 test("verified Telegram owner pairs, lists and revokes only their device", async () => {
   const db = new DatabaseSync(":memory:");

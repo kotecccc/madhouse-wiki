@@ -1,4 +1,6 @@
+import { INVENTORY_ACTION_TYPES } from "../automation/inventory-actions.mjs";
 import { Agent, request } from "node:https";
+import { gameReadPaths } from "./game-read-paths.mjs";
 import {
   CARGO_HOST,
   createGameTlsDuplexConnector,
@@ -6,7 +8,17 @@ import {
 
 const MAX_PROFILE_BYTES = 4 * 1024 * 1024;
 const PROFILE_TIMEOUT_MS = 20_000;
+const documentedReadPaths = gameReadPaths.map(
+  (path) =>
+    new RegExp(
+      `^${path
+        .split("*")
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[A-Za-z0-9_$-]+")}$`,
+    ),
+);
 const readPaths = [
+  ...documentedReadPaths,
   /^\/api\/me$/,
   /^\/api\/me\/bag$/,
   /^\/api\/floors$/,
@@ -24,10 +36,36 @@ export function isAllowedGameRead(path) {
   );
 }
 
+// The existing work UI uses this POST to read the work view; accept no other
+// fields so this exception cannot become a generic mutation transport.
+export function isAllowedWorkView(method, path, body) {
+  if (
+    method !== "POST" ||
+    path !== "/api/works/open" ||
+    typeof body !== "string" ||
+    body.length > 256
+  )
+    return false;
+  try {
+    const value = JSON.parse(body);
+    return (
+      value &&
+      Object.keys(value).sort().join(",") === "locale,workId" &&
+      value.locale === "ru" &&
+      Number.isSafeInteger(value.workId) &&
+      value.workId > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Selected read-only game data over an authenticated tunnel. */
-export function readGameOverBridge({
+function requestGameOverBridge({
   authorization,
   path,
+  method,
+  body,
   openTunnel,
   validateTunnel = null,
   signal,
@@ -37,8 +75,7 @@ export function readGameOverBridge({
   if (
     typeof authorization !== "string" ||
     !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
-    typeof connector !== "function" ||
-    !isAllowedGameRead(path)
+    typeof connector !== "function"
   )
     throw new TypeError("invalid_profile_request");
 
@@ -50,9 +87,18 @@ export function readGameOverBridge({
         protocol: "https:",
         hostname: CARGO_HOST,
         port: 443,
-        method: "GET",
+        method,
         path,
-        headers: { Accept: "application/json", Authorization: authorization },
+        headers: {
+          Accept: "application/json",
+          Authorization: authorization,
+          ...(body
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(body),
+              }
+            : {}),
+        },
         agent,
         signal,
       },
@@ -99,8 +145,124 @@ export function readGameOverBridge({
       agent.destroy();
     });
     req.once("error", reject);
-    req.end();
+    req.end(body);
   });
+}
+
+export function readGameOverBridge(options = {}) {
+  if (
+    !(
+      (options.method == null || options.method === "GET") &&
+      options.body == null &&
+      isAllowedGameRead(options.path)
+    ) &&
+    !isAllowedWorkView(options.method, options.path, options.body)
+  )
+    throw new TypeError("invalid_profile_request");
+  return requestGameOverBridge({ ...options, method: options.method || "GET" });
+}
+
+export function isBattleActionRoute(method, path) {
+  return (
+    method === "POST" &&
+    (/^\/api\/bosses\/invitations\/[A-Za-z0-9_-]{1,120}\/accept$/.test(path) ||
+      path === "/api/stash/craft" ||
+      path === "/api/character-stats/upgrade" ||
+      /^\/api\/businesses\/[1-9][0-9]*\/upgrade$/.test(path) ||
+      path === "/api/me/bag/combat-items/buy" ||
+      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/items\/use$/.test(path) ||
+      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/invitations\/bulk$/.test(
+        path,
+      ) ||
+      /^\/api\/bosses\/[1-9][0-9]*\/battles$/.test(path) ||
+      /^\/api\/bosses\/battles\/[A-Za-z0-9_-]{1,120}\/attack$/.test(path))
+  );
+}
+
+export function isInventoryActionRoute(method, path) {
+  if (method === "POST" && path === "/api/weapons/repair") return true;
+  return Object.values(INVENTORY_ACTION_TYPES).some(
+    (def) =>
+      (method === "POST" && path === def.buy) ||
+      (method === def.method && path === def.equip) ||
+      (method === "DELETE" &&
+        def.remove &&
+        (def.remove.endsWith("/")
+          ? new RegExp(`^${def.remove}[1-9][0-9]*$`).test(path)
+          : path === def.remove)),
+  );
+}
+
+/** Only the queue may supply the handshake-time permission for this action. */
+export function sendFriendResponseOverBridge(options = {}) {
+  const { method, path, validateTunnel } = options;
+  if (
+    typeof validateTunnel !== "function" ||
+    typeof path !== "string" ||
+    !(
+      isInventoryActionRoute(method, path) ||
+      isBattleActionRoute(method, path) ||
+      (method === "POST" &&
+        ([
+          "/api/friends/requests",
+          "/api/me/bag/boosters/use",
+          "/api/me/bag/boosters/buy",
+        ].includes(path) ||
+          /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path))) ||
+      (method === "DELETE" &&
+        /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path))
+    )
+  )
+    throw new TypeError("invalid_queued_action");
+  return requestGameOverBridge({
+    ...options,
+    body:
+      isInventoryActionRoute(method, path) || isBattleActionRoute(method, path)
+        ? options.body
+        : method === "POST"
+          ? [
+              "/api/friends/requests",
+              "/api/me/bag/boosters/use",
+              "/api/me/bag/boosters/buy",
+            ].includes(path)
+            ? options.body
+            : "{}"
+          : undefined,
+  });
+}
+
+/** A work mutation requires a separate checkpoint-bound handshake permission. */
+export function sendWorkTaskOverBridge(options = {}) {
+  const { method, path, body, validateTunnel } = options;
+  if (
+    method !== "POST" ||
+    path !== "/api/works/tasks/perform" ||
+    typeof body !== "string" ||
+    body.length > 1024 ||
+    typeof validateTunnel !== "function"
+  )
+    throw new TypeError("invalid_work_action");
+  let value;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    throw new TypeError("invalid_work_action");
+  }
+  if (
+    !value ||
+    Object.keys(value).sort().join(",") !==
+      "locale,operationId,taskId,workId" ||
+    value.locale !== "ru" ||
+    !Number.isSafeInteger(value.workId) ||
+    value.workId <= 0 ||
+    !Number.isSafeInteger(value.taskId) ||
+    value.taskId <= 0 ||
+    typeof value.operationId !== "string" ||
+    !value.operationId ||
+    value.operationId.length > 256
+  )
+    throw new TypeError("invalid_work_action");
+  return requestGameOverBridge(options);
 }
 
 /** Read-only profile over one authenticated tunnel. Never performs a direct retry. */

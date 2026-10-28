@@ -51,3 +51,21 @@ test("missing current level reports failure without returning old data", async (
     503,
   );
 });
+
+test("accepts asynchronously verified bridge identity and rejects revoked sessions", async () => {
+  let valid = true;
+  const handler = createProfileLevelHandler({
+    identity: async () => {
+      if (!valid) throw new Error("revoked");
+      return { playerId: 41 };
+    },
+    readProgress: async () => ({ exp: { level: 136 } }),
+  });
+  const request = () =>
+    new Request("http://localhost/api/automation/profile-level", {
+      headers: { Authorization: "Bearer bridge" },
+    });
+  assert.equal((await handler(request())).status, 200);
+  valid = false;
+  assert.equal((await handler(request())).status, 401);
+});

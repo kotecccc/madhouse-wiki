@@ -5,6 +5,12 @@ import { createBridgeDeviceService } from "./device-service.mjs";
 import { createBridgeStorage } from "./device-storage.mjs";
 import { createBridgeAwareAccountFetch } from "./bridge-aware-fetch.mjs";
 import { createConnectorLeaseIpcHandler } from "./connector-lease-ipc.mjs";
+import { createQueueActionGate } from "./queue-action-gate.mjs";
+import { createHmac } from "node:crypto";
+import {
+  createBridgeBrowserSessions,
+  resolveBridgeBrowserSession,
+} from "./browser-session.mjs";
 
 /**
  * Isolated composition boundary. The hosting server must gate activation,
@@ -20,6 +26,8 @@ export function createBridgeRuntime({
   heartbeatMs,
   readProfile,
   readGame,
+  sendAction,
+  sendWork,
   connectorIpcKey,
   witnessPath,
   provisionWitness = false,
@@ -34,18 +42,30 @@ export function createBridgeRuntime({
   });
   let service;
   let gateway;
+  const queueActionGate = createQueueActionGate();
+  const browserSessions = createBridgeBrowserSessions({
+    key: createHmac("sha256", botToken)
+      .update("madhouse-bridge-browser-session-v1")
+      .digest(),
+    ...(now ? { now } : {}),
+  });
   try {
     service = createBridgeDeviceService({ registry: storage.registry });
     const accountService = createBridgeAccountService({
       accounts: storage.accounts,
       devices: service,
       registry: storage.registry,
+      queueActionGate,
       ...(readProfile ? { readProfile } : {}),
       ...(readGame ? { readGame } : {}),
+      ...(sendAction ? { sendAction } : {}),
+      ...(sendWork ? { sendWork } : {}),
     });
     const handle = createBridgeDeviceHttp({
       service,
       accountService,
+      accounts: storage.accounts,
+      browserSessions,
       botToken,
       origin,
       consume,
@@ -68,6 +88,22 @@ export function createBridgeRuntime({
       : null;
     let closed = false;
     return Object.freeze({
+      queueActionGate,
+      canonicalCredential(authorization) {
+        const token =
+          typeof authorization === "string" &&
+          authorization.startsWith("Bearer ")
+            ? authorization.slice(7)
+            : "";
+        if (!browserSessions.isBridgeToken(token)) return authorization;
+        const session = resolveBridgeBrowserSession(token, {
+          sessions: browserSessions,
+          accounts: storage.accounts,
+          devices: service,
+        });
+        if (!session) throw new Error("bridge_session_invalid");
+        return session.authorization;
+      },
       handle,
       upgrade: gateway.upgrade,
       connectorLease(request, trustedPeer) {
@@ -79,7 +115,34 @@ export function createBridgeRuntime({
         if (closed) throw new Error("bridge_unavailable");
         return createBridgeAwareAccountFetch({
           snapshots,
-          accounts: storage.accounts,
+          accounts: {
+            ...storage.accounts,
+            resolveCredential(authorization) {
+              const session =
+                typeof authorization === "string" &&
+                authorization.startsWith("Bearer ")
+                  ? resolveBridgeBrowserSession(authorization.slice(7), {
+                      sessions: browserSessions,
+                      accounts: storage.accounts,
+                      devices: service,
+                    })
+                  : null;
+              if (session)
+                return {
+                  policy: "bridge_required",
+                  owner: session.owner,
+                  epoch: session.revision,
+                  credentialCurrent: true,
+                };
+              if (
+                typeof authorization === "string" &&
+                authorization.startsWith("Bearer ") &&
+                browserSessions.isBridgeToken(authorization.slice(7))
+              )
+                throw new Error("bridge_session_invalid");
+              return storage.accounts.resolveCredential(authorization);
+            },
+          },
           directCredentials: storage.directCredentials,
           directRoutes: storage.directRoutes,
           accountService,

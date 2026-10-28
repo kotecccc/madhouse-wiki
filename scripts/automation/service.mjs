@@ -1,3 +1,4 @@
+import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
 import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
@@ -5,6 +6,7 @@ import { weaponEquipment } from "./weapon-equipment.mjs";
 import { createBattleAssistant } from "./battle-assistant.mjs";
 import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
+import { createWorkActionPermit } from "../bridge/work-action-permit.mjs";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
 import {
   createGameOutageFetch,
@@ -217,8 +219,10 @@ export function createAutomationService({
   }),
   fetcher = fetch,
   identifyPlayer,
+  canonicalCredential = (authorization) => authorization,
   accountHealth = () => null,
   snapshotFetch = fetcher,
+  queueActionGate = null,
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -270,6 +274,9 @@ export function createAutomationService({
       now,
       requestPriority: requestPriority.current,
       captureRequestContext: requestPriority.capture,
+      ...(queueActionGate
+        ? { captureDispatchContext: queueActionGate.capture }
+        : {}),
       beforeDispatch: (_url, _init, isQueuedAttempt) => {
         const overallDeadline = queueNotBefore(null);
         const deadline =
@@ -431,6 +438,7 @@ export function createAutomationService({
       auto: entry.auto.exportState(),
       pausedAuto: entry.pausedAuto,
       manualBattle: entry.manualBattle,
+      bridgeInvitation: entry.bridgeInvitation,
       pendingAutomation: entry.pendingAutomation,
       assistant: entry.assistant.exportState(),
       pvp: entry.pvp,
@@ -492,16 +500,17 @@ export function createAutomationService({
       onConfirmed,
       runId,
       post: async (body) => {
-        const response = await fetcher(
-          "https://cargohustle.online/api/character-stats/upgrade",
-          {
+        const path = "/api/character-stats/upgrade";
+        const requestBody = JSON.stringify(body);
+        const send = () =>
+          fetcher(`https://cargohustle.online${path}`, {
             method: "POST",
             headers: {
               Authorization: credential,
               Accept: "application/json",
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(body),
+            body: requestBody,
             redirect: "error",
             cache: "no-store",
             signal: AbortSignal.timeout(20000),
@@ -509,8 +518,43 @@ export function createAutomationService({
               ensureLease();
               return permitted();
             },
-          },
-        );
+          });
+        const pending = entry.characterUpgrade.pending;
+        let response;
+        if (queueActionGate) {
+          if (
+            !pending ||
+            pending.id !== body.operationId ||
+            pending.stat !== body.stat ||
+            (pending.amount ?? 1) !== body.amount ||
+            Object.keys(body).sort().join(",") !== "amount,operationId,stat"
+          )
+            throw failure(409, "character_checkpoint_missing");
+          let used = false;
+          const permit = ({
+            authorization,
+            method,
+            path: target,
+            body: outgoing,
+          }) => {
+            const current = entry.characterUpgrade.pending;
+            if (
+              used ||
+              authorization !== credential ||
+              method !== "POST" ||
+              target !== path ||
+              outgoing !== requestBody ||
+              current?.id !== pending.id ||
+              current?.stat !== pending.stat ||
+              (current?.amount ?? 1) !== body.amount ||
+              !permitted()
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          response = await queueActionGate.runWork(permit, send);
+        } else response = await send();
         const result = await response.json();
         if (
           !response.ok &&
@@ -884,6 +928,7 @@ export function createAutomationService({
       queueActiveBooster: false,
       pausedAuto: saved?.pausedAuto ?? null,
       manualBattle: saved?.manualBattle ?? { pending: null, receipts: [] },
+      bridgeInvitation: saved?.bridgeInvitation ?? null,
       pendingAutomation: saved?.pendingAutomation ?? null,
       queueBattleDispatch: null,
       version: saved?.version ?? 0,
@@ -923,7 +968,7 @@ export function createAutomationService({
         }
         const dispatchGeneration = entry.autoStartGeneration ?? 0;
         const credential = entry.credential;
-        const response = await fetcher(url, {
+        const options = {
           ...init,
           redirect: "error",
           canDispatch: () => {
@@ -944,7 +989,139 @@ export function createAutomationService({
                 : canAct(entry))
             );
           },
-        }).catch((error) => {
+        };
+        const send = () => fetcher(url, options);
+        const pending = entry.assistant?.queuedState().pending;
+        const automaticBattle =
+          !entry.queueBattleDispatch &&
+          pending &&
+          !pending.queueId &&
+          (entry.auto?.getSnapshot().enabled ||
+            entry.raidWorker?.getSnapshot().enabled ||
+            entry.collector?.running());
+        let sent;
+        if (queueActionGate && automaticBattle && init.method === "POST") {
+          const path = new URL(url).pathname;
+          const requestBody = init.body;
+          let parsed;
+          try {
+            parsed = JSON.parse(requestBody);
+          } catch {
+            throw failure(409, "battle_checkpoint_missing");
+          }
+          const expectedPath =
+            pending.kind === "start"
+              ? `/api/bosses/${pending.bossId}/battles`
+              : pending.kind === "attack"
+                ? `/api/bosses/battles/${pending.battleId}/attack`
+                : pending.kind === "heal"
+                  ? `/api/bosses/battles/${pending.battleId}/items/use`
+                  : pending.kind === "buy"
+                    ? "/api/me/bag/combat-items/buy"
+                    : pending.kind === "invite"
+                      ? `/api/bosses/battles/${pending.battleId}/invitations/bulk`
+                      : null;
+          const expectedBody =
+            pending.kind === "heal"
+              ? { type: pending.type, operationId: pending.operationId }
+              : pending.kind === "buy"
+                ? {
+                    type: pending.quote?.type,
+                    currency: pending.quote?.currency,
+                    quantity: pending.quote?.quantity,
+                    operationId: pending.operationId,
+                  }
+                : pending.kind === "invite"
+                  ? {
+                      operationId: pending.operationId,
+                      onlyAvailable: true,
+                      onlyOnline: false,
+                    }
+                  : { operationId: pending.operationId };
+          const matches = (x, y) =>
+            x &&
+            y &&
+            Object.keys(x).length === Object.keys(y).length &&
+            Object.keys(y).every((key) => x[key] === y[key]);
+          if (
+            !expectedPath ||
+            path !== expectedPath ||
+            !pending.operationId ||
+            !matches(parsed, expectedBody)
+          )
+            throw failure(409, "battle_checkpoint_missing");
+          let used = false;
+          const permit = ({ authorization, method, path: target, body }) => {
+            const current = entry.assistant?.queuedState().pending;
+            if (
+              used ||
+              authorization !== credential ||
+              method !== "POST" ||
+              target !== expectedPath ||
+              body !== requestBody ||
+              current?.operationId !== pending.operationId ||
+              current?.kind !== pending.kind ||
+              current?.battleId !== pending.battleId ||
+              current?.queueId ||
+              !options.canDispatch() ||
+              !(
+                entry.auto?.getSnapshot().enabled ||
+                entry.raidWorker?.getSnapshot().enabled ||
+                entry.collector?.running()
+              )
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          sent = queueActionGate.runWork(permit, send);
+        } else if (
+          queueActionGate &&
+          !entry.queueBattleDispatch &&
+          init.method === "POST" &&
+          entry.bridgeInvitation &&
+          new URL(url).pathname ===
+            `/api/bosses/invitations/${entry.bridgeInvitation.invitationId}/accept`
+        ) {
+          const pendingInvitation = entry.bridgeInvitation;
+          const path = new URL(url).pathname;
+          let parsed;
+          try {
+            parsed = JSON.parse(init.body);
+          } catch {
+            throw failure(409, "invitation_checkpoint_missing");
+          }
+          if (
+            !parsed ||
+            Object.keys(parsed).join(",") !== "operationId" ||
+            parsed.operationId !== pendingInvitation.operationId
+          )
+            throw failure(409, "invitation_checkpoint_missing");
+          let used = false;
+          const permit = ({ authorization, method, path: target, body }) => {
+            const current = entry.bridgeInvitation;
+            const state = entry.controller.getSnapshot().pendingInvitation;
+            if (
+              used ||
+              authorization !== credential ||
+              method !== "POST" ||
+              target !== path ||
+              body !== init.body ||
+              current?.operationId !== pendingInvitation.operationId ||
+              current?.invitationId !== pendingInvitation.invitationId ||
+              state?.invitationId !== pendingInvitation.invitationId ||
+              state?.battleId !== pendingInvitation.battleId ||
+              typeof entry.bridgeInvitationAllowed !== "function" ||
+              !entry.bridgeInvitationAllowed() ||
+              !options.canDispatch()
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          sent = queueActionGate.runWork(permit, send);
+        } else sent = send();
+        const response = await sent.catch((error) => {
           if (error.notDispatched && init.method === "POST")
             entry.assistant?.releaseUnsent(
               JSON.parse(init.body || "null")?.operationId,
@@ -995,7 +1172,12 @@ export function createAutomationService({
             try {
               const maintenance = await recoverBrokenWeapon({
                 entry,
-                fetcher,
+                fetcher: createWeaponRecoveryFetch({
+                  fetcher,
+                  gate: queueActionGate,
+                  entry,
+                  allowed: automated,
+                }),
                 save,
                 allowed: automated,
               });
@@ -1133,22 +1315,56 @@ export function createAutomationService({
             save(entry);
             return !entry.storageFailed;
           },
-          post: (path, body) =>
-            fetcher(`https://cargohustle.online${path}`, {
-              method: "POST",
-              headers: {
-                Authorization: credential,
-                Accept: "application/json",
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(body),
-              redirect: "error",
-              signal: AbortSignal.timeout(20000),
-              canDispatch: () => {
-                ensureLease();
-                return allowed();
-              },
-            }),
+          post: (path, body) => {
+            const requestBody = JSON.stringify(body);
+            const send = () =>
+              fetcher(`https://cargohustle.online${path}`, {
+                method: "POST",
+                headers: {
+                  Authorization: credential,
+                  Accept: "application/json",
+                  "Content-Type": "application/json",
+                },
+                body: requestBody,
+                redirect: "error",
+                signal: AbortSignal.timeout(20000),
+                canDispatch: () => {
+                  ensureLease();
+                  return allowed();
+                },
+              });
+            if (!queueActionGate) return send();
+            const pending = run.pendingUpgrade;
+            if (
+              !pending ||
+              path !== `/api/businesses/${pending.businessId}/upgrade` ||
+              body.operationId !== pending.operationId ||
+              Object.keys(body).join(",") !== "operationId"
+            )
+              throw failure(409, "business_checkpoint_missing");
+            let used = false;
+            const permit = ({
+              authorization,
+              method,
+              path: target,
+              body: outgoing,
+            }) => {
+              if (
+                used ||
+                authorization !== credential ||
+                method !== "POST" ||
+                target !== path ||
+                outgoing !== requestBody ||
+                run.pendingUpgrade?.operationId !== pending.operationId ||
+                run.pendingUpgrade?.businessId !== pending.businessId ||
+                !allowed()
+              )
+                return false;
+              used = true;
+              return true;
+            };
+            return queueActionGate.runWork(permit, send);
+          },
         });
       },
       now,
@@ -1206,12 +1422,17 @@ export function createAutomationService({
           (work) => Number(work.workId ?? work.numericId ?? work.apiId) === id,
         ),
       request: async (method, path, body, { signal, canDispatch } = {}) => {
-        if (closed || entry.storageFailed || !entry.credential)
+        if (
+          closed ||
+          entry.restoring ||
+          entry.storageFailed ||
+          !entry.credential
+        )
           throw failure(503, "automation_stopped");
         save(entry);
         if (entry.storageFailed)
           throw failure(503, "automation_storage_unavailable");
-        const response = await fetcher(`https://cargohustle.online${path}`, {
+        const fetchOptions = {
           method,
           headers: {
             Authorization: entry.credential,
@@ -1225,7 +1446,110 @@ export function createAutomationService({
             ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
             : AbortSignal.timeout(20000),
           ...(canDispatch ? { canDispatch } : {}),
-        });
+        };
+        const send = () =>
+          fetcher(`https://cargohustle.online${path}`, fetchOptions);
+        let response;
+        if (
+          queueActionGate &&
+          method === "POST" &&
+          path === "/api/works/tasks/perform"
+        ) {
+          const credential = entry.credential;
+          const pending = entry.workFarm.getSnapshot().run?.pending;
+          if (
+            !pending ||
+            pending.kind !== "performing" ||
+            pending.operationId !== body?.operationId ||
+            pending.taskId !== body?.taskId
+          )
+            throw failure(409, "work_checkpoint_missing");
+          const permit = createWorkActionPermit({
+            authorization: credential,
+            workId: body.workId,
+            taskId: body.taskId,
+            operationId: body.operationId,
+            checkpointIsCurrent: () => {
+              const run = entry.workFarm.getSnapshot().run;
+              return (
+                !closed &&
+                !entry.storageFailed &&
+                !entry.restoring &&
+                !fetchOptions.signal.aborted &&
+                entry.credential === credential &&
+                run?.status === "running" &&
+                run.workId === body.workId &&
+                run.pending?.kind === "performing" &&
+                run.pending.operationId === body.operationId &&
+                run.pending.taskId === body.taskId
+              );
+            },
+          });
+          response = await queueActionGate.runWork(permit, send);
+        } else if (
+          queueActionGate &&
+          method === "POST" &&
+          ["/api/me/bag/boosters/use", "/api/me/bag/boosters/buy"].includes(
+            path,
+          )
+        ) {
+          const credential = entry.credential;
+          const state = entry.workFarm.getSnapshot();
+          const buying = path.endsWith("/buy");
+          const pending = state.manualPending ?? state.run?.pending;
+          const manual = Boolean(state.manualPending);
+          if (
+            !pending ||
+            !["small", "full"].includes(body?.type) ||
+            body.type !== pending.type ||
+            (manual
+              ? buying || Object.keys(body).join(",") !== "type"
+              : buying
+                ? pending.kind !== "buying" ||
+                  Object.keys(body).sort().join(",") !==
+                    "operationId,quantity,type" ||
+                  body.quantity !== 1 ||
+                  body.operationId !== pending.operationId
+                : pending.kind !== "refilling" ||
+                  Object.keys(body).join(",") !== "type")
+          )
+            throw failure(409, "work_checkpoint_missing");
+          let used = false;
+          const permit = ({
+            authorization,
+            method: requestMethod,
+            path: target,
+            body: outgoing,
+          }) => {
+            const current = entry.workFarm.getSnapshot();
+            const checkpoint = manual
+              ? current.manualPending
+              : current.run?.pending;
+            if (
+              used ||
+              authorization !== credential ||
+              requestMethod !== "POST" ||
+              target !== path ||
+              outgoing !== fetchOptions.body ||
+              closed ||
+              entry.restoring ||
+              entry.storageFailed ||
+              entry.credential !== credential ||
+              fetchOptions.signal.aborted ||
+              checkpoint?.operationId !== pending.operationId ||
+              checkpoint?.type !== pending.type ||
+              (manual
+                ? checkpoint?.commandId !== pending.commandId
+                : current.run?.status !== "running" ||
+                  checkpoint?.kind !== pending.kind) ||
+              (canDispatch && !canDispatch())
+            )
+              return false;
+            used = true;
+            return true;
+          };
+          response = await queueActionGate.runWork(permit, send);
+        } else response = await send();
         if (!response.ok) {
           const error = failure(
             response.status,
@@ -1874,7 +2198,35 @@ export function createAutomationService({
         currentReservation = { until: actionQueueReadyAt };
         return currentReservation;
       },
-      runInContext: requestPriority.run,
+      runInContext: (job, reconcile, callback, reservation, canDispatch) => {
+        const run = () =>
+          requestPriority.run(job, reconcile, callback, reservation);
+        return queueActionGate
+          ? queueActionGate.run(
+              job,
+              reconcile,
+              entry.credential,
+              run,
+              canDispatch,
+              () =>
+                job.type === "stash.craft"
+                  ? entry.stashCraft?.pending
+                  : ["battle.heal", "battle.buy"].includes(job.type)
+                    ? entry.assistant?.queuedState().pending
+                    : [
+                          "battle.start",
+                          "battle.attack",
+                          "invitation.accept",
+                        ].includes(job.type)
+                      ? entry.manualBattle?.pending
+                      : job.type === "inventory"
+                        ? entry.equipment?.pending
+                        : job.type === "energy.booster"
+                          ? entry.energyBooster?.pending
+                          : entry.raidFriend?.pending,
+            )
+          : run();
+      },
       onResult: (result) => {
         const refill = entry.energyBooster.pending;
         if (
@@ -2523,7 +2875,26 @@ export function createAutomationService({
         (goal.boss.id !== invitation.bossId || goal.status !== "active")
       )
         entry.goal.reset();
-      await entry.controller.acceptInvitation(boss, invitation, { beforeSend });
+      const reserveInvitation = (operation) => {
+        if (!beforeSend(operation)) return false;
+        if (queueActionGate && !entry.queueBattleDispatch) {
+          if (!allowed()) return false;
+          entry.bridgeInvitationAllowed = allowed;
+          entry.bridgeInvitation = {
+            invitationId: invitation.invitationId,
+            battleId: invitation.battleId,
+            bossId: invitation.bossId,
+            operationId: operation.operationId,
+          };
+          save(entry);
+          if (entry.storageFailed)
+            throw failure(503, "automation_storage_unavailable");
+        }
+        return true;
+      };
+      await entry.controller.acceptInvitation(boss, invitation, {
+        beforeSend: reserveInvitation,
+      });
       if (
         entry.controller.getSnapshot().pendingInvitation ||
         entry.controller.getSnapshot().needsRefresh ||
@@ -2532,6 +2903,8 @@ export function createAutomationService({
       )
         throw failure(409, "invitation_state_uncertain");
     }
+    if (entry.bridgeInvitation?.invitationId === invitationId)
+      entry.bridgeInvitation = null;
     entry.invitations.items = entry.invitations.items.filter(
       (item) => item.invitationId !== invitationId,
     );
@@ -2547,6 +2920,12 @@ export function createAutomationService({
       !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
     )
       throw failure(401, "game_session_required");
+    let internalCredential;
+    try {
+      internalCredential = canonicalCredential(authorization);
+    } catch {
+      throw failure(401, "game_session_required");
+    }
     const hash = createHash("sha256").update(authorization).digest("hex");
     const cached = identities.get(hash);
     if (cached?.until > now()) {
@@ -2556,8 +2935,8 @@ export function createAutomationService({
       // A different verified session may have replaced this actor's saved
       // credential. Never let an old cached token operate using the new one.
       if (
-        entry.credential === authorization &&
-        accountHealth(authorization)?.status !== "credentials_invalid"
+        entry.credential === internalCredential &&
+        accountHealth(internalCredential)?.status !== "credentials_invalid"
       )
         return entry;
     }
@@ -2568,9 +2947,15 @@ export function createAutomationService({
         ? identifyPlayer(authorization)
         : gameJson(authorization, "/api/me"));
       if (!positive(me?.playerId)) throw failure(401, "invalid_game_identity");
+      try {
+        if (canonicalCredential(authorization) !== internalCredential)
+          throw new Error("changed");
+      } catch {
+        throw failure(401, "game_session_required");
+      }
       const playerId = String(me.playerId);
       const entry = await actor(playerId);
-      entry.credential = authorization;
+      entry.credential = internalCredential;
       entry.player = {
         playerId: me.playerId,
         nickname:
@@ -4445,17 +4830,26 @@ export function createAutomationService({
       throw error;
     }
   }
+  function requireEntryCredential(entry, authorization) {
+    let credential;
+    try {
+      credential = canonicalCredential(authorization);
+    } catch {
+      throw failure(401, "game_session_required");
+    }
+    if (
+      entry.credential !== credential ||
+      accountHealth(credential)?.status === "credentials_invalid"
+    )
+      throw failure(401, "game_session_required");
+  }
   return {
     identify,
     launch,
     snapshot,
     command,
     async refreshFriends(entry, authorization) {
-      if (
-        entry.credential !== authorization ||
-        accountHealth(authorization)?.status === "credentials_invalid"
-      )
-        throw failure(401, "game_session_required");
+      requireEntryCredential(entry, authorization);
       entry.friendSnapshot.enabled = true;
       if (!entry.friendSnapshot.failures) entry.friendSnapshot.nextAt = 0;
       save(entry);
@@ -4465,11 +4859,7 @@ export function createAutomationService({
       return { scheduled: true };
     },
     friends(entry, authorization) {
-      if (
-        entry.credential !== authorization ||
-        accountHealth(authorization)?.status === "credentials_invalid"
-      )
-        throw failure(401, "game_session_required");
+      requireEntryCredential(entry, authorization);
       if (!entry.friendSnapshot.enabled) {
         entry.friendSnapshot.enabled = true;
         entry.friendSnapshot.nextAt = 0;

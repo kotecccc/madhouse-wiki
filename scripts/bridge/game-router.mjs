@@ -1,5 +1,10 @@
 const GAME_ORIGIN = "https://cargohustle.online";
-import { isAllowedGameRead } from "./profile-client.mjs";
+import {
+  isAllowedGameRead,
+  isAllowedWorkView,
+  isInventoryActionRoute,
+  isBattleActionRoute,
+} from "./profile-client.mjs";
 const fail = (code) => Object.assign(new Error(code), { code });
 
 const MAX_DIRECT_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -36,6 +41,7 @@ export function createGameRouter({
   directFetch,
   bridgeProfile,
   bridgeRead,
+  bridgeAction,
   withDirectLease,
 } = {}) {
   if (
@@ -126,21 +132,66 @@ export function createGameRouter({
     if (route.credentialCurrent === false) throw fail("game_credentials_stale");
     const method = String(init.method || "GET").toUpperCase();
     const path = parsed.pathname + parsed.search;
-    if (
-      method !== "GET" ||
-      init.body != null ||
-      !isAllowedGameRead(path) ||
-      (parsed.pathname === "/api/me" && parsed.search)
-    )
-      throw fail("bridge_operation_not_supported");
     // A bridge error is final; it is never retried via directFetch.
     let result;
-    if (path === "/api/me") {
-      result = await bridgeProfile(route.owner, { signal: init.signal });
+    if (
+      method === "GET" &&
+      init.body == null &&
+      isAllowedGameRead(path) &&
+      !(parsed.pathname === "/api/me" && parsed.search)
+    ) {
+      if (path === "/api/me") {
+        result = await bridgeProfile(route.owner, { signal: init.signal });
+      } else {
+        if (typeof bridgeRead !== "function")
+          throw fail("bridge_operation_not_supported");
+        result = await bridgeRead(route.owner, path, { signal: init.signal });
+      }
+    } else if (
+      isAllowedWorkView(method, path, init.body) &&
+      typeof bridgeRead === "function"
+    ) {
+      result = await bridgeRead(route.owner, path, {
+        signal: init.signal,
+        method,
+        body: init.body,
+      });
+    } else if (
+      typeof bridgeAction === "function" &&
+      method === "POST" &&
+      path === "/api/works/tasks/perform" &&
+      typeof init.body === "string"
+    ) {
+      result = await bridgeAction(route.owner, method, path, {
+        signal: init.signal,
+        body: init.body,
+      });
+    } else if (
+      typeof bridgeAction === "function" &&
+      !parsed.search &&
+      (((isInventoryActionRoute(method, path) ||
+        isBattleActionRoute(method, path)) &&
+        (init.body == null || typeof init.body === "string")) ||
+        (method === "POST" &&
+          [
+            "/api/friends/requests",
+            "/api/me/bag/boosters/use",
+            "/api/me/bag/boosters/buy",
+          ].includes(path) &&
+          typeof init.body === "string") ||
+        (method === "POST" &&
+          /^\/api\/friends\/requests\/[1-9][0-9]*\/accept$/.test(path) &&
+          init.body === "{}") ||
+        (method === "DELETE" &&
+          /^\/api\/friends\/(?:requests\/)?[1-9][0-9]*$/.test(path) &&
+          init.body == null))
+    ) {
+      result = await bridgeAction(route.owner, method, path, {
+        signal: init.signal,
+        body: init.body,
+      });
     } else {
-      if (typeof bridgeRead !== "function")
-        throw fail("bridge_operation_not_supported");
-      result = await bridgeRead(route.owner, path, { signal: init.signal });
+      throw fail("bridge_operation_not_supported");
     }
     let current;
     try {

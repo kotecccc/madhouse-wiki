@@ -8,6 +8,7 @@ import { createAutomationStateStore } from "./state-store.mjs";
 import { createAutomationService } from "./service.mjs";
 import { createAutomationHttp, nodeAutomationHandler } from "./http.mjs";
 import { readKnowledgeBase } from "../catalogue/query.mjs";
+import { isAllowedBridgeQueueCommand } from "../bridge/queue-command.mjs";
 
 export async function createAutomationRuntime({
   root = process.cwd(),
@@ -27,7 +28,14 @@ export async function createAutomationRuntime({
     ? createPlayerProgressReader({ fetcher: transport.fetch })
     : createPlayerProgressReader();
   const profileLevel = createProfileLevelHandler({
-    identity: snapshots.identity,
+    identity: bridge
+      ? async (authorization) => {
+          const route = await transport.verifyLocal(authorization);
+          if (route.policy === "bridge_required")
+            return (await service.identify(authorization)).player;
+          return snapshots.identity(authorization);
+        }
+      : snapshots.identity,
     readProgress: readPlayerProgress,
     origin: env.WIKI_PUBLIC_ORIGIN,
   });
@@ -38,6 +46,8 @@ export async function createAutomationRuntime({
     store,
     fetcher: transport.liveFetch,
     snapshotFetch: transport.fetch,
+    ...(bridge ? { queueActionGate: bridge.queueActionGate } : {}),
+    ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     accountHealth: snapshots.health,
     identifyPlayer: async (authorization) => {
       const response = await transport.fetch(
@@ -95,7 +105,11 @@ export async function createAutomationRuntime({
           headers: { "Cache-Control": "private, no-store" },
         });
       }
-      if (route.policy === "bridge_required" && request.method !== "GET")
+      if (
+        route.policy === "bridge_required" &&
+        request.method !== "GET" &&
+        !(await isAllowedBridgeQueueCommand(request))
+      )
         return new Response(
           JSON.stringify({ error: "bridge_actions_disabled" }),
           {
@@ -124,7 +138,18 @@ export async function createAutomationRuntime({
       )
         return new Response(null, { status: 403, headers });
       const authorization = request.headers.get("authorization");
-      const identity = snapshots.identity(authorization);
+      let identity;
+      try {
+        const route = bridge
+          ? await transport.verifyLocal(authorization)
+          : null;
+        identity =
+          route?.policy === "bridge_required"
+            ? (await service.identify(authorization)).player
+            : snapshots.identity(authorization);
+      } catch {
+        identity = null;
+      }
       return identity
         ? new Response(JSON.stringify(identity), { headers })
         : new Response(null, { status: 404, headers });
@@ -147,7 +172,13 @@ export async function createAutomationRuntime({
       try {
         await service.identify(authorization);
         return new Response(
-          JSON.stringify(snapshots.inventory(authorization)),
+          JSON.stringify(
+            snapshots.inventory(
+              bridge
+                ? bridge.canonicalCredential(authorization)
+                : authorization,
+            ),
+          ),
           { headers },
         );
       } catch (error) {

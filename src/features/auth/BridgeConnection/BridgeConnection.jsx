@@ -185,7 +185,9 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
             Скопировать команду
           </Button>
           <CardDescription>
-            Вставьте команду в iSH на iPhone или в Терминал на Mac.
+            Вставьте команду в iSH на iPhone или в Терминал на Mac. На iPhone
+            разрешите геолокацию для работы при переключении приложений;
+            координаты не сохраняются.
           </CardDescription>
         </>
       )}
@@ -203,7 +205,7 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
               onClick={() =>
                 perform(async () => {
                   await client.profile();
-                  setMessage("Игровая сессия работает через мост.");
+                  setMessage("Игровой профиль доступен через мост.");
                 })
               }
             >

@@ -1,6 +1,8 @@
 import {
   readGameOverBridge,
   readProfileOverBridge,
+  sendFriendResponseOverBridge,
+  sendWorkTaskOverBridge,
 } from "./profile-client.mjs";
 
 function failure(code) {
@@ -32,6 +34,9 @@ export function createBridgeAccountService({
   registry,
   readProfile = readProfileOverBridge,
   readGame = readGameOverBridge,
+  sendAction = sendFriendResponseOverBridge,
+  sendWork = sendWorkTaskOverBridge,
+  queueActionGate = null,
 } = {}) {
   if (
     !accounts ||
@@ -128,7 +133,7 @@ export function createBridgeAccountService({
     return { profile: sanitize(result.profile) };
   }
 
-  async function read(verifiedOwner, path, { signal } = {}) {
+  async function read(verifiedOwner, path, { signal, method, body } = {}) {
     const account = accounts.read(verifiedOwner);
     if (!account) throw failure("account_not_configured");
     const device = devices.listDevice(verifiedOwner);
@@ -143,6 +148,8 @@ export function createBridgeAccountService({
       result = await readGame({
         authorization: account.authorization,
         path,
+        method,
+        body,
         signal,
         openTunnel: () => devices.open(verifiedOwner, { signal }),
         validateTunnel: () => registry.isActive(identity),
@@ -163,8 +170,60 @@ export function createBridgeAccountService({
     return result;
   }
 
+  async function send(
+    verifiedOwner,
+    method,
+    path,
+    { signal, body, callerAuthorization, validateCaller } = {},
+  ) {
+    const account = accounts.read(verifiedOwner);
+    if (!account || !queueActionGate) throw failure("bridge_unavailable");
+    const device = devices.listDevice(verifiedOwner);
+    if (!device) throw failure("device_unavailable");
+    const identity = {
+      owner: registry.ownerKey(verifiedOwner),
+      device: device.deviceId,
+      generation: device.generation,
+    };
+    let result;
+    try {
+      const sender =
+        path === "/api/works/tasks/perform" ? sendWork : sendAction;
+      result = await sender({
+        authorization: account.authorization,
+        method,
+        path,
+        body,
+        signal,
+        openTunnel: () => devices.open(verifiedOwner, { signal }),
+        validateTunnel: () =>
+          registry.isActive(identity) &&
+          accounts.getRevision(verifiedOwner) === account.revision &&
+          (validateCaller ? validateCaller() === true : true) &&
+          queueActionGate.claim({
+            authorization: callerAuthorization ?? account.authorization,
+            method,
+            path,
+            body,
+          }),
+      });
+    } catch {
+      throw failure("bridge_unavailable");
+    }
+    if (
+      !registry.isActive(identity) ||
+      accounts.getRevision(verifiedOwner) !== account.revision ||
+      !Number.isInteger(result?.status) ||
+      result.status < 200 ||
+      result.status > 599 ||
+      !Buffer.isBuffer(result.body)
+    )
+      throw failure("bridge_unavailable");
+    return result;
+  }
+
   function status(verifiedOwner) {
     return accounts.getRevision(verifiedOwner) > 0 ? "saved" : "not_configured";
   }
-  return Object.freeze({ bind, profile, read, status });
+  return Object.freeze({ bind, profile, read, send, status });
 }

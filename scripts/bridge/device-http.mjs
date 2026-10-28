@@ -1,4 +1,5 @@
 import { validateTelegramInitData } from "../telegram/telegram-init-data.mjs";
+import { resolveBridgeBrowserSession } from "./browser-session.mjs";
 
 const MAX_BYTES = 8192;
 const headers = {
@@ -39,6 +40,8 @@ async function readBody(request) {
 export function createBridgeDeviceHttp({
   service,
   accountService,
+  browserSessions,
+  accounts,
   botToken,
   origin,
   consume,
@@ -88,6 +91,34 @@ export function createBridgeDeviceHttp({
       }
       if (request.headers.get("origin") !== origin)
         return json(403, { error: "forbidden" });
+      if (
+        body.operation === "renew" &&
+        Object.keys(body).sort().join(",") === "operation"
+      ) {
+        if (!browserSessions || !accounts)
+          return json(503, { error: "bridge_unavailable" });
+        const authorization = request.headers.get("authorization") || "";
+        if (!authorization.startsWith("Bearer "))
+          return json(401, { error: "not_authorized" });
+        const token = authorization.slice(7);
+        const verified = browserSessions.verify(token);
+        const binding = resolveBridgeBrowserSession(token, {
+          sessions: browserSessions,
+          accounts,
+          devices: service,
+        });
+        if (!verified || !binding)
+          return json(401, { error: "not_authorized" });
+        const device = service.listDevice(binding.owner);
+        return json(200, {
+          session: browserSessions.issue(
+            binding.owner,
+            binding.revision,
+            device,
+            verified.until,
+          ),
+        });
+      }
       const owner = validateTelegramInitData(body.initData, botToken, {
         now: now(),
         maxAgeSeconds: 300,
@@ -115,6 +146,20 @@ export function createBridgeDeviceHttp({
         return json(200, {
           device: await service.status(owner.id),
           account: accountService.status(owner.id),
+        });
+      }
+      if (
+        body.operation === "session" &&
+        Object.keys(body).sort().join(",") === "initData,operation"
+      ) {
+        if (!browserSessions || !accounts)
+          return json(503, { error: "bridge_unavailable" });
+        const device = service.listDevice(owner.id);
+        const revision = accounts.getRevision(owner.id);
+        if (!device || revision < 1)
+          return json(409, { error: "account_not_configured" });
+        return json(200, {
+          session: browserSessions.issue(owner.id, revision, device),
         });
       }
       if (
