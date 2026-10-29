@@ -12,6 +12,26 @@ const tokenA = "Bearer tokenA.payload.sig";
 const tokenARotated = "Bearer tokenA2.payload.sig";
 const tokenB = "Bearer tokenB.payload.sig";
 
+test("a failed recovery scan releases the new worker lease before boot fails", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "recovery-lease-failure-"));
+  const store = createAutomationStateStore({ directory });
+  const service = createAutomationService({
+    store,
+    getBoss: () => null,
+    onLeaseAcquired: () => {
+      throw new Error("scan_failed");
+    },
+  });
+  try {
+    await assert.rejects(service.boot(), /scan_failed/);
+    assert.equal(store.acquireLease("replacement", Date.now(), 1000), true);
+    store.releaseLease("replacement");
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("queue move is durable and repeating its receipt does not move twice", async () => {
   await withContext(async ({ service, store, game }) => {
     const entry = await service.identify(tokenA);

@@ -172,6 +172,7 @@ function makeBridge({
   });
   const service = createAutomationService({
     store,
+    onLeaseAcquired: () => boundary.installBridgeStore(store),
     queueActionGate: gate,
     identifyPlayer: async () => ({ playerId: 101 }),
     getBoss: (id) => ({ numericId: id, name: "Fake boss", possibleDrops: [] }),

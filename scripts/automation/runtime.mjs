@@ -41,8 +41,11 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
-  if (installGameRecoveryStore) installGameRecoveryStore(store);
-  else bridge?.installRecoveryStore?.(store);
+  const restoreGameRestrictions = () => {
+    if (installGameRecoveryStore) installGameRecoveryStore(store);
+    else bridge?.installRecoveryStore?.(store);
+  };
+  restoreGameRestrictions();
   const snapshots = createAccountSnapshots({
     store,
     ...(gameFetcher ? { fetcher: gameFetcher } : {}),
@@ -174,6 +177,7 @@ export async function createAutomationRuntime({
     : null;
   const service = createAutomationService({
     store,
+    onLeaseAcquired: restoreGameRestrictions,
     fetcher: (url, init) =>
       transport.liveFetch(url, { ...init, gameSource: "automation" }),
     snapshotFetch: (url, init) =>

@@ -231,6 +231,7 @@ export function createAutomationService({
   accountHealth = () => null,
   snapshotFetch = fetcher,
   queueActionGate = null,
+  onLeaseAcquired = () => {},
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -267,6 +268,18 @@ export function createAutomationService({
       ? store.renewOwnedLease(owner, timestamp, 15000)
       : store.acquireLease(owner, timestamp, 15000);
     if (!acquired) throw failure(503, "automation_worker_unavailable");
+    if (!leaseAcquired) {
+      try {
+        onLeaseAcquired();
+      } catch (error) {
+        try {
+          store.releaseLease(owner);
+        } catch {
+          // Preserve the restoration error; an unreleased lease expires.
+        }
+        throw error;
+      }
+    }
     leaseAcquired = true;
   }
   let temporaryOutage = emptyGameOutage();

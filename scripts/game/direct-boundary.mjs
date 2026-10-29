@@ -54,9 +54,15 @@ export function createDirectBoundary({
   const players = new Map();
   let bridgeStore = null;
   let recoveryReady = !requireBridgeJournal;
+  const durableBlockIds = new Set();
+  function blockAttempt(id, accountId, deviceId) {
+    if (durableBlockIds.has(id)) return;
+    executor.blockAttempt(id, accountId, deviceId);
+    durableBlockIds.add(id);
+  }
   function installBridgeStore(store) {
     if (
-      bridgeStore ||
+      (bridgeStore && bridgeStore !== store) ||
       typeof store?.readActiveBridgeAttempts !== "function" ||
       typeof store?.createBridgeAttempt !== "function" ||
       typeof store?.compareAndSetBridgeAttempt !== "function"
@@ -75,7 +81,7 @@ export function createDirectBoundary({
         )
           throw new Error("bridge_attempt_stale");
       } else {
-        executor.blockAttempt(
+        blockAttempt(
           attempt.id,
           `player:${attempt.playerId}`,
           attempt.deviceId,
@@ -215,7 +221,7 @@ export function createDirectBoundary({
         if (!dispatched) throw new Error("bridge_attempt_stale");
         attempt = dispatched;
       } catch (error) {
-        executor.blockAttempt(attemptId, accountId, deviceId);
+        blockAttempt(attemptId, accountId, deviceId);
         throw Object.assign(error, { notDispatched: true });
       }
       let result;
@@ -261,13 +267,13 @@ export function createDirectBoundary({
           )
             throw new Error("bridge_attempt_stale", { cause: error });
         } catch {
-          executor.blockAttempt(attempt.id, accountId, deviceId);
+          blockAttempt(attempt.id, accountId, deviceId);
           throw Object.assign(new Error("bridge_attempt_store_unavailable"), {
             cause: error,
           });
         }
         if (phase === "uncertain")
-          executor.blockAttempt(attempt.id, accountId, deviceId);
+          blockAttempt(attempt.id, accountId, deviceId);
         throw error;
       }
       try {
@@ -284,7 +290,7 @@ export function createDirectBoundary({
         )
           throw new Error("bridge_attempt_stale");
       } catch (error) {
-        executor.blockAttempt(attempt.id, accountId, deviceId);
+        blockAttempt(attempt.id, accountId, deviceId);
         throw error;
       }
       return result;

@@ -232,6 +232,8 @@ test("late transport callbacks cannot clear a journal fence after lease takeover
     });
     restartedBoundary.installBridgeStore(secondStore);
     assert.equal(restartedBoundary.diagnostics().durableBlocks, 1);
+    restartedBoundary.installBridgeStore(secondStore);
+    assert.equal(restartedBoundary.diagnostics().durableBlocks, 1);
 
     // The old transport reports stop and then returns its late HTTP response.
     // Neither callback may make the restored durable attempt appear resolved.
@@ -264,6 +266,92 @@ test("late transport callbacks cannot clear a journal fence after lease takeover
     restartedBoundary?.close();
     firstStore.close();
     secondStore.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("same-store recovery restores a fence created after the boundary first installed it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-late-journal-install-"));
+  const ownerAStore = createAutomationStateStore({ directory: dir });
+  const ownerBStore = createAutomationStateStore({ directory: dir });
+  const otherStore = createAutomationStateStore({ directory: dir });
+  const boundaryA = createDirectBoundary({ env, requireBridgeJournal: true });
+  const boundaryB = createDirectBoundary({ env, requireBridgeJournal: true });
+  let leaseNow;
+  let markDispatched;
+  let resolveTransport;
+  const dispatched = new Promise((resolve) => {
+    markDispatched = resolve;
+  });
+  const transportResponse = new Promise((resolve) => {
+    resolveTransport = resolve;
+  });
+  try {
+    const leaseStart = Date.now();
+    leaseNow = leaseStart;
+    assert.equal(ownerAStore.acquireLease("owner-a", leaseStart, 10), true);
+    boundaryA.installBridgeStore(ownerAStore);
+    boundaryB.installBridgeStore(ownerBStore);
+    assert.equal(boundaryB.diagnostics().durableBlocks, 0);
+
+    const ownerARequest = withWorkerLease(
+      "owner-a",
+      () => leaseNow,
+      () =>
+        boundaryA.bridge({
+          ...options,
+          execute: () => {
+            markDispatched();
+            return transportResponse;
+          },
+        }),
+    );
+    await dispatched;
+    const beforeTakeover = ownerBStore.readActiveBridgeAttempts();
+    assert.equal(beforeTakeover.length, 1);
+    assert.equal(beforeTakeover[0].phase, "dispatched");
+
+    leaseNow = leaseStart + 11;
+    assert.equal(ownerBStore.acquireLease("owner-b", leaseNow, 10), true);
+    const afterTakeover = ownerBStore.readActiveBridgeAttempts();
+    assert.equal(afterTakeover.length, 1);
+    assert.equal(afterTakeover[0].revision, beforeTakeover[0].revision + 1);
+
+    // B installed this same store before A's attempt existed; rescan it now.
+    boundaryB.installBridgeStore(ownerBStore);
+    assert.equal(boundaryB.diagnostics().durableBlocks, 1);
+    assert.throws(
+      () => boundaryB.installBridgeStore(otherStore),
+      /bridge_attempt_store_invalid/u,
+    );
+
+    let sends = 0;
+    const controller = new AbortController();
+    const blockedRequest = withWorkerLease(
+      "owner-b",
+      () => leaseNow,
+      () =>
+        boundaryB.bridge({
+          ...options,
+          signal: controller.signal,
+          execute: () => {
+            sends++;
+          },
+        }),
+    );
+    controller.abort();
+    await assert.rejects(blockedRequest, (error) => error.notDispatched);
+    assert.equal(sends, 0);
+
+    resolveTransport({ status: 200 });
+    await ownerARequest.catch(() => {});
+    assert.deepEqual(ownerBStore.readActiveBridgeAttempts(), afterTakeover);
+  } finally {
+    boundaryA.close();
+    boundaryB.close();
+    ownerAStore.close();
+    ownerBStore.close();
+    otherStore.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
