@@ -42,6 +42,7 @@ const invitationReasons = new Set([
   "insufficient_combat_energy",
   "insufficient_energy",
   "combat_cooldown",
+  "weapon_broken",
 ]);
 
 // Only fixed field names, known codes and hashes reach the log; server text,

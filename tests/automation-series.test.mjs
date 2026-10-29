@@ -57,6 +57,47 @@ test("a ready farm defers the next fight and a waiting farm releases it", async 
   }
 });
 
+test("stopping during weapon preparation never starts the fight", async () => {
+  let release;
+  let starts = 0;
+  let timer;
+  const barrier = new Promise((resolve) => {
+    release = resolve;
+  });
+  const series = createBattleSeries({
+    controller: {
+      getSnapshot: () => ({ boss: { id: 7 }, battle: null, canStart: true }),
+      subscribe: () => () => {},
+      prepareStart: async () => barrier,
+      start: async () => {
+        starts++;
+      },
+      attack: async () => {},
+    },
+    goal: {
+      getSnapshot: () => ({ status: "active" }),
+      canStart: () => true,
+      subscribe: () => () => {},
+    },
+    schedule: (callback) => {
+      timer = callback;
+      return 1;
+    },
+    cancel: () => {},
+    now: () => 1000,
+  });
+  try {
+    assert.equal(series.start(), true);
+    const advancing = timer();
+    series.stop();
+    release();
+    await advancing;
+    assert.equal(starts, 0);
+  } finally {
+    series.dispose();
+  }
+});
+
 test("auto start receipts survive actor replacement and reload", () => {
   const state = { boss: { id: 7 }, battle: null, canStart: true };
   const options = {
@@ -206,9 +247,16 @@ function setup({
     }
     if (
       inventory &&
-      ["/api/clothing/by-category/1", "/api/weapons/buy"].includes(url.pathname)
+      [
+        "/api/clothing/by-category/1",
+        "/api/weapons/buy",
+        "/api/weapons/repair",
+        "/api/weapons/select",
+      ].includes(url.pathname)
     )
       return inventory.fetcher(input, init);
+    if (method === "GET" && url.pathname === "/api/clothing/by-category/1")
+      return Response.json({ success: true, items: [] });
     if (url.pathname === "/api/me")
       return Response.json({
         playerId: 101,
@@ -523,6 +571,35 @@ for (const mode of ["auto", "raid"])
       );
     });
   });
+
+test("autobattle checks a broken weapon before starting a fight", async (t) => {
+  for (const failMutation of [false, true]) {
+    await t.test(
+      failMutation
+        ? "uncertain repair blocks start"
+        : "confirmed repair permits start",
+      async () => {
+        const inventory = inventoryGame({
+          owned: true,
+          equipped: true,
+          broken: true,
+          pills: 10000,
+          failMutation,
+        });
+        await withSetup({ inventory }, async (ctx) => {
+          const entry = await ctx.openAndConfigure();
+          await ctx.command(entry, "autostart-weapon", "auto.start");
+          await ctx.advance(0, entry);
+          await ctx.advance(2000, entry);
+          assert.equal(inventory.mutations().length, 1);
+          assert.equal(inventory.mutations()[0].path, "/api/weapons/repair");
+          assert.equal(ctx.starts, failMutation ? 0 : 1);
+          if (failMutation) assert.ok(ctx.store.read("101").equipment.pending);
+        });
+      },
+    );
+  }
+});
 
 test("goal-bound series wins two battles and does not start a third", async () => {
   await withSetup({}, async (ctx) => {
@@ -878,6 +955,8 @@ test("enabled series restored at terminal checkpoint resumes once after prefligh
             return Response.json({ playerId: 101, nickname: "Player" });
           if (path === "/api/combat")
             return Response.json({ activeBattle: null });
+          if (path === "/api/clothing/by-category/1")
+            return Response.json({ success: true, items: [] });
           if (path === bossPath)
             return Response.json({
               id: 7,
