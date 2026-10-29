@@ -117,6 +117,34 @@ test("stored automation state reports only the owner's unresolved bridge attempt
   });
 });
 
+test("saved reconciling action is not reported as clear when no transport fence remains", async () => {
+  await withContext(async ({ service, store, game }) => {
+    store.write("101", {
+      credential: tokenA,
+      player: { playerId: 101 },
+      queuedActions: [
+        {
+          id: "attack-job-1",
+          type: "battle.attack",
+          status: "reconciling",
+          args: { bossId: 7, battleId: "battle-1" },
+          attempts: 1,
+          nextAt: 1000000,
+          createdAt: 1,
+        },
+      ],
+    });
+    const entry = await service.readStored(tokenA);
+    assert.deepEqual(service.snapshot(entry).recovery, {
+      status: "unresolved",
+      reason: "game_result_unconfirmed",
+      pending: 1,
+      autoCheck: false,
+    });
+    assert.equal(game.calls.length, 0);
+  });
+});
+
 test("queue.cancel reports unavailable storage instead of acknowledging a failed write", async () => {
   await withContext(async ({ service, store }) => {
     const entry = await service.identify(tokenA);

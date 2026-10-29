@@ -777,6 +777,7 @@ export function createAutomationService({
     // and reconciliation belong to the owner heartbeat/explicit jobs.
     const state = entry.controller.getSnapshot();
     const queueReadyAt = queueNotBefore(entry);
+    const queuedActions = entry.actionQueue.snapshot();
     const recovery = (() => {
       try {
         if (typeof store.readActiveBridgeAttempts !== "function")
@@ -786,12 +787,22 @@ export function createAutomationService({
           .filter(
             (attempt) => String(attempt.playerId) === String(entry.playerId),
           );
-        return attempts.length
+        if (attempts.length)
+          return {
+            status: "unresolved",
+            reason: "bridge_attempt_unconfirmed",
+            pending: attempts.length,
+            autoCheck: false,
+          };
+        const reconciling = queuedActions.filter(
+          (job) => job.status === "reconciling",
+        );
+        return reconciling.length
           ? {
               status: "unresolved",
-              reason: "bridge_attempt_unconfirmed",
-              pending: attempts.length,
-              autoCheck: false,
+              reason: "game_result_unconfirmed",
+              pending: reconciling.length,
+              autoCheck: Boolean(heartbeat) && !entry.storageFailed,
             }
           : { status: "clear", pending: 0, autoCheck: false };
       } catch {
@@ -884,7 +895,7 @@ export function createAutomationService({
         entry.invitations.items,
         now(),
       ),
-      queuedActions: entry.actionQueue.snapshot(),
+      queuedActions,
       queueNotBefore: queueReadyAt,
       gameHealth: accountHealth(entry.credential),
       version: entry.version,

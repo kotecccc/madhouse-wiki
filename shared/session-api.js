@@ -524,6 +524,7 @@ export function createSessionApi({
         return Promise.reject(error);
       }
       if (options.revalidate === false) eventDrivenPaths.add(path);
+      else eventDrivenPaths.delete(path);
       const cached = entries.get(path);
       if (
         !options.fresh &&

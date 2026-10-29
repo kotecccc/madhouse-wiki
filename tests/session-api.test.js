@@ -925,8 +925,36 @@ test("event-driven wardrobe lists never poll on TTL, reopening, or background sw
     2,
   );
   assert.deepEqual(headers, ["1", null]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal((await api.get(path)).revision, 2);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 3);
+  assert.deepEqual(headers, ["1", null, null]);
   account = "account-b";
-  assert.equal((await api.get(path, { revalidate: false })).revision, 3);
+  assert.equal((await api.get(path, { revalidate: false })).revision, 4);
+});
+
+test("a normal request restores snapshot revalidation after one event-driven read", async () => {
+  let clock = 1000;
+  let calls = 0;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 0,
+    ttl: 10,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async () => Response.json({ revision: ++calls }),
+  });
+  const path = "/api/me";
+  await api.get(path, { revalidate: false });
+  clock += 11;
+  api.refreshExpired();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+
+  assert.deepEqual(await api.get(path), { revision: 1 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 2);
+  assert.deepEqual(api.peek(path, { allowStale: true }), { revision: 2 });
 });
 
 test("observed game errors accept only safe function names and clear on recovery", async () => {
