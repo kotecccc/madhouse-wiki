@@ -20,7 +20,7 @@ health endpoints.
 
 The workflow publishes the image and SHA-256 checksum as a public GitHub
 Release named `vps-<source-sha>`. The VPS release timer polls the public latest
-release over HTTPS, requires the expected tag and asset names, verifies the
+release over HTTPS every 90 seconds (with up to five seconds of random delay), requires the expected tag and asset names, verifies the
 checksum, and loads the immutable image. Docker Compose waits for both
 containers to become healthy. If a new image does not pass health checks, the
 updater restores the previous release marker and starts the previous image.
@@ -64,7 +64,8 @@ timer and manual maintenance from racing.
 check and, if necessary, the same constrained image cleanup without fetching a
 release, loading an image or stopping/starting containers. This is an operational
 maintenance command and can delete eligible image tags; it is not a read-only
-check. The normal no-op when the latest SHA is already active remains quiet.
+check. The normal no-op when the latest SHA is already active remains quiet and does
+not recheck release ancestry. Ancestry is checked before every transition.
 
 ## Release notification
 

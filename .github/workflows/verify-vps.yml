@@ -23,16 +23,27 @@ jobs:
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
-      - name: Validate and build the Linux amd64 VPS image
-        run: |
-          BRIDGE_BOOTSTRAP_SHA256="$(node scripts/bridge/release-config.mjs)"
-          docker build --pull --platform linux/amd64 \
-            --file Dockerfile.vps \
-            --tag "madhouse-wiki:vps-${GITHUB_SHA}" \
-            --build-arg "MADHOUSE_RELEASE_SHA=${GITHUB_SHA}" \
-            --build-arg "VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru" \
-            --build-arg "VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=${BRIDGE_BOOTSTRAP_SHA256}" \
-            .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve Bridge bootstrap digest
+        id: bridge
+        run: echo "sha=$(node scripts/bridge/release-config.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate and build the immutable VPS image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.vps
+          platforms: linux/amd64
+          pull: true
+          load: true
+          tags: madhouse-wiki:vps-${{ github.sha }}
+          build-args: |
+            MADHOUSE_RELEASE_SHA=${{ github.sha }}
+            VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru
+            VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=${{ steps.bridge.outputs.sha }}
+          cache-from: type=gha,scope=vps-build
 
       - name: Validate VPS Compose configuration
         run: |

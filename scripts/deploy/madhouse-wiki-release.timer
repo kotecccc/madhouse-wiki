@@ -1,10 +1,11 @@
 [Unit]
-Description=Check for Madhouse Wiki VPS releases every five minutes
+Description=Check for Madhouse Wiki VPS releases every 90 seconds
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
-RandomizedDelaySec=45s
+OnUnitActiveSec=90s
+RandomizedDelaySec=5s
+AccuracySec=1s
 Persistent=true
 Unit=madhouse-wiki-release.service
 

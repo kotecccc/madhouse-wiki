@@ -286,6 +286,17 @@ test("same SHA is a no-op without stop, sleep, or up", () => {
   }
 });
 
+test("unchanged release with a rollback floor uses only the release metadata request", () => {
+  const f = fixture({ priorSha: candidate, floorSha: previous });
+  try {
+    assert.equal(f.run.status, 0, f.run.stderr);
+    assert.equal(f.calls.filter((call) => call.startsWith("curl ")).length, 1);
+    assert.deepEqual(lifecycle(f.calls), []);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("candidate stop failure preserves marker and starts neither candidate nor rollback", () => {
   const f = fixture({ stopFailures: [0] });
   try {

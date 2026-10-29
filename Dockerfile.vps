@@ -45,24 +45,28 @@ RUN apt-get update \
       libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
-FROM runtime-base AS build
-
-ARG MADHOUSE_RELEASE_SHA
-ARG VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru
-ARG VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=""
-ENV MADHOUSE_RELEASE_SHA=${MADHOUSE_RELEASE_SHA} \
-    VITE_TELEGRAM_CONNECTOR_ORIGIN=${VITE_TELEGRAM_CONNECTOR_ORIGIN} \
-    VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=${VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256}
-
-WORKDIR /app
+FROM node:24-bookworm-slim AS dependency-manifests
+WORKDIR /manifests
 COPY package.json package-lock.json ./
+# Release metadata changes on every deployment; it does not affect npm resolution.
+RUN node -e 'const fs = require("fs"); for (const file of ["package.json", "package-lock.json"]) { const data = JSON.parse(fs.readFileSync(file)); data.version = "0.0.0"; if (data.packages?.[""]) data.packages[""].version = "0.0.0"; fs.writeFileSync(file, JSON.stringify(data)); }'
+
+FROM runtime-base AS build
+WORKDIR /app
+COPY --from=dependency-manifests /manifests/package.json /manifests/package-lock.json ./
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci --include=dev
 RUN apt-get update \
     && apt-get install -y --no-install-recommends unzip python3 \
     && rm -rf /var/lib/apt/lists/* /opt/puppeteer \
     && npx puppeteer browsers install chrome
 COPY . .
-RUN npm run build:hosted \
+ARG MADHOUSE_RELEASE_SHA
+ARG VITE_TELEGRAM_CONNECTOR_ORIGIN=https://connect.madhouse-wiki.ru
+ARG VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=""
+ENV MADHOUSE_RELEASE_SHA=${MADHOUSE_RELEASE_SHA} \
+    VITE_TELEGRAM_CONNECTOR_ORIGIN=${VITE_TELEGRAM_CONNECTOR_ORIGIN} \
+    VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256=${VITE_MADHOUSE_BRIDGE_BOOTSTRAP_SHA256}
+RUN node scripts/catalogue/restore-seed.mjs \
     && npm run validate:data \
     && npm run lint:ui \
     && npm run lint \

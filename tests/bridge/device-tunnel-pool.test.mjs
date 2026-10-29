@@ -213,14 +213,15 @@ test("an idle connection loss waits for a freshly authenticated replacement", as
   }
 });
 
-test("a slow reconnect can complete a waiting request without replaying it", async () => {
+test("a slow reconnect can complete a waiting request without replaying it", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"] });
   const pool = createDeviceTunnelPool({ authorize: async () => true });
   try {
     const old = new FakeSocket();
     await pool.admit(identity, old);
     old.terminate();
     const pending = pool.open("owner-a");
-    await new Promise((resolve) => setTimeout(resolve, 5100));
+    t.mock.timers.tick(5100);
     const fresh = new FakeSocket();
     await pool.admit(identity, fresh);
     const stream = await pending;

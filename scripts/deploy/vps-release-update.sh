@@ -279,6 +279,11 @@ checksum_url="${release_info[1]}"
 candidate_sha="${release_info[2]}"
 image_tag="madhouse-wiki:vps-${candidate_sha}"
 
+# No transition is needed; avoid repeated ancestry API calls on every poll.
+if [[ "${candidate_sha}" == "${previous_sha}" ]]; then
+  exit 0
+fi
+
 if [[ -n "${minimum_safe_sha}" ]]; then
   if [[ -z "${previous_sha}" ]] || ! at_or_above_rollback_floor "${previous_sha}"; then
     echo "Current release is not verified above the rollback floor; refusing update" >&2
@@ -288,9 +293,6 @@ if [[ -n "${minimum_safe_sha}" ]]; then
     echo "Candidate is not verified above the rollback floor; refusing update" >&2
     exit 1
   fi
-fi
-if [[ "${candidate_sha}" == "${previous_sha}" ]]; then
-  exit 0
 fi
 
 prepare_space_paths
