@@ -41,6 +41,7 @@ These tests use fake `fetcher` responses, signed fixtures, in-memory clients, or
 
 ```sh
 node --test \
+  scripts/account/snapshots.test.mjs \
   tests/account-snapshot-integration.test.mjs \
   tests/bridge/connector-bootstrap.integration.test.mjs \
   tests/bridge/automation-actor-recovery.integration.test.mjs \
@@ -53,6 +54,7 @@ node --test \
 Expected coverage:
 
 - `account-snapshot-integration.test.mjs` restarts a local automation store, reads a saved identity while its fake upstream is offline, and verifies that queued intent or preferences do not cause a game POST.
+- `snapshots.test.mjs` also checks that an empty saved resource and a missing one remain distinct after reopening SQLite with an expired game token, without calling the game.
 - `connector-bootstrap.integration.test.mjs` exercises signed internal IPC with fake auth/profile responses. It checks an independent owner's bootstrap while another account remains fenced, rejects an invented lease, and keeps an already identified quarantined account blocked.
 - `automation-actor-recovery.integration.test.mjs` exercises the actor, queue gate, coordinator, bridge account service, and SQLite across restart. The server performs a permitted read, retains the unresolved outcome, and does not replay the action POST. Its transport-stop evidence is supplied by the test fixture rather than a live relay.
 - The snapshot barrier tests verify that fake mutations block stale snapshot writes and that delayed resource/profile responses cannot overwrite newer state.

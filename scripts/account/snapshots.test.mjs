@@ -422,6 +422,47 @@ test("stored snapshots survive restart and retain their original freshness metad
   assert.equal(offline.calls.length, 0);
 });
 
+test("durable empty and missing resources stay distinct after restart with an expired game token", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "stored-empty-restart-"));
+  const token = `header.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.signature`;
+  let store = createAutomationStateStore({ directory });
+  try {
+    const upstream = queueFetcher([reply({ playerId: 41 }), reply([])]);
+    let snapshots = createAccountSnapshots({
+      store,
+      fetcher: upstream.fetcher,
+      now: () => 500,
+    });
+    await snapshots.read(`${origin}/api/me`, auth(token));
+    await snapshots.read(`${origin}/api/me/bag`, auth(token));
+    store.close();
+    store = createAutomationStateStore({ directory });
+    const offline = queueFetcher([]);
+    snapshots = createAccountSnapshots({
+      store,
+      fetcher: offline.fetcher,
+      now: () => 2000,
+    });
+    const wiki = { verifiedWiki: true, verifiedPlayerId: 41 };
+    const empty = snapshots.readStored(
+      `${origin}/api/me/bag`,
+      auth(token),
+      wiki,
+    );
+    assert.equal(empty.status, 200);
+    assert.deepEqual(await payload(empty), []);
+    assert.equal(empty.headers.get("X-Madhouse-Section-Updated"), "500");
+    assert.equal(
+      snapshots.readStored(`${origin}/api/rooms`, auth(token), wiki).status,
+      404,
+    );
+    assert.equal(offline.calls.length, 0);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("legacy snapshot sections migrate to unknown completeness without changing stored data or age", async () => {
   const store = memoryStore();
   const authorization = "Bearer legacy-snapshot-section";
