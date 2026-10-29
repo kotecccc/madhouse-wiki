@@ -19,7 +19,7 @@ import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { authorizeRequest } from "../../../shared/auth-session.js";
 import { sendFriendCommand } from "./friend-commands.js";
-import { selectFriends } from "./friends.js";
+import { loadFriendPage, selectFriends } from "./friends.js";
 import { FriendsRequests } from "./FriendsRequests.jsx";
 import "../../components/ui/StatusList/StatusList.css";
 import "./FriendsSection.css";
@@ -83,73 +83,90 @@ export function FriendsSection({
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("name");
   const [page, setPage] = useState(0);
-  useEffect(() => {
-    if (active)
-      void postSessionJson("/api/automation/friends/refresh", {
-        ifStale: true,
-      }).catch(() => {});
-  }, [active]);
+  const pageRequest = useRef(null);
+  const seenCursors = useRef(new Set());
+  const moreInFlight = useRef(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageError, setPageError] = useState(false);
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
-    let retryTimer;
+    pageRequest.current = controller;
+    seenCursors.current = new Set();
+    moreInFlight.current = false;
+    setPage(0);
+    setPageError(false);
+    setLoadingMore(false);
+    setState({ status: "loading", items: [], nextCursor: null });
     onRefreshState?.(true);
-    void getSessionJson("/api/automation/state", {
-      fresh: true,
-    })
+    void getSessionJson("/api/automation/state", { fresh: true })
       .then((value) => {
-        if (!controller.signal.aborted) {
-          setAutomation(value);
-        }
+        if (!controller.signal.aborted) setAutomation(value);
       })
       .catch(() => {});
-    const load = () => {
-      void getSessionJson("/api/automation/friends", {
-        fresh: true,
-        revalidate: false,
-        signal: controller.signal,
-      }).then(
-        (snapshot) => {
-          if (controller.signal.aborted) return;
-          if (Array.isArray(snapshot?.items)) {
-            setState({
-              status: "ready",
-              items: snapshot.items,
-              stale: snapshot.stale,
-              updatedAt: snapshot.updatedAt,
-            });
-            onRefreshState?.(false);
-          } else
-            setState((previous) =>
-              previous.status === "ready"
-                ? previous
-                : { status: "waiting", items: [] },
-            );
-          retryTimer = window.setTimeout(
-            load,
-            Array.isArray(snapshot?.items) ? 15000 : 3000,
-          );
-        },
-        () => {
-          if (!controller.signal.aborted) {
-            setState((previous) =>
-              previous.status === "ready"
-                ? previous
-                : { status: "waiting", items: [] },
-            );
-            onRefreshState?.(false);
-            retryTimer = window.setTimeout(load, 15000);
-          }
-        },
-      );
-    };
-    load();
+    void loadFriendPage(getSessionJson, null, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted)
+          setState({ status: "ready", ...result });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setState({ status: "error", items: [], nextCursor: null });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) onRefreshState?.(false);
+      });
     return () => {
       controller.abort();
-      window.clearTimeout(retryTimer);
       onRefreshState?.(false);
     };
   }, [active, refreshGeneration, reload, onRefreshState]);
+  async function loadMore() {
+    const cursor = state.nextCursor;
+    const controller = pageRequest.current;
+    if (
+      !cursor ||
+      !controller ||
+      controller.signal.aborted ||
+      moreInFlight.current
+    )
+      return;
+    moreInFlight.current = true;
+    setLoadingMore(true);
+    setPageError(false);
+    try {
+      const result = await loadFriendPage(
+        getSessionJson,
+        cursor,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (
+        seenCursors.current.has(cursor) ||
+        (result.nextCursor && seenCursors.current.has(result.nextCursor))
+      )
+        throw new Error("Повторный курсор списка друзей.");
+      seenCursors.current.add(cursor);
+      setState((previous) => {
+        const items = new Map(
+          previous.items.map((item) => [item.playerId, item]),
+        );
+        for (const item of result.items) items.set(item.playerId, item);
+        return {
+          ...previous,
+          items: [...items.values()],
+          nextCursor: result.nextCursor,
+        };
+      });
+    } catch {
+      if (!controller.signal.aborted) setPageError(true);
+    } finally {
+      if (!controller.signal.aborted) {
+        moreInFlight.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }
   useEffect(() => {
     if (
       !action ||
@@ -372,7 +389,12 @@ export function FriendsSection({
   return (
     <section className="friends-section" aria-label="Друзья">
       {state.status === "error" && (
-        <ErrorToast message="Не удалось загрузить друзей. Проверьте подключение к игре." />
+        <>
+          <ErrorToast message="Не удалось загрузить друзей. Проверьте подключение к игре." />
+          <Button onClick={() => setReload((value) => value + 1)}>
+            Повторить
+          </Button>
+        </>
       )}
       {(state.status === "loading" || state.status === "waiting") && (
         <div className="friends-list" aria-busy="true" role="status">
@@ -390,9 +412,9 @@ export function FriendsSection({
       )}
       {state.status === "ready" && (
         <>
-          {state.stale && (
+          {state.nextCursor && (
             <CardDescription>
-              Показываем сохранённый список друзей.
+              Поиск, фильтры и сортировка применяются к загруженным друзьям.
             </CardDescription>
           )}
           {automation?.friendRemoval?.pending &&
@@ -734,6 +756,16 @@ export function FriendsSection({
               </BaseCard>
             ))}
           </div>
+          {pageError && (
+            <CardDescription role="alert">
+              Не удалось загрузить следующую порцию друзей.
+            </CardDescription>
+          )}
+          {state.nextCursor && (
+            <Button disabled={loadingMore} onClick={() => void loadMore()}>
+              {loadingMore ? "Загружаем…" : "Загрузить ещё"}
+            </Button>
+          )}
           {pageCount > 1 && (
             <div className="friends-pagination">
               <Button

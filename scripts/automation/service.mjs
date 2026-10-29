@@ -5184,7 +5184,6 @@ export function createAutomationService({
               });
           }
           void refreshPendingFriendRemoval(entry);
-          void refreshFriendSnapshot(entry);
           discoverInvitations(entry);
           void refreshPendingFriend(entry);
           void entry.raidSubscription.tick().catch(() => {});

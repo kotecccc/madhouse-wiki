@@ -790,7 +790,7 @@ export function createWorkFarm({
       disposed ||
       working ||
       !run?.pending ||
-      !["paused", "stopped"].includes(run.status) ||
+      !["paused", "stopped", "limited", "completed"].includes(run.status) ||
       now() < (run.nextReconcileAt ?? 0) ||
       !available(run.config.mode)
     )
@@ -809,7 +809,7 @@ export function createWorkFarm({
           !disposed &&
           id === generation &&
           record.run === run &&
-          ["paused", "stopped"].includes(run.status),
+          ["paused", "stopped", "limited", "completed"].includes(run.status),
       );
       if (confirmed) {
         run.nextReconcileAt = null;

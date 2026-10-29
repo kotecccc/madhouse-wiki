@@ -36,6 +36,35 @@ export function normalizeFriend(player) {
   };
 }
 
+export async function loadFriendPage(get, cursor = null, signal) {
+  signal?.throwIfAborted();
+  const query = new URLSearchParams({ limit: "20" });
+  if (cursor) query.set("cursor", cursor);
+  const result = await get(`/api/friends?${query}`, {
+    fresh: true,
+    revalidate: false,
+    signal,
+  });
+  signal?.throwIfAborted();
+  if (
+    !Array.isArray(result?.items) ||
+    !Object.hasOwn(result, "nextCursor") ||
+    result.partial ||
+    result.success === false ||
+    result.error ||
+    (result.nextCursor != null &&
+      result.nextCursor !== "" &&
+      (typeof result.nextCursor !== "string" ||
+        result.nextCursor.length > 1024 ||
+        result.nextCursor === cursor))
+  )
+    throw new Error("Список друзей получен не полностью.");
+  return {
+    items: result.items.map((item) => normalizeFriend(item?.player)),
+    nextCursor: result.nextCursor || null,
+  };
+}
+
 export async function loadFriends(get, signal) {
   const friends = new Map();
   const seen = new Set();

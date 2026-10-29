@@ -1086,6 +1086,27 @@ test("a stopped in-flight work action is reconciled by reads without resuming th
   assert.equal(h.timers.filter((timer) => !timer.canceled).length, 0);
 });
 
+test("an expired farm reconciles its in-flight action without resuming", async () => {
+  const h = makeHarness({ required: [2], holdPerform: true });
+  await refresh(h);
+  start(h.farm, { durationHours: 1 });
+  await h.fireNext({ advance: false });
+  h.setNow(h.farm.getSnapshot().run.deadlineAt);
+  h.farm.tick();
+  assert.equal(h.farm.getSnapshot().run.status, "limited");
+  h.releasePerform();
+  await h.flush();
+  h.farm.tick();
+  await h.flush();
+  assert.equal(h.farm.getSnapshot().run.status, "limited");
+  assert.equal(h.farm.getSnapshot().run.pending, null);
+  assert.equal(h.farm.canSuspend(), true);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
+});
+
 test("legacy uncertain booster is reconciled automatically without another use", async () => {
   const h = makeHarness({
     boosters: { small: 1, full: 0 },

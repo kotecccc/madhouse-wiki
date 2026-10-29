@@ -35,7 +35,6 @@ import {
   readSessionRefreshState,
   subscribeSessionData,
   getSessionJson,
-  postSessionJson,
 } from "../../../shared/session-api.js";
 import { CardDescription } from "../../components/ui/CardDescription/CardDescription.jsx";
 import { Button } from "../../components/ui/Button/Button.jsx";
@@ -221,16 +220,7 @@ export function App() {
         return;
       }
       if (visibleScreen === "friends") {
-        try {
-          await postSessionJson("/api/automation/friends/refresh", {});
-        } catch {
-          setInventoryNotice({
-            message: "Не удалось обновить друзей.",
-            success: false,
-          });
-        } finally {
-          setFriendsRefresh((value) => value + 1);
-        }
+        setFriendsRefresh((value) => value + 1);
         return;
       }
       if (visibleScreen === "inventory") {

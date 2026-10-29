@@ -1,6 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadFriends } from "./friends.js";
+import { loadFriendPage, loadFriends } from "./friends.js";
+
+test("loads one friend page at a time and passes the cursor", async () => {
+  const calls = [];
+  const get = async (path, options) => {
+    calls.push({ path, options });
+    return {
+      items: [{ player: { playerId: calls.length } }],
+      nextCursor: calls.length === 1 ? "next" : null,
+    };
+  };
+  const first = await loadFriendPage(get);
+  assert.equal(calls.length, 1);
+  assert.equal(first.nextCursor, "next");
+  assert.match(calls[0].path, /limit=20/);
+  assert.equal(calls[0].options.revalidate, false);
+  const second = await loadFriendPage(get, first.nextCursor);
+  assert.equal(second.items[0].playerId, 2);
+  assert.match(calls[1].path, /cursor=next/);
+  await assert.rejects(
+    loadFriendPage(async () => ({ items: [], nextCursor: "same" }), "same"),
+  );
+});
 
 test("loads all friend pages and passes the cursor", async () => {
   const calls = [];
