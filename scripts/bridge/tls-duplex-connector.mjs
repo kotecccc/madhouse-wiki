@@ -3,7 +3,7 @@ import { connect as connectTls } from "node:tls";
 export const CARGO_HOST = "cargohustle.online";
 export const CARGO_PORT = 443;
 const TLS_HANDSHAKE_TIMEOUT_MS = 10_000;
-const TUNNEL_OPEN_TIMEOUT_MS = 20_000;
+const TUNNEL_OPEN_TIMEOUT_MS = 25_000;
 
 function transportError(code) {
   return Object.assign(new Error(code), { code });
