@@ -110,7 +110,7 @@ export function createDeviceTunnelPool({
       clearInterval(record.timer);
       if (connections.get(identity.owner) === record) {
         connections.delete(identity.owner);
-        if (record.state === "claimed" && !stopped)
+        if (!record.rejectReconnect && !stopped)
           expectReconnect(identity.owner);
         notify(identity.owner);
       }
@@ -119,6 +119,7 @@ export function createDeviceTunnelPool({
     socket.once("error", remove);
     // An idle agent must not inject bytes into a later TLS connection.
     const unexpected = () => {
+      record.rejectReconnect = true;
       remove();
       socket.terminate();
     };
