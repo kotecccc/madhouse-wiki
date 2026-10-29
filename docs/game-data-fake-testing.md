@@ -67,12 +67,15 @@ node --test \
   scripts/game/bridge-journal-integration.test.mjs \
   scripts/automation/bridge-attempt-store.test.mjs \
   tests/automation-state-store.test.mjs \
+  tests/direct-vps-integration.test.mjs \
   tests/bridge/account-service.test.mjs
 ```
 
 The journal and state-store tests also exercise an expired actor lease, a
 different worker taking over, late transport callbacks and another restart.
 The older worker cannot overwrite actor state or remove the restored fence.
+The direct VPS integration also verifies that an upstream 429 establishes the
+coordinator cooldown before the snapshot layer returns stale saved data.
 
 The private recovery-only configuration can be checked without starting a
 public bridge listener:
