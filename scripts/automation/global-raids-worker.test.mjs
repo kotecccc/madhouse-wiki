@@ -324,3 +324,42 @@ test("migration retains the current message and continuing raid count", async ()
   assert.equal(data.raids[0].count, 8);
   assert.equal(data.messageId, 31);
 });
+
+test("updates the same message after one minute without changing status thresholds", async () => {
+  let time = start;
+  let data;
+  const methods = [];
+  const store = {
+    readGlobalRaids: () => structuredClone(data),
+    writeGlobalRaids: (value) => {
+      data = structuredClone(value);
+    },
+  };
+  const worker = createGlobalRaidsWorker({
+    store,
+    owner: "worker",
+    now: () => time,
+    chatId: "-1",
+    getBoss: () => ({}),
+    isClosed: () => false,
+    telegram: {
+      request: async (method) => {
+        methods.push(method);
+        return method === "sendMessage" ? { message_id: 7 } : true;
+      },
+    },
+  });
+  await worker.tick();
+  time += 30000;
+  await worker.tick();
+  assert.deepEqual(methods, ["sendMessage"]);
+  time += 30000;
+  await worker.tick();
+  assert.deepEqual(methods, ["sendMessage", "editMessageText"]);
+});
+
+test("the message omits the removed informational lines", async () => {
+  const text = format(await series(), start + 5 * minute);
+  assert.doesNotMatch(text, /Время: МСК|Замечено боёв · по приглашениям/);
+  assert.match(text, /Игрок №42 · 6/);
+});

@@ -1,5 +1,6 @@
 const DAY = 86400000;
 const FIVE_MINUTES = 300000;
+const PUBLISH_INTERVAL = 60000;
 const HALF_HOUR = 1800000;
 const FRESH = 90000;
 const dayOf = (now) => new Date(now + 3 * 3600000).toISOString().slice(0, 10);
@@ -217,8 +218,6 @@ export function refreshGlobalRaidRows(state, now) {
 export function formatGlobalRaidSummary(state, now, getBoss) {
   const lines = [
     `🔥 <b>РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</b>`,
-    "Время: МСК",
-    "Замечено боёв · по приглашениям",
     "",
   ];
   const rows = [...state.raids].sort((a, b) => b.lastBattleAt - a.lastBattleAt);
@@ -243,7 +242,7 @@ export function formatGlobalRaidSummary(state, now, getBoss) {
       : "";
     const line = `${status} · ${escape(zone)} · ${escape(boss?.name || `Босс №${row.bossId}`)} · ${escape(name)}${username} · ${row.count}`;
     if (lines.join("\n").length + line.length > 3500) {
-      lines.push(`Ещё рейдов: ${rows.length - (lines.length - 4)}`);
+      lines.push(`Ещё рейдов: ${rows.length - (lines.length - 2)}`);
       break;
     }
     lines.push(line);
@@ -333,7 +332,7 @@ export function createGlobalRaidsWorker({
           if (state.day !== day || state.messageId !== messageId) return;
           state.messageId = id;
           state.pendingSend = false;
-          state.nextPublishAt = now() + FIVE_MINUTES;
+          state.nextPublishAt = now() + PUBLISH_INTERVAL;
           state.lastText = text;
           save(state);
         } catch (error) {
@@ -348,7 +347,8 @@ export function createGlobalRaidsWorker({
           )
             state.pendingSend = false;
           state.nextPublishAt =
-            now() + Math.max(FIVE_MINUTES, Number(error?.retryAfterMs) || 0);
+            now() +
+            Math.max(PUBLISH_INTERVAL, Number(error?.retryAfterMs) || 0);
           save(state);
         }
       } finally {
