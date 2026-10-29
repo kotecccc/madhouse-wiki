@@ -316,8 +316,9 @@ export function formatGlobalRaidSummary(
     const [id, fallback] = STATUS_EMOJI[kind];
     return customEmoji ? `<tg-emoji emoji-id="${id}">⏺</tg-emoji>` : fallback;
   };
-  const heading = `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`;
-  const updated = `<p>Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`;
+  const date = state.day.split("-").reverse().join(".");
+  const heading = `<h3>🔥 РЕЙДЫ — ${date}</h3>`;
+  const updated = `<p>Активные рейды • ${date} • ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`;
   const knownNames = new Map();
   for (const observation of Object.values(state.observations || {})) {
     if (
@@ -338,7 +339,11 @@ export function formatGlobalRaidSummary(
   const rows = state.raids
     .filter(
       (row) =>
-        row.count >= 10 && (row.active || now - row.lastBattleAt < HALF_HOUR),
+        row.count >= 10 &&
+        (row.active || now - row.lastBattleAt < HALF_HOUR) &&
+        (positive(row.leaderPlayerId) ||
+          /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "") ||
+          (typeof row.leaderName === "string" && row.leaderName.trim())),
     )
     .map((row) => {
       const boss = getBoss(row.bossId);
@@ -358,7 +363,7 @@ export function formatGlobalRaidSummary(
         b.row.lastBattleAt - a.row.lastBattleAt,
     );
   const tableHeader =
-    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Кол-во боев</th><th>Ведущий</th></tr>";
+    "<table bordered striped compact><tr><th>Зона</th><th>Босс</th><th>Боев</th><th>Ведущий</th></tr>";
   const rendered = rows.map(({ row, boss, zone, floor, department }, index) => {
     const age = now - row.lastBattleAt;
     const kind =
@@ -371,12 +376,12 @@ export function formatGlobalRaidSummary(
             : "paused";
     const status =
       kind === "active"
-        ? `${marker("active")} Идёт`
+        ? marker("active")
         : kind === "unknown"
-          ? `${marker("waiting")} Нет данных`
+          ? marker("waiting")
           : kind === "waiting"
-            ? `${marker("waiting")} Ждёт`
-            : `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`;
+            ? marker("waiting")
+            : marker("paused");
     const nickname =
       knownNames.get(row.leaderPlayerId)?.name ||
       (typeof row.leaderName === "string" ? row.leaderName.trim() : "");
@@ -385,9 +390,9 @@ export function formatGlobalRaidSummary(
       : nickname
         ? nickname.slice(0, 80)
         : "";
-    const copyButton = leader
-      ? `<tg-button type="copy_text" text="${escapeAttribute(leader)}">${escape(leader)}</tg-button>`
-      : "Ник не найден";
+    const copyValue = leader || String(row.leaderPlayerId);
+    const copyLabel = leader || `ID ${row.leaderPlayerId}`;
+    const copyButton = `<tg-button type="copy_text" text="${escapeAttribute(copyValue)}">${escape(copyLabel)}</tg-button>`;
     const emojiId = customEmoji && boss?.name && bossEmoji[boss.name];
     const bossIcon = emojiId
       ? `<tg-emoji emoji-id="${emojiId}">👹</tg-emoji> `
@@ -398,7 +403,7 @@ export function formatGlobalRaidSummary(
       department,
       index,
       kind,
-      line: `<tr><td>${status}</td><td>${escape(zone)}</td><td>${bossIcon}${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`,
+      line: `<tr><td>${status} ${escape(zone)}</td><td>${bossIcon}${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`,
     };
   });
   const compose = (selected) => {
@@ -412,10 +417,9 @@ export function formatGlobalRaidSummary(
       : "<p>Активных рейдов пока нет.</p>";
     return [
       heading,
+      updated,
       table,
       ...(hidden ? [`<p>Ещё рейдов: ${hidden}</p>`] : []),
-      "",
-      updated,
     ].join("\n");
   };
   if (compose(rendered).length <= 3500) return compose(rendered);

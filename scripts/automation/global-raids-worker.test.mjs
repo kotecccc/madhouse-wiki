@@ -66,7 +66,10 @@ test("counts six distinct invitation battles once across accounts and never uses
   );
   assert.equal(state.raids.length, 1);
   assert.equal(state.raids[0].count, 6);
-  assert.match(format(state, start + 5 * minute), /<td>Ник не найден<\/td>/);
+  assert.match(
+    format(state, start + 5 * minute),
+    /text="42">ID 42<\/tg-button>/,
+  );
   assert.doesNotMatch(format(state, start + 5 * minute), /Чужой/);
   state = await observe(
     state,
@@ -91,17 +94,17 @@ test("counts six distinct invitation battles once across accounts and never uses
 
 test("status follows the three, ten and thirty minute boundaries", async () => {
   let state = await series();
-  assert.match(format(state, start + 5 * minute), /🔵 Идёт/);
+  assert.match(format(state, start + 5 * minute), /🔵/);
   state = await observe(state, "1", [], start + 6 * minute);
-  assert.match(format(state, start + 6 * minute), /🔵 Идёт/);
+  assert.match(format(state, start + 6 * minute), /🔵/);
   state = await observe(state, "1", [], start + 8 * minute);
-  assert.match(format(state, start + 8 * minute), /⚪ Ждёт/);
+  assert.match(format(state, start + 8 * minute), /⚪/);
   state = await observe(state, "1", [], start + 9 * minute);
-  assert.match(format(state, start + 9 * minute), /⚪ Ждёт/);
+  assert.match(format(state, start + 9 * minute), /⚪/);
   state = await observe(state, "1", [], start + 15 * minute);
-  assert.match(format(state, start + 15 * minute), /🟡 Пауза · 10 мин/);
+  assert.match(format(state, start + 15 * minute), /🟡/);
   state = await observe(state, "1", [], start + 16 * minute);
-  assert.match(format(state, start + 16 * minute), /🟡 Пауза · 11 мин/);
+  assert.match(format(state, start + 16 * minute), /🟡/);
   state = await observe(state, "1", [], start + 35 * minute);
   assert.match(format(state, start + 35 * minute), /Активных рейдов пока нет/);
   assert.match(format(state, start + 40 * minute), /Активных рейдов пока нет/);
@@ -382,8 +385,8 @@ test("updates the same message after one minute without changing status threshol
 test("the message omits the removed informational lines", async () => {
   const text = format(await series(), start + 5 * minute);
   assert.doesNotMatch(text, /Время: МСК|Замечено боёв · по приглашениям/);
-  assert.match(text, /<td>Ник не найден<\/td>/);
-  assert.match(text, /<table bordered striped>/);
+  assert.match(text, /text="42">ID 42<\/tg-button>/);
+  assert.match(text, /<table bordered striped compact>/);
 });
 
 test("existing TMA history makes the active raid visible and deduplicates overlapping accounts", async () => {
@@ -422,10 +425,7 @@ test("existing TMA history makes the active raid visible and deduplicates overla
   state = observeGlobalInvitations(state, "2", raw, projected, start, history);
   assert.equal(state.raids.filter((row) => row.active).length, 1);
   assert.equal(state.raids.find((row) => row.active).count, 3);
-  assert.match(
-    format(state, start),
-    /🔵 Идёт.*text="Лидер">Лидер<\/tg-button>/,
-  );
+  assert.match(format(state, start), /🔵.*text="Лидер">Лидер<\/tg-button>/);
 });
 
 test("a stored history without a currently available invitation does not assert an active raid", () => {
@@ -534,14 +534,17 @@ test("existing text message is edited with a native rich table preserving raid c
   assert.equal(request.method, "editMessageText");
   assert.equal(request.payload.message_id, 5);
   assert.equal(request.payload.text, undefined);
-  assert.match(request.payload.rich_message.html, /<table bordered striped>/);
   assert.match(
     request.payload.rich_message.html,
-    /<th>Статус<\/th><th>Зона<\/th><th>Босс<\/th><th>Кол-во боев<\/th><th>Ведущий<\/th>/,
+    /<table bordered striped compact>/,
   );
   assert.match(
     request.payload.rich_message.html,
-    /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td>/,
+    /<th>Зона<\/th><th>Босс<\/th><th>Боев<\/th><th>Ведущий<\/th>/,
+  );
+  assert.match(
+    request.payload.rich_message.html,
+    /<td>🔵 J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td>/,
   );
   assert.equal(data.messageId, 5);
 });
@@ -571,9 +574,7 @@ test("custom status emoji are opt-in and preserve the four status meanings", () 
     "5819028847483423716",
   ])
     assert.match(custom, new RegExp(`emoji-id="${id}"`));
-  assert.match(custom, /<\/tg-emoji> Идёт/);
-  assert.match(custom, /<\/tg-emoji> Ждёт/);
-  assert.match(custom, /<\/tg-emoji> Пауза/);
+  assert.doesNotMatch(custom, /Идёт|Ждёт|Пауза/);
   assert.doesNotMatch(custom, /Завершён/);
 });
 
@@ -731,7 +732,7 @@ test("summary hides raids below ten and finished raids, sorts floors ascending, 
   assert.ok(text.indexOf("Без имени") < text.indexOf("Босс A"));
   assert.ok(text.indexOf("Босс A") < text.indexOf("Босс J"));
   assert.ok(text.indexOf("Босс J") < text.indexOf("Доллар"));
-  assert.match(text, /<td>\$1<\/td>/);
+  assert.match(text, /<td>🔵 \$1<\/td>/);
 });
 
 test("overflow keeps active raids first, then newer waits and pauses", () => {
@@ -801,9 +802,54 @@ test("all statuses remain visible when the whole summary fits", () => {
     now,
     () => ({ name: "Босс" }),
   );
-  assert.match(html, /Идёт/);
-  assert.match(html, /Ждёт/);
-  assert.match(html, /Пауза/);
+  assert.match(html, /🔵/);
+  assert.match(html, /⚪/);
+  assert.match(html, /🟡/);
+  assert.doesNotMatch(html, /Ещё рейдов/);
+});
+
+test("the summary shows the Moscow update time above the table", () => {
+  const now = Date.parse("2026-10-29T19:42:00Z");
+  const raids = [
+    {
+      bossId: 1,
+      leaderPlayerId: 1,
+      count: 10,
+      active: true,
+      lastBattleAt: now,
+    },
+  ];
+  const html = formatGlobalRaidSummary(
+    { day: "2026-10-29", raids },
+    now,
+    () => ({ name: "Босс" }),
+  );
+  assert.match(
+    html,
+    /<h3>🔥 РЕЙДЫ — 29\.10\.2026<\/h3>\n<p>Активные рейды • 29\.10\.2026 • 22:42 МСК<\/p>\n<table/,
+  );
+  assert.doesNotMatch(html, /Обновлено:/);
+});
+
+test("a raid without a leader identifier is skipped instead of showing an unusable placeholder", () => {
+  const now = start + minute;
+  const raids = [
+    { bossId: 1, count: 10, active: true, lastBattleAt: now },
+    {
+      bossId: 2,
+      count: 10,
+      active: true,
+      lastBattleAt: now,
+      leaderPlayerId: 42,
+    },
+  ];
+  const html = formatGlobalRaidSummary(
+    { day: "2026-10-29", raids },
+    now,
+    (id) => ({ name: `Босс-${id}` }),
+  );
+  assert.doesNotMatch(html, /Босс-1|Ник не найден/);
+  assert.match(html, /text="42">ID 42<\/tg-button>/);
   assert.doesNotMatch(html, /Ещё рейдов/);
 });
 
@@ -905,6 +951,6 @@ test("an unrelated profile cannot supply a leader nickname", async () => {
     },
   });
   await worker.tick();
-  assert.match(sent, /Ник не найден/);
+  assert.match(sent, /text="42">ID 42<\/tg-button>/);
   assert.doesNotMatch(sent, /Чужой|Игрок №42/);
 });
