@@ -3,7 +3,28 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createAutomationRuntime } from "../scripts/automation/runtime.mjs";
+import {
+  createAutomationRuntime,
+  globalRaidsDestination,
+} from "../scripts/automation/runtime.mjs";
+
+test("global raid destination accepts a public channel or numeric chat ID", () => {
+  assert.equal(
+    globalRaidsDestination("@madhouse_wiki_raids"),
+    "@madhouse_wiki_raids",
+  );
+  assert.equal(globalRaidsDestination("-1001234567890"), "-1001234567890");
+  for (const invalid of [
+    undefined,
+    "",
+    "https://t.me/madhouse_wiki_raids/3",
+    "@bad",
+    "123",
+    "@space channel",
+  ]) {
+    assert.equal(globalRaidsDestination(invalid), null);
+  }
+});
 
 test("normal automation runtime is enabled; only explicit 0 returns the operator kill switch", async () => {
   for (const flag of [undefined, "1", "0"]) {

@@ -236,6 +236,10 @@ export function createAutomationStateStore({ directory }) {
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       record TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS global_raids (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      record TEXT NOT NULL
+    );
   `);
   for (const suffix of ["-wal", "-shm"]) {
     const sidecar = databasePath + suffix;
@@ -279,6 +283,12 @@ export function createAutomationStateStore({ directory }) {
   const selectGameOutage = db.prepare(
     "SELECT record FROM game_outage WHERE singleton = 1",
   );
+  const selectGlobalRaids = db.prepare(
+    "SELECT record FROM global_raids WHERE singleton = 1",
+  );
+  const saveGlobalRaids = db.prepare(
+    "INSERT INTO global_raids (singleton, record) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET record = excluded.record",
+  );
   const saveGameOutage =
     db.prepare(`INSERT INTO game_outage (singleton, record) VALUES (1, ?)
     ON CONFLICT(singleton) DO UPDATE SET record = excluded.record`);
@@ -299,6 +309,19 @@ export function createAutomationStateStore({ directory }) {
   }
 
   return {
+    readGlobalRaids() {
+      const row = selectGlobalRaids.get();
+      return row ? decrypt(key, "global-raids", row.record) : null;
+    },
+    writeGlobalRaids(value, worker, now) {
+      const record = encrypt(key, "global-raids", value);
+      transaction(() => {
+        const lease = selectLease.get();
+        if (!lease || lease.owner !== worker || lease.expires_at <= now)
+          throw new Error("automation_worker_unavailable");
+        saveGlobalRaids.run(record);
+      });
+    },
     readSnapshots() {
       return snapshotAll
         .all()

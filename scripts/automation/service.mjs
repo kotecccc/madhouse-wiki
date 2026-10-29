@@ -1,6 +1,7 @@
 import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
 import { observeTelegramBattle } from "./telegram-battle-report.mjs";
 import { createTelegramBattleNotifier } from "./telegram-battle-notifier.mjs";
+import { createGlobalRaidsWorker } from "./global-raids-worker.mjs";
 import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
@@ -234,6 +235,7 @@ export function createAutomationService({
   cancel = clearTimeout,
   random = Math.random,
   telegram = null,
+  globalRaidsChatId = null,
   telegramSiteUrl = "https://madhouse-wiki.ru",
 }) {
   const actors = new Map();
@@ -530,6 +532,21 @@ export function createAutomationService({
     save,
     siteUrl: telegramSiteUrl,
   });
+  const globalRaids =
+    globalRaidsChatId &&
+    telegram &&
+    store.readGlobalRaids &&
+    store.writeGlobalRaids
+      ? createGlobalRaidsWorker({
+          store,
+          owner,
+          now,
+          telegram,
+          chatId: globalRaidsChatId,
+          getBoss,
+          isClosed: () => closed,
+        })
+      : null;
   async function submitCharacterPoint(
     entry,
     expected,
@@ -2609,7 +2626,11 @@ export function createAutomationService({
       entry.busy = false;
     }
   }
-  async function refreshInvitations(entry, force = false) {
+  async function refreshInvitations(
+    entry,
+    force = false,
+    suppressSubscription = false,
+  ) {
     if (entry.controller.getSnapshot().pendingInvitation) {
       await entry.controller.refresh();
       const battleState = entry.controller.getSnapshot();
@@ -2686,12 +2707,18 @@ export function createAutomationService({
           ? "Вступление не подтверждено. Проверьте состояние перед новым приглашением."
           : null,
       };
+      try {
+        globalRaids?.observe(entry.playerId, raw, entry.invitations.items);
+      } catch {
+        // Global reporting must never interrupt account automation.
+      }
       entry.raidObservations = observeRaids(
         entry.raidObservations,
         entry.invitations.items,
         now(),
       );
-      entry.raidSubscription?.observe(entry.invitations.items, true);
+      if (!suppressSubscription)
+        entry.raidSubscription?.observe(entry.invitations.items, true);
       save(entry);
     } catch (error) {
       entry.raidSubscription?.observe([], false);
@@ -2869,12 +2896,15 @@ export function createAutomationService({
   }
   function discoverInvitations(entry) {
     const state = entry.controller.getSnapshot();
-    if (state.battle?.status === "active") {
+    const inBattle = state.battle?.status === "active";
+    if (inBattle) {
       // A fight prevents joining another. Do not count this unobserved time as
       // a quiet interval for an active subscription, and refresh after combat.
       entry.raidSubscription?.observe([], false);
-      entry.invitationDiscoveryAt = 0;
-      return;
+      if (!globalRaids) {
+        entry.invitationDiscoveryAt = 0;
+        return;
+      }
     }
     if (
       closed ||
@@ -2891,11 +2921,20 @@ export function createAutomationService({
       return;
     entry.invitationDiscoveryAt = now() + INVITATION_DISCOVERY_INTERVAL_MS;
     entry.busy = true;
-    const discovery = refreshInvitations(entry, true)
-      .catch(() => {
+    const discovery = refreshInvitations(entry, true, inBattle)
+      .catch((error) => {
         // Preserve observed history and wait for the next read. Never retry a mutation.
+        if (Number.isFinite(error?.retryAfterMs))
+          entry.invitationDiscoveryAt = Math.max(
+            entry.invitationDiscoveryAt,
+            now() + error.retryAfterMs,
+          );
       })
       .finally(() => {
+        entry.invitationDiscoveryAt = Math.max(
+          entry.invitationDiscoveryAt,
+          now() + INVITATION_DISCOVERY_INTERVAL_MS,
+        );
         entry.busy = false;
         if (entry.invitationDiscoveryPromise === discovery)
           entry.invitationDiscoveryPromise = null;
@@ -5147,6 +5186,7 @@ export function createAutomationService({
           }
           return;
         }
+        if (!booting) void globalRaids?.tick().catch(() => {});
         for (const entry of actors.values()) {
           void telegramNotifier.tick(entry);
           if (!booting) tryResumePausedAuto(entry);
