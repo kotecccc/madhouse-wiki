@@ -64,8 +64,15 @@ Run the lower-level scheduler, recovery-permit, and bridge account checks separa
 node --test \
   scripts/game/direct-scheduler.test.mjs \
   scripts/game/bridge-recovery-permit.test.mjs \
+  scripts/game/bridge-journal-integration.test.mjs \
+  scripts/automation/bridge-attempt-store.test.mjs \
+  tests/automation-state-store.test.mjs \
   tests/bridge/account-service.test.mjs
 ```
+
+The journal and state-store tests also exercise an expired actor lease, a
+different worker taking over, late transport callbacks and another restart.
+The older worker cannot overwrite actor state or remove the restored fence.
 
 The private recovery-only configuration can be checked without starting a
 public bridge listener:
