@@ -37,8 +37,10 @@ export function createGlobalRaidsTelegramUser({
   return {
     async request(method, payload) {
       if (
-        !["sendRichMessage", "editMessageText"].includes(method) ||
-        !payload?.rich_message?.html ||
+        !["sendRichMessage", "editMessageText", "pinChatMessage"].includes(
+          method,
+        ) ||
+        (method !== "pinChatMessage" && !payload?.rich_message?.html) ||
         typeof payload.chat_id !== "string"
       )
         throw new TypeError("global_raid_telegram_request_invalid");
@@ -58,6 +60,41 @@ export function createGlobalRaidsTelegramUser({
         const peer = await waitFor(client.resolvePeer(target));
         if (peer?._ !== "inputPeerChannel")
           throw new Error("global_raid_channel_required");
+        if (method === "pinChatMessage") {
+          if (
+            !Number.isSafeInteger(payload.message_id) ||
+            payload.message_id <= 0
+          )
+            throw new TypeError("global_raid_message_id_invalid");
+          const channel = {
+            _: "inputChannel",
+            channelId: peer.channelId,
+            accessHash: peer.accessHash,
+          };
+          const full = await waitFor(
+            client.call(
+              { _: "channels.getFullChannel", channel },
+              CALL_OPTIONS,
+            ),
+          );
+          if (full?.fullChat?._ !== "channelFull")
+            throw new Error("global_raid_pin_state_unavailable");
+          if (full.fullChat.pinnedMsgId !== payload.message_id) {
+            dispatched = true;
+            await waitFor(
+              client.call(
+                {
+                  _: "messages.updatePinnedMessage",
+                  peer,
+                  id: payload.message_id,
+                  silent: true,
+                },
+                CALL_OPTIONS,
+              ),
+            );
+          }
+          return true;
+        }
         const richMessage = {
           _: "inputRichMessageHTML",
           html: payload.rich_message.html,

@@ -83,7 +83,9 @@ function finishRaidMessage(text) {
     `(<tr><td>)(?:<tg-emoji emoji-id="(?:${statuses})">⏺</tg-emoji>|🔵|⚪|🟡|🔴|❔|🟢)`,
     "gu",
   );
-  return text.replace(status, "$1🟢");
+  return text
+    .replace(/^(<h[1-6]>)🔥 Активные рейды •/, "$1Рейды •")
+    .replace(status, "$1🟢");
 }
 
 export function observeGlobalInvitations(
@@ -320,7 +322,7 @@ export function refreshGlobalRaidRows(state, now) {
         };
         rows.push(row);
       }
-      row.count = Math.max(row.count, recentCount);
+      if (!row.carried) row.count = Math.max(row.count, recentCount);
       row.lastBattleAt = Math.max(row.lastBattleAt || 0, active.lastSeen);
       row.lastBattleId = active.id;
       row.leaderName = active.leaderName || row.leaderName;
@@ -536,6 +538,7 @@ export function createGlobalRaidsWorker({
   getBoss,
   isClosed,
   customEmoji = false,
+  pinCurrent = false,
   getLeaderProfile,
   maxMessageLength = MAX_MESSAGE_LENGTH,
 }) {
@@ -599,6 +602,29 @@ export function createGlobalRaidsWorker({
             }
           } catch {
             // Editing an existing message is idempotent; retain it for retry.
+          }
+          state = refreshGlobalRaidRows(load(), now());
+        }
+        if (
+          pinCurrent &&
+          state.messageId &&
+          state.pinnedMessageId !== state.messageId
+        ) {
+          const day = state.day;
+          const messageId = state.messageId;
+          try {
+            await telegram.request("pinChatMessage", {
+              chat_id: chatId,
+              message_id: messageId,
+              disable_notification: true,
+            });
+            state = load();
+            if (state.day === day && state.messageId === messageId) {
+              state.pinnedMessageId = messageId;
+              save(state);
+            }
+          } catch {
+            // The Telegram sender reconciles an uncertain pin before retrying.
           }
           state = refreshGlobalRaidRows(load(), now());
         }

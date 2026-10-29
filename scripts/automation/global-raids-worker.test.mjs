@@ -177,12 +177,56 @@ test("reimporting yesterday's history does not add those battles to the carried 
   assert.equal(state.raids[0].count, 7);
 });
 
+test("old history cannot replace a carried series count with a larger two-hour total", () => {
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  const now = midnight + minute;
+  const observations = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => {
+      const id = `old-${i}`;
+      return [
+        id,
+        {
+          id,
+          bossId: 7,
+          leaderPlayerId: 42,
+          firstSeen: midnight - (20 - i) * minute,
+          lastSeen: midnight - (20 - i) * minute,
+          sources: {},
+        },
+      ];
+    }),
+  );
+  observations.new = {
+    id: "new",
+    bossId: 7,
+    leaderPlayerId: 42,
+    firstSeen: now,
+    lastSeen: now,
+    sources: { a: { active: true, checkedAt: now, expiresAt: now + minute } },
+  };
+  const base = {
+    key: "42:7",
+    bossId: 7,
+    leaderPlayerId: 42,
+    count: 7,
+    lastBattleAt: midnight - minute,
+    sources: {},
+    activeIds: [],
+  };
+  const state = {
+    day: "2026-10-30",
+    observations,
+    raids: [{ ...base, carried: true, base, carriedIds: [] }],
+  };
+  assert.equal(refreshGlobalRaidRows(state, now).raids[0].count, 8);
+});
+
 test("rollover preserves the previous message for a green finished update", async () => {
   let state = await series();
   const midnight = Date.parse("2026-10-29T21:00:00Z");
   state.messageId = 21;
   state.lastText =
-    '<h5>Вчера</h5><table><tr><td><tg-emoji emoji-id="5819095256267755019">⏺</tg-emoji> J3</td><td><tg-emoji emoji-id="123">👹</tg-emoji> Босс</td></tr></table>';
+    '<h5>🔥 Активные рейды • вчера</h5><table><tr><td><tg-emoji emoji-id="5819095256267755019">⏺</tg-emoji> J3</td><td><tg-emoji emoji-id="123">👹</tg-emoji> Босс</td></tr></table>';
   state.continuations = [
     { messageId: 22, lastText: "<table><tr><td>⚪ A1</td></tr></table>" },
   ];
@@ -192,8 +236,57 @@ test("rollover preserves the previous message for a green finished update", asyn
     [21, 22],
   );
   assert.match(next.closing[0].text, /<td>🟢 J3<\/td>/);
+  assert.match(next.closing[0].text, /^<h5>Рейды • вчера<\/h5>/);
   assert.match(next.closing[0].text, /emoji-id="123"/);
   assert.match(next.closing[1].text, /<td>🟢 A1<\/td>/);
+});
+
+test("pins the current day's message once, and schedules the next day independently", async () => {
+  let time = Date.parse("2026-10-29T21:00:00Z");
+  let data = {
+    schema: 2,
+    day: "2026-10-30",
+    observations: {},
+    raids: [],
+    messageId: 30,
+    nextPublishAt: time + 3600000,
+  };
+  const calls = [];
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (value) => {
+        data = structuredClone(value);
+      },
+    },
+    owner: "worker",
+    now: () => time,
+    chatId: "-100123",
+    getBoss: () => null,
+    isClosed: () => false,
+    pinCurrent: true,
+    telegram: {
+      request: async (method, payload) => {
+        calls.push({ method, payload });
+        return true;
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(data.pinnedMessageId, 30);
+  assert.deepEqual(
+    calls.map(({ method, payload }) => [
+      method,
+      payload.message_id,
+      payload.disable_notification,
+    ]),
+    [["pinChatMessage", 30, true]],
+  );
+  time += 31000;
+  await worker.tick();
+  assert.equal(calls.length, 1);
+  const next = advanceGlobalRaidDay(data, Date.parse("2026-10-30T21:00:00Z"));
+  assert.equal(next.pinnedMessageId, undefined);
 });
 
 test("previous message closure survives a failed edit and retries without a new send", async () => {

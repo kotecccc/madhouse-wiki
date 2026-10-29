@@ -554,6 +554,7 @@ export function createAutomationService({
             return gameJson(entry.credential, `/api/players/${playerId}`);
           },
           customEmoji: globalRaidsCustomEmoji,
+          pinCurrent: globalRaidsCustomEmoji,
           isClosed: () => closed,
         })
       : null;
