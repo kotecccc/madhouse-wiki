@@ -25,6 +25,40 @@ async function withDirectory(run) {
   }
 }
 
+test("global raid state is encrypted, durable, and guarded by the worker lease", async () => {
+  await withDirectory(async (directory) => {
+    const store = createAutomationStateStore({ directory });
+    assert.equal(store.readGlobalRaids(), null);
+    assert.throws(
+      () => store.writeGlobalRaids({ name: "private-raid" }, "worker", 1),
+      /automation_worker_unavailable/,
+    );
+    assert.equal(store.acquireLease("worker", 1, 1000), true);
+    store.writeGlobalRaids({ name: "private-raid", count: 6 }, "worker", 2);
+    assert.throws(
+      () => store.writeGlobalRaids({}, "other", 2),
+      /automation_worker_unavailable/,
+    );
+    assert.throws(
+      () => store.writeGlobalRaids({}, "worker", 1001),
+      /automation_worker_unavailable/,
+    );
+    store.close();
+    assert.equal(
+      readFileSync(join(directory, "automation.sqlite")).includes(
+        Buffer.from("private-raid"),
+      ),
+      false,
+    );
+    const reopened = createAutomationStateStore({ directory });
+    assert.deepEqual(reopened.readGlobalRaids(), {
+      name: "private-raid",
+      count: 6,
+    });
+    reopened.close();
+  });
+});
+
 test("state persists across store restart using the persisted encryption key", async () => {
   await withDirectory(async (directory) => {
     const first = createAutomationStateStore({ directory });

@@ -1,6 +1,7 @@
 import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
 import { observeTelegramBattle } from "./telegram-battle-report.mjs";
 import { createTelegramBattleNotifier } from "./telegram-battle-notifier.mjs";
+import { createGlobalRaidsWorker } from "./global-raids-worker.mjs";
 import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
@@ -234,6 +235,7 @@ export function createAutomationService({
   cancel = clearTimeout,
   random = Math.random,
   telegram = null,
+  globalRaidsChatId = null,
   telegramSiteUrl = "https://madhouse-wiki.ru",
 }) {
   const actors = new Map();
@@ -530,6 +532,32 @@ export function createAutomationService({
     save,
     siteUrl: telegramSiteUrl,
   });
+  const globalRaids =
+    globalRaidsChatId &&
+    telegram &&
+    store.readGlobalRaids &&
+    store.writeGlobalRaids
+      ? createGlobalRaidsWorker({
+          store,
+          owner,
+          now,
+          telegram,
+          chatId: globalRaidsChatId,
+          getBoss,
+          readGame: gameJson,
+          actors: () => actors.values(),
+          canRead: (entry) =>
+            Boolean(
+              entry.credential &&
+              !entry.storageFailed &&
+              !entry.busy &&
+              !entry.inventoryBusy &&
+              !backgroundReadDeferred(entry) &&
+              accountHealth(entry.credential)?.status !== "credentials_invalid",
+            ),
+          isClosed: () => closed,
+        })
+      : null;
   async function submitCharacterPoint(
     entry,
     expected,
@@ -5109,6 +5137,7 @@ export function createAutomationService({
           }
           return;
         }
+        if (!booting) void globalRaids?.tick().catch(() => {});
         for (const entry of actors.values()) {
           void telegramNotifier.tick(entry);
           if (!booting) tryResumePausedAuto(entry);
