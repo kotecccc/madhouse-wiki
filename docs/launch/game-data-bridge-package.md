@@ -1,5 +1,7 @@
 # Bridge package handoff
 
+> Local candidate update (2026-10-30): see [candidate manifest](game-data-candidate-20261030.md) for the committed bridge source, test-key packages, image and remaining release gates. The older historical notes below do not describe its current source status.
+
 The pinned compatible relay is `9db18cede7ecc0a0ca1499d854fe5319a7a44bef`: it advertises connection-bound stop acknowledgement and sends it only after the associated relay worker has stopped. Old clients remain usable for ordinary transport but cannot provide this proof. Neither proof nor stopping a device establishes whether the game processed bytes already received; an uncertain mutation remains fenced.
 
 A **test-key-only macOS assembly**, not a production installer, was built at `/tmp/bridge-macos-relay-9db18ce-second/`. It contains `bootstrap.pyz`, `releases/madhouse-bridge.pyz`, signed test manifest, signature, `release-info.json` and `MadhouseWikiBridge.command`. Its version is synthetic `0.0.1`; the launcher `--check`, agent `--help`, Python manifest verification and CryptoKit verifier passed. Two builds with identical test inputs produced identical outputs. The installed device was not modified and no pairing or game connection was attempted.

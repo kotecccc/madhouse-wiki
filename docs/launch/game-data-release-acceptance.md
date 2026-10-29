@@ -1,5 +1,7 @@
 # Game-data candidate: release handoff
 
+> Local candidate update (2026-10-30): see [candidate manifest](game-data-candidate-20261030.md) for the committed bridge source, test-key packages, image and remaining release gates. The older historical notes below do not describe its current source status.
+
 This is an operator checklist, not evidence of the live VPS, Telegram configuration, installed devices, or live game behavior. The actual Mini App URL, DNS, active release SHA, secrets and mounts require production inspection by an authorized operator. The checked-in target is `https://madhouse-wiki.ru`, but the URL configured in Telegram must be verified independently.
 
 Local migration probe: the state-store source from `218ed211` wrote an encrypted synthetic account with a pending manual checkpoint. A copy was opened by the candidate, the checkpoint survived schema migration, and a newly recorded dispatched bridge attempt survived reopening. No transport was started. The old revision has no bridge-attempt journal, so this does not prove that it can safely read or retain the candidate's unresolved journal on rollback.

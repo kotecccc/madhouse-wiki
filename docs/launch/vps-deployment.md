@@ -1,5 +1,7 @@
 # Wiki and connector VPS deployment
 
+> Local candidate update (2026-10-30): see [candidate manifest](game-data-candidate-20261030.md) for the committed bridge source, test-key packages, image and remaining release gates. The older historical notes below do not describe its current source status.
+
 **Game-data rollback gate:** the automatic old-image rollback described below
 must not be treated as safe for a release with an updated durable operation
 journal until that exact previous image has been tested against a synthetic
