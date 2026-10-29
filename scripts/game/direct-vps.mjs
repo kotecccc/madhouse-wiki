@@ -10,10 +10,12 @@ export function createDirectVpsOwner({
   credentialCurrent = () => true,
   bindingCurrent = () => false,
   resolvePlayer = () => null,
+  requireBridgeJournal = false,
 } = {}) {
   const boundary = createDirectBoundary({
     env,
     resolvePlayer,
+    requireBridgeJournal,
     ...(fetcher ? { fetcher } : {}),
   });
   const wikiFetch = (url, init) => boundary.request(url, init, "wiki");

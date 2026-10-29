@@ -44,6 +44,9 @@ export function createDirectExecutor({
   const accountReadyAt = new Map(),
     accountCooldownUntil = new Map(),
     deviceReadyAt = new Map();
+  // One durable reason per attempt. A result for one attempt cannot remove
+  // another account/device restriction.
+  const durableBlocks = new Map();
   let globalReadyAt = 0,
     timer = null,
     closed = false,
@@ -93,6 +96,19 @@ export function createDirectExecutor({
   }
   function eligibility(item, current) {
     const account = canonical(item.accountId);
+    if (durableBlocks.size && !account.startsWith("player:")) {
+      item.delayReason = "identity_unverified_during_recovery";
+      return Infinity;
+    }
+    for (const block of durableBlocks.values()) {
+      if (
+        canonical(block.accountId) === account ||
+        (item.transport === "bridge" && block.deviceId === item.deviceId)
+      ) {
+        item.delayReason = "unresolved_bridge_attempt";
+        return Infinity;
+      }
+    }
     if ((activeAccounts.get(account) || 0) > 0) {
       item.delayReason = "account_in_flight";
       return Infinity;
@@ -433,12 +449,18 @@ export function createDirectExecutor({
     bridge,
     close,
     bindAccount,
+    blockAttempt(id, accountId, deviceId) {
+      if (durableBlocks.has(id)) throw new Error("duplicate_bridge_attempt");
+      durableBlocks.set(id, { accountId, deviceId });
+      pump();
+    },
     diagnostics() {
       return {
         queued: queue.length,
         dispatched,
         activeDirect,
         activeDevices: activeDevices.size,
+        durableBlocks: durableBlocks.size,
         accountsCoolingDown: [...accountCooldownUntil].filter(
           ([, until]) => until > now(),
         ).length,

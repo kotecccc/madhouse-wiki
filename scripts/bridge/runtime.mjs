@@ -48,6 +48,7 @@ export function createBridgeRuntime({
     ? null
     : ({ execute }) => execute();
   let bindGameAccount = () => {};
+  let installRecoveryStore = () => {};
   const browserSessions = createBridgeBrowserSessions({
     key: createHmac("sha256", botToken)
       .update("madhouse-bridge-browser-session-v1")
@@ -100,15 +101,20 @@ export function createBridgeRuntime({
     let closed = false;
     return Object.freeze({
       queueActionGate,
-      setGameCoordinator(coordinator, bindAccount) {
+      setGameCoordinator(coordinator, bindAccount, installStore) {
         if (
           typeof coordinator !== "function" ||
           typeof bindAccount !== "function" ||
+          typeof installStore !== "function" ||
           gameCoordinator
         )
           throw new TypeError("game_coordinator_invalid");
         gameCoordinator = coordinator;
         bindGameAccount = bindAccount;
+        installRecoveryStore = installStore;
+      },
+      installRecoveryStore(store) {
+        installRecoveryStore(store);
       },
       // Called only by the verified private Telegram webhook, never from a
       // client-supplied owner ID.

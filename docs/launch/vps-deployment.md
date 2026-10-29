@@ -136,10 +136,11 @@ and `MADHOUSE_GAME_QUEUE_WAIT_MS` (20000). Set
 the Wiki log. A 429 for a known credential delays that account; a 429 before a
 credential is known delays the direct VPS egress. Bridge requests share the
 verified-account budget but use separate device slots and pacing. Device IPs
-are not grouped. An uncertain bridge attempt quarantines that account and
-device in memory; restart loses the quarantine and reconciliation cannot use
-the quarantined account. Do not roll out this incomplete stage until durable
-recovery and device-buffer termination have been addressed.
+are not grouped. A bridge mutation is recorded in encrypted automation SQLite
+before it can be sent; unfinished attempts restore account/device restrictions
+on restart. Recovery reads and safe, per-attempt release remain unimplemented,
+so affected accounts may remain blocked indefinitely. Do not roll out this
+incomplete stage until recovery and device-buffer termination have been addressed.
 
 `/opt/madhouse-wiki/wiki.env` requires the current production values for
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_WEBHOOK_SECRET`,

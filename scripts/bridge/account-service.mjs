@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   readGameOverBridge,
   readProfileOverBridge,
@@ -268,12 +269,28 @@ export function createBridgeAccountService({
       const sender =
         path === "/api/works/tasks/perform" ? sendWork : sendAction;
       const inContext = queueActionGate.capture();
+      let checkpointOperationId = null;
+      try {
+        const value = typeof body === "string" ? JSON.parse(body) : null;
+        if (/^[A-Za-z0-9_-]{8,120}$/.test(value?.operationId || ""))
+          checkpointOperationId = value.operationId;
+      } catch {
+        // The action gate remains responsible for validating the body.
+      }
+      const operationId =
+        queueActionGate.operationId?.() ||
+        checkpointOperationId ||
+        randomUUID();
       result = await coordinate({
         authorization: account.authorization,
         playerId: account.playerId,
         deviceId: device.deviceId,
         signal,
         method,
+        kind: "mutation",
+        operationId,
+        bindingRevision: account.revision,
+        deviceGeneration: device.generation,
         execute: () =>
           inContext(() =>
             sender({

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { createConnection } from "node:net";
@@ -13,6 +16,7 @@ import { createGameTlsDuplexConnector } from "../../scripts/bridge/tls-duplex-co
 import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
 import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
 import { createDirectBoundary } from "../../scripts/game/direct-boundary.mjs";
+import { createAutomationStateStore } from "../../scripts/automation/state-store.mjs";
 
 const cert = await readFile(
   new URL("./fixtures/cargo-cert.pem", import.meta.url),
@@ -124,9 +128,13 @@ for (const mode of ["lost", "rate-limited"])
       status: "running",
       args: { playerId: 42, decision: "accept" },
     };
-    const boundary = createDirectBoundary({
+    const directory = mkdtempSync(join(tmpdir(), "bridge-tunnel-journal-"));
+    let store = createAutomationStateStore({ directory });
+    let boundary = createDirectBoundary({
       env: { MADHOUSE_GAME_ACCOUNT_INTERVAL_MS: "1" },
+      requireBridgeJournal: true,
     });
+    boundary.installBridgeStore(store);
     const accountService = createBridgeAccountService({
       accounts: {
         read: () => ({ authorization, playerId: "42", revision: 1 }),
@@ -138,7 +146,7 @@ for (const mode of ["lost", "rate-limited"])
       },
       registry,
       queueActionGate: gate,
-      coordinate: boundary.bridge,
+      coordinate: (attempt) => boundary.bridge(attempt),
       sendAction: (options) => {
         const attemptState = { mayHaveSent: false };
         const connector = createGameTlsDuplexConnector({
@@ -196,12 +204,26 @@ for (const mode of ["lost", "rate-limited"])
               event.outcome === (mode === "lost" ? "uncertain" : "cooldown"),
           ),
       );
+      if (mode === "lost") {
+        assert.equal(store.readActiveBridgeAttempts().length, 1);
+        boundary.close();
+        store.close();
+        store = createAutomationStateStore({ directory });
+        boundary = createDirectBoundary({ requireBridgeJournal: true });
+        boundary.installBridgeStore(store);
+        assert.equal(boundary.diagnostics().durableBlocks, 1);
+        assert.equal(received, 1);
+      } else {
+        assert.equal(store.readActiveBridgeAttempts().length, 0);
+      }
     } finally {
       gameSocket?.destroy();
       agent.terminate();
       gateway.close();
       pool.close();
       boundary.close();
+      store.close();
+      rmSync(directory, { recursive: true, force: true });
       await close(bridge);
       await close(game);
     }

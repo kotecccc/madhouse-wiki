@@ -36,6 +36,7 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
+  bridge?.installRecoveryStore?.(store);
   const snapshots = createAccountSnapshots({
     store,
     ...(gameFetcher ? { fetcher: gameFetcher } : {}),

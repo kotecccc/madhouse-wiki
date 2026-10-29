@@ -5,6 +5,12 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export function createQueueActionGate() {
   const storage = new AsyncLocalStorage();
   return Object.freeze({
+    operationId() {
+      const context = storage.getStore();
+      return context?.active && typeof context.job?.id === "string"
+        ? context.job.id
+        : null;
+    },
     capture() {
       const context = storage.getStore();
       return (callback) =>

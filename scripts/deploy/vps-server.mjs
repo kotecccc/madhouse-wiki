@@ -125,6 +125,7 @@ if (role === "wiki") {
   const accountStore = createBlobSessionStore();
   const direct = createDirectVpsOwner({
     env: process.env,
+    requireBridgeJournal: Boolean(bridgeLab?.runtime),
     resolvePlayer: (authorization) =>
       automationRuntime?.gamePlayerId(authorization),
     credentialCurrent: (authorization) =>
@@ -143,6 +144,7 @@ if (role === "wiki") {
   bridgeLab?.runtime?.setGameCoordinator(
     direct.boundary.bridge,
     direct.boundary.bindVerified,
+    direct.boundary.installBridgeStore,
   );
   const directFetch = (url, init = {}) => {
     const originalCheck = init.canDispatch;
