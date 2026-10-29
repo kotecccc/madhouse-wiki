@@ -151,6 +151,10 @@ test(
     const env = {
       ...process.env,
       MADHOUSE_RELEASE_SHA: "0".repeat(40),
+      ACCOUNT_SESSION_KEY: "a".repeat(64),
+      WIKI_SESSION_KEY: "b".repeat(64),
+      MADHOUSE_STORAGE_ORIGIN: "https://storage.example.test",
+      MADHOUSE_STORAGE_TOKEN: "t".repeat(32),
       PORT: String(port),
       WIKI_PUBLIC_ORIGIN: wikiOrigin,
       CONNECTOR_PUBLIC_ORIGIN: connectorOrigin,

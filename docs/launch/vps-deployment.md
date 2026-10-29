@@ -2,8 +2,9 @@
 
 ## Migration state
 
-The production Wiki and Telegram connector continue to serve from Vercel while
-this migration is prepared. The VPS storage service and raid worker are
+The recorded migration plan originally served the production Wiki and Telegram
+connector from Vercel; the active deployment and Mini App URL must be checked
+at cutover. The VPS storage service and raid worker are
 existing production services; this deployment does not rebuild, replace, or
 modify either one. Production DNS remains unchanged until the VPS services,
 runtime configuration, TLS, and private API checks all pass.
@@ -111,15 +112,48 @@ files only when they do not already exist.
 `/opt/madhouse-wiki/storage.env` holds the shared `MADHOUSE_STORAGE_TOKEN`.
 `/opt/madhouse-wiki/wiki.env` requires the current production values for
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_WEBHOOK_SECRET`,
-`WIKI_ADMIN_TELEGRAM_ID`, and `CRON_SECRET`.
+`WIKI_ADMIN_TELEGRAM_ID`, `CRON_SECRET`, `ACCOUNT_SESSION_KEY`, and
+`WIKI_SESSION_KEY`.
 `/opt/madhouse-wiki/connector.env` requires `TELEGRAM_API_ID`,
-`TELEGRAM_API_HASH`, `WIKI_INITDATA_KEY`, and `ACCOUNT_SESSION_KEY`. These are
-copied unchanged from their existing trusted source.
+`TELEGRAM_API_HASH`, `WIKI_INITDATA_KEY`, `ACCOUNT_SESSION_KEY`, and
+`WIKI_SESSION_KEY`. The two services must use the same value for each named
+key, but the two keys must be different 32-byte hexadecimal secrets.
+`ACCOUNT_SESSION_KEY` encrypts account records and derives their private HMAC
+paths; `WIKI_SESSION_KEY` signs Wiki sessions. Preserve the existing account
+key: changing it makes existing account records inaccessible. Provision the new
+Wiki signing key through the protected secret store on both services.
+Both Compose services load the same `storage.env` and use the same HTTPS
+`MADHOUSE_STORAGE_ORIGIN`; both require `MADHOUSE_STORAGE_TOKEN`. The VPS
+process refuses to start if these settings are absent or malformed. It cannot
+compare secrets across containers, so operators must verify that corresponding
+values and storage access match before activation, without exposing values.
 `/opt/madhouse-wiki/raid.env` supplies `TELEGRAM_API_ID`,
 `TELEGRAM_API_HASH`, and `TELEGRAM_RAIDS_SESSION_ENCRYPTION_KEY` to the
 protected Wiki raid recovery endpoint, using the current raid worker values.
 Do not put values in GitHub, image layers, release assets, command arguments,
 logs, or this repository.
+
+The supported phase 1 personal-data deployment is the Wiki and connector VPS
+runtime described here. The browser uses same-origin `/api` requests; the Wiki
+Nginx host forwards them to port 9092, where the runtime serves stored reads.
+The connector host forwards to port 9093. Account records, their revisions and
+revocation flags are stored by the private storage service on its persistent
+data mount; each Wiki session verification reads the current record. Saved
+snapshots and automation state use the Wiki's persistent `automation_state`
+volume. Restarting either application does not replace these stores. Logout or
+a new account-record revision invalidates an older Wiki session on its next
+verification.
+
+The standalone Vercel/serverless Wiki has no persistent account snapshot
+runtime: stored-only personal reads fail closed with 503 and do not contact the
+game. It is not a phase 1 substitute for the VPS Wiki, including during a
+rollback. This routing conclusion follows the checked-in Nginx, Compose, client
+and build configuration; actual DNS, deployed revisions, environment values,
+storage permissions and mounts must be verified separately during deployment.
+The older BotFather setup records a `vercel.app` Mini App URL: if it is still
+configured, update the Main Mini App and all bot/menu entry points to the
+supported VPS Wiki origin as part of cutover; deploying VPS alone does not
+change Telegram's configured URL.
 
 The Vercel Wiki build keeps its existing analytics Cron unless
 `MADHOUSE_DISABLE_ANALYTICS_CRON=1` is set during that build. Set this only

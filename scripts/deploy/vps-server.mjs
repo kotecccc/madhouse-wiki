@@ -19,11 +19,13 @@ import {
   verifyBridgeRelease,
 } from "../bridge/release-http.mjs";
 import { bridgeBootstrapSha } from "../bridge/release-config.mjs";
+import { validateVpsSessionConfig } from "./vps-session-config.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
 if (!new Set(["wiki", "connector"]).has(role))
   throw new Error("MADHOUSE_SERVICE must be wiki or connector");
+validateVpsSessionConfig(process.env);
 
 if (role === "wiki") {
   const catalogueFile = resolve(

@@ -211,6 +211,7 @@ if (service === "connector") {
     "api",
     [
       "api/[...path].js",
+      "shared/wiki-session.js",
       "scripts/api-operations.mjs",
       "scripts/deploy/production-api.mjs",
       "public/api-docs/openapi.json",

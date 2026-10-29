@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { listApiOperations } from "../scripts/api-operations.mjs";
+import { isWikiSessionCredential } from "../shared/wiki-session.js";
 import {
   API_MAX_REQUEST_BYTES,
   createProductionApi,
@@ -58,7 +59,10 @@ function sendResult(response, result) {
 }
 
 export function createProxy(fetcher = fetch, options = {}) {
-  const transport = createProductionApi(operations, fetcher, options);
+  const transport = createProductionApi(operations, fetcher, {
+    ...options,
+    denyGameCredential: isWikiSessionCredential,
+  });
   return async (request, response) => {
     const raw = request.url || "";
     const url =

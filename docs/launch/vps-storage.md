@@ -1,6 +1,7 @@
 # Madhouse private storage on the existing VPS
 
-The Wiki frontend and serverless APIs remain on Vercel. Private data lives in
+The supported phase 1 Wiki and connector run on the VPS; Vercel remains a
+separate rollback deployment without the persistent snapshot runtime. Private data lives in
 `/opt/madhouse-storage/data` on the existing Frontend Punks VPS: the projected
 reference SQLite, raid schedules, encrypted Telegram session, synchronization
 lease, encrypted connector account sessions, and consented analytics events.
@@ -12,7 +13,8 @@ nginx host forwards `/_madhouse-storage/` using `scripts/storage/nginx.conf`.
 All object requests require a dedicated bearer token; request bodies, tokens,
 and session values must never appear in logs or source control.
 
-Both Vercel projects and the VPS raid worker use:
+The VPS Wiki, connector and raid worker (and any separately deployed Vercel
+services that need private storage) use:
 
 - `MADHOUSE_STORAGE_ORIGIN=https://storage.madhouse-wiki.ru/_madhouse-storage`
 - `MADHOUSE_STORAGE_TOKEN` from the secret store

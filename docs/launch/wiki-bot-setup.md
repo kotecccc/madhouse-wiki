@@ -16,25 +16,25 @@ For the new bot:
 
 1. Create `Madhouse Wiki` with username `madhouse_wiki_bot`.
 2. Use `/setinline` and set the placeholder to `Этажи, энергия, рейды`.
-3. In `/mybots` → `Madhouse Wiki` → `Bot Settings` → `Configure Mini App`, enable the Main Mini App and set its URL to `https://madhouse-wiki.vercel.app/`. The profile's `Launch app` button and the bot's `?startapp=home` buttons depend on this Main Mini App being enabled. The setup command configures the private-chat menu button as a Telegram Web App.
+3. In `/mybots` → `Madhouse Wiki` → `Bot Settings` → `Configure Mini App`, enable the Main Mini App and set its URL to `https://madhouse-wiki.ru/` for the supported VPS deployment. The previous setup used a `vercel.app` URL; verify and update the actual BotFather setting at cutover. The profile's `Launch app` button and the bot's `?startapp=home` buttons depend on this Main Mini App being enabled. The setup command configures the private-chat menu button as a Telegram Web App.
 4. Upload [`public/madhouse-wiki-bot-avatar.png`](../../public/madhouse-wiki-bot-avatar.png) as the bot profile photo in BotFather. `/start` uses [`public/madhouse-wiki-bot-start.png`](../../public/madhouse-wiki-bot-start.png), served from the Wiki origin.
 5. In `Configure Mini App` → `Configure Splash Screen`, upload [`public/madhouse-wiki-splash.svg`](../../public/madhouse-wiki-splash.svg) (512×512) and set the light and dark loading backgrounds to `#191816`. This is Telegram's native loading placeholder; the React launch screen appears after the Mini App loads and calls `Telegram.WebApp.ready()`.
 
 ## Server configuration
 
-Set these production environment variables on the Wiki Vercel project:
+Set these production environment variables on the supported VPS Wiki service:
 
 - `TELEGRAM_BOT_TOKEN` — token for `@madhouse_wiki_bot`.
 - `TELEGRAM_BOT_WEBHOOK_SECRET` — 32–256 random characters from `A-Z`, `a-z`, `0-9`, `_`, `-`.
-- `WIKI_ADMIN_TELEGRAM_ID` — numeric Telegram ID of the private recipient for Wiki feedback and the analytics report. Keep it in Vercel Production environment variables, not in source code.
-- `WIKI_PUBLIC_ORIGIN` — `https://madhouse-wiki.vercel.app`.
+- `WIKI_ADMIN_TELEGRAM_ID` — numeric Telegram ID of the private recipient for Wiki feedback and the analytics report. Keep it in protected production environment files, not in source code.
+- `WIKI_PUBLIC_ORIGIN` — `https://madhouse-wiki.ru`.
 - `TELEGRAM_BOT_WEBHOOK_ORIGIN` — the HTTPS origin that serves the webhook; currently the Wiki production origin above.
 
-The Wiki Vercel project already has a private Blob store connected through Vercel OIDC. The raid functions use that connection via `BLOB_STORE_ID`; they do not need a `BLOB_READ_WRITE_TOKEN`.
+The supported VPS runtime uses the private storage service configured with `MADHOUSE_STORAGE_ORIGIN` and `MADHOUSE_STORAGE_TOKEN`; see the VPS deployment and storage guides. A Vercel Blob/OIDC connection does not configure this store.
 
 Feedback from the Mini App is sent directly to the administrator's Telegram chat by the Bot API. The API validates Telegram's signed `initData`; optional JPEG, PNG, or WebP screenshots are limited to 2 MiB and are not saved in Wiki storage. The user sees the recipient and data disclosure before sending.
 
-Usage analytics is opt-in. It stores an allowlist of action names, Wiki sections, feature codes, safe object codes, timestamps, and an HMAC pseudonym in private Vercel Blob storage. For users who accept analytics in the Telegram Mini App, the verified Telegram ID and username (when set) are also stored for the administrator's private user-level report; ordinary browser visitors remain random pseudonyms. The report excludes the administrator's own events. It does not store feedback text, screenshots, profile display names, raw `initData`, JWTs, account progress, IP addresses, or user-agent values. The consent notice states that Telegram ID/username are visible to the administrator. Users can turn collection off and request deletion of events and identifiers from the privacy settings. Events expire after 90 days; Vercel Cron runs the cleanup endpoint daily using `CRON_SECRET`. The administrator report is available only in Telegram and checks the signed `initData` server-side against `WIKI_ADMIN_TELEGRAM_ID`.
+Usage analytics is opt-in. It stores an allowlist of action names, Wiki sections, feature codes, safe object codes, timestamps, and an HMAC pseudonym in private storage. For users who accept analytics in the Telegram Mini App, the verified Telegram ID and username (when set) are also stored for the administrator's private user-level report; ordinary browser visitors remain random pseudonyms. The report excludes the administrator's own events. It does not store feedback text, screenshots, profile display names, raw `initData`, JWTs, account progress, IP addresses, or user-agent values. The consent notice states that Telegram ID/username are visible to the administrator. Users can turn collection off and request deletion of events and identifiers from the privacy settings. Events expire after 90 days; Vercel Cron runs the cleanup endpoint daily using `CRON_SECRET`. The administrator report is available only in Telegram and checks the signed `initData` server-side against `WIKI_ADMIN_TELEGRAM_ID`.
 
 The separate `madhouse-connect` project's Production `WIKI_INITDATA_KEY` must
 correspond to this same bot. It is the hex HMAC-SHA256 of the bot token with

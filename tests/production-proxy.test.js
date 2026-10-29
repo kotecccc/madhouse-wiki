@@ -70,6 +70,27 @@ test("strict stored reads through the production proxy never reach the game", as
   );
   assert.equal(unavailable.statusCode, 503);
 });
+test("standalone proxy never forwards a Wiki credential to the game", async () => {
+  const payload = Buffer.from(
+    JSON.stringify({
+      v: 1,
+      legacy: false,
+      accountPath: `accounts/${"a".repeat(64)}.json`,
+    }),
+  ).toString("base64url");
+  const result = response();
+  await createProxy(() => {
+    throw new Error("unexpected game call");
+  })(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: `Bearer header.${payload}.signature` },
+    },
+    result,
+  );
+  assert.equal(result.statusCode, 401);
+});
 test("production proxy rejects undocumented methods, unknown destinations and missing sessions without upstream calls", async () => {
   const proxy = createProxy(() => {
     throw new Error("must not fetch");

@@ -100,6 +100,10 @@ jobs:
             --tmpfs /data/automation:rw,nosuid,nodev,size=32m,uid=1000,gid=1000,mode=0700 \
             --env MADHOUSE_AUTOMATION_STATE_DIR=/data/automation \
             --env MADHOUSE_AUTOMATION_GAME_ENABLED=0 \
+            --env ACCOUNT_SESSION_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --env WIKI_SESSION_KEY=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --env MADHOUSE_STORAGE_ORIGIN=https://storage.test \
+            --env MADHOUSE_STORAGE_TOKEN=synthetic-storage-token-for-smoke-only \
             --env WIKI_PUBLIC_ORIGIN=https://wiki.test \
             --env CONNECTOR_PUBLIC_ORIGIN=https://connector.test \
             --env MADHOUSE_BRIDGE_LAB=1 \
@@ -125,6 +129,10 @@ jobs:
             --env MADHOUSE_BRIDGE_LAB=1 \
             --env MADHOUSE_BRIDGE_IPC_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
             --env WIKI_INITDATA_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --env ACCOUNT_SESSION_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --env WIKI_SESSION_KEY=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --env MADHOUSE_STORAGE_ORIGIN=https://storage.test \
+            --env MADHOUSE_STORAGE_TOKEN=synthetic-storage-token-for-smoke-only \
             --memory 384m \
             --pids-limit 96 \
             --publish 127.0.0.1:19093:9093 \
