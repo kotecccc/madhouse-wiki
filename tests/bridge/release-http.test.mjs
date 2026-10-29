@@ -49,10 +49,19 @@ test("release endpoint serves only exact public files and rejects symlinks", asy
   mkdirSync(join(dir, "releases"));
   writeFileSync(join(dir, "bootstrap.pyz"), "fake-bootstrap");
   writeFileSync(join(dir, "MadhouseWikiBridge-macOS.zip"), "fake-zip");
+  writeFileSync(join(dir, "MadhouseWikiBridge-Windows.zip"), "fake-windows");
+  mkdirSync(join(dir, "windows-releases"));
+  writeFileSync(
+    join(dir, "windows-releases", "manifest.json"),
+    "windows-manifest",
+  );
   writeFileSync(join(dir, "releases", "manifest.json"), "{}");
   writeFileSync(join(dir, "private.pem"), "private-secret");
   symlinkSync(join(dir, "private.pem"), join(dir, "releases", "manifest.sig"));
-  const server = createServer(createBridgeReleaseHttp(dir));
+  const windowsSha256 = createHash("sha256")
+    .update("fake-windows")
+    .digest("hex");
+  const server = createServer(createBridgeReleaseHttp(dir, { windowsSha256 }));
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -63,6 +72,22 @@ test("release endpoint serves only exact public files and rejects symlinks", asy
     const mac = await fetch(base + "/bridge/MadhouseWikiBridge-macOS.zip");
     assert.equal(await mac.text(), "fake-zip");
     assert.match(mac.headers.get("content-disposition"), /attachment/);
+    const windows = await fetch(
+      base + "/bridge/MadhouseWikiBridge-Windows.zip",
+    );
+    assert.equal(await windows.text(), "fake-windows");
+    assert.match(windows.headers.get("content-disposition"), /Windows/);
+    assert.equal(
+      await (
+        await fetch(base + "/bridge/windows-releases/manifest.json")
+      ).text(),
+      "windows-manifest",
+    );
+    writeFileSync(join(dir, "MadhouseWikiBridge-Windows.zip"), "tampered");
+    assert.equal(
+      (await fetch(base + "/bridge/MadhouseWikiBridge-Windows.zip")).status,
+      404,
+    );
     assert.equal(
       (await fetch(base + "/bridge/releases/manifest.sig")).status,
       404,

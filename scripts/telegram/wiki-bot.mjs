@@ -1169,6 +1169,10 @@ export function createWikiBotApi({
             { text: "🍎 Mac", callback_data: "bridge:mac" },
             { text: "📱 iPhone", callback_data: "bridge:iphone" },
           ],
+          [
+            { text: "🪟 Windows", callback_data: "bridge:windows" },
+            { text: "🤖 Android", callback_data: "bridge:android" },
+          ],
           [{ text: "🔄 Проверить мост", callback_data: "bridge:check" }],
           ...(bridgeReporter
             ? [
@@ -1244,7 +1248,7 @@ export function createWikiBotApi({
         bridgeDevices.revoke(owner, id);
         await showScreen(
           chatId,
-          "Устройство отключено. Теперь выберите Mac или iPhone.",
+          "Устройство отключено. Теперь выберите устройство.",
           {
             inline_keyboard: [
               [{ text: "Выбрать устройство", callback_data: "bridge:menu" }],
@@ -1253,7 +1257,15 @@ export function createWikiBotApi({
         );
         return;
       }
-      if (!["bridge:mac", "bridge:iphone"].includes(callback.data)) return;
+      if (
+        ![
+          "bridge:mac",
+          "bridge:iphone",
+          "bridge:android",
+          "bridge:windows",
+        ].includes(callback.data)
+      )
+        return;
       if (device) {
         await showScreen(
           chatId,
@@ -1263,17 +1275,24 @@ export function createWikiBotApi({
         return;
       }
       const { invitation } = bridgeDevices.invite(owner);
-      if (callback.data === "bridge:mac") {
+      if (["bridge:mac", "bridge:windows"].includes(callback.data)) {
+        const windows = callback.data === "bridge:windows";
         await showScreen(
           chatId,
-          `<b>Мост на Mac</b>\n1. Скачайте архив и распакуйте его.\n2. Нажмите правой кнопкой на файл моста → «Открыть».\n3. Вставьте одноразовый ключ: <code>${escapeHtml(invitation)}</code>\n\nКлюч действует 5 минут. Оставьте окно моста открытым.`,
+          windows
+            ? `<b>Мост на Windows</b>\n1. Скачайте архив и распакуйте его.\n2. Откройте файл MadhouseWikiBridge.bat.\n3. Вставьте одноразовый ключ: <code>${escapeHtml(invitation)}</code>\n\nКлюч действует 5 минут. Оставьте окно моста открытым.`
+            : `<b>Мост на Mac</b>\n1. Скачайте архив и распакуйте его.\n2. Нажмите правой кнопкой на файл моста → «Открыть».\n3. Вставьте одноразовый ключ: <code>${escapeHtml(invitation)}</code>\n\nКлюч действует 5 минут. Оставьте окно моста открытым.`,
           {
             inline_keyboard: [
               [
                 {
-                  text: "Скачать мост для Mac",
+                  text: windows
+                    ? "Скачать мост для Windows"
+                    : "Скачать мост для Mac",
                   url: new URL(
-                    "/bridge/MadhouseWikiBridge-macOS.zip",
+                    windows
+                      ? "/bridge/MadhouseWikiBridge-Windows.zip"
+                      : "/bridge/MadhouseWikiBridge-macOS.zip",
                     siteUrl,
                   ).toString(),
                 },
@@ -1287,12 +1306,26 @@ export function createWikiBotApi({
         const command = createBridgeInstallCommand({
           invitation,
           bootstrapSha256: bridgeBootstrapSha256,
+          platform: callback.data === "bridge:android" ? "android" : "iphone",
         });
+        const android = callback.data === "bridge:android";
         await showScreen(
           chatId,
-          `<b>Мост на iPhone</b>\n1. Установите iSH.\n2. Скопируйте команду ниже и вставьте её в iSH.\n3. Разрешите геолокацию, если iPhone спросит.\n\nКоманда действует 5 минут:\n<code>${escapeHtml(command)}</code>`,
+          android
+            ? `<b>Мост на Android</b>\n1. Установите Termux из F-Droid.\n2. Скопируйте команду ниже и вставьте её в Termux.\n3. Оставьте Termux запущенным.\n\nКоманда действует 5 минут:\n<code>${escapeHtml(command)}</code>`
+            : `<b>Мост на iPhone</b>\n1. Установите iSH.\n2. Скопируйте команду ниже и вставьте её в iSH.\n3. Разрешите геолокацию, если iPhone спросит.\n\nКоманда действует 5 минут:\n<code>${escapeHtml(command)}</code>`,
           {
             inline_keyboard: [
+              ...(android
+                ? [
+                    [
+                      {
+                        text: "Установить Termux",
+                        url: "https://f-droid.org/en/packages/com.termux/",
+                      },
+                    ],
+                  ]
+                : []),
               [{ text: "Проверить мост", callback_data: "bridge:check" }],
             ],
           },

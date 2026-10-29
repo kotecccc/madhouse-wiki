@@ -39,3 +39,27 @@ test("rejects values that could alter the shell command", () => {
     TypeError,
   );
 });
+
+test("Android installation uses Termux packages and the pinned bootstrap", () => {
+  const command = createBridgeInstallCommand({
+    invitation: "A".repeat(43),
+    bootstrapSha256: "a".repeat(64),
+    platform: "android",
+  });
+  assert.match(command, /^DEBIAN_FRONTEND=noninteractive pkg install -y /);
+  assert.match(command, /--force-confdef/);
+  assert.match(command, /--force-confold/);
+  assert.match(command, /openssl-tool/);
+  assert.match(command, /sha256/);
+  assert.match(command, /--pair/);
+  assert.equal(spawnSync("/bin/sh", ["-n"], { input: command }).status, 0);
+  assert.throws(
+    () =>
+      createBridgeInstallCommand({
+        invitation: "A".repeat(43),
+        bootstrapSha256: "a".repeat(64),
+        platform: "unknown",
+      }),
+    TypeError,
+  );
+});

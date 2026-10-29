@@ -9,12 +9,14 @@ const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 export function createBridgeInstallCommand({
   invitation,
   bootstrapSha256,
+  platform = "iphone",
 } = {}) {
   if (
     typeof invitation !== "string" ||
     !/^[A-Za-z0-9_-]{43}$/.test(invitation) ||
     typeof bootstrapSha256 !== "string" ||
-    !/^[a-f0-9]{64}$/.test(bootstrapSha256)
+    !/^[a-f0-9]{64}$/.test(bootstrapSha256) ||
+    !["iphone", "android"].includes(platform)
   )
     throw new TypeError("invalid_bridge_install_parameters");
   const source = [
@@ -29,5 +31,9 @@ export function createBridgeInstallCommand({
     "with os.fdopen(fd,'wb') as f: f.write(data)",
     "os.execv(sys.executable,[sys.executable,path,'--pair'])",
   ].join("\n");
-  return `if command -v apk >/dev/null 2>&1; then apk add --no-cache python3 openssl ca-certificates; else true; fi && printf '%s\\n' ${quote(invitation)} | python3 -c ${quote(source)}`;
+  const dependencies =
+    platform === "android"
+      ? "DEBIAN_FRONTEND=noninteractive pkg install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold python openssl-tool ca-certificates"
+      : "if command -v apk >/dev/null 2>&1; then apk add --no-cache python3 openssl ca-certificates; else true; fi";
+  return `${dependencies} && printf '%s\\n' ${quote(invitation)} | python3 -c ${quote(source)}`;
 }
