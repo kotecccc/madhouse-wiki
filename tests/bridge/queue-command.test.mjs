@@ -128,9 +128,20 @@ test("only the supported durable queue command is admitted", async () => {
     ),
     true,
   );
+  for (const direction of ["up", "down"])
+    assert.equal(
+      await isAllowedBridgeQueueCommand(
+        request({
+          command: "queue.move",
+          args: { id: "test-job-1", direction },
+        }),
+      ),
+      true,
+    );
   for (const input of [
     { command: "buddy.set", args: { playerId: 0, enabled: true } },
     { command: "buddy.resolve", args: { kind: "other" } },
+    { command: "queue.move", args: { id: "test-job-1", direction: "other" } },
     { command: "buddy.order", args: { friendIds: [0] } },
     { command: "friends.favorite", args: { playerId: 42, enabled: "yes" } },
     { command: "friends.respond", args: { playerId: 42 } },
