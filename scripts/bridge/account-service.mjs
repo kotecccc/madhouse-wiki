@@ -62,7 +62,7 @@ export function createBridgeAccountService({
     throw new TypeError("account_service_dependencies_required");
 
   let onVerifiedProfile = () => {};
-  async function fetchProfile(verifiedOwner, authorization, signal) {
+  async function fetchProfile(verifiedOwner, authorization, signal, revision) {
     const device = devices.listDevice(verifiedOwner);
     if (!device) throw failure("device_unavailable");
     const identity = {
@@ -76,7 +76,10 @@ export function createBridgeAccountService({
         authorization,
         signal,
         openTunnel: () => devices.open(verifiedOwner, { signal }),
-        validateTunnel: () => registry.isActive(identity),
+        validateTunnel: () =>
+          !signal?.aborted &&
+          registry.isActive(identity) &&
+          accounts.getRevision(verifiedOwner) === revision,
       });
     } catch (error) {
       logBridgeFailure(error);
@@ -126,6 +129,8 @@ export function createBridgeAccountService({
     const { profile, device } = await fetchProfile(
       verifiedOwner,
       authorization,
+      undefined,
+      revision,
     );
     accounts.saveVerified({
       owner: verifiedOwner,
@@ -146,6 +151,7 @@ export function createBridgeAccountService({
       verifiedOwner,
       account.authorization,
       signal,
+      account.revision,
     );
     if (accounts.getRevision(verifiedOwner) !== account.revision)
       throw failure("binding_changed");
@@ -173,7 +179,10 @@ export function createBridgeAccountService({
         body,
         signal,
         openTunnel: () => devices.open(verifiedOwner, { signal }),
-        validateTunnel: () => registry.isActive(identity),
+        validateTunnel: () =>
+          !signal?.aborted &&
+          registry.isActive(identity) &&
+          accounts.getRevision(verifiedOwner) === account.revision,
       });
     } catch (error) {
       logBridgeFailure(error);
@@ -219,6 +228,7 @@ export function createBridgeAccountService({
         signal,
         openTunnel: () => devices.open(verifiedOwner, { signal }),
         validateTunnel: () =>
+          !signal?.aborted &&
           registry.isActive(identity) &&
           accounts.getRevision(verifiedOwner) === account.revision &&
           (validateCaller ? validateCaller() === true : true) &&

@@ -146,6 +146,40 @@ test("work-view method and body reach the bound device transport", async () => {
   }
 });
 
+test("bridge reads reject a changed binding at the tunnel handshake", async () => {
+  let check;
+  let ready;
+  const entered = new Promise((resolve) => (ready = resolve));
+  let resume;
+  const wait = new Promise((resolve) => (resume = resolve));
+  const f = fixture(goodProfile, async ({ validateTunnel }) => {
+    check = validateTunnel;
+    ready();
+    await wait;
+    if (!check()) throw new Error("not admitted");
+    return { status: 200, body: Buffer.from("{}") };
+  });
+  try {
+    const device = f.pair("101");
+    await f.service.bind("101", "Bearer token-one");
+    const pending = f.service.read("101", "/api/floors");
+    await entered;
+    f.storage.accounts.saveVerified({
+      owner: "101",
+      playerId: "42",
+      authorization: "Bearer token-two",
+      expectedRevision: 1,
+      deviceId: device.deviceId,
+      generation: device.generation,
+    });
+    resume();
+    await assert.rejects(pending, { code: "bridge_unavailable" });
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
+
 test("game reads use the stored account and reject a revoked device", async () => {
   let release;
   const pending = new Promise((resolve) => {
