@@ -14,6 +14,7 @@ const options = {
   method: "POST",
   kind: "mutation",
   operationId: "operation_1",
+  checkpointOperationId: "game-operation-1",
   bindingRevision: 1,
   deviceGeneration: 1,
 };
@@ -42,6 +43,7 @@ test("journal precedes possible send and restores account/device restriction aft
           const active = store.readActiveBridgeAttempts();
           assert.equal(active.length, 1);
           assert.equal(active[0].phase, "dispatched");
+          assert.equal(active[0].checkpointOperationId, "game-operation-1");
           sends++;
           throw new Error("lost response");
         },

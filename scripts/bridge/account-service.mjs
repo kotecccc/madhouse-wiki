@@ -277,6 +277,13 @@ export function createBridgeAccountService({
       } catch {
         // The action gate remains responsible for validating the body.
       }
+      if (
+        checkpointOperationId !==
+        queueActionGate.battleCheckpointOperationId?.(
+          callerAuthorization ?? account.authorization,
+        )
+      )
+        checkpointOperationId = null;
       const operationId =
         queueActionGate.operationId?.() ||
         checkpointOperationId ||
@@ -289,6 +296,7 @@ export function createBridgeAccountService({
         method,
         kind: "mutation",
         operationId,
+        checkpointOperationId,
         bindingRevision: account.revision,
         deviceGeneration: device.generation,
         execute: () =>

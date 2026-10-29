@@ -151,18 +151,26 @@ const BRIDGE_PHASE_TRANSITIONS = {
 };
 
 function validateBridgeAttempt(attempt) {
+  const keys = Object.keys(attempt || {})
+    .sort()
+    .join(",");
+  const legacyKeys =
+    "action,bindingRevision,createdAt,deviceGeneration,deviceId,id,operationId,phase,playerId,updatedAt";
+  const checkpointKeys =
+    "action,bindingRevision,checkpointOperationId,createdAt,deviceGeneration,deviceId,id,operationId,phase,playerId,updatedAt";
   if (
     !attempt ||
     typeof attempt !== "object" ||
     Array.isArray(attempt) ||
-    Object.keys(attempt).sort().join(",") !==
-      "action,bindingRevision,createdAt,deviceGeneration,deviceId,id,operationId,phase,playerId,updatedAt"
+    ![legacyKeys, checkpointKeys].includes(keys)
   )
     throw new TypeError("invalid_bridge_attempt");
   const playerId = normalizePlayerId(attempt.playerId);
   if (
     !BRIDGE_ATTEMPT_ID.test(attempt.id) ||
     !BRIDGE_OPERATION_ID.test(attempt.operationId) ||
+    (Object.hasOwn(attempt, "checkpointOperationId") &&
+      !BRIDGE_OPERATION_ID.test(attempt.checkpointOperationId)) ||
     !BRIDGE_ATTEMPT_ID.test(attempt.deviceId) ||
     !Number.isSafeInteger(attempt.bindingRevision) ||
     attempt.bindingRevision < 1 ||
@@ -471,6 +479,9 @@ export function createAutomationStateStore({ directory }) {
             id: record.id,
             playerId: record.playerId,
             operationId: record.operationId,
+            ...(Object.hasOwn(record, "checkpointOperationId")
+              ? { checkpointOperationId: record.checkpointOperationId }
+              : {}),
             deviceId: record.deviceId,
             bindingRevision: record.bindingRevision,
             deviceGeneration: record.deviceGeneration,
@@ -511,6 +522,9 @@ export function createAutomationStateStore({ directory }) {
           id: record.id,
           playerId: record.playerId,
           operationId: record.operationId,
+          ...(Object.hasOwn(record, "checkpointOperationId")
+            ? { checkpointOperationId: record.checkpointOperationId }
+            : {}),
           deviceId: record.deviceId,
           bindingRevision: record.bindingRevision,
           deviceGeneration: record.deviceGeneration,

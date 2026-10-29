@@ -123,6 +123,55 @@ test("queued mutation requires a matching live one-use permission", async () => 
   }
 });
 
+test("queued battle dispatch records both the queue job and its game operation identity", async () => {
+  const gate = createQueueActionGate();
+  let attempt;
+  const f = fixture(goodProfile, null, {
+    queueActionGate: gate,
+    coordinate: (value) => {
+      attempt = value;
+      return value.execute();
+    },
+    sendAction: async ({ validateTunnel }) => {
+      assert.equal(await validateTunnel(), true);
+      return { status: 200, body: Buffer.from("{}") };
+    },
+  });
+  const job = {
+    id: "battle-job-1",
+    type: "battle.attack",
+    status: "running",
+    args: { bossId: 7, battleId: "battle-1" },
+  };
+  const pending = {
+    id: job.id,
+    kind: "attack",
+    bossId: 7,
+    battleId: "battle-1",
+    operationId: "game-operation-1",
+  };
+  try {
+    f.pair("101");
+    await f.service.bind("101", "Bearer token");
+    await gate.run(
+      job,
+      false,
+      "Bearer token",
+      () =>
+        f.service.send("101", "POST", "/api/bosses/battles/battle-1/attack", {
+          body: JSON.stringify({ operationId: pending.operationId }),
+        }),
+      () => true,
+      () => pending,
+    );
+    assert.equal(attempt.operationId, job.id);
+    assert.equal(attempt.checkpointOperationId, pending.operationId);
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
+
 test("work-view method and body reach the bound device transport", async () => {
   const body = JSON.stringify({ workId: 7, locale: "ru" });
   const f = fixture(goodProfile, async (request) => {

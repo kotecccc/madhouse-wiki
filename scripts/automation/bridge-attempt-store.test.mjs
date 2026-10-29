@@ -103,3 +103,49 @@ test("bridge attempt journal rejects credentials, bodies, and unsafe transitions
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("checkpoint operation identity survives restart and CAS without changing legacy records", () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-checkpoint-store-"));
+  let store = createAutomationStateStore({ directory });
+  try {
+    const linked = store.createBridgeAttempt(
+      attempt({ checkpointOperationId: "game-operation-1" }),
+    );
+    store.createBridgeAttempt(
+      attempt({ id: "123e4567-e89b-42d3-a456-426614174001" }),
+    );
+    store.close();
+    store = createAutomationStateStore({ directory });
+    const restored = store.readActiveBridgeAttempts();
+    assert.equal(
+      restored.find((item) => item.id === linked.id).checkpointOperationId,
+      "game-operation-1",
+    );
+    assert.equal(
+      Object.hasOwn(
+        restored.find((item) => item.id !== linked.id),
+        "checkpointOperationId",
+      ),
+      false,
+    );
+    const dispatched = store.compareAndSetBridgeAttempt(
+      linked.id,
+      linked.revision,
+      { phase: "dispatched", updatedAt: 1100 },
+    );
+    assert.equal(dispatched.checkpointOperationId, "game-operation-1");
+    assert.throws(
+      () =>
+        store.createBridgeAttempt(
+          attempt({
+            id: "123e4567-e89b-42d3-a456-426614174004",
+            checkpointOperationId: "Bearer secret",
+          }),
+        ),
+      /invalid_bridge_attempt/,
+    );
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

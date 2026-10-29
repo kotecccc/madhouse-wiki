@@ -11,6 +11,34 @@ export function createQueueActionGate() {
         ? context.job.id
         : null;
     },
+    battleCheckpointOperationId(authorization) {
+      const context = storage.getStore();
+      if (
+        !context?.active ||
+        context.reconcile ||
+        context.authorization !== authorization ||
+        context.job?.type !== "battle.attack" ||
+        context.job.status !== "running" ||
+        typeof context.checkpoint !== "function" ||
+        typeof context.canDispatch !== "function"
+      )
+        return null;
+      try {
+        const pending = context.checkpoint();
+        if (
+          context.canDispatch() !== true ||
+          pending?.id !== context.job.id ||
+          pending.kind !== "attack" ||
+          pending.bossId !== context.job.args?.bossId ||
+          pending.battleId !== context.job.args?.battleId ||
+          typeof pending.operationId !== "string"
+        )
+          return null;
+        return pending.operationId;
+      } catch {
+        return null;
+      }
+    },
     capture() {
       const context = storage.getStore();
       return (callback) =>

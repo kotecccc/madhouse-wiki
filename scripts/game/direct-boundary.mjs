@@ -104,6 +104,7 @@ export function createDirectBoundary({
     execute,
     kind,
     operationId,
+    checkpointOperationId,
     bindingRevision,
     deviceGeneration,
   }) {
@@ -130,6 +131,7 @@ export function createDirectBoundary({
           id: attemptId,
           playerId,
           operationId,
+          ...(checkpointOperationId ? { checkpointOperationId } : {}),
           deviceId,
           bindingRevision,
           deviceGeneration,
