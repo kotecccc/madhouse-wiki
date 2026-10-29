@@ -1,5 +1,6 @@
 import { INVENTORY_ACTION_TYPES } from "../automation/inventory-actions.mjs";
 import { Agent, request } from "node:https";
+import { createHash } from "node:crypto";
 import { gameReadPaths } from "./game-read-paths.mjs";
 import {
   CARGO_HOST,
@@ -128,20 +129,59 @@ function requestGameOverBridge({
             reject(new Error("profile_incomplete"));
             return;
           }
+          const responseBody = Buffer.concat(chunks);
           if (
             method === "POST" &&
             /^\/api\/bosses\/invitations\/[A-Za-z0-9_-]{1,120}\/accept$/.test(
               path,
             )
-          )
+          ) {
+            let reason = "other";
+            try {
+              const value = JSON.parse(responseBody.toString("utf8"));
+              const code = value?.reason || value?.error || value?.errorCode;
+              if (
+                [
+                  "battle_not_found",
+                  "battle_full",
+                  "battle_busy",
+                  "battle_finished",
+                  "battle_not_active",
+                  "battle_already_finished",
+                  "boss_battle_finished",
+                  "boss_battle_not_active",
+                  "boss_battle_expired",
+                  "boss_battle_not_found",
+                  "invitation_expired",
+                  "invitation_not_found",
+                  "invitation_not_pending",
+                  "invitation_already_accepted",
+                  "boss_invitation_expired",
+                  "boss_invitation_not_pending",
+                  "participant_already_left",
+                  "participant_already_joined",
+                  "room_full",
+                  "already_in_battle",
+                  "already_joined",
+                  "not_enough_energy",
+                  "not_enough_health",
+                ].includes(code)
+              )
+                reason = code;
+            } catch {
+              // Never log the response body or arbitrary server text.
+            }
             console.info(
               "madhouse-bridge-invitation-status",
               response.statusCode,
+              createHash("sha256").update(path).digest("hex").slice(0, 12),
+              reason,
             );
+          }
           const retryAfter = response.headers["retry-after"];
           resolve({
             status: response.statusCode,
-            body: Buffer.concat(chunks),
+            body: responseBody,
             ...(typeof retryAfter === "string" && retryAfter.length <= 128
               ? { retryAfter }
               : {}),

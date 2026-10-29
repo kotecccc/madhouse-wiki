@@ -79,10 +79,28 @@ test("private Mac setup provides a download and a single-use key", async () => {
   );
 });
 
+test("private Windows setup provides the portable archive and single-use key", async () => {
+  const h = harness();
+  await h.callback("bridge:windows");
+  const msg = h.calls.find((call) => call.method === "editMessageText").body;
+  assert.match(msg.text, /Мост на Windows/);
+  assert.equal(
+    msg.reply_markup.inline_keyboard[0][0].url,
+    "https://wiki.example/bridge/MadhouseWikiBridge-Windows.zip",
+  );
+  assert.equal(
+    msg.reply_markup.inline_keyboard[1][0].copy_text.text,
+    "A".repeat(43),
+  );
+});
+
 test("bridge secrets never go to group chats or a different sender", async () => {
   const h = harness();
   await h.callback("bridge:mac", { type: "group" });
   await h.callback("bridge:mac", { sender: 124 });
+  await h.callback("bridge:android", { type: "group" });
+  await h.callback("bridge:android", { sender: 124 });
+  await h.callback("bridge:windows", { type: "group" });
   assert.equal(
     h.calls.some((call) => call.method === "editMessageText"),
     false,
@@ -106,6 +124,24 @@ test("iPhone setup includes the pinned installer command", async () => {
   await h.callback("bridge:iphone");
   assert.match(h.calls.at(-1).body.text, /iSH/);
   assert.match(h.calls.at(-1).body.text, /a{64}/);
+});
+
+test("Android setup uses Termux and a pinned one-use installer", async () => {
+  const h = harness();
+  await h.callback("bridge:menu");
+  assert.ok(
+    h.calls
+      .at(-1)
+      .body.reply_markup.inline_keyboard.some((row) =>
+        row.some((button) => button.callback_data === "bridge:android"),
+      ),
+  );
+  await h.callback("bridge:android");
+  const text = h.calls.at(-1).body.text;
+  assert.match(text, /Termux/);
+  assert.match(text, /pkg install -y/);
+  assert.match(text, /--force-confold/);
+  assert.match(text, /a{64}/);
 });
 
 test("private bridge check and notification controls use the verified owner", async () => {

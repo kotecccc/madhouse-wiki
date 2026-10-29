@@ -475,3 +475,38 @@ test("queued battle action forwards its exact operation through TLS", async () =
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("invitation diagnostics do not log identifiers or arbitrary error text", async () => {
+  const server = createServer({ cert, key }, (_req, res) => {
+    res.writeHead(409, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "private_secret", token: "fake-token" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const validateTunnel = () => true;
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+    validateTunnel,
+  });
+  const previous = console.info;
+  const messages = [];
+  console.info = (...args) => messages.push(args);
+  try {
+    const result = await sendFriendResponseOverBridge({
+      authorization: "Bearer fake-token",
+      method: "POST",
+      path: "/api/bosses/invitations/private-invitation/accept",
+      body: JSON.stringify({ operationId: "private-operation" }),
+      validateTunnel,
+      connector,
+    });
+    assert.equal(result.status, 409);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0][1], 409);
+    assert.equal(messages[0][3], "other");
+    assert.doesNotMatch(JSON.stringify(messages), /private|fake-token/);
+  } finally {
+    console.info = previous;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
