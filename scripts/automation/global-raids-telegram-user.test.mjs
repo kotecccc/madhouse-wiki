@@ -125,7 +125,7 @@ test("raid worker publishes animated status via the premium sender and keeps the
           key: "1:7",
           bossId: 7,
           leaderPlayerId: 1,
-          count: 3,
+          count: 10,
           lastBattleAt: time,
           sources: {},
         },
