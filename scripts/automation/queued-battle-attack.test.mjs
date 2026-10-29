@@ -168,7 +168,7 @@ test("manual strike waits for a fresh read and executes once", async () => {
   assert.ok(h.entry.manualBattle.receipts.includes("attack-job-1"));
 });
 
-test("lost attack response is reconciled after restart without another strike", async () => {
+test("lost attack response remains unresolved after restart without another strike", async () => {
   const h = harness({ lost: true });
   let queue = h.make();
   add(queue);
@@ -178,8 +178,9 @@ test("lost attack response is reconciled after restart without another strike", 
   queue = h.make(h.state());
   h.advance(10000);
   await queue.tick();
-  assert.equal(h.state()[0].status, "completed");
+  assert.equal(h.state()[0].status, "reconciling");
   assert.equal(h.hits(), 1);
+  assert.equal(h.entry.manualBattle.receipts.length, 0);
 });
 
 test("no confirmed damage increase keeps an uncertain strike pending", async () => {

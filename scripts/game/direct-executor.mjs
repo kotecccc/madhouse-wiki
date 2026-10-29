@@ -104,15 +104,22 @@ export function createDirectExecutor({
       item.delayReason = "identity_unverified_during_recovery";
       return Infinity;
     }
-    for (const block of [
-      ...durableBlocks.values(),
-      ...volatileBlocks.values(),
-    ]) {
+    for (const [id, block] of durableBlocks) {
+      if (item.recoveryAttemptId === id) continue;
       if (
         canonical(block.accountId) === account ||
         (item.transport === "bridge" && block.deviceId === item.deviceId)
       ) {
         item.delayReason = "unresolved_bridge_attempt";
+        return Infinity;
+      }
+    }
+    for (const block of volatileBlocks.values()) {
+      if (
+        canonical(block.accountId) === account ||
+        (item.transport === "bridge" && block.deviceId === item.deviceId)
+      ) {
+        item.delayReason = "unresolved_bridge_transport";
         return Infinity;
       }
     }
@@ -359,6 +366,8 @@ export function createDirectExecutor({
         execute,
         transport,
         deviceId: context.deviceId,
+        recoveryAttemptId:
+          transport === "bridge" ? context.recoveryAttemptId : undefined,
         accountId,
         resolve,
         reject,

@@ -32,6 +32,7 @@ export function createGameTlsDuplexConnector({
   requestInfo = null,
   signal = null,
   onReady = () => {},
+  onTunnel = () => {},
 } = {}) {
   if (typeof openTunnel !== "function" || typeof tlsConnect !== "function")
     throw new TypeError("invalid_connector_dependencies");
@@ -90,6 +91,14 @@ export function createGameTlsDuplexConnector({
       tunnel = resolvedTunnel;
       if (!isDuplex(tunnel)) {
         tunnel?.destroy?.();
+        finish(transportError("invalid_tunnel"));
+        return;
+      }
+
+      try {
+        onTunnel(tunnel);
+      } catch {
+        tunnel.destroy();
         finish(transportError("invalid_tunnel"));
         return;
       }

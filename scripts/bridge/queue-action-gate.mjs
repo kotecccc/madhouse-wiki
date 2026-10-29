@@ -1,6 +1,13 @@
 import { INVENTORY_ACTION_TYPES } from "../automation/inventory-actions.mjs";
 import { AsyncLocalStorage } from "node:async_hooks";
 
+const recoveryPermits = new WeakSet();
+export function isTrustedBattleRecoveryPermit(value) {
+  return Boolean(
+    value && typeof value === "object" && recoveryPermits.has(value),
+  );
+}
+
 /** In-process permission for one already-persisted queue attempt. */
 export function createQueueActionGate() {
   const storage = new AsyncLocalStorage();
@@ -39,6 +46,50 @@ export function createQueueActionGate() {
         return null;
       }
     },
+    battleRecoveryPermit({ authorization, method, path }) {
+      const context = storage.getStore();
+      const job = context?.job;
+      const current = () => {
+        if (
+          !context?.active ||
+          context.reconcile !== true ||
+          job?.type !== "battle.attack" ||
+          job.status !== "reconciling" ||
+          context.authorization !== authorization ||
+          typeof context.checkpoint !== "function" ||
+          typeof context.recoveryCurrent !== "function" ||
+          method !== "GET" ||
+          path !== `/api/bosses/battles/${job.args?.battleId}`
+        )
+          return false;
+        try {
+          const pending = context.checkpoint();
+          return (
+            context.recoveryCurrent() === true &&
+            pending?.id === job.id &&
+            pending.kind === "attack" &&
+            pending.bossId === job.args?.bossId &&
+            pending.battleId === job.args?.battleId &&
+            typeof pending.operationId === "string" &&
+            pending.operationId.length > 0
+          );
+        } catch {
+          return false;
+        }
+      };
+      if (!current()) return null;
+      const checkpointOperationId = context.checkpoint().operationId;
+      const permit = Object.freeze({
+        operationId: job.id,
+        checkpointOperationId,
+        validate: (targetPath) =>
+          targetPath === path &&
+          current() &&
+          context.checkpoint()?.operationId === checkpointOperationId,
+      });
+      recoveryPermits.add(permit);
+      return permit;
+    },
     capture() {
       const context = storage.getStore();
       return (callback) =>
@@ -61,6 +112,7 @@ export function createQueueActionGate() {
       callback,
       canDispatch,
       checkpoint,
+      recoveryCurrent,
     ) {
       if (typeof callback !== "function")
         throw new TypeError("callback_required");
@@ -70,6 +122,7 @@ export function createQueueActionGate() {
         authorization,
         canDispatch,
         checkpoint,
+        recoveryCurrent,
         active: true,
         used: false,
       };

@@ -149,3 +149,47 @@ test("checkpoint operation identity survives restart and CAS without changing le
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("transport stop is a separate CAS fact and leaves the game outcome unresolved", () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-stop-store-"));
+  let store = createAutomationStateStore({ directory });
+  try {
+    assert.throws(
+      () => store.createBridgeAttempt(attempt({ transportStoppedAt: 1000 })),
+      /invalid_bridge_attempt/,
+    );
+    const created = store.createBridgeAttempt(attempt());
+    assert.throws(
+      () =>
+        store.confirmBridgeTransportStop(created.id, created.revision, 1100),
+      /invalid_bridge_transport_stop/,
+    );
+    const dispatched = store.compareAndSetBridgeAttempt(
+      created.id,
+      created.revision,
+      { phase: "dispatched", updatedAt: 1100 },
+    );
+    assert.equal(
+      store.confirmBridgeTransportStop(created.id, created.revision, 1200),
+      null,
+    );
+    const stopped = store.confirmBridgeTransportStop(
+      created.id,
+      dispatched.revision,
+      1200,
+    );
+    assert.equal(stopped.phase, "dispatched");
+    assert.equal(stopped.transportStoppedAt, 1200);
+    store.close();
+    store = createAutomationStateStore({ directory });
+    assert.deepEqual(store.readActiveBridgeAttempts(), [stopped]);
+    assert.throws(
+      () =>
+        store.confirmBridgeTransportStop(stopped.id, stopped.revision, 1300),
+      /invalid_bridge_transport_stop/,
+    );
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

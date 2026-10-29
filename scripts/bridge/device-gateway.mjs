@@ -71,6 +71,9 @@ export function createDeviceGateway({
       wss.handleUpgrade(req, socket, head, (ws) => {
         ws.bridgeAlive = true;
         ws.bridgeRequestLog = req.headers["x-madhouse-bridge-log"] === "1";
+        // Legacy relays do not acknowledge that their game socket has stopped.
+        // Only a negotiated client may be challenged by the stop-ACK helper.
+        ws.bridgeStopAck = req.headers["x-madhouse-bridge-stop-ack"] === "1";
         ws.on("pong", () => {
           ws.bridgeAlive = true;
         });

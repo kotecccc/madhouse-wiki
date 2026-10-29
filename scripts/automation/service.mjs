@@ -2156,7 +2156,11 @@ export function createAutomationService({
           save,
         }),
         "battle.start": queuedBattleStartAdapter({ entry, getBoss, save }),
-        "battle.attack": queuedBattleAttackAdapter({ entry, save, now }),
+        "battle.attack": queuedBattleAttackAdapter({
+          entry,
+          save,
+          now,
+        }),
         "battle.heal": queuedBattleHealAdapter({ entry }),
         "business.start": queuedBusinessRunAdapter({
           entry,
@@ -2366,6 +2370,19 @@ export function createAutomationService({
                         : job.type === "energy.booster"
                           ? entry.energyBooster?.pending
                           : entry.raidFriend?.pending,
+              () => {
+                ensureLease();
+                return (
+                  !closed &&
+                  !entry.storageFailed &&
+                  entry.actionQueue
+                    .snapshot()
+                    .some(
+                      (item) =>
+                        item.id === job.id && item.status === "reconciling",
+                    )
+                );
+              },
             )
           : run();
       },

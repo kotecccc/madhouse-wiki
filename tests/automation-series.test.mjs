@@ -1678,7 +1678,7 @@ test("queued manual attack executes against the selected battle once", async () 
   });
 });
 
-test("lost manual attack response is reconciled on server restart without replay", async () => {
+test("lost manual attack response remains unresolved on server restart without replay", async () => {
   const initial = makeBattle("active-1", "active", 1_000_000);
   const ctx = setup({ initial, attackReplyLost: true });
   let restored;
@@ -1705,6 +1705,10 @@ test("lost manual attack response is reconciled on server restart without replay
       "reconciling",
     );
     assert.equal(ctx.store.read("101").manualBattle.pending.kind, "attack");
+    const readsBeforeRestart = ctx.calls.filter(
+      (call) =>
+        call.method === "GET" && call.path === "/api/bosses/battles/active-1",
+    ).length;
     ctx.service.close();
     restored = createAutomationService({
       store: ctx.store,
@@ -1718,10 +1722,22 @@ test("lost manual attack response is reconciled on server restart without replay
     end = Date.now() + 4000;
     while (
       Date.now() < end &&
-      restored.snapshot(after).queuedActions[0].status !== "completed"
+      ctx.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path === "/api/bosses/battles/active-1",
+      ).length <= readsBeforeRestart
     )
       await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.equal(restored.snapshot(after).queuedActions[0].status, "completed");
+    assert.ok(
+      ctx.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path === "/api/bosses/battles/active-1",
+      ).length > readsBeforeRestart,
+    );
+    assert.equal(
+      restored.snapshot(after).queuedActions[0].status,
+      "reconciling",
+    );
     assert.equal(
       ctx.calls.filter(
         (call) =>

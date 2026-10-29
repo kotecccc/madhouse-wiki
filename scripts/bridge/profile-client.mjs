@@ -131,6 +131,7 @@ function requestGameOverBridge({
   openTunnel,
   validateTunnel = null,
   signal,
+  onTransportStopped,
   // Set before Node can flush the buffered request to the connected TLS socket.
   attemptState = { mayHaveSent: false },
   // Tests may provide an injected connector; the production default verifies Cargo TLS.
@@ -140,6 +141,9 @@ function requestGameOverBridge({
     signal,
     onReady: () => {
       attemptState.mayHaveSent = true;
+    },
+    onTunnel: (tunnel) => {
+      attemptState.tunnel = tunnel;
     },
     requestInfo: { method, path },
   }),
@@ -154,6 +158,7 @@ function requestGameOverBridge({
   return new Promise((resolve, reject) => {
     const agent = new Agent({ keepAlive: false, maxSockets: 1 });
     agent.createConnection = connector;
+    let stopping = false;
     const req = request(
       {
         protocol: "https:",
@@ -172,7 +177,6 @@ function requestGameOverBridge({
             : {}),
         },
         agent,
-        signal,
       },
       (response) => {
         let size = 0;
@@ -192,6 +196,9 @@ function requestGameOverBridge({
         response.once("error", reject);
         response.once("aborted", () => reject(new Error("profile_incomplete")));
         response.once("end", () => {
+          // Once cancellation starts, a racing response cannot authorize the
+          // boundary to treat this operation as an ordinary completed attempt.
+          if (stopping) return;
           if (!response.complete) {
             reject(new Error("profile_incomplete"));
             return;
@@ -224,13 +231,41 @@ function requestGameOverBridge({
         });
       },
     );
+    const stop = (error) => {
+      if (stopping || req.destroyed) return;
+      stopping = true;
+      void (async () => {
+        if (
+          attemptState.mayHaveSent &&
+          typeof attemptState.tunnel?.stopAndWait === "function"
+        ) {
+          try {
+            if (await attemptState.tunnel.stopAndWait())
+              await onTransportStopped?.();
+          } catch {
+            // A missing or unpersisted proof never authorizes recovery.
+          }
+        }
+        req.destroy(error);
+        reject(error);
+      })();
+    };
+    const abort = () =>
+      stop(
+        Object.assign(new Error("bridge_cancelled"), {
+          code: "bridge_cancelled",
+        }),
+      );
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     const timer = setTimeout(
-      () => req.destroy(new Error("profile_timeout")),
+      () => stop(new Error("profile_timeout")),
       PROFILE_TIMEOUT_MS,
     );
     timer.unref?.();
     req.once("close", () => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       agent.destroy();
     });
     req.once("error", (error) => {

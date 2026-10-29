@@ -112,3 +112,42 @@ test("valid devices can reconnect more than 30 times through the shared proxy", 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("stop acknowledgement capability is opt-in on an authenticated connection", async () => {
+  const admitted = [];
+  const gateway = createDeviceGateway({
+    registry: { authenticateDevice: () => true },
+    service: {
+      admit: async (_identity, ws) => {
+        admitted.push(ws.bridgeStopAck);
+        ws.close();
+      },
+    },
+    consume: () => true,
+  });
+  const server = createServer();
+  server.on(
+    "upgrade",
+    (req, socket, head) => void gateway.upgrade(req, socket, head, "127.0.0.1"),
+  );
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    for (const capability of [undefined, "1", "unexpected"]) {
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${server.address().port}/bridge/data`,
+        {
+          headers: {
+            Authorization: `MadhouseBridge 11111111-1111-4111-8111-111111111111.${"A".repeat(43)}`,
+            ...(capability ? { "X-Madhouse-Bridge-Stop-Ack": capability } : {}),
+          },
+        },
+      );
+      await once(ws, "open");
+      await once(ws, "close");
+    }
+    assert.deepEqual(admitted, [false, true, false]);
+  } finally {
+    gateway.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -4,9 +4,8 @@ import {
   terminalBattlePreflight,
 } from "./battle-preflight-error.mjs";
 
-// A queued strike is tied to one battle. A lost response is reconciled only
-// through the player's confirmed damage; a missing increase never proves that
-// the POST was not delivered.
+// A queued strike is tied to one battle. Damage totals do not identify the
+// operation that caused them, so a lost response remains unresolved.
 export function queuedBattleAttackAdapter({ entry, save, now = Date.now }) {
   const state = () => entry.controller.getSnapshot();
   const confirmed = (job) =>
@@ -45,8 +44,13 @@ export function queuedBattleAttackAdapter({ entry, save, now = Date.now }) {
         Number.isFinite(pending.beforeDamage) &&
         Number.isFinite(current.battle.totalDamage) &&
         current.battle.totalDamage > pending.beforeDamage
-      )
-        return finish(job);
+      ) {
+        // Another client can produce the increase, even on a direct route.
+        return {
+          status: "uncertain",
+          reason: "Результат удара нельзя однозначно подтвердить.",
+        };
+      }
       return {
         status: "uncertain",
         reason: current.error ? "Ожидаем игру." : "Проверяем результат.",

@@ -1,4 +1,5 @@
 import { Duplex } from "node:stream";
+import { requestRelayStopAck } from "./stop-ack.mjs";
 import {
   MAX_BUFFERED_BYTES,
   validateBufferedAmount,
@@ -51,6 +52,10 @@ export class WebSocketDuplex extends Duplex {
 
   _read() {
     if (this.socket.readyState === 1) this.socket.resume();
+  }
+
+  stopAndWait(options) {
+    return requestRelayStopAck(this.socket, options);
   }
 
   _write(chunk, _encoding, callback) {

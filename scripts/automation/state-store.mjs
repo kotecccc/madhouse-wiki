@@ -151,18 +151,27 @@ const BRIDGE_PHASE_TRANSITIONS = {
 };
 
 function validateBridgeAttempt(attempt) {
-  const keys = Object.keys(attempt || {})
-    .sort()
-    .join(",");
-  const legacyKeys =
-    "action,bindingRevision,createdAt,deviceGeneration,deviceId,id,operationId,phase,playerId,updatedAt";
-  const checkpointKeys =
-    "action,bindingRevision,checkpointOperationId,createdAt,deviceGeneration,deviceId,id,operationId,phase,playerId,updatedAt";
+  const required = [
+    "action",
+    "bindingRevision",
+    "createdAt",
+    "deviceGeneration",
+    "deviceId",
+    "id",
+    "operationId",
+    "phase",
+    "playerId",
+    "updatedAt",
+  ];
+  const optional = ["checkpointOperationId", "transportStoppedAt"];
   if (
     !attempt ||
     typeof attempt !== "object" ||
     Array.isArray(attempt) ||
-    ![legacyKeys, checkpointKeys].includes(keys)
+    required.some((key) => !Object.hasOwn(attempt, key)) ||
+    Object.keys(attempt).some(
+      (key) => !required.includes(key) && !optional.includes(key),
+    )
   )
     throw new TypeError("invalid_bridge_attempt");
   const playerId = normalizePlayerId(attempt.playerId);
@@ -171,6 +180,10 @@ function validateBridgeAttempt(attempt) {
     !BRIDGE_OPERATION_ID.test(attempt.operationId) ||
     (Object.hasOwn(attempt, "checkpointOperationId") &&
       !BRIDGE_OPERATION_ID.test(attempt.checkpointOperationId)) ||
+    (Object.hasOwn(attempt, "transportStoppedAt") &&
+      (!Number.isSafeInteger(attempt.transportStoppedAt) ||
+        attempt.transportStoppedAt < attempt.createdAt ||
+        attempt.transportStoppedAt > attempt.updatedAt)) ||
     !BRIDGE_ATTEMPT_ID.test(attempt.deviceId) ||
     !Number.isSafeInteger(attempt.bindingRevision) ||
     attempt.bindingRevision < 1 ||
@@ -447,6 +460,8 @@ export function createAutomationStateStore({ directory }) {
           chmodSync(databasePath + suffix, 0o600);
     },
     createBridgeAttempt(attempt) {
+      if (Object.hasOwn(attempt || {}, "transportStoppedAt"))
+        throw new TypeError("invalid_bridge_attempt");
       const value = validateBridgeAttempt(attempt);
       const attemptKey = createHmac("sha256", key)
         .update("automation-bridge-attempt:")
@@ -481,6 +496,9 @@ export function createAutomationStateStore({ directory }) {
             operationId: record.operationId,
             ...(Object.hasOwn(record, "checkpointOperationId")
               ? { checkpointOperationId: record.checkpointOperationId }
+              : {}),
+            ...(Object.hasOwn(record, "transportStoppedAt")
+              ? { transportStoppedAt: record.transportStoppedAt }
               : {}),
             deviceId: record.deviceId,
             bindingRevision: record.bindingRevision,
@@ -525,6 +543,9 @@ export function createAutomationStateStore({ directory }) {
           ...(Object.hasOwn(record, "checkpointOperationId")
             ? { checkpointOperationId: record.checkpointOperationId }
             : {}),
+          ...(Object.hasOwn(record, "transportStoppedAt")
+            ? { transportStoppedAt: record.transportStoppedAt }
+            : {}),
           deviceId: record.deviceId,
           bindingRevision: record.bindingRevision,
           deviceGeneration: record.deviceGeneration,
@@ -548,6 +569,48 @@ export function createAutomationStateStore({ directory }) {
         const result = updateBridgeAttempt.run(
           next.revision,
           encrypted,
+          attemptKey,
+          expectedRevision,
+        );
+        return result.changes === 1 ? next : null;
+      });
+    },
+    confirmBridgeTransportStop(id, expectedRevision, nowMs) {
+      if (
+        !BRIDGE_ATTEMPT_ID.test(id || "") ||
+        !Number.isSafeInteger(expectedRevision) ||
+        expectedRevision < 1 ||
+        !Number.isSafeInteger(nowMs) ||
+        nowMs < 0
+      )
+        throw new TypeError("invalid_bridge_transport_stop");
+      const attemptKey = createHmac("sha256", key)
+        .update("automation-bridge-attempt:")
+        .update(id)
+        .digest("hex");
+      return transaction(() => {
+        const row = selectBridgeAttempt.get(attemptKey);
+        if (!row || row.revision !== expectedRevision) return null;
+        const record = decrypt(key, attemptKey, row.record);
+        if (!record || record.id !== id || record.revision !== row.revision)
+          throw new Error("bridge_attempt_corrupt");
+        const { revision, ...value } = record;
+        const validated = validateBridgeAttempt(value);
+        if (
+          !["dispatched", "uncertain"].includes(validated.phase) ||
+          Object.hasOwn(validated, "transportStoppedAt") ||
+          nowMs < validated.updatedAt
+        )
+          throw new TypeError("invalid_bridge_transport_stop");
+        const next = {
+          ...validated,
+          updatedAt: nowMs,
+          transportStoppedAt: nowMs,
+          revision: revision + 1,
+        };
+        const result = updateBridgeAttempt.run(
+          next.revision,
+          encrypt(key, attemptKey, next),
           attemptKey,
           expectedRevision,
         );

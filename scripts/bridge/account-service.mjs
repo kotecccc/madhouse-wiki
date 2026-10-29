@@ -206,6 +206,12 @@ export function createBridgeAccountService({
       device: device.deviceId,
       generation: device.generation,
     };
+    const recoveryPermit =
+      queueActionGate?.battleRecoveryPermit?.({
+        authorization: account.authorization,
+        method: method || "GET",
+        path,
+      }) ?? null;
     let result;
     try {
       result = await coordinate({
@@ -214,6 +220,10 @@ export function createBridgeAccountService({
         deviceId: device.deviceId,
         signal,
         method,
+        path,
+        recoveryPermit,
+        bindingRevision: account.revision,
+        deviceGeneration: device.generation,
         execute: () =>
           readGame({
             authorization: account.authorization,
@@ -227,7 +237,8 @@ export function createBridgeAccountService({
                 () =>
                   !signal?.aborted &&
                   registry.isActive(identity) &&
-                  accounts.getRevision(verifiedOwner) === account.revision,
+                  accounts.getRevision(verifiedOwner) === account.revision &&
+                  (!recoveryPermit || recoveryPermit.validate(path)),
                 canDispatch,
               ),
           }),
@@ -299,7 +310,7 @@ export function createBridgeAccountService({
         checkpointOperationId,
         bindingRevision: account.revision,
         deviceGeneration: device.generation,
-        execute: () =>
+        execute: (onTransportStopped) =>
           inContext(() =>
             sender({
               authorization: account.authorization,
@@ -307,6 +318,7 @@ export function createBridgeAccountService({
               path,
               body,
               signal,
+              onTransportStopped,
               openTunnel: () => devices.open(verifiedOwner, { signal }),
               validateTunnel: () =>
                 validateDispatch(

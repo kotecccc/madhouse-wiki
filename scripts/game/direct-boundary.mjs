@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createDirectExecutor } from "./direct-executor.mjs";
+import { isTrustedBattleRecoveryPermit } from "../bridge/queue-action-gate.mjs";
 
 function setting(env, name, fallback, maximum) {
   if (env[name] == null || env[name] === "") return fallback;
@@ -107,6 +108,8 @@ export function createDirectBoundary({
     checkpointOperationId,
     bindingRevision,
     deviceGeneration,
+    recoveryPermit,
+    path,
   }) {
     if (!recoveryReady)
       return Promise.reject(
@@ -115,6 +118,63 @@ export function createDirectBoundary({
         }),
       );
     const accountId = account(authorization, playerId);
+    let recoveryAttempt;
+    const recoveryCurrent = () => {
+      try {
+        if (!recoveryPermit?.validate(path) || !bridgeStore || !recoveryAttempt)
+          return false;
+        const matching = bridgeStore
+          .readActiveBridgeAttempts()
+          .filter(
+            (item) =>
+              item.id === recoveryAttempt.id &&
+              item.revision === recoveryAttempt.revision &&
+              item.playerId === String(playerId) &&
+              item.deviceId === deviceId &&
+              item.bindingRevision === bindingRevision &&
+              item.deviceGeneration === deviceGeneration &&
+              item.operationId === recoveryPermit.operationId &&
+              item.checkpointOperationId ===
+                recoveryPermit.checkpointOperationId &&
+              item.transportStoppedAt != null &&
+              ["dispatched", "uncertain"].includes(item.phase),
+          );
+        return matching.length === 1;
+      } catch {
+        return false;
+      }
+    };
+    if (recoveryPermit) {
+      try {
+        if (
+          !isTrustedBattleRecoveryPermit(recoveryPermit) ||
+          kind === "mutation" ||
+          (method || "GET") !== "GET" ||
+          !bridgeStore ||
+          !recoveryPermit.validate(path)
+        )
+          throw new Error("bridge_recovery_not_authorized");
+        const matching = bridgeStore
+          .readActiveBridgeAttempts()
+          .filter(
+            (item) =>
+              item.playerId === String(playerId) &&
+              item.deviceId === deviceId &&
+              item.bindingRevision === bindingRevision &&
+              item.deviceGeneration === deviceGeneration &&
+              item.operationId === recoveryPermit.operationId &&
+              item.checkpointOperationId ===
+                recoveryPermit.checkpointOperationId &&
+              item.transportStoppedAt != null &&
+              ["dispatched", "uncertain"].includes(item.phase),
+          );
+        if (matching.length !== 1)
+          throw new Error("bridge_recovery_not_authorized");
+        recoveryAttempt = matching[0];
+      } catch (error) {
+        return Promise.reject(Object.assign(error, { notDispatched: true }));
+      }
+    }
     const guarded = async () => {
       if (kind !== "mutation") return execute();
       if (!bridgeStore) {
@@ -152,8 +212,33 @@ export function createDirectBoundary({
         throw Object.assign(error, { notDispatched: true });
       }
       let result;
+      const onTransportStopped = () => {
+        const current = bridgeStore
+          .readActiveBridgeAttempts()
+          .find((item) => item.id === attempt.id);
+        if (
+          !current ||
+          current.playerId !== String(playerId) ||
+          current.deviceId !== deviceId ||
+          current.bindingRevision !== bindingRevision ||
+          current.deviceGeneration !== deviceGeneration ||
+          current.operationId !== operationId
+        )
+          throw new Error("bridge_attempt_stale");
+        if (current.transportStoppedAt != null) {
+          attempt = current;
+          return;
+        }
+        const updated = bridgeStore.confirmBridgeTransportStop(
+          current.id,
+          current.revision,
+          Math.max(current.updatedAt, Date.now()),
+        );
+        if (!updated) throw new Error("bridge_attempt_stale");
+        attempt = updated;
+      };
       try {
-        result = await execute();
+        result = await execute(onTransportStopped);
       } catch (error) {
         const phase = error?.notDispatched ? "rejected" : "uncertain";
         try {
@@ -202,6 +287,12 @@ export function createDirectBoundary({
         signal,
         source: method && method !== "GET" ? "automation" : "wiki",
         cooldownScope: authorization ? "account" : "global",
+        ...(recoveryAttempt
+          ? {
+              recoveryAttemptId: recoveryAttempt.id,
+              canDispatch: recoveryCurrent,
+            }
+          : {}),
       },
     );
   }
