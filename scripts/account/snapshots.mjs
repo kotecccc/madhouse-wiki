@@ -1152,11 +1152,100 @@ export function createAccountSnapshots({
           section,
           section.completeness === "unknown",
         );
-      const revisionAtDispatch = record?.profileRevision ?? 0;
+      const dispatchPlayerId = playerId || null;
+      const dispatchIdentity = credentials.get(digest) || null;
+      const dispatchRecord = dispatchPlayerId
+        ? accounts.get(dispatchPlayerId)
+        : null;
+      const revokedAtDispatch = Boolean(
+        dispatchRecord?.revokedHashes?.includes(digest),
+      );
+      const credentialBindingAtDispatch = hash(
+        JSON.stringify({
+          credentialHashes: [
+            ...(dispatchRecord?.credentialHashes || []),
+          ].sort(),
+          revokedHashes: [...(dispatchRecord?.revokedHashes || [])].sort(),
+        }),
+      );
+      const sectionAtDispatch = !queryBearing
+        ? dispatchRecord?.sections?.[path]
+        : null;
+      const sectionPresentAtDispatch = Boolean(sectionAtDispatch);
+      const sectionFingerprintAtDispatch = sectionAtDispatch
+        ? hash(JSON.stringify(sectionAtDispatch))
+        : null;
+      const revisionAtDispatch = Math.max(
+        profileRevisions.get(dispatchPlayerId) ?? 0,
+        dispatchRecord?.profileRevision ?? 0,
+      );
+      const supersessionReason = () => {
+        const currentIdentity = credentials.get(digest) || null;
+        if (
+          currentIdentity !== dispatchIdentity ||
+          (currentIdentity && currentIdentity !== dispatchPlayerId)
+        )
+          return "identity";
+        const currentRecord = dispatchPlayerId
+          ? accounts.get(dispatchPlayerId)
+          : null;
+        if (Boolean(currentRecord) !== Boolean(dispatchRecord)) return "record";
+        if (
+          currentRecord &&
+          (String(currentRecord.playerId) !== dispatchPlayerId ||
+            Boolean(currentRecord.revokedHashes?.includes(digest)) !==
+              revokedAtDispatch ||
+            hash(
+              JSON.stringify({
+                credentialHashes: [
+                  ...(currentRecord.credentialHashes || []),
+                ].sort(),
+                revokedHashes: [...(currentRecord.revokedHashes || [])].sort(),
+              }),
+            ) !== credentialBindingAtDispatch)
+        )
+          return "identity";
+        const currentRevision = Math.max(
+          profileRevisions.get(dispatchPlayerId) ?? 0,
+          currentRecord?.profileRevision ?? 0,
+        );
+        if (currentRevision !== revisionAtDispatch) return "revision";
+        if (!queryBearing) {
+          const currentSection = currentRecord?.sections?.[path];
+          if (Boolean(currentSection) !== sectionPresentAtDispatch)
+            return "section";
+          if (
+            currentSection &&
+            hash(JSON.stringify(currentSection)) !==
+              sectionFingerprintAtDispatch
+          )
+            return "section";
+        }
+        return null;
+      };
+      const supersededResponse = (reason) => {
+        if (reason === "identity")
+          return json({ error: "snapshot_superseded" }, 409);
+        const currentRecord = dispatchPlayerId
+          ? accounts.get(dispatchPlayerId)
+          : null;
+        const currentSection = !queryBearing
+          ? currentRecord?.sections?.[path]
+          : null;
+        return fallback && currentSection
+          ? withMetadata(
+              json(currentSection.data),
+              currentRecord,
+              currentSection,
+              true,
+            )
+          : json({ error: "snapshot_superseded" }, 409);
+      };
       const response = await upstream(url, upstreamInit);
+      const reasonAfterResponse = supersessionReason();
+      if (reasonAfterResponse) return supersededResponse(reasonAfterResponse);
       // Re-read after await so concurrent section updates cannot overwrite one another.
       record = playerId ? accounts.get(playerId) : null;
-      section = queryBearing ? null : record?.sections?.[path];
       if (response.status === 401) {
         if (record && path === "/api/me")
           persist({
@@ -1183,6 +1272,11 @@ export function createAccountSnapshots({
               identityData = undefined;
             }
           }
+          const reasonAfterIdentityCheck = supersessionReason();
+          if (reasonAfterIdentityCheck)
+            return supersededResponse(reasonAfterIdentityCheck);
+          record = playerId ? accounts.get(playerId) : null;
+          section = queryBearing ? null : record?.sections?.[path];
           if (
             identity.status === 401 ||
             (identity.ok && identityData?.playerId !== Number(playerId))
@@ -1281,6 +1375,10 @@ export function createAccountSnapshots({
         if (path === "/api/me" && liveProfile && refreshProfileProgress)
           data = await refreshProfileProgress(data, authorization);
         if (!playerId) playerId = String(data.playerId);
+        const reasonBeforeCommit = supersessionReason();
+        if (reasonBeforeCommit) return supersededResponse(reasonBeforeCommit);
+        if (dispatchPlayerId === null && accounts.has(String(playerId)))
+          return json({ error: "snapshot_superseded" }, 409);
         record = accounts.get(playerId) || {
           schemaVersion: 1,
           playerId,
@@ -1379,6 +1477,10 @@ export function createAccountSnapshots({
         !queryBearing &&
         (response.status === 429 || response.status >= 500 || response.ok)
       ) {
+        const reasonBeforeFailure = supersessionReason();
+        if (reasonBeforeFailure) return supersededResponse(reasonBeforeFailure);
+        record = playerId ? accounts.get(playerId) : null;
+        section = queryBearing ? null : record?.sections?.[path];
         if (response.ok && rejectedObservation && section && record) {
           const observedAt = now();
           const sections = {

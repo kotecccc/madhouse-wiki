@@ -545,6 +545,182 @@ test("direct and bridge profile observations share exact replace and omission ru
   }
 });
 
+test("late direct profile success or 401 cannot replace or revoke a newer bridge profile", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer delayed-profile-direct";
+  let resolveFetch;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () =>
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+  });
+  const delayed = snapshots.read(
+    `${origin}/api/me`,
+    auth("delayed-profile-direct"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: 101,
+    nickname: "bridge-current",
+  });
+  resolveFetch(reply({ playerId: 101, nickname: "direct-old" }));
+  const superseded = await delayed;
+  assert.equal(superseded.status, 409);
+  assert.equal(
+    store.readSnapshots()[0].sections["/api/me"].data.nickname,
+    "bridge-current",
+  );
+
+  const secondStore = memoryStore();
+  const secondAuthorization = "Bearer delayed-profile-401";
+  let resolve401;
+  const second = createAccountSnapshots({
+    store: secondStore,
+    fetcher: () =>
+      new Promise((resolve) => {
+        resolve401 = resolve;
+      }),
+  });
+  const pending401 = second.read(
+    `${origin}/api/me`,
+    auth("delayed-profile-401"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  second.saveBridgeProfile(secondAuthorization, {
+    playerId: 102,
+    nickname: "bridge-current",
+  });
+  resolve401(reply({ error: "old credential rejected" }, 401));
+  const stale401 = await pending401;
+  assert.equal(stale401.status, 409);
+  const record = secondStore.readSnapshots()[0];
+  assert.equal(record.sections["/api/me"].data.nickname, "bridge-current");
+  assert.equal(
+    record.revokedHashes?.includes(
+      createHash("sha256").update(secondAuthorization).digest("hex"),
+    ),
+    false,
+  );
+});
+
+test("late direct 401 is superseded when a matching profile gains a newer credential binding", async () => {
+  const store = memoryStore();
+  const oldAuthorization = "Bearer delayed-old-binding";
+  const newAuthorization = "Bearer delayed-new-binding";
+  let resolveFetch;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () =>
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    now: () => 2500,
+  });
+  const profile = { playerId: 104, nickname: "unchanged" };
+  snapshots.saveBridgeProfile(oldAuthorization, profile);
+  const pending = snapshots.liveFetch(
+    `${origin}/api/me`,
+    auth("delayed-old-binding"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  snapshots.saveBridgeProfile(newAuthorization, profile);
+  resolveFetch(reply({ error: "late unauthorized" }, 401));
+
+  assert.equal((await pending).status, 409);
+  const record = store.readSnapshots()[0];
+  const oldDigest = createHash("sha256").update(oldAuthorization).digest("hex");
+  const newDigest = createHash("sha256").update(newAuthorization).digest("hex");
+  assert.ok(record.credentialHashes.includes(newDigest));
+  assert.ok(!record.revokedHashes?.includes(oldDigest));
+  assert.equal(record.health.status, "available");
+});
+
+test("a delayed direct section cannot overwrite a bridge observation but unrelated section writes do not block it", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer delayed-section-direct";
+  const pendingResponses = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => new Promise((resolve) => pendingResponses.push(resolve)),
+    now: () => 2000,
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 103 });
+
+  const delayedRooms = snapshots.liveFetch(
+    `${origin}/api/rooms`,
+    auth("delayed-section-direct"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const roomsTicket = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/rooms",
+    { verifiedPlayerId: 103 },
+  );
+  assert.equal(
+    snapshots.commitBridgeObservation(roomsTicket, {
+      rooms: [{ id: 1, source: "bridge" }],
+    }),
+    true,
+  );
+  pendingResponses[0](reply({ rooms: [{ id: 1, source: "late-direct" }] }));
+  assert.equal((await delayedRooms).status, 409);
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/rooms"].data, {
+    rooms: [{ id: 1, source: "bridge" }],
+  });
+
+  const unrelatedPending = snapshots.liveFetch(
+    `${origin}/api/rooms`,
+    auth("delayed-section-direct"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const bossTicket = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/bosses/7",
+    { verifiedPlayerId: 103 },
+  );
+  assert.equal(
+    snapshots.commitBridgeObservation(bossTicket, { id: 7, name: "boss" }),
+    true,
+  );
+  pendingResponses[1](reply({ rooms: [{ id: 1, source: "direct-current" }] }));
+  assert.equal((await unrelatedPending).status, 200);
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/rooms"].data, {
+    rooms: [{ id: 1, source: "direct-current" }],
+  });
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/bosses/7"].data, {
+    id: 7,
+    name: "boss",
+  });
+
+  const queried = snapshots.read(
+    `${origin}/api/rooms?view=compact`,
+    auth("delayed-section-direct"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const queryRaceTicket = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/rooms",
+    { verifiedPlayerId: 103 },
+  );
+  assert.equal(
+    snapshots.commitBridgeObservation(queryRaceTicket, {
+      rooms: [{ id: 1, source: "bridge-after-query-start" }],
+    }),
+    true,
+  );
+  pendingResponses[2](reply({ rooms: [{ id: 1, source: "query-raw" }] }));
+  const queriedResponse = await queried;
+  assert.equal(queriedResponse.status, 200);
+  assert.deepEqual(await payload(queriedResponse), {
+    rooms: [{ id: 1, source: "query-raw" }],
+  });
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/rooms"].data, {
+    rooms: [{ id: 1, source: "bridge-after-query-start" }],
+  });
+});
+
 test("sparse post-restart observations preserve last-known data while actions receive raw", async () => {
   let now = 1000;
   const store = memoryStore();
