@@ -82,6 +82,8 @@ for (const [cap, restart, autoUpgrade, viaFloor] of [
       const path = new URL(url).pathname,
         method = init.method || "GET";
       calls.push({ path, method });
+      if (method === "GET" && path === "/api/clothing/by-category/1")
+        return Response.json({ success: true, items: [] });
       if (path === "/api/me")
         return Response.json({
           playerId: 101,

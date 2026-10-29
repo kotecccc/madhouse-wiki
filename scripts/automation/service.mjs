@@ -1289,6 +1289,38 @@ export function createAutomationService({
       controller: {
         ...entry.controller,
         attack: (options) => entry.assistant.step(options),
+        prepareStart: async ({ allowed }) => {
+          if (!allowed() || entry.inventoryBusy || entry.equipment?.pending)
+            throw failure(409, "weapon_equipment_uncertain");
+          const credential = entry.credential;
+          const generation = entry.autoStartGeneration ?? 0;
+          const maintainAllowed = () =>
+            !closed &&
+            !entry.storageFailed &&
+            entry.credential === credential &&
+            generation === (entry.autoStartGeneration ?? 0) &&
+            entry.auto.getSnapshot().enabled &&
+            !entry.raidSubscription.getSnapshot().checkpoint &&
+            !entry.controller.getSnapshot().pending &&
+            canAct(entry, true);
+          entry.inventoryBusy = true;
+          try {
+            await recoverBrokenWeapon({
+              entry,
+              fetcher: createWeaponRecoveryFetch({
+                fetcher,
+                gate: queueActionGate,
+                entry,
+                allowed: maintainAllowed,
+              }),
+              save,
+              allowed: maintainAllowed,
+            });
+          } finally {
+            entry.inventoryBusy = false;
+          }
+          if (!allowed()) throw failure(409, "automation_stopped");
+        },
         start: ({ allowed } = {}) => entry.assistant.startBattle({ allowed }),
         nextActionAt: (at) => entry.assistant.nextActionAt(at),
         startNextBattle: ({ allowed = () => true } = {}) =>

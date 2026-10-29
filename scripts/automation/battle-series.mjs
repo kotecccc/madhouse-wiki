@@ -172,6 +172,8 @@ export function createBattleSeries({
     publish();
     try {
       const allowed = () => eligible(id) && !priorityActive();
+      if (controller.prepareStart) await controller.prepareStart({ allowed });
+      if (!allowed()) throw new Error("automatic_start_interrupted");
       if (!before.battle) await controller.start({ allowed });
       else await controller.startNextBattle({ allowed });
     } catch {
