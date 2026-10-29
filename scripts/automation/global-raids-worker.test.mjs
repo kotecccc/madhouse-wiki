@@ -5,6 +5,7 @@ import {
   observeGlobalInvitations,
   refreshGlobalRaidRows,
   formatGlobalRaidSummary,
+  formatGlobalRaidPages,
   createGlobalRaidsWorker,
 } from "./global-raids-worker.mjs";
 import { projectBossInvitations } from "./boss-invitations.mjs";
@@ -756,6 +757,7 @@ test("overflow keeps active raids first, then newer waits and pauses", () => {
     { day: "2026-10-29", raids },
     now,
     (id) => ({ name: `Босс-${id}` }),
+    { maxMessageLength: 3500 },
   );
   assert.ok(html.length <= 3500);
   for (let i = 1; i <= 4; i++) assert.ok(html.includes(`Босс-${i}<`));
@@ -779,12 +781,170 @@ test("overflow chooses higher floors then more battles, but displays floors asce
     name: `Босс-${id}`,
     departmentId: id <= 24 ? "dept-A1" : "dept-J1",
   });
-  const html = formatGlobalRaidSummary({ day: "2026-10-29", raids }, now, boss);
+  const html = formatGlobalRaidSummary(
+    { day: "2026-10-29", raids },
+    now,
+    boss,
+    { maxMessageLength: 3500 },
+  );
   assert.ok(html.length <= 3500);
   assert.ok(html.includes("Босс-80<"));
   assert.ok(!html.includes("Босс-1<"));
   assert.ok(!html.includes("Босс-25<"));
   assert.ok(html.indexOf("Босс-79<") < html.indexOf("Босс-80<"));
+});
+
+test("overflow prioritizes the floor, distinct bosses and named leaders, and includes all remaining raids in continuation pages", () => {
+  const now = start + minute;
+  const make = (bossId, leaderPlayerId, count, extra = {}) => ({
+    bossId,
+    leaderPlayerId,
+    count,
+    active: true,
+    lastBattleAt: now,
+    ...extra,
+  });
+  const raids = [
+    make(1, 1, 999),
+    make(1, 2, 10, { leaderUsername: "named_leader" }),
+    ...Array.from({ length: 50 }, (_, i) =>
+      make(i + 2, i + 3, 10, { leaderName: `Имя${i}` }),
+    ),
+    make(100, 100, 9999, { leaderName: "Нижний" }),
+  ];
+  const boss = (id) => ({
+    name: `Босс-${id}`,
+    departmentId: id === 100 ? "dept-A1" : "dept-J1",
+  });
+  const pages = formatGlobalRaidPages({ day: "2026-10-29", raids }, now, boss, {
+    continuationUrl: "https://t.me/raids/42",
+    maxMessageLength: 3500,
+  });
+  assert.ok(pages.length > 1);
+  assert.ok(pages.every((page) => page.length <= 3500));
+  assert.match(pages[0], /text="@named_leader"/);
+  assert.doesNotMatch(pages[0], /text="1">ID 1/);
+  assert.doesNotMatch(pages[0], /Босс-100</);
+  assert.match(pages[0], /href="https:\/\/t.me\/raids\/42"/);
+  assert.match(pages.slice(1).join(""), /Босс-100</);
+  assert.equal(pages.join("").match(/<tr><td>/g).length, raids.length);
+});
+
+test("continuation sends are checkpointed, reused and not repeated after uncertain delivery", async () => {
+  let time = start + 10 * minute;
+  let data = advanceGlobalRaidDay({}, time);
+  data.raids = Array.from({ length: 55 }, (_, i) => {
+    const base = {
+      bossId: i + 1,
+      leaderPlayerId: i + 1,
+      count: 10,
+      lastBattleAt: time,
+      activeIds: [],
+      leaderName: `Лидер${i}`,
+      sources: {},
+    };
+    return { ...base, carried: true, base };
+  });
+  const calls = [];
+  let uncertain = false;
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (v) => {
+        data = structuredClone(v);
+      },
+    },
+    owner: "test",
+    now: () => time,
+    isClosed: () => false,
+    maxMessageLength: 3500,
+    chatId: "@channel",
+    getBoss: (id) => ({ name: `Босс-${id}`, departmentId: "dept-J1" }),
+    telegram: {
+      request: async (method, payload) => {
+        calls.push({ method, payload });
+        if (method === "sendRichMessage" && calls.length === 2 && !uncertain) {
+          uncertain = true;
+          throw new Error("unknown outcome");
+        }
+        return { message_id: 101 };
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(data.messageId, 101);
+  assert.equal(data.continuations[0].pendingSend, true);
+  time += minute;
+  await worker.tick();
+  assert.equal(
+    calls.filter((call) => call.method === "sendRichMessage").length,
+    1 + 1,
+  );
+  assert.equal(
+    calls.filter((call) => call.method === "editMessageText").length,
+    1,
+  );
+});
+
+test("continuation messages are reused and linked from the next main update", async () => {
+  let time = start + 10 * minute;
+  let data = advanceGlobalRaidDay({}, time);
+  data.raids = Array.from({ length: 55 }, (_, i) => {
+    const base = {
+      bossId: i + 1,
+      leaderPlayerId: i + 1,
+      count: 10,
+      lastBattleAt: time,
+      activeIds: [],
+      leaderName: `Лидер${i}`,
+      sources: {},
+    };
+    return { ...base, carried: true, base };
+  });
+  const calls = [];
+  let nextId = 100;
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (v) => {
+        data = structuredClone(v);
+      },
+    },
+    owner: "test",
+    now: () => time,
+    isClosed: () => false,
+    maxMessageLength: 3500,
+    chatId: "@raidschannel",
+    getBoss: (id) => ({ name: `Босс-${id}`, departmentId: "dept-J1" }),
+    telegram: {
+      request: async (method, payload) => {
+        calls.push({ method, payload });
+        return { message_id: ++nextId };
+      },
+    },
+  });
+  await worker.tick();
+  const count = data.continuations.length;
+  assert.ok(count > 0);
+  assert.equal(data.continuations[0].messageId, 102);
+  time += minute;
+  await worker.tick();
+  assert.equal(
+    calls.filter((call) => call.method === "sendRichMessage").length,
+    count + 1,
+  );
+  const mainEdit = calls.find(
+    (call) =>
+      call.method === "editMessageText" && call.payload.message_id === 101,
+  );
+  assert.match(
+    mainEdit.payload.rich_message.html,
+    /https:\/\/t.me\/raidschannel\/102/,
+  );
+  assert.equal(
+    calls.filter((call) => call.method === "editMessageText").length,
+    count + 1,
+  );
 });
 
 test("all statuses remain visible when the whole summary fits", () => {
@@ -826,7 +986,7 @@ test("the summary shows the Moscow update time above the table", () => {
   );
   assert.match(
     html,
-    /^<p><b>Активные рейды<\/b> • 29\.10\.2026 • 22:42 МСК<\/p>\n<table/,
+    /^<h3>🔥 Активные рейды • 29\.10\.2026 • 22:42 МСК<\/h3>\n<table/,
   );
   assert.doesNotMatch(html, /Обновлено:/);
 });
