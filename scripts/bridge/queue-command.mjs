@@ -122,7 +122,10 @@ export async function isAllowedBridgeQueueCommand(request) {
           (id) => Number.isSafeInteger(id) && id > 0,
         )) ||
       (["queue.cancel", "queue.dismiss"].includes(input?.command) &&
-        typeof input.args?.id === "string")
+        typeof input.args?.id === "string") ||
+      (input?.command === "queue.move" &&
+        typeof input.args?.id === "string" &&
+        ["up", "down"].includes(input.args?.direction))
     );
   } catch {
     return false;
