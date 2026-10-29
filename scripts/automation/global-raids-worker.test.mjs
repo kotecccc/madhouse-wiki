@@ -86,10 +86,7 @@ test("counts six distinct invitation battles once across accounts and never uses
     start + 6 * minute,
   );
   assert.equal(state.raids[0].count, 6);
-  assert.match(
-    format(state, start + 6 * minute),
-    /<tg-button type="copy_text" text="@leadername">@leadername<\/tg-button>/,
-  );
+  assert.match(format(state, start + 6 * minute), /<td>@leadername<\/td>/);
   assert.doesNotMatch(format(state, start + 6 * minute), /<td>Ведущий/);
 });
 
@@ -545,7 +542,7 @@ test("existing text message is edited with a native rich table preserving raid c
   );
   assert.match(
     request.payload.rich_message.html,
-    /<td>🔵 J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td>/,
+    /<td>🔵 J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td>@leadername<\/td>/,
   );
   assert.equal(data.messageId, 5);
 });
@@ -691,7 +688,7 @@ test("a quiet raid is not carried over at the exact thirty-minute boundary", () 
   assert.equal(state.raids.length, 0);
 });
 
-test("summary hides raids below ten and finished raids, sorts floors ascending, and shows copyable usernames", () => {
+test("summary hides raids below ten and finished raids, sorts floors ascending, and shows plain usernames", () => {
   const now = start + 60 * minute;
   const rows = [
     {
@@ -753,7 +750,7 @@ test("summary hides raids below ten and finished raids, sorts floors ascending, 
     (id) => boss[id],
   );
   assert.doesNotMatch(text, /too_few|finished_user|Not displayed/);
-  assert.match(text, /text="@lower_user">@lower_user<\/tg-button>/);
+  assert.match(text, /<td>@lower_user<\/td>/);
   assert.match(
     text,
     /<td>Без имени<\/td><td>10<\/td><td><tg-button type="copy_text" text="No verified username">No verified username<\/tg-button><\/td>/,
@@ -850,7 +847,7 @@ test("overflow prioritizes the floor, distinct bosses and named leaders, and inc
   });
   assert.ok(pages.length > 1);
   assert.ok(pages.every((page) => page.length <= 3500));
-  assert.match(pages[0], /text="@named_leader"/);
+  assert.match(pages[0], /<td>@named_leader<\/td>/);
   assert.doesNotMatch(pages[0], /text="1">ID 1/);
   assert.doesNotMatch(pages[0], /Босс-100</);
   assert.match(pages[0], /href="https:\/\/t.me\/raids\/42"/);

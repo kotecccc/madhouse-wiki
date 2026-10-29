@@ -396,14 +396,17 @@ export function formatGlobalRaidPages(
     const nickname =
       knownNames.get(row.leaderPlayerId)?.name ||
       (typeof row.leaderName === "string" ? row.leaderName.trim() : "");
-    const leader = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "")
+    const hasUsername = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "");
+    const leader = hasUsername
       ? `@${row.leaderUsername}`
       : nickname
         ? nickname.slice(0, 80)
         : "";
     const copyValue = leader || String(row.leaderPlayerId);
     const copyLabel = leader || `ID ${row.leaderPlayerId}`;
-    const copyButton = `<tg-button type="copy_text" text="${escapeAttribute(copyValue)}">${escape(copyLabel)}</tg-button>`;
+    const leaderContent = hasUsername
+      ? escape(leader)
+      : `<tg-button type="copy_text" text="${escapeAttribute(copyValue)}">${escape(copyLabel)}</tg-button>`;
     const emojiId = customEmoji && boss?.name && bossEmoji[boss.name];
     const bossIcon = emojiId
       ? `<tg-emoji emoji-id="${emojiId}">👹</tg-emoji> `
@@ -415,7 +418,7 @@ export function formatGlobalRaidPages(
       index,
       kind,
       named: Boolean(leader),
-      line: `<tr><td>${status} ${escape(zone)}</td><td>${bossIcon}${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`,
+      line: `<tr><td>${status} ${escape(zone)}</td><td>${bossIcon}${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${leaderContent}</td></tr>`,
     };
   });
   const compose = (selected) => {
