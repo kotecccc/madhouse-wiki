@@ -317,8 +317,7 @@ export function formatGlobalRaidSummary(
     return customEmoji ? `<tg-emoji emoji-id="${id}">⏺</tg-emoji>` : fallback;
   };
   const date = state.day.split("-").reverse().join(".");
-  const heading = `<h3>🔥 РЕЙДЫ — ${date}</h3>`;
-  const updated = `<p>Активные рейды • ${date} • ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`;
+  const updated = `<p><b>Активные рейды</b> • ${date} • ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`;
   const knownNames = new Map();
   for (const observation of Object.values(state.observations || {})) {
     if (
@@ -416,7 +415,6 @@ export function formatGlobalRaidSummary(
           .join("")}</table>`
       : "<p>Активных рейдов пока нет.</p>";
     return [
-      heading,
       updated,
       table,
       ...(hidden ? [`<p>Ещё рейдов: ${hidden}</p>`] : []),
