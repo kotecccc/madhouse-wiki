@@ -137,6 +137,111 @@ test("only a continuing series and its count cross midnight; active battle remai
   assert.equal(state.raids[0].count, 7);
 });
 
+test("reimporting yesterday's history does not add those battles to the carried count", async () => {
+  let state = await series();
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  state = await observe(
+    state,
+    "1",
+    [invitation(5, midnight - minute)],
+    midnight - minute,
+  );
+  const before = Object.values(state.observations).map((event) => ({
+    battleId: event.id,
+    bossId: event.bossId,
+    leaderPlayerId: event.leaderPlayerId,
+    seenAt: event.firstSeen,
+  }));
+  state = advanceGlobalRaidDay(state, midnight);
+  const item = invitation(5, midnight + minute);
+  const projected = await projectBossInvitations(
+    { items: [item] },
+    () => ({ name: "Босс" }),
+    midnight + minute,
+  );
+  state = observeGlobalInvitations(
+    state,
+    "1",
+    { items: [item] },
+    projected,
+    midnight + minute,
+    before,
+  );
+  assert.equal(state.raids[0].count, 6);
+  state = await observe(
+    state,
+    "1",
+    [invitation(6, midnight + 2 * minute)],
+    midnight + 2 * minute,
+  );
+  assert.equal(state.raids[0].count, 7);
+});
+
+test("rollover preserves the previous message for a green finished update", async () => {
+  let state = await series();
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  state.messageId = 21;
+  state.lastText =
+    '<h5>Вчера</h5><table><tr><td><tg-emoji emoji-id="5819095256267755019">⏺</tg-emoji> J3</td><td><tg-emoji emoji-id="123">👹</tg-emoji> Босс</td></tr></table>';
+  state.continuations = [
+    { messageId: 22, lastText: "<table><tr><td>⚪ A1</td></tr></table>" },
+  ];
+  const next = advanceGlobalRaidDay(state, midnight);
+  assert.deepEqual(
+    next.closing.map((item) => item.messageId),
+    [21, 22],
+  );
+  assert.match(next.closing[0].text, /<td>🟢 J3<\/td>/);
+  assert.match(next.closing[0].text, /emoji-id="123"/);
+  assert.match(next.closing[1].text, /<td>🟢 A1<\/td>/);
+});
+
+test("previous message closure survives a failed edit and retries without a new send", async () => {
+  let time = Date.parse("2026-10-29T21:00:00Z");
+  let data = {
+    schema: 2,
+    day: "2026-10-30",
+    observations: {},
+    raids: [],
+    messageId: 30,
+    nextPublishAt: time + 3600000,
+    closing: [{ messageId: 21, text: "<p>🟢</p>" }],
+  };
+  const requests = [];
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (value) => {
+        data = structuredClone(value);
+      },
+    },
+    owner: "worker",
+    now: () => time,
+    chatId: "-100123",
+    getBoss: () => null,
+    isClosed: () => false,
+    telegram: {
+      request: async (method, payload) => {
+        requests.push({ method, payload });
+        if (requests.length === 1) throw new Error("temporary");
+        return true;
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(data.closing.length, 1);
+  time += 31000;
+  await worker.tick();
+  assert.deepEqual(data.closing, []);
+  assert.deepEqual(
+    requests.map((request) => [request.method, request.payload.message_id]),
+    [
+      ["editMessageText", 21],
+      ["editMessageText", 21],
+    ],
+  );
+});
+
 test("unknown send outcome is checkpointed and never sent again", async () => {
   let time = start;
   let data;

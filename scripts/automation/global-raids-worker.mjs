@@ -49,6 +49,20 @@ export function advanceGlobalRaidDay(state, now) {
   const observations = Object.fromEntries(
     Object.entries(state.observations || {}).filter(([id]) => ids.has(id)),
   );
+  const closing = [...(state.closing || [])];
+  for (const message of [
+    { messageId: state.messageId, lastText: state.lastText },
+    ...(state.continuations || []),
+  ]) {
+    if (
+      Number.isSafeInteger(message.messageId) &&
+      typeof message.lastText === "string"
+    )
+      closing.push({
+        messageId: message.messageId,
+        text: finishRaidMessage(message.lastText),
+      });
+  }
   return {
     schema: 2,
     day,
@@ -57,7 +71,19 @@ export function advanceGlobalRaidDay(state, now) {
     messageId: null,
     pendingSend: false,
     nextPublishAt: 0,
+    closing,
   };
+}
+
+function finishRaidMessage(text) {
+  const statuses = Object.values(STATUS_EMOJI)
+    .map(([id]) => id)
+    .join("|");
+  const status = new RegExp(
+    `(<tr><td>)(?:<tg-emoji emoji-id="(?:${statuses})">⏺</tg-emoji>|🔵|⚪|🟡|🔴|❔|🟢)`,
+    "gu",
+  );
+  return text.replace(status, "$1🟢");
 }
 
 export function observeGlobalInvitations(
@@ -214,6 +240,7 @@ export function refreshGlobalRaidRows(state, now) {
       base: r.base,
       carriedIds: r.carriedIds || [],
     }));
+  const midnight = Date.parse(`${state.day}T00:00:00+03:00`);
   for (const [key, events] of groups) {
     events.sort(
       (a, b) => a.firstSeen - b.firstSeen || a.id.localeCompare(b.id),
@@ -251,7 +278,11 @@ export function refreshGlobalRaidRows(state, now) {
         rows.push(row);
         for (const item of pending) Object.assign(row.sources, item.sources);
         pending = [];
-      } else if (!row.carriedIds?.includes(event.id)) row.count++;
+      } else if (
+        !row.carriedIds?.includes(event.id) &&
+        !(row.carried && event.firstSeen < midnight)
+      )
+        row.count++;
       if (event.lastSeen >= (row.lastBattleAt || 0))
         row.lastBattleId = event.id;
       row.lastBattleAt = Math.max(row.lastBattleAt || 0, event.lastSeen);
@@ -553,6 +584,24 @@ export function createGlobalRaidsWorker({
       try {
         let state = refreshGlobalRaidRows(load(), now());
         save(state);
+        const previous = state.closing?.[0];
+        if (previous) {
+          try {
+            await telegram.request("editMessageText", {
+              chat_id: chatId,
+              message_id: previous.messageId,
+              rich_message: { html: previous.text },
+            });
+            state = load();
+            if (state.closing?.[0]?.messageId === previous.messageId) {
+              state.closing.shift();
+              save(state);
+            }
+          } catch {
+            // Editing an existing message is idempotent; retain it for retry.
+          }
+          state = refreshGlobalRaidRows(load(), now());
+        }
         if (now() < state.nextPublishAt || state.pendingSend) return;
         const unresolved = state.raids.find(
           (row) =>
@@ -668,7 +717,11 @@ export function createGlobalRaidsWorker({
               state.continuations ||= [];
               if (state.continuations[i]?.messageId !== current.messageId)
                 return;
-              state.continuations[i] = { messageId: id, pendingSend: false };
+              state.continuations[i] = {
+                messageId: id,
+                pendingSend: false,
+                lastText: pageText,
+              };
               save(state);
             } catch (error) {
               state = load();
