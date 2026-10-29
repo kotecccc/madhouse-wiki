@@ -7,9 +7,10 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 export function createCatalogueHandler({
   fetcher = fetch,
   storeBlob = createReferenceBlobStore(),
+  onCatalogue,
 } = {}) {
   return createWikiApiVercelHandler(
-    createCatalogueSyncApi({ root, storeBlob, fetcher }),
+    createCatalogueSyncApi({ root, storeBlob, fetcher, onCatalogue }),
   );
 }
 export default createCatalogueHandler();

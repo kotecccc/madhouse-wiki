@@ -134,11 +134,12 @@ if (role === "wiki") {
     ["/api", automationRuntime.proxy],
     [
       "/api/catalogue",
-      automationRuntime.bridgeActive
-        ? catalogue.createCatalogueHandler({
-            fetcher: automationRuntime.gameFetch,
-          })
-        : catalogue.default,
+      catalogue.createCatalogueHandler({
+        ...(automationRuntime.bridgeActive
+          ? { fetcher: automationRuntime.gameFetch }
+          : {}),
+        onCatalogue: automationRuntime.updateCatalogue,
+      }),
     ],
     ["/api/raids", raids.default],
     ["/api/feedback", feedback.default],

@@ -138,7 +138,8 @@ export async function createAutomationRuntime({
   });
   const bossCardsHandle = createBossCardsHttp({
     identify: service.identify,
-    snapshots: bridge ? { ...snapshots, read: transport.fetch } : snapshots,
+    snapshots,
+    ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     getCatalogue,
     origin: env.WIKI_PUBLIC_ORIGIN || null,
   });
@@ -248,6 +249,9 @@ export async function createAutomationRuntime({
     proxy,
     gameFetch: transport.fetch,
     bridgeActive: Boolean(bridge),
+    updateCatalogue(model) {
+      catalogue = model;
+    },
     async enableTelegramReport(owner, action = "enable") {
       if (!enabled || !bridge || !telegram) return false;
       const playerId = bridge.botDevices.player(owner);

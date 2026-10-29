@@ -1,9 +1,10 @@
 import {
   getSessionJson,
+  postSessionJson,
   peekSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { telegramContext } from "../../../shared/telegram-context.js";
 import { connectorOrigin } from "../../../connector/protocol.js";
 import {
@@ -100,6 +101,11 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
         : "idle",
   );
   const [requestId, setRequestId] = useState(0);
+  const [cataloguePending, setCataloguePending] = useState(null);
+  const [accessRevision, setAccessRevision] = useState(0);
+  const attempted = useRef(new Set());
+  const syncIdentity = useRef(null);
+  const departmentAccess = useRef(new Map());
   useEffect(() => {
     const controller = new AbortController();
     const loadCatalogue = async () => {
@@ -112,6 +118,12 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
           const data = await response.json();
           if (controller.signal.aborted) return;
           mergeKnowledgeBaseOverlay(data);
+          setCataloguePending({
+            routes: Array.isArray(data.pendingRoutes) ? data.pendingRoutes : [],
+            floors: Array.isArray(data.missingFloorInfo)
+              ? data.missingFloorInfo
+              : [],
+          });
           setAvailability((current) => ({ ...current }));
         }
       } catch {
@@ -179,7 +191,36 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
     const unsubscribe = subscribeSession(load);
     const unsubscribeData = subscribeSessionData((event) => {
       if (event.path === "/api/floors") applyFloors(event.data);
+      const floorMatch = /^\/api\/floors\/([A-O$]|%24)\/info$/i.exec(
+        event.path || "",
+      );
+      if (floorMatch && Array.isArray(event.data?.departments)) {
+        const floorCode = decodeURIComponent(floorMatch[1]);
+        let changed = false;
+        for (const department of event.data.departments) {
+          if (!department?.blockCode || department.unlocked !== true) continue;
+          const key = `${floorCode}:${department.blockCode}`;
+          if (!departmentAccess.current.has(key)) {
+            departmentAccess.current.set(key, true);
+            changed = true;
+          }
+        }
+        if (changed) {
+          for (const key of attempted.current)
+            if (key.startsWith(`${floorCode}:`)) attempted.current.delete(key);
+          setCataloguePending((current) =>
+            current
+              ? {
+                  ...current,
+                  floors: [...new Set([...current.floors, floorCode])],
+                }
+              : current,
+          );
+          setAccessRevision((value) => value + 1);
+        }
+      }
       if (event.cleared) {
+        departmentAccess.current.clear();
         setAvailability({});
         setFloorDetails({});
         setStatus(readSession().status === "ready" ? "loading" : "idle");
@@ -202,6 +243,65 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
       clearInterval(timer);
     };
   }, [requestId, profileSettled]);
+  const availableCodes = Object.keys(availability)
+    .filter((code) => availability[code] === true)
+    .sort()
+    .join(",");
+  useEffect(() => {
+    const session = readSession();
+    if (syncIdentity.current !== session.token) {
+      syncIdentity.current = session.token;
+      attempted.current.clear();
+      departmentAccess.current.clear();
+    }
+    if (session.status !== "ready" || status !== "ready" || !cataloguePending)
+      return;
+    const available = new Set(availableCodes.split(","));
+    const tasks = [
+      ...cataloguePending.floors
+        .filter((code) => available.has(code))
+        .map((floorCode) => ({ floorCode, floorInfo: true })),
+      ...cataloguePending.routes
+        .filter((route) => available.has(route.floorCode))
+        .map((route) => ({
+          floorCode: route.floorCode,
+          departmentCode: route.departmentCode,
+          kind: route.kind,
+          id: route.id,
+        })),
+    ];
+    const controller = new AbortController();
+    const run = async () => {
+      const locked = new Set();
+      for (const task of tasks) {
+        if (controller.signal.aborted) break;
+        const departmentKey = `${task.floorCode}:${task.departmentCode}`;
+        const key = `${task.floorCode}:${task.departmentCode || "floor"}:${task.kind || "info"}:${task.id || ""}`;
+        if (attempted.current.has(key) || locked.has(departmentKey)) continue;
+        attempted.current.add(key);
+        try {
+          const result = await postSessionJson("/api/catalogue", task, {
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) break;
+          if (result.catalogue) {
+            mergeKnowledgeBaseOverlay(result.catalogue);
+            setAvailability((current) => ({ ...current }));
+          }
+        } catch (error) {
+          if (controller.signal.aborted) {
+            attempted.current.delete(key);
+            break;
+          }
+          if (error.status === 403 && task.departmentCode)
+            locked.add(departmentKey);
+          if (error.status === 401 || error.status === 429) break;
+        }
+      }
+    };
+    void run();
+    return () => controller.abort();
+  }, [availableCodes, status, cataloguePending, accessRevision]);
   return {
     availability,
     floorDetails,

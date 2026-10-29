@@ -31,7 +31,6 @@ import {
   orderedFloors,
 } from "../../../model/knowledge-base.js";
 import { fmt } from "../../../lib/format.js";
-import { NextLevelSection } from "../NextLevelSection/NextLevelSection.jsx";
 import { ProfileStatsMenu } from "./ProfileStatsMenu.jsx";
 import { getProfileStatDisplay } from "../../auth/profile.js";
 import { effectTimeLeft } from "../../../lib/stash-buff-time.js";
@@ -724,14 +723,6 @@ export function OverviewSection({
               ?.unlockRequirements,
         }
       : null;
-  const profile = profileState.status === "ready" ? profileState.profile : null;
-  const nextLevel = profile?.playerLevel + 1;
-  const hasUnlocks =
-    Number.isSafeInteger(profile?.playerLevel) &&
-    profile.playerLevel > 0 &&
-    (knowledgeBase.wardrobeItems || []).some(
-      (item) => item.requiredLevel === nextLevel,
-    );
   const goalRequirements = goal
     ? displayRequirements(
         goal.requirements,
@@ -745,7 +736,6 @@ export function OverviewSection({
   return (
     <section className="overview-section" id="overview" aria-label="Главная">
       <ProfileSummary state={profileState} />
-      {hasUnlocks && <NextLevelSection playerLevel={profile.playerLevel} />}
       <RelevantRaids
         schedule={schedule}
         requirements={goalRequirements}

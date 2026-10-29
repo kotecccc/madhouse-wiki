@@ -28,7 +28,12 @@ function safeAuthorization(request) {
   return /^Bearer [A-Za-z0-9._~-]{20,4096}$/.test(value) ? value : null;
 }
 
-export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
+export function createCatalogueSyncApi({
+  root,
+  storeBlob,
+  fetcher = fetch,
+  onCatalogue,
+}) {
   async function fetchJson(path, authorization, method = "GET", body) {
     const response = await fetcher(GAME_ORIGIN + path, {
       method,
@@ -48,13 +53,13 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
 
   async function authorizedFloor(code, authorization) {
     const response = await fetchJson("/api/floors", authorization);
-    return (
-      response.status === 200 &&
+    return response.status === 200 &&
       Array.isArray(response.data) &&
       response.data.some(
         (floor) => floor.code === code && floor.isAvailable === true,
       )
-    );
+      ? response.data
+      : null;
   }
 
   async function getCatalogue(request) {
@@ -65,28 +70,20 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
     let stage = "read_store";
     try {
       downloaded = await storeBlob.download();
-      if (!downloaded)
-        return json({
-          schemaVersion: 2,
-          floors: [],
-          departments: [],
-          works: [],
-          bosses: [],
-          businesses: [],
-          stashSets: [],
-          businessUpgrades: [],
-          completeFloors: [],
-        });
+      const file = downloaded?.file || join(root, "local-data/madhouse.sqlite");
       stage = "read_model";
-      const kb = readKnowledgeBase(process.cwd(), downloaded.file);
+      const kb = readKnowledgeBase(root, file);
+      onCatalogue?.(kb);
       if (bossId !== null) {
         const boss = kb.bosses.find((boss) => String(boss.apiId) === bossId);
         return boss ? json({ boss }) : json({ error: "boss_not_found" }, 404);
       }
       stage = "open_database";
-      const db = new DatabaseSync(downloaded.file, { readOnly: true });
+      const db = new DatabaseSync(file, { readOnly: true });
       stage = "read_completeness";
       let completeFloors;
+      let pendingRoutes;
+      let missingFloorInfo;
       try {
         completeFloors = db
           .prepare(
@@ -94,10 +91,26 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
           )
           .all()
           .map((row) => row.code);
+        pendingRoutes = db
+          .prepare(
+            "SELECT r.floor_code AS floorCode, r.department_code AS departmentCode, r.kind, r.id FROM route_discovery r LEFT JOIN captures c ON c.path=CASE WHEN r.kind='work' THEN '/api/works/open?workId='||r.id ELSE '/api/'||CASE WHEN r.kind='boss' THEN 'bosses' ELSE 'businesses' END||'/'||r.id END WHERE r.kind IN ('work','boss','business') AND (coalesce(c.status,0)<>200 OR coalesce(c.entity_count,0)=0) ORDER BY r.floor_code,r.department_code,r.kind,r.id",
+          )
+          .all();
+        missingFloorInfo = [..."ABCDEFGHIJKLMNO$"].filter((code) => {
+          const capture = db
+            .prepare("SELECT status,entity_count FROM captures WHERE path=?")
+            .get(`/api/floors/${code}/info`);
+          return capture?.status !== 200 || !capture.entity_count;
+        });
       } finally {
         db.close();
       }
-      return json({ ...publicData(kb), completeFloors });
+      return json({
+        ...publicData(kb),
+        completeFloors,
+        pendingRoutes,
+        missingFloorInfo,
+      });
     } catch {
       return json({ error: "catalogue_unavailable", stage }, 503);
     } finally {
@@ -117,15 +130,29 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
     }
     if (
       !body ||
-      Object.keys(body).length !== 1 ||
-      !FLOOR_CODES.test(body.floorCode || "")
+      !FLOOR_CODES.test(body.floorCode || "") ||
+      !(
+        (Object.keys(body).length === 1 && Object.hasOwn(body, "floorCode")) ||
+        (Object.keys(body).length === 2 && body.floorInfo === true) ||
+        ([2, 4].includes(Object.keys(body).length) &&
+          typeof body.departmentCode === "string" &&
+          new RegExp(
+            `^${body.floorCode === "$" ? "\\$" : body.floorCode}[1-9][0-9]*$`,
+          ).test(body.departmentCode) &&
+          (Object.keys(body).length === 2 ||
+            (["work", "boss", "business"].includes(body.kind) &&
+              Number.isSafeInteger(body.id) &&
+              body.id > 0)))
+      )
     )
       return json({ error: "invalid_request" }, 400);
     const code = body.floorCode;
+    const departmentCode = body.departmentCode;
+    const selectedRoute = body.kind ? { kind: body.kind, id: body.id } : null;
     let stage = "verify_floor";
     try {
-      if (!(await authorizedFloor(code, authorization)))
-        return json({ error: "floor_unavailable" }, 403);
+      const floors = await authorizedFloor(code, authorization);
+      if (!floors) return json({ error: "floor_unavailable" }, 403);
       stage = "read_store";
       const downloaded = await storeBlob.download();
       const directory = downloaded?.mutable
@@ -142,6 +169,7 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
       }
       stage = "open_database";
       const store = new CatalogueStore(root, database);
+      store.capture("/api/floors", 200, floors);
       let lastRequestAt = Date.now();
       let stopped = false;
       const requestRoute = async (path, method = "GET", workId = null) => {
@@ -161,19 +189,81 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
           method,
           method === "POST" ? { workId, locale: "ru" } : undefined,
         );
+        if (
+          method === "POST" &&
+          result.status === 200 &&
+          Number(result.data?.workId) !== workId
+        ) {
+          store.capture(path, 502, null, method, workId);
+          return;
+        }
+        if (
+          selectedRoute &&
+          method === "GET" &&
+          path !== `/api/floors/${code}/info` &&
+          result.status === 200 &&
+          Number(result.data?.id) !== selectedRoute.id
+        ) {
+          store.capture(path, 502, null);
+          return;
+        }
         if ([401, 429].includes(result.status)) stopped = true;
         store.capture(path, result.status, result.data, method, workId);
       };
       try {
-        await requestRoute(`/api/floors/${code}/info`);
+        let unlockedDepartments;
+        {
+          const result = await fetchJson(
+            `/api/floors/${code}/info`,
+            authorization,
+          );
+          if (result.status !== 200 || !Array.isArray(result.data?.departments))
+            return json({ error: "department_unavailable" }, 403);
+          unlockedDepartments = new Set(
+            result.data.departments
+              .filter((department) => department.unlocked === true)
+              .map((department) => department.blockCode),
+          );
+          if (
+            departmentCode &&
+            !result.data.departments.some(
+              (department) =>
+                department.blockCode === departmentCode &&
+                department.unlocked === true,
+            )
+          )
+            return json({ error: "department_unavailable" }, 403);
+          store.capture(`/api/floors/${code}/info`, 200, result.data);
+        }
         stage = "load_floor_routes";
         const routes = store.db
           .prepare(
-            "SELECT kind,id FROM route_discovery WHERE floor_code=? ORDER BY kind,id",
+            "SELECT kind,id,department_code FROM route_discovery WHERE floor_code=? ORDER BY kind,id",
           )
           .all(code);
+        if (
+          selectedRoute &&
+          !routes.some(
+            (route) =>
+              route.department_code === departmentCode &&
+              route.kind === selectedRoute.kind &&
+              route.id === selectedRoute.id,
+          )
+        )
+          return json({ error: "unknown_route" }, 404);
         for (const route of routes) {
           if (stopped) break;
+          if (body.floorInfo || !unlockedDepartments.has(route.department_code))
+            continue;
+          if (
+            departmentCode &&
+            (route.department_code !== departmentCode ||
+              (selectedRoute
+                ? route.kind !== selectedRoute.kind ||
+                  route.id !== selectedRoute.id
+                : route.kind !== "work"))
+          )
+            continue;
           const path =
             route.kind === "work"
               ? "/api/works/open"
@@ -200,8 +290,13 @@ export function createCatalogueSyncApi({ root, storeBlob, fetcher = fetch }) {
         if (!downloaded?.mutable)
           await storeBlob.upload(database, downloaded?.etag ?? null);
         stage = "read_model";
+        const model = readKnowledgeBase(root, database);
+        onCatalogue?.(model);
         return json({
           floorCode: code,
+          ...(departmentCode || body.floorInfo
+            ? { catalogue: publicData(model) }
+            : {}),
           complete: pending.length === 0 && pendingIds.length === 0,
           pendingCount: pending.length + pendingIds.length,
         });

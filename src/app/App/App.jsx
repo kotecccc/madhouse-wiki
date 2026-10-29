@@ -143,6 +143,7 @@ export function App() {
     sessionGeneration,
     onFriendCompleted,
     onWorkCollectionCompleted,
+    visibleScreen === "inventory",
   );
   const [inventoryResponses, setInventoryResponses] = useState({});
   const [inventoryDirty, setInventoryDirty] = useState([]);
@@ -174,28 +175,34 @@ export function App() {
         }));
       }
     });
-    getSessionJson("/api/automation/inventory-snapshots", { fresh: true })
-      .then((saved) => {
-        if (!cancelled) {
-          setInventoryDirty(
-            (saved.dirty || []).filter((path) => !updated.has(path)),
-          );
-          setInventoryResponses((current) => ({
-            ...saved.sections,
-            ...Object.fromEntries(
-              [...updated]
-                .filter((path) => current[path])
-                .map((path) => [path, current[path]]),
-            ),
-          }));
-        }
-      })
-      .catch(() => {});
+    if (visibleScreen === "inventory")
+      getSessionJson("/api/automation/inventory-snapshots", { fresh: true })
+        .then((saved) => {
+          if (!cancelled) {
+            setInventoryDirty(
+              (saved.dirty || []).filter((path) => !updated.has(path)),
+            );
+            setInventoryResponses((current) => ({
+              ...saved.sections,
+              ...Object.fromEntries(
+                [...updated]
+                  .filter((path) => current[path])
+                  .map((path) => [path, current[path]]),
+              ),
+            }));
+          }
+        })
+        .catch(() => {});
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [authenticated, profileState.profile?.playerLevel, sessionGeneration]);
+  }, [
+    authenticated,
+    profileState.profile?.playerLevel,
+    sessionGeneration,
+    visibleScreen,
+  ]);
   const inventoryCount = inventoryCategoryOptions(
     inventoryResponses,
     kb.inventoryItems || [],

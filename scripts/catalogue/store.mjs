@@ -254,7 +254,11 @@ export class CatalogueStore {
             const id = put("department", code, { ...d, floorId: f });
             if (id) {
               this.link("department", id, "on_floor", "floor", f, source);
-              this.requirements("department", id, d.requirements, source);
+              if (!(
+                d.unlocked === true &&
+                (!Array.isArray(d.requirements) || d.requirements.length === 0)
+              ))
+                this.requirements("department", id, d.requirements, source);
             }
           }
           for (const b of entries(body.businesses)) {

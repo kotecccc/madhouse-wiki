@@ -22,11 +22,14 @@ export function useActionQueue(
   sessionGeneration,
   onFriendCompleted,
   onWorkCollectionCompleted,
+  inventoryActive = false,
 ) {
   const [state, setState] = useState(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const prior = useRef(new Map());
+  const inventoryActiveRef = useRef(inventoryActive);
+  inventoryActiveRef.current = inventoryActive;
   useEffect(() => {
     prior.current = new Map();
     setState(null);
@@ -109,7 +112,7 @@ export function useActionQueue(
           job.status === "completed"
         ) {
           const path = inventoryPath(job.args);
-          if (path)
+          if (path && inventoryActiveRef.current)
             void getSessionJson(path, { fresh: true, revalidate: false }).catch(
               () => {},
             );

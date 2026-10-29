@@ -1,12 +1,9 @@
 import { createHash } from "node:crypto";
 import {
-  getBossCollectibleDrops,
-  getCollectionRequests,
   summarizeBossCollection,
   summarizeBossOwnedDrops,
 } from "../../src/features/bosses/collection/boss-collection.js";
 
-const GAME_ORIGIN = "https://cargohustle.online";
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -26,6 +23,7 @@ export function createBossCardsHttp({
   identify,
   snapshots,
   getCatalogue,
+  canonicalCredential = (value) => value,
   origin = null,
 }) {
   const pending = new Map();
@@ -91,45 +89,15 @@ export function createBossCardsHttp({
     const key = `${createHash("sha256").update(credential).digest("hex")}:${refreshId ?? "saved"}`;
     if (pending.has(key)) return (await pending.get(key)).clone();
     const task = (async () => {
-      const allPaths = getCollectionRequests(
-        bosses.flatMap(getBossCollectibleDrops),
-      );
-      const refreshBoss =
-        refreshId === null
-          ? null
-          : bosses.find((boss) => bossId(boss) === refreshId);
-      const refreshPaths = new Set(
-        refreshBoss
-          ? getCollectionRequests(getBossCollectibleDrops(refreshBoss))
-          : [],
-      );
-      const responses = {};
-      for (const path of allPaths) {
-        try {
-          const headers = new Headers({ Authorization: credential });
-          if (
-            !refreshPaths.has(path) ||
-            path.startsWith("/api/ornaments/zones/")
-          )
-            headers.set("X-Madhouse-Snapshot-Only", "1");
-          const response = await snapshots.read(`${GAME_ORIGIN}${path}`, {
-            headers,
-          });
-          if (!response.ok) continue;
-          const body = await response.json();
-          if (body && typeof body === "object" && !Array.isArray(body))
-            responses[path] = body;
-        } catch {
-          // Failed or malformed sections stay absent, so the shared summary leaves them unknown.
-        }
-      }
+      const savedCredential = canonicalCredential(credential);
+      const responses = snapshots.inventory(savedCredential).sections;
       return json({
         bosses: bosses.map((boss) => ({
           ...boss,
           collection: summarizeBossCollection(boss, responses),
           ownedDrops: summarizeBossOwnedDrops(boss, responses),
         })),
-        gameHealth: snapshots.health(credential),
+        gameHealth: snapshots.health(savedCredential),
       });
     })();
     pending.set(key, task);
