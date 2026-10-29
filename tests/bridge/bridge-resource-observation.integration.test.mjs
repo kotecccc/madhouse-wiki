@@ -188,6 +188,39 @@ test("bridge GET observation is stored as incomplete and read after snapshot res
   assert.equal(directFetcherCalls, restartCallsBeforeRead);
 });
 
+test("bridge 429 preserves the raw response and the previously stored snapshot", async () => {
+  const store = memoryStore();
+  const snapshots = createAccountSnapshots({ store, now: () => 200 });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  let calls = 0;
+  const { transport } = makeBridge({
+    snapshots: routeSnapshots(snapshots),
+    readGame: async () => {
+      calls += 1;
+      return calls === 1
+        ? { status: 200, body: Buffer.from('[{"id":7}]') }
+        : {
+            status: 429,
+            body: Buffer.from('{"error":"rate_limit"}'),
+            retryAfter: "30",
+          };
+    },
+  });
+  const headers = { Authorization: authorization };
+  assert.equal((await transport.liveFetch(bagUrl, { headers })).status, 200);
+  const limited = await transport.liveFetch(bagUrl, { headers });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("Retry-After"), "30");
+  const saved = await transport.readStored(bagUrl, { headers });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.deepEqual(await saved.json(), [{ id: 7 }]);
+  assert.equal(calls, 2);
+});
+
 test("late bridge resource observation is rejected after a mutation barrier", async () => {
   const store = memoryStore();
   const initialBag = {
