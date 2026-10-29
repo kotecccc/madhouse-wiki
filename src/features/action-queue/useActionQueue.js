@@ -8,6 +8,10 @@ import {
 import { workCollectionCompleted } from "./work-collection-completed.js";
 import { stashCraftCompleted } from "./stash-craft-refresh.js";
 import { syncBattleSession } from "../bosses/BossBattle/boss-battle-session.js";
+import {
+  startStoredStatePolling,
+  storedQueuePresence,
+} from "./stored-state-polling.js";
 
 const pendingStatus = new Set(["queued", "waiting", "running", "reconciling"]);
 const inventoryPath = (args) =>
@@ -26,19 +30,23 @@ export function useActionQueue(
   inventoryActive = false,
 ) {
   const [state, setState] = useState(null);
+  const [presence, setPresence] = useState("unknown");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const prior = useRef(new Map());
+  const hasPresentSnapshot = useRef(false);
   const inventoryActiveRef = useRef(inventoryActive);
   inventoryActiveRef.current = inventoryActive;
   useEffect(() => {
     prior.current = new Map();
+    hasPresentSnapshot.current = false;
     setState(null);
+    setPresence("unknown");
     setError(null);
     if (!authenticated) return;
     let cancelled = false;
-    let timer;
     let previousWork = null;
+    let polling;
     const observedCollectionJobs = new Set();
     const notifiedCollections = new Set();
     let queueInitialized = false;
@@ -154,41 +162,45 @@ export function useActionQueue(
     };
     const unsubscribe = subscribeSessionData((event) => {
       if (event.cleared) {
+        polling?.invalidate();
         prior.current.clear();
         observedCollectionJobs.clear();
         notifiedCollections.clear();
         previousWork = null;
         queueInitialized = false;
+        hasPresentSnapshot.current = false;
         setState(null);
+        setPresence("unknown");
       } else if (
         ["/api/automation/state", "/api/automation/commands"].includes(
           event.path,
         )
-      )
+      ) {
+        if (!Array.isArray(event.data?.queuedActions)) return;
+        polling?.invalidate();
+        hasPresentSnapshot.current = true;
+        setPresence("present");
         update(event.data);
-    });
-    const poll = async () => {
-      try {
-        const saved = await readStoredSessionJson("/api/automation/state");
-        if (saved.presence !== "present") return;
-        const next = saved.data;
-        update(next);
-        if (!cancelled)
-          timer = setTimeout(
-            poll,
-            next.queuedActions?.some((job) => pendingStatus.has(job.status))
-              ? 3000
-              : 15000,
-          );
-      } catch (error) {
-        if (!cancelled && error?.status !== 404)
-          timer = setTimeout(poll, 15000);
       }
-    };
-    void poll();
+    });
+    polling = startStoredStatePolling({
+      readStored: () => readStoredSessionJson("/api/automation/state"),
+      onPresent: (next) => {
+        hasPresentSnapshot.current = true;
+        setPresence("present");
+        update(next);
+      },
+      onMissing: (saved) => {
+        if (!hasPresentSnapshot.current)
+          setPresence(storedQueuePresence(saved));
+      },
+      onUnavailable: () => {
+        if (!hasPresentSnapshot.current) setPresence("unavailable");
+      },
+    });
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      polling.stop();
       unsubscribe();
     };
   }, [
@@ -230,5 +242,5 @@ export function useActionQueue(
       setPending(false);
     }
   }
-  return { state, pending, error, command };
+  return { state, presence, pending, error, command };
 }

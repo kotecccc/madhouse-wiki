@@ -542,6 +542,7 @@ export function App() {
                   <ActionQueueSection
                     authenticated={authenticated}
                     state={actionQueue.state}
+                    presence={actionQueue.presence}
                     catalogue={kb}
                     onCommand={actionQueue.command}
                     onOpen={openQueueAction}

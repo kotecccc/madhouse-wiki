@@ -218,6 +218,7 @@ export function BattleSeriesContent({ card }) {
 export function ActionQueueSection({
   authenticated,
   state,
+  presence = "unknown",
   catalogue,
   onCommand,
   onOpen,
@@ -258,6 +259,15 @@ export function ActionQueueSection({
       </Disclosure>
       {!authenticated ? (
         <CardDescription>Войдите, чтобы увидеть свои действия.</CardDescription>
+      ) : presence === "missing" ? (
+        <CardDescription>
+          Сохранённого состояния очереди пока нет.
+        </CardDescription>
+      ) : presence === "unavailable" ? (
+        <CardDescription>
+          Не удалось прочитать сохранённое состояние очереди. Повторная проверка
+          будет выполнена автоматически.
+        </CardDescription>
       ) : !state ? (
         <div
           className="action-queue-list"
