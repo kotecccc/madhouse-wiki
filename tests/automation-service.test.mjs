@@ -6,6 +6,7 @@ import test from "node:test";
 import { createAutomationHttp } from "../scripts/automation/http.mjs";
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { createQueueActionGate } from "../scripts/bridge/queue-action-gate.mjs";
 
 const tokenA = "Bearer tokenA.payload.sig";
 const tokenARotated = "Bearer tokenA2.payload.sig";
@@ -143,6 +144,63 @@ test("saved reconciling action is not reported as clear when no transport fence 
     });
     assert.equal(game.calls.length, 0);
   });
+});
+
+test("recovery status reports an eligible stopped attempt without making a game request", async () => {
+  await withContext(
+    async ({ service, store, game }) => {
+      const pending = {
+        id: "attack-job-1",
+        kind: "attack",
+        bossId: 7,
+        battleId: "battle-1",
+        operationId: "game-operation-1",
+        beforeDamage: 10,
+      };
+      store.write("101", {
+        credential: tokenA,
+        player: { playerId: 101 },
+        manualBattle: { pending, receipts: [] },
+        queuedActions: [
+          {
+            id: pending.id,
+            type: "battle.attack",
+            status: "reconciling",
+            args: { bossId: 7, battleId: "battle-1" },
+            attempts: 1,
+            nextAt: 10_000_000,
+            createdAt: 1,
+          },
+        ],
+      });
+      const id = "00000000-0000-4000-8000-000000000001";
+      const attempt = store.createBridgeAttempt({
+        id,
+        playerId: "101",
+        operationId: pending.id,
+        checkpointOperationId: pending.operationId,
+        deviceId: "00000000-0000-4000-8000-000000000003",
+        bindingRevision: 1,
+        deviceGeneration: 1,
+        action: "mutation",
+        phase: "uncertain",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      assert.ok(store.confirmBridgeTransportStop(id, attempt.revision, 2));
+      await service.boot();
+      const entry = await service.readStored(tokenA);
+      game.calls.length = 0;
+      assert.deepEqual(service.snapshot(entry).recovery, {
+        status: "unresolved",
+        reason: "bridge_attempt_unconfirmed",
+        pending: 1,
+        autoCheck: true,
+      });
+      assert.equal(game.calls.length, 0);
+    },
+    { queueActionGate: createQueueActionGate() },
+  );
 });
 
 test("queue.cancel reports unavailable storage instead of acknowledging a failed write", async () => {
@@ -316,6 +374,9 @@ async function withContext(run, options = {}) {
     store,
     getBoss: (id) => ({ numericId: id, name: "Boss" }),
     fetcher: game.fetcher,
+    ...(options.queueActionGate
+      ? { queueActionGate: options.queueActionGate }
+      : {}),
     ...(options.accountHealth ? { accountHealth: options.accountHealth } : {}),
     now: () => now,
     random: () => 0,

@@ -782,18 +782,40 @@ export function createAutomationService({
       try {
         if (typeof store.readActiveBridgeAttempts !== "function")
           return { status: "unavailable", autoCheck: false };
-        const attempts = store
-          .readActiveBridgeAttempts()
-          .filter(
-            (attempt) => String(attempt.playerId) === String(entry.playerId),
+        const activeAttempts = store.readActiveBridgeAttempts();
+        const attempts = activeAttempts.filter(
+          (attempt) => String(attempt.playerId) === String(entry.playerId),
+        );
+        if (attempts.length) {
+          const pending = entry.manualBattle?.pending;
+          const attempt = attempts[0];
+          const job = queuedActions.find(
+            (item) =>
+              item.id === attempt.operationId &&
+              item.type === "battle.attack" &&
+              item.status === "reconciling",
           );
-        if (attempts.length)
+          const autoCheck = Boolean(
+            heartbeat &&
+            queueActionGate &&
+            !entry.storageFailed &&
+            attempts.length === 1 &&
+            activeAttempts.filter((item) => item.deviceId === attempt.deviceId)
+              .length === 1 &&
+            attempt.transportStoppedAt != null &&
+            pending?.kind === "attack" &&
+            pending.id === job?.id &&
+            pending.bossId === job?.args?.bossId &&
+            pending.battleId === job?.args?.battleId &&
+            pending.operationId === attempt.checkpointOperationId,
+          );
           return {
             status: "unresolved",
             reason: "bridge_attempt_unconfirmed",
             pending: attempts.length,
-            autoCheck: false,
+            autoCheck,
           };
+        }
         const reconciling = queuedActions.filter(
           (job) => job.status === "reconciling",
         );
