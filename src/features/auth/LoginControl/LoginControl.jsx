@@ -4,6 +4,7 @@ import {
   accountStorageKey,
 } from "../../../../shared/telegram-context.js";
 import {
+  getSessionJson,
   readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
@@ -635,6 +636,14 @@ export function LoginControl() {
                 setPendingLogin(false);
                 setSession(readSession());
                 close();
+                // A manually entered token has no verified owner yet. Make one
+                // explicit profile read so subsequent display reads can remain
+                // strictly local, including after reopening the application.
+                void getSessionJson("/api/me", {
+                  fresh: true,
+                  serverRefresh: "live",
+                  revalidate: false,
+                }).catch(() => {});
               } catch (error) {
                 setError(error.message);
               }

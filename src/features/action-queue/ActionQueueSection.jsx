@@ -259,7 +259,13 @@ export function ActionQueueSection({
       </Disclosure>
       {authenticated && state?.recovery?.status === "unresolved" && (
         <CardDescription>
-          Результат игрового действия пока неизвестен.{" "}
+          {state.recovery.operation === "battle.attack"
+            ? "Результат удара в бою пока неизвестен. "
+            : state.recovery.operation === "work.perform"
+              ? "Результат выполнения работы пока неизвестен. "
+              : state.recovery.operation === "inventory"
+                ? "Результат действия с инвентарём пока неизвестен. "
+                : "Результат игрового действия пока неизвестен; его тип не удалось определить по сохранённым данным. "}
           {state.recovery.autoCheck
             ? "Сервер продолжит проверку."
             : "Автоматическая проверка пока недоступна; связанные действия могут быть ограничены."}

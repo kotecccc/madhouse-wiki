@@ -813,6 +813,16 @@ export function createAutomationService({
         if (attempts.length) {
           const pending = entry.manualBattle?.pending;
           const attempt = attempts[0];
+          const matchingJob = queuedActions.find(
+            (item) => item.id === attempt.operationId,
+          );
+          const operation = [
+            "battle.attack",
+            "work.perform",
+            "inventory",
+          ].includes(matchingJob?.type)
+            ? matchingJob.type
+            : null;
           const job = queuedActions.find(
             (item) =>
               item.id === attempt.operationId &&
@@ -838,6 +848,7 @@ export function createAutomationService({
             reason: "bridge_attempt_unconfirmed",
             pending: attempts.length,
             autoCheck,
+            operation: attempts.length === 1 ? operation : null,
           };
         }
         const reconciling = queuedActions.filter(

@@ -126,6 +126,7 @@ test("stored automation state reports only the owner's unresolved bridge attempt
       reason: "bridge_attempt_unconfirmed",
       pending: 1,
       autoCheck: false,
+      operation: null,
     });
     store.readActiveBridgeAttempts = () => {
       throw new Error("storage unavailable");
@@ -216,6 +217,7 @@ test("recovery status reports an eligible stopped attempt without making a game 
         reason: "bridge_attempt_unconfirmed",
         pending: 1,
         autoCheck: true,
+        operation: "battle.attack",
       });
       assert.equal(game.calls.length, 0);
     },
