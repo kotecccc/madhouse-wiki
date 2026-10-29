@@ -1,8 +1,16 @@
 const DAY = 86400000;
-const FIVE_MINUTES = 300000;
+const THREE_MINUTES = 180000;
+const TEN_MINUTES = 600000;
 const PUBLISH_INTERVAL = 60000;
 const HALF_HOUR = 1800000;
 const FRESH = 90000;
+// Animated single-dot emoji from the iconemoji1 set.
+const STATUS_EMOJI = {
+  waiting: ["5819143265412189249", "⚪"],
+  active: ["5819095256267755019", "🔵"],
+  finished: ["5818665600624365278", "🔴"],
+  paused: ["5819028847483423716", "🟡"],
+};
 const dayOf = (now) => new Date(now + 3 * 3600000).toISOString().slice(0, 10);
 const escape = (value) =>
   String(value ?? "")
@@ -19,7 +27,7 @@ export function advanceGlobalRaidDay(state, now) {
   const carry =
     state.day === dayOf(now - DAY)
       ? (state.raids || [])
-          .filter((r) => r.active || now - r.lastBattleAt <= HALF_HOUR)
+          .filter((r) => r.active || now - r.lastBattleAt < HALF_HOUR)
           .map((r) => ({
             ...r,
             carried: true,
@@ -210,13 +218,13 @@ export function refreshGlobalRaidRows(state, now) {
       if (
         row &&
         !row.carriedIds?.includes(event.id) &&
-        event.firstSeen > row.lastBattleAt + HALF_HOUR
+        event.firstSeen >= row.lastBattleAt + HALF_HOUR
       )
         row = null;
       if (
         !row &&
         pending.length &&
-        event.firstSeen > pending.at(-1).lastSeen + HALF_HOUR
+        event.firstSeen >= pending.at(-1).lastSeen + HALF_HOUR
       )
         pending = [];
       if (!row) {
@@ -295,23 +303,36 @@ export function refreshGlobalRaidRows(state, now) {
   return state;
 }
 
-export function formatGlobalRaidSummary(state, now, getBoss) {
+export function formatGlobalRaidSummary(
+  state,
+  now,
+  getBoss,
+  { customEmoji = false } = {},
+) {
+  const marker = (kind) => {
+    const [id, fallback] = STATUS_EMOJI[kind];
+    return customEmoji ? `<tg-emoji emoji-id="${id}">⏺</tg-emoji>` : fallback;
+  };
   const lines = [
-    `🔥 <b>РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</b>`,
-    "",
+    `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`,
   ];
   const rows = [...state.raids].sort((a, b) => b.lastBattleAt - a.lastBattleAt);
+  const table = [
+    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Ведущий</th><th>Бои</th></tr>",
+  ];
+  let shown = 0;
   for (const row of rows) {
     const age = now - row.lastBattleAt;
-    const status = row.active
-      ? "🔵 Идёт"
-      : !row.fresh
-        ? "⚪ Ждёт · данные устарели"
-        : age <= FIVE_MINUTES
-          ? "⚪ Ждёт"
-          : age <= HALF_HOUR
-            ? `🟡 Пауза · ${Math.floor(age / 60000)} мин`
-            : "🔴 Завершён";
+    const status =
+      row.active || age < THREE_MINUTES
+        ? `${marker("active")} Идёт`
+        : !row.fresh
+          ? `${marker("waiting")} Нет данных`
+          : age < TEN_MINUTES
+            ? `${marker("waiting")} Ждёт`
+            : age < HALF_HOUR
+              ? `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`
+              : `${marker("finished")} Завершён`;
     const boss = getBoss(row.bossId);
     const zone = /^dept-[A-Za-z0-9]+$/.test(boss?.departmentId || "")
       ? boss.departmentId.slice(5)
@@ -320,17 +341,21 @@ export function formatGlobalRaidSummary(state, now, getBoss) {
     const username = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "")
       ? ` (@${row.leaderUsername})`
       : "";
-    const line = `${status} · ${escape(zone)} · ${escape(boss?.name || `Босс №${row.bossId}`)} · ${escape(name)}${username} · ${row.count}`;
-    if (lines.join("\n").length + line.length > 3500) {
-      lines.push(`Ещё рейдов: ${rows.length - (lines.length - 2)}`);
+    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${escape(name)}${username}</td><td>${row.count}</td></tr>`;
+    if (table.join("").length + line.length > 3500) {
       break;
     }
-    lines.push(line);
+    table.push(line);
+    shown++;
   }
-  if (!rows.length) lines.push("Активных рейдов пока нет.");
+  if (rows.length) {
+    lines.push(`${table.join("")}</table>`);
+    if (shown < rows.length)
+      lines.push(`<p>Ещё рейдов: ${rows.length - shown}</p>`);
+  } else lines.push("<p>Активных рейдов пока нет.</p>");
   lines.push(
     "",
-    `Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК`,
+    `<p>Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`,
   );
   return lines.join("\n");
 }
@@ -343,6 +368,7 @@ export function createGlobalRaidsWorker({
   chatId,
   getBoss,
   isClosed,
+  customEmoji = false,
 }) {
   let running = false;
   let nextAttempt = 0;
@@ -388,7 +414,9 @@ export function createGlobalRaidsWorker({
         let state = refreshGlobalRaidRows(load(), now());
         save(state);
         if (now() < state.nextPublishAt || state.pendingSend) return;
-        const text = formatGlobalRaidSummary(state, now(), getBoss);
+        const text = formatGlobalRaidSummary(state, now(), getBoss, {
+          customEmoji,
+        });
         const day = state.day;
         const messageId = state.messageId;
         if (!messageId) {
@@ -397,12 +425,11 @@ export function createGlobalRaidsWorker({
         }
         try {
           const result = await telegram.request(
-            messageId ? "editMessageText" : "sendMessage",
+            messageId ? "editMessageText" : "sendRichMessage",
             {
               chat_id: chatId,
               ...(messageId ? { message_id: messageId } : {}),
-              text,
-              parse_mode: "HTML",
+              rich_message: { html: text },
             },
           );
           if (isClosed()) return;
@@ -421,10 +448,12 @@ export function createGlobalRaidsWorker({
           if (state.day !== day || state.messageId !== messageId) return;
           if (
             !messageId &&
-            Number.isInteger(error?.status) &&
-            error.status >= 400 &&
-            error.status < 500 &&
-            error.status !== 408
+            (error?.notDispatched ||
+              error?.knownRejected ||
+              (Number.isInteger(error?.status) &&
+                error.status >= 400 &&
+                error.status < 500 &&
+                error.status !== 408))
           )
             state.pendingSend = false;
           state.nextPublishAt =
