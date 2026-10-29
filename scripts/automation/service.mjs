@@ -235,7 +235,9 @@ export function createAutomationService({
   cancel = clearTimeout,
   random = Math.random,
   telegram = null,
+  globalRaidsTelegram = telegram,
   globalRaidsChatId = null,
+  globalRaidsCustomEmoji = false,
   telegramSiteUrl = "https://madhouse-wiki.ru",
 }) {
   const actors = new Map();
@@ -534,16 +536,17 @@ export function createAutomationService({
   });
   const globalRaids =
     globalRaidsChatId &&
-    telegram &&
+    globalRaidsTelegram &&
     store.readGlobalRaids &&
     store.writeGlobalRaids
       ? createGlobalRaidsWorker({
           store,
           owner,
           now,
-          telegram,
+          telegram: globalRaidsTelegram,
           chatId: globalRaidsChatId,
           getBoss,
+          customEmoji: globalRaidsCustomEmoji,
           isClosed: () => closed,
         })
       : null;

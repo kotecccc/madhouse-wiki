@@ -9,6 +9,7 @@ import { createAutomationService } from "./service.mjs";
 import { createAutomationHttp, nodeAutomationHandler } from "./http.mjs";
 import { readKnowledgeBase } from "../catalogue/query.mjs";
 import { isAllowedBridgeQueueCommand } from "../bridge/queue-command.mjs";
+import { createGlobalRaidsTelegramUser } from "./global-raids-telegram-user.mjs";
 
 export function globalRaidsDestination(value) {
   return typeof value === "string" &&
@@ -131,9 +132,14 @@ export async function createAutomationRuntime({
     },
     getBusinessCatalogue: getCatalogue,
     telegram,
+    globalRaidsTelegram:
+      env.MADHOUSE_GLOBAL_RAIDS_PUBLISHER === "mtproto"
+        ? createGlobalRaidsTelegramUser()
+        : telegram,
     globalRaidsChatId: globalRaidsDestination(
       env.MADHOUSE_GLOBAL_RAIDS_CHAT_ID,
     ),
+    globalRaidsCustomEmoji: env.MADHOUSE_GLOBAL_RAIDS_PUBLISHER === "mtproto",
     telegramSiteUrl: env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.ru",
   });
   // Normal runtime serves authenticated commands. Explicit 0 is an operator kill switch.

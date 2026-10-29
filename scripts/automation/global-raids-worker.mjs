@@ -1,8 +1,16 @@
 const DAY = 86400000;
-const FIVE_MINUTES = 300000;
+const THREE_MINUTES = 180000;
+const TEN_MINUTES = 600000;
 const PUBLISH_INTERVAL = 60000;
 const HALF_HOUR = 1800000;
 const FRESH = 90000;
+// Animated single-dot emoji from the iconemoji1 set.
+const STATUS_EMOJI = {
+  waiting: ["5819143265412189249", "⚪"],
+  active: ["5819095256267755019", "🔵"],
+  finished: ["5818665600624365278", "🔴"],
+  paused: ["5819028847483423716", "🟡"],
+};
 const dayOf = (now) => new Date(now + 3 * 3600000).toISOString().slice(0, 10);
 const escape = (value) =>
   String(value ?? "")
@@ -19,7 +27,7 @@ export function advanceGlobalRaidDay(state, now) {
   const carry =
     state.day === dayOf(now - DAY)
       ? (state.raids || [])
-          .filter((r) => r.active || now - r.lastBattleAt <= HALF_HOUR)
+          .filter((r) => r.active || now - r.lastBattleAt < HALF_HOUR)
           .map((r) => ({
             ...r,
             carried: true,
@@ -210,13 +218,13 @@ export function refreshGlobalRaidRows(state, now) {
       if (
         row &&
         !row.carriedIds?.includes(event.id) &&
-        event.firstSeen > row.lastBattleAt + HALF_HOUR
+        event.firstSeen >= row.lastBattleAt + HALF_HOUR
       )
         row = null;
       if (
         !row &&
         pending.length &&
-        event.firstSeen > pending.at(-1).lastSeen + HALF_HOUR
+        event.firstSeen >= pending.at(-1).lastSeen + HALF_HOUR
       )
         pending = [];
       if (!row) {
@@ -295,7 +303,16 @@ export function refreshGlobalRaidRows(state, now) {
   return state;
 }
 
-export function formatGlobalRaidSummary(state, now, getBoss) {
+export function formatGlobalRaidSummary(
+  state,
+  now,
+  getBoss,
+  { customEmoji = false } = {},
+) {
+  const marker = (kind) => {
+    const [id, fallback] = STATUS_EMOJI[kind];
+    return customEmoji ? `<tg-emoji emoji-id="${id}">⏺</tg-emoji>` : fallback;
+  };
   const lines = [
     `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`,
   ];
@@ -306,15 +323,16 @@ export function formatGlobalRaidSummary(state, now, getBoss) {
   let shown = 0;
   for (const row of rows) {
     const age = now - row.lastBattleAt;
-    const status = row.active
-      ? "🔵 Идёт"
-      : !row.fresh
-        ? "⚪ Ждёт · данные устарели"
-        : age <= FIVE_MINUTES
-          ? "⚪ Ждёт"
-          : age <= HALF_HOUR
-            ? `🟡 Пауза · ${Math.floor(age / 60000)} мин`
-            : "🔴 Завершён";
+    const status =
+      row.active || age < THREE_MINUTES
+        ? `${marker("active")} Идёт`
+        : !row.fresh
+          ? `${marker("waiting")} Нет данных`
+          : age < TEN_MINUTES
+            ? `${marker("waiting")} Ждёт`
+            : age < HALF_HOUR
+              ? `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`
+              : `${marker("finished")} Завершён`;
     const boss = getBoss(row.bossId);
     const zone = /^dept-[A-Za-z0-9]+$/.test(boss?.departmentId || "")
       ? boss.departmentId.slice(5)
@@ -350,6 +368,7 @@ export function createGlobalRaidsWorker({
   chatId,
   getBoss,
   isClosed,
+  customEmoji = false,
 }) {
   let running = false;
   let nextAttempt = 0;
@@ -395,7 +414,9 @@ export function createGlobalRaidsWorker({
         let state = refreshGlobalRaidRows(load(), now());
         save(state);
         if (now() < state.nextPublishAt || state.pendingSend) return;
-        const text = formatGlobalRaidSummary(state, now(), getBoss);
+        const text = formatGlobalRaidSummary(state, now(), getBoss, {
+          customEmoji,
+        });
         const day = state.day;
         const messageId = state.messageId;
         if (!messageId) {
@@ -427,10 +448,12 @@ export function createGlobalRaidsWorker({
           if (state.day !== day || state.messageId !== messageId) return;
           if (
             !messageId &&
-            Number.isInteger(error?.status) &&
-            error.status >= 400 &&
-            error.status < 500 &&
-            error.status !== 408
+            (error?.notDispatched ||
+              error?.knownRejected ||
+              (Number.isInteger(error?.status) &&
+                error.status >= 400 &&
+                error.status < 500 &&
+                error.status !== 408))
           )
             state.pendingSend = false;
           state.nextPublishAt =

@@ -74,16 +74,22 @@ test("counts six distinct invitation battles once across accounts and never uses
   assert.match(format(state, start + 6 * minute), /Ведущий/);
 });
 
-test("status requires fresh evidence and never asserts an active battle from stale invitations", async () => {
+test("status follows the three, ten and thirty minute boundaries", async () => {
   let state = await series();
   assert.match(format(state, start + 5 * minute), /🔵 Идёт/);
   state = await observe(state, "1", [], start + 6 * minute);
-  assert.match(format(state, start + 6 * minute), /⚪ Ждёт/);
-  state = await observe(state, "1", [], start + 11 * minute);
-  assert.match(format(state, start + 11 * minute), /🟡 Пауза · 6 мин/);
-  state = await observe(state, "1", [], start + 36 * minute);
-  assert.match(format(state, start + 36 * minute), /🔴 Завершён/);
-  assert.match(format(state, start + 40 * minute), /данные устарели/);
+  assert.match(format(state, start + 6 * minute), /🔵 Идёт/);
+  state = await observe(state, "1", [], start + 8 * minute);
+  assert.match(format(state, start + 8 * minute), /⚪ Ждёт/);
+  state = await observe(state, "1", [], start + 9 * minute);
+  assert.match(format(state, start + 9 * minute), /⚪ Ждёт/);
+  state = await observe(state, "1", [], start + 15 * minute);
+  assert.match(format(state, start + 15 * minute), /🟡 Пауза · 10 мин/);
+  state = await observe(state, "1", [], start + 16 * minute);
+  assert.match(format(state, start + 16 * minute), /🟡 Пауза · 11 мин/);
+  state = await observe(state, "1", [], start + 35 * minute);
+  assert.match(format(state, start + 35 * minute), /🔴 Завершён/);
+  assert.match(format(state, start + 40 * minute), /Нет данных/);
 });
 
 test("only a continuing series and its count cross midnight; active battle remains deduplicated", async () => {
@@ -507,4 +513,89 @@ test("existing text message is edited with a native rich table preserving raid c
     /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>Игрок №42<\/td><td>6<\/td>/,
   );
   assert.equal(data.messageId, 5);
+});
+
+test("custom status emoji are opt-in and preserve the four status meanings", () => {
+  const now = start + 40 * minute;
+  const rows = [
+    { active: true, fresh: true, lastBattleAt: now },
+    { active: false, fresh: true, lastBattleAt: now - 4 * minute },
+    { active: false, fresh: true, lastBattleAt: now - 11 * minute },
+    { active: false, fresh: true, lastBattleAt: now - 31 * minute },
+  ].map((row, i) => ({
+    ...row,
+    bossId: i + 1,
+    leaderPlayerId: i + 1,
+    count: 3,
+  }));
+  const state = { day: "2026-10-29", raids: rows };
+  const normal = formatGlobalRaidSummary(state, now, () => ({ name: "Босс" }));
+  assert.doesNotMatch(normal, /<tg-emoji/);
+  const custom = formatGlobalRaidSummary(state, now, () => ({ name: "Босс" }), {
+    customEmoji: true,
+  });
+  for (const id of [
+    "5819095256267755019",
+    "5819143265412189249",
+    "5819028847483423716",
+    "5818665600624365278",
+  ])
+    assert.match(custom, new RegExp(`emoji-id="${id}"`));
+  assert.match(custom, /<\/tg-emoji> Идёт/);
+  assert.match(custom, /<\/tg-emoji> Ждёт/);
+  assert.match(custom, /<\/tg-emoji> Пауза/);
+  assert.match(custom, /<\/tg-emoji> Завершён/);
+});
+
+test("a preflight failure clears the send checkpoint without publishing", async () => {
+  let time = start;
+  let data;
+  let attempts = 0;
+  const store = {
+    readGlobalRaids: () => structuredClone(data),
+    writeGlobalRaids: (value) => {
+      data = structuredClone(value);
+    },
+  };
+  const worker = createGlobalRaidsWorker({
+    store,
+    owner: "worker",
+    now: () => time,
+    chatId: "@channel",
+    getBoss: () => ({}),
+    isClosed: () => false,
+    telegram: {
+      request: async () => {
+        attempts++;
+        throw Object.assign(new Error("session unavailable"), {
+          notDispatched: true,
+        });
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(data.pendingSend, false);
+  time += 60000;
+  await worker.tick();
+  assert.equal(attempts, 2);
+});
+
+test("a quiet raid is not carried over at the exact thirty-minute boundary", () => {
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  const state = advanceGlobalRaidDay(
+    {
+      day: "2026-10-29",
+      raids: [
+        {
+          key: "42:7",
+          active: false,
+          lastBattleAt: midnight - 30 * minute,
+          count: 6,
+        },
+      ],
+      observations: {},
+    },
+    midnight,
+  );
+  assert.equal(state.raids.length, 0);
 });
