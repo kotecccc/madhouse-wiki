@@ -115,13 +115,30 @@ test("Connector preflights both identities and does not send bridge owners direc
     appParams: async () => ({ apiId: 123, apiHash: "a".repeat(32) }),
     wikiOrigins: [],
     withGameSessionLease: guard.withGameSessionLease,
-    fetcher: async (url) => {
+    fetcher: async (url, init) => {
       calls += 1;
-      return url.endsWith("/api/me")
+      const { owner, leaseId, step, attempt, credentialDigest } =
+        init.gameBootstrap;
+      store.connectorLeases.claimStep(
+        owner,
+        leaseId,
+        step,
+        attempt,
+        credentialDigest,
+      );
+      const response = url.endsWith("/api/me")
         ? Response.json({ telegramId: 102, playerId: 43 })
         : new Response(
             JSON.stringify({ accessToken: "header.payload.signature" }),
           );
+      store.connectorLeases.completeStep(
+        owner,
+        leaseId,
+        step,
+        attempt,
+        response.status,
+      );
+      return response;
     },
   });
   const request = (body) =>

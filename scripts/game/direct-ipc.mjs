@@ -1,4 +1,9 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 
@@ -150,6 +155,63 @@ function statusCanHaveBody(status) {
   return status !== 204 && status !== 205 && status !== 304;
 }
 
+// This is only a signed claim. The Wiki must also check and atomically claim
+// the corresponding owner lease immediately before the physical request.
+function validBootstrap(value, pathname, method, attempt, headers, body) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !==
+      "attempt,credentialDigest,leaseId,owner,step" ||
+    !/^[1-9][0-9]{0,15}$/.test(value.owner || "") ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+      value.leaseId || "",
+    ) ||
+    value.attempt !== attempt
+  )
+    return false;
+  if (value.step === "telegram_auth") {
+    if (
+      pathname !== "/api/auth/telegram" ||
+      method !== "POST" ||
+      attempt !== 1 ||
+      value.credentialDigest !== null ||
+      !body
+    )
+      return false;
+    try {
+      const parsed = JSON.parse(Buffer.from(body).toString("utf8"));
+      if (
+        !parsed ||
+        Object.keys(parsed).join(",") !== "initData" ||
+        typeof parsed.initData !== "string"
+      )
+        return false;
+      const params = new URLSearchParams(parsed.initData);
+      if (params.getAll("user").length !== 1) return false;
+      const user = JSON.parse(params.get("user"));
+      return Number.isSafeInteger(user?.id) && String(user.id) === value.owner;
+    } catch {
+      return false;
+    }
+  }
+  const authorization = new Headers(headers).get("authorization");
+  return (
+    value.step === "profile" &&
+    pathname === "/api/me" &&
+    method === "GET" &&
+    attempt >= 1 &&
+    attempt <= 3 &&
+    !body?.byteLength &&
+    typeof authorization === "string" &&
+    /^Bearer [A-Za-z0-9._~-]+$/.test(authorization) &&
+    /^[a-f0-9]{64}$/.test(value.credentialDigest || "") &&
+    createHash("sha256").update(authorization).digest("hex") ===
+      value.credentialDigest
+  );
+}
+
 /** Create a Fetch handler for the authenticated internal game executor endpoint. */
 export function createDirectGameIpcHandler({
   execute,
@@ -216,9 +278,10 @@ export function createDirectGameIpcHandler({
       );
       if (!payload || typeof payload !== "object" || Array.isArray(payload))
         throw new Error();
+      const keys = Object.keys(payload).sort().join(",");
       if (
-        Object.keys(payload).sort().join(",") !==
-        "attempt,binding,body,headers,method,redirect,url"
+        keys !== "attempt,binding,body,headers,method,redirect,url" &&
+        keys !== "attempt,binding,body,bootstrap,headers,method,redirect,url"
       )
         throw new Error();
       const url = validUrl(payload.url);
@@ -259,6 +322,18 @@ export function createDirectGameIpcHandler({
         throw new Error();
       if (requestBody?.byteLength > MAX_REQUEST_BYTES) throw new Error();
       if (method === "GET" && requestBody?.byteLength) throw new Error();
+      if (
+        payload.bootstrap != null &&
+        !validBootstrap(
+          payload.bootstrap,
+          pathname,
+          method,
+          payload.attempt,
+          headers,
+          requestBody,
+        )
+      )
+        throw new Error();
       const response = await execute(url, {
         method,
         headers,
@@ -267,6 +342,7 @@ export function createDirectGameIpcHandler({
         signal: request.signal,
         gameBinding: payload.binding,
         gameAttempt: payload.attempt,
+        ...(payload.bootstrap ? { gameBootstrap: payload.bootstrap } : {}),
       });
       if (
         !response ||
@@ -357,6 +433,19 @@ export function createDirectGameIpcClient({
       throw error("get_body_not_supported", "notDispatched");
     if (body?.byteLength > MAX_REQUEST_BYTES)
       throw error("game_request_too_large", "notDispatched");
+    const attempt = init.gameAttempt || 1;
+    if (
+      init.gameBootstrap != null &&
+      !validBootstrap(
+        init.gameBootstrap,
+        requestedPath,
+        method,
+        attempt,
+        headers,
+        body,
+      )
+    )
+      throw error("invalid_game_bootstrap", "notDispatched");
     const payload = Buffer.from(
       JSON.stringify({
         url,
@@ -364,7 +453,8 @@ export function createDirectGameIpcClient({
         headers,
         redirect,
         binding: init.gameBinding || null,
-        attempt: init.gameAttempt || 1,
+        attempt,
+        ...(init.gameBootstrap ? { bootstrap: init.gameBootstrap } : {}),
         body: body?.byteLength ? body.toString("base64") : null,
       }),
     );

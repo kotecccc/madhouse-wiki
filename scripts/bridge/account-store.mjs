@@ -75,6 +75,10 @@ export function createBridgeAccountStore({
     lease_id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, phase TEXT NOT NULL,
     operation TEXT NOT NULL, created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS mobile_bridge_owner_lease_steps (
+    lease_id TEXT PRIMARY KEY, stage TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0,
+    credential_digest TEXT, last_status INTEGER
+  );
   CREATE TABLE IF NOT EXISTS mobile_bridge_direct_leases (
     lease_id TEXT PRIMARY KEY, player_key TEXT NOT NULL, epoch INTEGER NOT NULL,
     phase TEXT NOT NULL DEFAULT 'prepared', effect TEXT NOT NULL DEFAULT 'unknown', created_at INTEGER NOT NULL DEFAULT 0

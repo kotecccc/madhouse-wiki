@@ -49,6 +49,19 @@ function request(id, owner = id) {
   });
 }
 
+// These guard tests inject a fake game transport; reproduce the server's
+// durable dispatch transitions around that transport.
+function withBootstrapLedger(policy, fetcher) {
+  return async (url, init) => {
+    const { owner, leaseId, step, attempt, credentialDigest } =
+      init.gameBootstrap;
+    policy.claim(owner, leaseId, step, attempt, credentialDigest);
+    const response = await fetcher(url, init);
+    policy.complete(owner, leaseId, step, attempt, response.status);
+    return response;
+  };
+}
+
 test("remote Connector fence honors signed owner, game identity and bound bridge route", async () => {
   const dir = mkdtempSync(join(tmpdir(), "remote-connector-"));
   const storage = createBridgeStorage({ directory: dir });
@@ -72,12 +85,18 @@ test("remote Connector fence honors signed owner, game identity and bound bridge
     appParams: async () => ({}),
     wikiOrigins: [],
     withGameSessionLease: guard.withGameSessionLease,
-    fetcher: async (url) => {
-      calls += 1;
-      return url.endsWith("/api/me")
-        ? Response.json({ telegramId: 102, playerId: 43 })
-        : new Response('{"accessToken":"header.payload.signature"}');
-    },
+    fetcher: withBootstrapLedger(
+      {
+        claim: storage.connectorLeases.claimStep,
+        complete: storage.connectorLeases.completeStep,
+      },
+      async (url) => {
+        calls += 1;
+        return url.endsWith("/api/me")
+          ? Response.json({ telegramId: 102, playerId: 43 })
+          : new Response('{"accessToken":"header.payload.signature"}');
+      },
+    ),
   });
   try {
     const device = storage.registry.redeemInvitation(
@@ -148,12 +167,12 @@ test("remote Connector uses the dedicated private HTTP listener", async () => {
     appParams: async () => ({}),
     wikiOrigins: [],
     withGameSessionLease: guard.withGameSessionLease,
-    fetcher: async (url) => {
+    fetcher: withBootstrapLedger(runtime.bootstrapPolicy, async (url) => {
       calls += 1;
       return url.endsWith("/api/me")
         ? Response.json({ telegramId: 102, playerId: 43 })
         : new Response('{"accessToken":"header.payload.signature"}');
-    },
+    }),
   });
   try {
     const response = await api(request(102));
@@ -215,10 +234,16 @@ test("Connector account-session verification uses the same remote owner fence", 
     encryptionKey: "22".repeat(32),
     now: () => now,
     withOwnerLease: guard.withOwnerLease,
-    fetcher: async () => {
-      calls += 1;
-      return Response.json({ telegramId: 102, playerId: 43 });
-    },
+    fetcher: withBootstrapLedger(
+      {
+        claim: storage.connectorLeases.claimStep,
+        complete: storage.connectorLeases.completeStep,
+      },
+      async () => {
+        calls += 1;
+        return Response.json({ telegramId: 102, playerId: 43 });
+      },
+    ),
   });
   try {
     const device = storage.registry.redeemInvitation(

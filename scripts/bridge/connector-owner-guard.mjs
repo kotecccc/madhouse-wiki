@@ -14,6 +14,7 @@ export function createConnectorOwnerGuard({ verifyOwner, leases } = {}) {
   async function withOwnerLease(owner, operation, run) {
     const lease = await leases.acquire(owner, operation);
     let dispatched = false;
+    let knownProfileFailure = false;
     try {
       await leases.markDispatched(owner, lease);
       dispatched = true;
@@ -25,11 +26,34 @@ export function createConnectorOwnerGuard({ verifyOwner, leases } = {}) {
           throw new Error("bridge_unavailable");
         await leases.registerVerified(owner, lease, playerId, credentialDigest);
       };
-      const result = await run(register);
+      const context = Object.freeze({
+        owner,
+        leaseId: lease,
+        operation,
+        markKnownProfileFailure: () => {
+          knownProfileFailure = true;
+        },
+        bindCredential: async (digest) => {
+          if (
+            operation !== "telegram_auth" ||
+            typeof leases.bindCredential !== "function"
+          )
+            throw new Error("bridge_unavailable");
+          await leases.bindCredential(owner, lease, digest);
+        },
+      });
+      const result = await run(register, context);
       const status = result?.status;
       if (!Number.isInteger(status) || status < 100 || status > 599)
         throw new Error("direct_result_uncertain");
-      if (status >= 500 || status === 429) return result;
+      if (status >= 500 || status === 429) {
+        if (
+          knownProfileFailure &&
+          typeof leases.finishKnownProfileFailure === "function"
+        )
+          await leases.finishKnownProfileFailure(owner, lease);
+        return result;
+      }
       await leases.finish(owner, lease, { definitelyFinished: true });
       return result;
     } catch (error) {

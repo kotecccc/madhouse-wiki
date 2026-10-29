@@ -101,6 +101,18 @@ export function createBridgeRuntime({
     let closed = false;
     return Object.freeze({
       queueActionGate,
+      bootstrapPolicy: Object.freeze({
+        canClaim: (...args) =>
+          !closed && storage.connectorLeases.canClaimStep(...args),
+        claim: (...args) => {
+          if (closed) throw new Error("bridge_unavailable");
+          return storage.connectorLeases.claimStep(...args);
+        },
+        complete: (...args) => {
+          if (closed) throw new Error("bridge_unavailable");
+          return storage.connectorLeases.completeStep(...args);
+        },
+      }),
       setGameCoordinator(coordinator, bindAccount, installStore) {
         if (
           typeof coordinator !== "function" ||

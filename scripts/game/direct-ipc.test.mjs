@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { once } from "node:events";
 import test from "node:test";
 import {
@@ -31,6 +31,66 @@ function clientFor(localEndpoint) {
     fetcher: (url, init) => fetch(new URL(url.pathname, localEndpoint), init),
   });
 }
+
+test("signed bootstrap claims are restricted to the exact owner and credential", async () => {
+  const seen = [];
+  const leaseId = "00000000-0000-4000-8000-000000000001";
+  const authorization = "Bearer fake-token";
+  const digest = createHash("sha256").update(authorization).digest("hex");
+  await withServer(
+    async (_url, init) => {
+      seen.push(init.gameBootstrap);
+      return new Response("{}");
+    },
+    async (localEndpoint) => {
+      const directFetch = clientFor(localEndpoint);
+      const authClaim = {
+        owner: "101",
+        leaseId,
+        step: "telegram_auth",
+        attempt: 1,
+        credentialDigest: null,
+      };
+      const profileClaim = {
+        owner: "101",
+        leaseId,
+        step: "profile",
+        attempt: 1,
+        credentialDigest: digest,
+      };
+      const body = JSON.stringify({
+        initData: new URLSearchParams({
+          user: JSON.stringify({ id: 101 }),
+        }).toString(),
+      });
+      await directFetch("https://cargohustle.online/api/auth/telegram", {
+        method: "POST",
+        body,
+        gameBootstrap: authClaim,
+      });
+      await directFetch("https://cargohustle.online/api/me", {
+        headers: { authorization },
+        gameBootstrap: profileClaim,
+      });
+      await assert.rejects(
+        directFetch("https://cargohustle.online/api/me", {
+          headers: { authorization: "Bearer another" },
+          gameBootstrap: profileClaim,
+        }),
+        /invalid_game_bootstrap/,
+      );
+      await assert.rejects(
+        directFetch("https://cargohustle.online/api/auth/telegram", {
+          method: "POST",
+          body,
+          gameBootstrap: { ...authClaim, owner: "102" },
+        }),
+        /invalid_game_bootstrap/,
+      );
+      assert.deepEqual(seen, [authClaim, profileClaim]);
+    },
+  );
+});
 
 test("confirmed refusal before dispatch survives the internal hop", async () => {
   await withServer(

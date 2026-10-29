@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import WebSocket from "ws";
 import { createVpsBridgeLab } from "../../scripts/bridge/vps-lab.mjs";
+import { createBridgeStorage } from "../../scripts/bridge/device-storage.mjs";
 
 const key = "ab".repeat(32);
 const botToken = "fake-bot";
@@ -132,6 +133,92 @@ test("production bridge reopens its provisioned private storage after restart", 
       message: "route_witness_provision_requires_fresh_storage",
     });
   } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("recovery-only keeps private owner admission and stored route policy without public bridge endpoints", () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-recovery-only-"));
+  const state = join(directory, "state");
+  const witness = join(directory, "witness.sqlite");
+  const base = {
+    MADHOUSE_BRIDGE_IPC_KEY: key,
+    WIKI_INITDATA_KEY: key,
+    MADHOUSE_BRIDGE_STATE_DIR: state,
+    MADHOUSE_BRIDGE_WITNESS_PATH: witness,
+    TELEGRAM_BOT_TOKEN: botToken,
+  };
+  let recovery;
+  try {
+    assert.throws(
+      () =>
+        createVpsBridgeLab({
+          role: "wiki",
+          env: { ...base, MADHOUSE_BRIDGE_RECOVERY_ONLY: "1" },
+          wikiOrigin,
+          connectorOrigin,
+        }),
+      { message: "bridge_recovery_storage_required" },
+    );
+    const initial = createVpsBridgeLab({
+      role: "wiki",
+      env: {
+        ...base,
+        MADHOUSE_BRIDGE_LAB: "1",
+        MADHOUSE_BRIDGE_PROVISION_WITNESS: "1",
+      },
+      wikiOrigin,
+      connectorOrigin,
+    });
+    initial.privateServer.close();
+    initial.runtime.close();
+    const storage = createBridgeStorage({
+      directory: state,
+      witnessPath: witness,
+    });
+    const lease = storage.connectorLeases.acquire("101", "telegram_auth");
+    storage.connectorLeases.markDispatched("101", lease);
+    storage.close();
+    const env = { ...base, MADHOUSE_BRIDGE_RECOVERY_ONLY: "1" };
+    recovery = createVpsBridgeLab({
+      role: "wiki",
+      env,
+      wikiOrigin,
+      connectorOrigin,
+    });
+    assert.equal(recovery.adapter, null);
+    assert.ok(recovery.privateServer);
+    assert.equal(
+      recovery.runtime.bootstrapPolicy.canClaim(
+        "101",
+        lease,
+        "telegram_auth",
+        1,
+        null,
+      ),
+      true,
+    );
+    assert.ok(
+      createVpsBridgeLab({
+        role: "connector",
+        env,
+        wikiOrigin,
+        connectorOrigin,
+      }).guard,
+    );
+    assert.throws(
+      () =>
+        createVpsBridgeLab({
+          role: "wiki",
+          env: { ...env, MADHOUSE_BRIDGE_PROVISION_WITNESS: "1" },
+          wikiOrigin,
+          connectorOrigin,
+        }),
+      { message: "bridge_recovery_storage_required" },
+    );
+  } finally {
+    recovery?.privateServer.close();
+    recovery?.runtime.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });

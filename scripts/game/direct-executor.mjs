@@ -100,7 +100,11 @@ export function createDirectExecutor({
   }
   function eligibility(item, current) {
     const account = canonical(item.accountId);
-    if (durableBlocks.size && !account.startsWith("player:")) {
+    if (
+      durableBlocks.size &&
+      !account.startsWith("player:") &&
+      !item.identityBootstrap
+    ) {
       item.delayReason = "identity_unverified_during_recovery";
       return Infinity;
     }
@@ -368,6 +372,8 @@ export function createDirectExecutor({
         deviceId: context.deviceId,
         recoveryAttemptId:
           transport === "bridge" ? context.recoveryAttemptId : undefined,
+        identityBootstrap:
+          transport === "direct" && context.identityBootstrap === true,
         accountId,
         resolve,
         reject,
@@ -427,7 +433,24 @@ export function createDirectExecutor({
     const fetchInit = { ...init };
     delete fetchInit.canDispatch;
     return schedule(
-      () => fetcher(parsed.href, fetchInit),
+      async () => {
+        if (context.beforePhysical) {
+          try {
+            if (
+              init.signal?.aborted ||
+              (init.canDispatch && (await init.canDispatch()) !== true) ||
+              init.signal?.aborted
+            )
+              throw new Error("bootstrap_cancelled");
+            context.beforePhysical();
+          } catch (error) {
+            throw Object.assign(error, { notDispatched: true });
+          }
+        }
+        const response = await fetcher(parsed.href, fetchInit);
+        if (context.afterPhysical) context.afterPhysical(response);
+        return response;
+      },
       init,
       context,
       "direct",

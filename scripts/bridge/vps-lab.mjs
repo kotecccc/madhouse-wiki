@@ -3,6 +3,8 @@ import { createBridgeRateLimiter } from "./rate-limiter.mjs";
 import { createBridgeNodeAdapter } from "./node-adapter.mjs";
 import { createConnectorPrivateServer } from "./connector-private-server.mjs";
 import { createRemoteConnectorGuard } from "./remote-connector-guard.mjs";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 /** Explicitly gated wiring for isolated tests or the production origins. */
 export function createVpsBridgeLab({
@@ -15,20 +17,21 @@ export function createVpsBridgeLab({
     throw new TypeError("bridge_lab_configuration_invalid");
   const lab = env.MADHOUSE_BRIDGE_LAB || "0";
   const production = env.MADHOUSE_BRIDGE_PRODUCTION || "0";
+  const recoveryOnly = env.MADHOUSE_BRIDGE_RECOVERY_ONLY || "0";
   if (
     !["0", "1"].includes(lab) ||
     !["0", "1"].includes(production) ||
-    (lab === "1" && production === "1")
+    !["0", "1"].includes(recoveryOnly) ||
+    [lab, production, recoveryOnly].filter((value) => value === "1").length > 1
   )
     throw new Error("bridge_lab_configuration_invalid");
-  if (lab === "0" && production === "0") return null;
+  if (lab === "0" && production === "0" && recoveryOnly === "0") return null;
+  const productionOrigins =
+    wikiOrigin === "https://madhouse-wiki.ru" &&
+    connectorOrigin === "https://connect.madhouse-wiki.ru";
   if (production === "1") {
-    if (
-      wikiOrigin !== "https://madhouse-wiki.ru" ||
-      connectorOrigin !== "https://connect.madhouse-wiki.ru"
-    )
-      throw new Error("bridge_lab_origin_forbidden");
-  } else {
+    if (!productionOrigins) throw new Error("bridge_lab_origin_forbidden");
+  } else if (recoveryOnly !== "1" || !productionOrigins) {
     for (const origin of [wikiOrigin, connectorOrigin]) {
       const url = new URL(origin);
       if (
@@ -56,6 +59,14 @@ export function createVpsBridgeLab({
     !env.TELEGRAM_BOT_TOKEN
   )
     throw new Error("bridge_lab_storage_required");
+  if (
+    recoveryOnly === "1" &&
+    (env.MADHOUSE_BRIDGE_PROVISION_WITNESS === "1" ||
+      !existsSync(join(env.MADHOUSE_BRIDGE_STATE_DIR, "device-hmac.key")) ||
+      !existsSync(join(env.MADHOUSE_BRIDGE_STATE_DIR, "devices.sqlite")) ||
+      !existsSync(env.MADHOUSE_BRIDGE_WITNESS_PATH))
+  )
+    throw new Error("bridge_recovery_storage_required");
   const limiter = createBridgeRateLimiter();
   const runtime = createBridgeRuntime({
     directory: env.MADHOUSE_BRIDGE_STATE_DIR,
@@ -68,7 +79,10 @@ export function createVpsBridgeLab({
     requireGameCoordinator: true,
   });
   try {
-    const adapter = createBridgeNodeAdapter({ runtime, origin: wikiOrigin });
+    const adapter =
+      recoveryOnly === "1"
+        ? null
+        : createBridgeNodeAdapter({ runtime, origin: wikiOrigin });
     const privateServer = createConnectorPrivateServer({
       handle: runtime.connectorLease,
     });

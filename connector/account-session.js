@@ -294,13 +294,27 @@ export function createAccountSessions({
       };
       let checked;
       try {
-        const verify = async (registerVerified) => {
+        const verify = async (registerVerified, leaseContext) => {
           let me;
+          const credentialDigest = leaseContext
+            ? hex(await subtle.digest("SHA-256", utf8(`Bearer ${token}`)))
+            : null;
           for (let attempt = 0; attempt < 3; attempt++) {
             verificationSignal.throwIfAborted();
             me = await fetcher("https://cargohustle.online/api/me", {
               ...verificationOptions,
               gameAttempt: attempt + 1,
+              ...(leaseContext
+                ? {
+                    gameBootstrap: {
+                      owner: leaseContext.owner,
+                      leaseId: leaseContext.leaseId,
+                      step: "profile",
+                      attempt: attempt + 1,
+                      credentialDigest,
+                    },
+                  }
+                : {}),
             });
             if (![500, 502, 503, 504].includes(me.status)) break;
             await me.body?.cancel();
@@ -329,9 +343,9 @@ export function createAccountSessions({
               throw Object.assign(new Error("game_account_mismatch"), {
                 code: "game_account_mismatch",
               });
-            const digest = hex(
-              await subtle.digest("SHA-256", utf8(`Bearer ${token}`)),
-            );
+            const digest =
+              credentialDigest ??
+              hex(await subtle.digest("SHA-256", utf8(`Bearer ${token}`)));
             await registerVerified(String(profile.playerId), digest);
           }
           const telegramId = normalizeTelegramId(profile?.telegramId);

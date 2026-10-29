@@ -166,18 +166,46 @@ export function createConnectorLeaseIpcHandler({
         return reply(200, { ok: true });
       }
       if (
+        body.action === "bind" &&
+        Object.keys(body).sort().join(",") ===
+          "action,credentialDigest,leaseId,owner"
+      ) {
+        leases.bindCredential(body.owner, body.leaseId, body.credentialDigest);
+        return reply(200, { ok: true });
+      }
+      if (
         body.action === "register" &&
         Object.keys(body).sort().join(",") ===
           "action,credentialDigest,leaseId,owner,playerId"
       ) {
         if (typeof directCredentials?.register !== "function")
           throw error("invalid_request");
+        if (
+          typeof leases.canRegisterProfile === "function" &&
+          !leases.canRegisterProfile(
+            body.owner,
+            body.leaseId,
+            body.credentialDigest,
+          )
+        )
+          throw error("owner_lease_invalid");
         directCredentials.register({
           owner: body.owner,
           playerId: body.playerId,
           credentialDigest: body.credentialDigest,
           leaseId: body.leaseId,
         });
+        return reply(200, { ok: true });
+      }
+      if (
+        body.action === "finish_profile_failure" &&
+        Object.keys(body).sort().join(",") === "action,leaseId,owner"
+      ) {
+        if (
+          typeof leases.finishKnownProfileFailure !== "function" ||
+          !leases.finishKnownProfileFailure(body.owner, body.leaseId)
+        )
+          throw error("owner_lease_invalid");
         return reply(200, { ok: true });
       }
       if (
@@ -314,6 +342,15 @@ export function createConnectorLeaseIpcClient({
       const result = await call({ action: "mark", owner, leaseId });
       if (result.ok !== true) throw error("bridge_unavailable");
     },
+    async bindCredential(owner, leaseId, credentialDigest) {
+      const result = await call({
+        action: "bind",
+        owner,
+        leaseId,
+        credentialDigest,
+      });
+      if (result.ok !== true) throw error("bridge_unavailable");
+    },
     async registerVerified(owner, leaseId, playerId, credentialDigest) {
       const result = await call({
         action: "register",
@@ -328,6 +365,15 @@ export function createConnectorLeaseIpcClient({
       if (options?.definitelyFinished !== true)
         throw error("owner_lease_unresolved");
       const result = await call({ action: "finish", owner, leaseId });
+      if (result.ok !== true) throw error("bridge_unavailable");
+      return true;
+    },
+    async finishKnownProfileFailure(owner, leaseId) {
+      const result = await call({
+        action: "finish_profile_failure",
+        owner,
+        leaseId,
+      });
       if (result.ok !== true) throw error("bridge_unavailable");
       return true;
     },

@@ -75,7 +75,11 @@ if (role === "wiki") {
       ),
     ),
   );
-  if (expectedBootstrap && process.env.MADHOUSE_BRIDGE_LAB !== "1") {
+  if (
+    expectedBootstrap &&
+    process.env.MADHOUSE_BRIDGE_LAB !== "1" &&
+    process.env.MADHOUSE_BRIDGE_RECOVERY_ONLY !== "1"
+  ) {
     if (process.env.MADHOUSE_BRIDGE_PRODUCTION !== "1")
       throw new Error("bridge_production_required");
     verifyBridgeRelease(
@@ -91,7 +95,7 @@ const bridgeLab = createVpsBridgeLab({
   connectorOrigin,
 });
 const bridgeRelease =
-  bridgeLab?.runtime && process.env.MADHOUSE_BRIDGE_RELEASE_DIR
+  bridgeLab?.adapter && process.env.MADHOUSE_BRIDGE_RELEASE_DIR
     ? createBridgeReleaseHttp(process.env.MADHOUSE_BRIDGE_RELEASE_DIR)
     : null;
 if (bridgeLab?.privateServer) bridgeLab.privateServer.listen(9094, "0.0.0.0");
@@ -126,6 +130,7 @@ if (role === "wiki") {
   const direct = createDirectVpsOwner({
     env: process.env,
     requireBridgeJournal: true,
+    bootstrapPolicy: bridgeLab?.runtime?.bootstrapPolicy,
     resolvePlayer: (authorization) =>
       automationRuntime?.gamePlayerId(authorization),
     credentialCurrent: (authorization) =>
@@ -209,7 +214,7 @@ if (role === "wiki") {
     [
       "/api/telegram/bot-webhook",
       bot.createBotWebhook(
-        bridgeLab?.runtime?.botDevices || null,
+        bridgeLab?.adapter ? bridgeLab.runtime.botDevices : null,
         automationRuntime.enableTelegramReport,
       ),
     ],

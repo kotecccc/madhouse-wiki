@@ -18,6 +18,7 @@ export function createDirectBoundary({
   fetcher = fetch,
   resolvePlayer = () => null,
   requireBridgeJournal = false,
+  isTrustedBootstrap = () => false,
 } = {}) {
   const executor = createDirectExecutor({
     fetcher,
@@ -301,7 +302,21 @@ export function createDirectBoundary({
       throw Object.assign(new Error("bridge_recovery_not_ready"), {
         notDispatched: true,
       });
-    const { gameAttempt, gameSource, ...requestInit } = init;
+    const { gameAttempt, gameSource, gameBootstrapPermit, ...requestInit } =
+      init;
+    const trustedBootstrap = Boolean(
+      gameBootstrapPermit && isTrustedBootstrap(gameBootstrapPermit),
+    );
+    if (gameBootstrapPermit && !trustedBootstrap)
+      throw Object.assign(new Error("bootstrap_not_authorized"), {
+        notDispatched: true,
+      });
+    if (trustedBootstrap) {
+      const priorCheck = requestInit.canDispatch;
+      requestInit.canDispatch = async () =>
+        (!priorCheck || (await priorCheck()) === true) &&
+        gameBootstrapPermit.validate() === true;
+    }
     const authorization = new Headers(init.headers).get("authorization");
     const digest = authorization
       ? createHash("sha256").update(authorization).digest("hex")
@@ -321,6 +336,14 @@ export function createDirectBoundary({
       source: gameSource || source,
       attempt: gameAttempt,
       cooldownScope: digest ? "account" : "global",
+      ...(trustedBootstrap
+        ? {
+            identityBootstrap: true,
+            beforePhysical: () => gameBootstrapPermit.claim(),
+            afterPhysical: (response) =>
+              gameBootstrapPermit.complete(response.status),
+          }
+        : {}),
     });
     if (
       digest &&

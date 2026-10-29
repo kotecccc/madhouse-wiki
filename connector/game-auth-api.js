@@ -141,7 +141,7 @@ export function createConnectorApi({
     } catch {
       return json({ error: "invalid_request" }, 400);
     }
-    const exchange = async (registerVerified) => {
+    const exchange = async (registerVerified, leaseContext) => {
       let authResponseReceived = false;
       try {
         const result = await fetcher(UPSTREAM + "/api/auth/telegram", {
@@ -154,6 +154,17 @@ export function createConnectorApi({
           credentials: "omit",
           redirect: "error",
           signal: AbortSignal.timeout(20000),
+          ...(leaseContext
+            ? {
+                gameBootstrap: {
+                  owner: leaseContext.owner,
+                  leaseId: leaseContext.leaseId,
+                  step: "telegram_auth",
+                  attempt: 1,
+                  credentialDigest: null,
+                },
+              }
+            : {}),
         });
         authResponseReceived = true;
         if (result.status >= 500) {
@@ -181,6 +192,10 @@ export function createConnectorApi({
         if (registerVerified) {
           if (body.accessToken.length > 8185)
             return json({ error: "invalid_game_response" }, 502);
+          const credentialDigest = createHash("sha256")
+            .update(`Bearer ${body.accessToken}`)
+            .digest("hex");
+          if (leaseContext) await leaseContext.bindCredential(credentialDigest);
           const me = await fetcher(UPSTREAM + "/api/me", {
             method: "GET",
             headers: {
@@ -190,9 +205,21 @@ export function createConnectorApi({
             credentials: "omit",
             redirect: "error",
             signal: AbortSignal.timeout(15000),
+            ...(leaseContext
+              ? {
+                  gameBootstrap: {
+                    owner: leaseContext.owner,
+                    leaseId: leaseContext.leaseId,
+                    step: "profile",
+                    attempt: 1,
+                    credentialDigest,
+                  },
+                }
+              : {}),
           });
           if (!me.ok) {
             await me.body?.cancel();
+            leaseContext?.markKnownProfileFailure();
             return json({ error: "game_unavailable" }, 502);
           }
           const profile = await me.json();
@@ -214,12 +241,7 @@ export function createConnectorApi({
             profile.playerId <= 0
           )
             return json({ error: "game_unavailable" }, 502);
-          await registerVerified(
-            String(profile.playerId),
-            createHash("sha256")
-              .update(`Bearer ${body.accessToken}`)
-              .digest("hex"),
-          );
+          await registerVerified(String(profile.playerId), credentialDigest);
         }
         const playerLevel = body.exp?.level;
         const currentExp = body.exp?.currentExp;
