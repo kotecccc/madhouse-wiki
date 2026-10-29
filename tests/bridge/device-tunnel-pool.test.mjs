@@ -173,3 +173,23 @@ test("revocation observed from another process closes an active stream", async (
     pool.close();
   }
 });
+
+test("an idle connection loss waits for a freshly authenticated replacement", async () => {
+  const pool = createDeviceTunnelPool({
+    authorize: async () => true,
+    reconnectWaitMs: 1000,
+  });
+  try {
+    const old = new FakeSocket();
+    await pool.admit(identity, old);
+    old.terminate();
+    const waiting = pool.open("owner-a");
+    const fresh = new FakeSocket();
+    await pool.admit(identity, fresh);
+    const stream = await waiting;
+    assert.equal(stream.socket, fresh);
+    stream.destroy();
+  } finally {
+    pool.close();
+  }
+});
