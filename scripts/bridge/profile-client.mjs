@@ -131,10 +131,16 @@ function requestGameOverBridge({
   openTunnel,
   validateTunnel = null,
   signal,
+  // Set before Node can flush the buffered request to the connected TLS socket.
+  attemptState = { mayHaveSent: false },
   // Tests may provide an injected connector; the production default verifies Cargo TLS.
   connector = createGameTlsDuplexConnector({
     openTunnel,
     validateTunnel,
+    signal,
+    onReady: () => {
+      attemptState.mayHaveSent = true;
+    },
     requestInfo: { method, path },
   }),
 } = {}) {
@@ -227,7 +233,10 @@ function requestGameOverBridge({
       clearTimeout(timer);
       agent.destroy();
     });
-    req.once("error", reject);
+    req.once("error", (error) => {
+      if (!attemptState.mayHaveSent) error.notDispatched = true;
+      reject(error);
+    });
     req.end(body);
   });
 }

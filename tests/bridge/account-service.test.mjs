@@ -45,7 +45,7 @@ function fixture(readProfile, readGame, extra = {}) {
   };
 }
 const goodProfile = async ({ validateTunnel }) => {
-  assert.equal(validateTunnel(), true);
+  assert.equal(await validateTunnel(), true);
   return { status: 200, body: Buffer.from('{"playerId":42,"telegramId":101}') };
 };
 

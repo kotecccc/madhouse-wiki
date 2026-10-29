@@ -129,12 +129,17 @@ updater stops the old service before starting its replacement. The executor is
 in memory and never persists or replays HTTP mutations. The following optional
 Wiki settings are operational pacing choices, not published game limits:
 `MADHOUSE_GAME_GLOBAL_INTERVAL_MS` (default 300),
-`MADHOUSE_GAME_ACCOUNT_INTERVAL_MS` (1100), `MADHOUSE_GAME_QUEUE_LIMIT` (100),
+`MADHOUSE_GAME_ACCOUNT_INTERVAL_MS` (1100), `MADHOUSE_GAME_DEVICE_INTERVAL_MS` (300),
+`MADHOUSE_GAME_DIRECT_CONCURRENCY` (4), `MADHOUSE_GAME_QUEUE_LIMIT` (100),
 and `MADHOUSE_GAME_QUEUE_WAIT_MS` (20000). Set
 `MADHOUSE_GAME_DIAGNOSTICS=1` for bounded, credential-free dispatch events in
 the Wiki log. A 429 for a known credential delays that account; a 429 before a
-credential is known delays the direct VPS egress. Bridge HTTP requests are not
-included in this budget and remain for phase 2B.
+credential is known delays the direct VPS egress. Bridge requests share the
+verified-account budget but use separate device slots and pacing. Device IPs
+are not grouped. An uncertain bridge attempt quarantines that account and
+device in memory; restart loses the quarantine and reconciliation cannot use
+the quarantined account. Do not roll out this incomplete stage until durable
+recovery and device-buffer termination have been addressed.
 
 `/opt/madhouse-wiki/wiki.env` requires the current production values for
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_WEBHOOK_SECRET`,

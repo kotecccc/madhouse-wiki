@@ -128,6 +128,33 @@ test("rejects the tunnel if authorization changes before TLS is ready", async ()
   }
 });
 
+test("cancellation during a delayed TLS guard never releases the socket to HTTP", async () => {
+  const controller = new AbortController();
+  const tunnel = new PassThrough();
+  const tlsSocket = new EventEmitter();
+  tlsSocket.authorized = true;
+  tlsSocket.destroy = () => {};
+  let allow;
+  const pending = new Promise((resolve) => (allow = resolve));
+  let ready = 0;
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => tunnel,
+    tlsConnect: () => tlsSocket,
+    validateTunnel: () => pending,
+    signal: controller.signal,
+    onReady: () => ready++,
+  });
+  const outcome = dial(connector);
+  tlsSocket.emit("secureConnect");
+  await Promise.resolve();
+  controller.abort();
+  allow(true);
+  await assert.rejects(outcome, { code: "bridge_cancelled" });
+  await Promise.resolve();
+  assert.equal(ready, 0);
+  assert.equal(tunnel.destroyed, true);
+});
+
 test("request log omits query and only appears after tunnel authorization", async () => {
   const server = await startFakeGame();
   const messages = [];

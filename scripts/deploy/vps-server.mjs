@@ -140,6 +140,10 @@ if (role === "wiki") {
     },
   });
   directBoundary = direct.boundary;
+  bridgeLab?.runtime?.setGameCoordinator(
+    direct.boundary.bridge,
+    direct.boundary.bindVerified,
+  );
   const directFetch = (url, init = {}) => {
     const originalCheck = init.canDispatch;
     const authorization = new Headers(init.headers).get("authorization");

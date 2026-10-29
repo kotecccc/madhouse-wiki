@@ -65,6 +65,7 @@ export function createVpsBridgeLab({
     origin: wikiOrigin,
     consume: limiter.consume,
     connectorIpcKey: key,
+    requireGameCoordinator: true,
   });
   try {
     const adapter = createBridgeNodeAdapter({ runtime, origin: wikiOrigin });

@@ -34,7 +34,7 @@ export function createBridgeAwareAccountFetch({
   // Concurrent login consumers share one bridge read. Cancellation belongs to
   // each consumer; the device request stops only when nobody is waiting.
   const pendingProfiles = new Map();
-  function readProfile(owner, authorization, signal) {
+  function readProfile(owner, authorization, signal, canDispatch) {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Aborted", "AbortError"));
     const key = `${owner}:${authorization}`;
@@ -45,7 +45,10 @@ export function createBridgeAwareAccountFetch({
       const current = pending;
       current.promise = Promise.resolve()
         .then(() =>
-          accountService.profile(owner, { signal: controller.signal }),
+          accountService.profile(owner, {
+            signal: controller.signal,
+            canDispatch,
+          }),
         )
         .finally(() => {
           if (pendingProfiles.get(key) === current) pendingProfiles.delete(key);
@@ -145,7 +148,12 @@ export function createBridgeAwareAccountFetch({
           const saved = snapshots.bridgeProfile(credential);
           if (saved) return saved;
         }
-        const result = await readProfile(owner, authorization, options.signal);
+        const result = await readProfile(
+          owner,
+          authorization,
+          options.signal,
+          options.canDispatch,
+        );
         snapshots.saveBridgeProfile?.(credential, result.profile);
         return new Response(JSON.stringify(result.profile), {
           status: 200,

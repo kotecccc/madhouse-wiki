@@ -8,6 +8,13 @@ import {
 function failure(code) {
   return Object.assign(new Error(code), { code });
 }
+function validateDispatch(current, canDispatch, claim = () => true) {
+  if (!current()) return false;
+  if (!canDispatch) return claim();
+  return Promise.resolve()
+    .then(canDispatch)
+    .then((allowed) => allowed === true && current() && claim());
+}
 function logBridgeFailure(error) {
   const allowed = new Set([
     "bridge_offline",
@@ -51,6 +58,8 @@ export function createBridgeAccountService({
   sendAction = sendFriendResponseOverBridge,
   sendWork = sendWorkTaskOverBridge,
   queueActionGate = null,
+  coordinate = ({ execute }) => execute(),
+  coordinateVerified = () => {},
 } = {}) {
   if (
     !accounts ||
@@ -62,7 +71,14 @@ export function createBridgeAccountService({
     throw new TypeError("account_service_dependencies_required");
 
   let onVerifiedProfile = () => {};
-  async function fetchProfile(verifiedOwner, authorization, signal, revision) {
+  async function fetchProfile(
+    verifiedOwner,
+    authorization,
+    signal,
+    revision,
+    playerId,
+    canDispatch,
+  ) {
     const device = devices.listDevice(verifiedOwner);
     if (!device) throw failure("device_unavailable");
     const identity = {
@@ -72,14 +88,26 @@ export function createBridgeAccountService({
     };
     let result;
     try {
-      result = await readProfile({
+      result = await coordinate({
         authorization,
+        playerId,
+        deviceId: device.deviceId,
         signal,
-        openTunnel: () => devices.open(verifiedOwner, { signal }),
-        validateTunnel: () =>
-          !signal?.aborted &&
-          registry.isActive(identity) &&
-          accounts.getRevision(verifiedOwner) === revision,
+        method: "GET",
+        execute: () =>
+          readProfile({
+            authorization,
+            signal,
+            openTunnel: () => devices.open(verifiedOwner, { signal }),
+            validateTunnel: () =>
+              validateDispatch(
+                () =>
+                  !signal?.aborted &&
+                  registry.isActive(identity) &&
+                  accounts.getRevision(verifiedOwner) === revision,
+                canDispatch,
+              ),
+          }),
       });
     } catch (error) {
       logBridgeFailure(error);
@@ -140,11 +168,12 @@ export function createBridgeAccountService({
       deviceId: device.deviceId,
       generation: device.generation,
     });
+    coordinateVerified(authorization, profile.playerId);
     onVerifiedProfile(authorization, sanitize(profile));
     return { status: "connected" };
   }
 
-  async function profile(verifiedOwner, { signal } = {}) {
+  async function profile(verifiedOwner, { signal, canDispatch } = {}) {
     const account = accounts.read(verifiedOwner);
     if (!account) throw failure("account_not_configured");
     const result = await fetchProfile(
@@ -152,6 +181,8 @@ export function createBridgeAccountService({
       account.authorization,
       signal,
       account.revision,
+      account.playerId,
+      canDispatch,
     );
     if (accounts.getRevision(verifiedOwner) !== account.revision)
       throw failure("binding_changed");
@@ -160,7 +191,11 @@ export function createBridgeAccountService({
     return { profile: sanitize(result.profile) };
   }
 
-  async function read(verifiedOwner, path, { signal, method, body } = {}) {
+  async function read(
+    verifiedOwner,
+    path,
+    { signal, method, body, canDispatch } = {},
+  ) {
     const account = accounts.read(verifiedOwner);
     if (!account) throw failure("account_not_configured");
     const device = devices.listDevice(verifiedOwner);
@@ -172,17 +207,29 @@ export function createBridgeAccountService({
     };
     let result;
     try {
-      result = await readGame({
+      result = await coordinate({
         authorization: account.authorization,
-        path,
-        method,
-        body,
+        playerId: account.playerId,
+        deviceId: device.deviceId,
         signal,
-        openTunnel: () => devices.open(verifiedOwner, { signal }),
-        validateTunnel: () =>
-          !signal?.aborted &&
-          registry.isActive(identity) &&
-          accounts.getRevision(verifiedOwner) === account.revision,
+        method,
+        execute: () =>
+          readGame({
+            authorization: account.authorization,
+            path,
+            method,
+            body,
+            signal,
+            openTunnel: () => devices.open(verifiedOwner, { signal }),
+            validateTunnel: () =>
+              validateDispatch(
+                () =>
+                  !signal?.aborted &&
+                  registry.isActive(identity) &&
+                  accounts.getRevision(verifiedOwner) === account.revision,
+                canDispatch,
+              ),
+          }),
       });
     } catch (error) {
       logBridgeFailure(error);
@@ -205,7 +252,7 @@ export function createBridgeAccountService({
     verifiedOwner,
     method,
     path,
-    { signal, body, callerAuthorization, validateCaller } = {},
+    { signal, body, callerAuthorization, validateCaller, canDispatch } = {},
   ) {
     const account = accounts.read(verifiedOwner);
     if (!account || !queueActionGate) throw failure("bridge_unavailable");
@@ -220,24 +267,41 @@ export function createBridgeAccountService({
     try {
       const sender =
         path === "/api/works/tasks/perform" ? sendWork : sendAction;
-      result = await sender({
+      const inContext = queueActionGate.capture();
+      result = await coordinate({
         authorization: account.authorization,
-        method,
-        path,
-        body,
+        playerId: account.playerId,
+        deviceId: device.deviceId,
         signal,
-        openTunnel: () => devices.open(verifiedOwner, { signal }),
-        validateTunnel: () =>
-          !signal?.aborted &&
-          registry.isActive(identity) &&
-          accounts.getRevision(verifiedOwner) === account.revision &&
-          (validateCaller ? validateCaller() === true : true) &&
-          queueActionGate.claim({
-            authorization: callerAuthorization ?? account.authorization,
-            method,
-            path,
-            body,
-          }),
+        method,
+        execute: () =>
+          inContext(() =>
+            sender({
+              authorization: account.authorization,
+              method,
+              path,
+              body,
+              signal,
+              openTunnel: () => devices.open(verifiedOwner, { signal }),
+              validateTunnel: () =>
+                validateDispatch(
+                  () =>
+                    !signal?.aborted &&
+                    registry.isActive(identity) &&
+                    accounts.getRevision(verifiedOwner) === account.revision &&
+                    (validateCaller ? validateCaller() === true : true),
+                  canDispatch,
+                  () =>
+                    queueActionGate.claim({
+                      authorization:
+                        callerAuthorization ?? account.authorization,
+                      method,
+                      path,
+                      body,
+                    }),
+                ),
+            }),
+          ),
       });
     } catch (error) {
       logBridgeFailure(error);

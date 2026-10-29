@@ -31,6 +31,7 @@ export function createBridgeRuntime({
   connectorIpcKey,
   witnessPath,
   provisionWitness = false,
+  requireGameCoordinator = false,
 } = {}) {
   if (typeof consume !== "function")
     throw new TypeError("bridge_rate_limiter_required");
@@ -43,6 +44,10 @@ export function createBridgeRuntime({
   let service;
   let gateway;
   const queueActionGate = createQueueActionGate();
+  let gameCoordinator = requireGameCoordinator
+    ? null
+    : ({ execute }) => execute();
+  let bindGameAccount = () => {};
   const browserSessions = createBridgeBrowserSessions({
     key: createHmac("sha256", botToken)
       .update("madhouse-bridge-browser-session-v1")
@@ -56,6 +61,12 @@ export function createBridgeRuntime({
       devices: service,
       registry: storage.registry,
       queueActionGate,
+      coordinate: (attempt) => {
+        if (!gameCoordinator) throw new Error("game_coordinator_unavailable");
+        return gameCoordinator(attempt);
+      },
+      coordinateVerified: (authorization, playerId) =>
+        bindGameAccount(authorization, playerId),
       ...(readProfile ? { readProfile } : {}),
       ...(readGame ? { readGame } : {}),
       ...(sendAction ? { sendAction } : {}),
@@ -89,6 +100,16 @@ export function createBridgeRuntime({
     let closed = false;
     return Object.freeze({
       queueActionGate,
+      setGameCoordinator(coordinator, bindAccount) {
+        if (
+          typeof coordinator !== "function" ||
+          typeof bindAccount !== "function" ||
+          gameCoordinator
+        )
+          throw new TypeError("game_coordinator_invalid");
+        gameCoordinator = coordinator;
+        bindGameAccount = bindAccount;
+      },
       // Called only by the verified private Telegram webhook, never from a
       // client-supplied owner ID.
       botDevices: Object.freeze({

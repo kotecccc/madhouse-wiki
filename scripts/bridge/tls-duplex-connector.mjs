@@ -30,6 +30,8 @@ export function createGameTlsDuplexConnector({
   tlsConnect = connectTls,
   validateTunnel = null,
   requestInfo = null,
+  signal = null,
+  onReady = () => {},
 } = {}) {
   if (typeof openTunnel !== "function" || typeof tlsConnect !== "function")
     throw new TypeError("invalid_connector_dependencies");
@@ -45,8 +47,19 @@ export function createGameTlsDuplexConnector({
       if (callbackCalled) return;
       callbackCalled = true;
       clearTimeout(connectTimer);
+      signal?.removeEventListener("abort", abort);
       callback(error, socket);
     };
+    const abort = () => {
+      finish(transportError("bridge_cancelled"));
+      tlsSocket?.destroy();
+      tunnel?.destroy?.();
+    };
+    if (signal?.aborted) {
+      abort();
+      return null;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
 
     if (
       options?.protocol !== "https:" ||
@@ -115,7 +128,7 @@ export function createGameTlsDuplexConnector({
           .then(
             (valid) => {
               if (callbackCalled) return;
-              if (valid !== true) {
+              if (valid !== true || signal?.aborted) {
                 failHandshake("bridge_mutation_not_admitted");
                 return;
               }
@@ -145,6 +158,7 @@ export function createGameTlsDuplexConnector({
                     /* Optional diagnostics must not block game traffic. */
                   }
               }
+              onReady();
               finish(null, tlsSocket);
             },
             () => failHandshake("bridge_mutation_not_admitted"),

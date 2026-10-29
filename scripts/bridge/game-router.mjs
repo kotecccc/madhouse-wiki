@@ -148,6 +148,20 @@ export function createGameRouter({
     if (route.credentialCurrent === false) throw fail("game_credentials_stale");
     const method = String(init.method || "GET").toUpperCase();
     const path = parsed.pathname + parsed.search;
+    const canDispatch = async () => {
+      if (
+        init.signal?.aborted ||
+        (init.canDispatch && !(await init.canDispatch()))
+      )
+        return false;
+      const latest = await resolveRoute(verifiedIdentity);
+      return (
+        latest?.policy === "bridge_required" &&
+        latest.epoch === route.epoch &&
+        latest.owner === route.owner &&
+        latest.credentialCurrent !== false
+      );
+    };
     // A bridge error is final; it is never retried via directFetch.
     let result;
     if (
@@ -157,11 +171,17 @@ export function createGameRouter({
       !(parsed.pathname === "/api/me" && parsed.search)
     ) {
       if (path === "/api/me") {
-        result = await bridgeProfile(route.owner, { signal: init.signal });
+        result = await bridgeProfile(route.owner, {
+          signal: init.signal,
+          canDispatch,
+        });
       } else {
         if (typeof bridgeRead !== "function")
           throw fail("bridge_operation_not_supported");
-        result = await bridgeRead(route.owner, path, { signal: init.signal });
+        result = await bridgeRead(route.owner, path, {
+          signal: init.signal,
+          canDispatch,
+        });
       }
     } else if (
       isAllowedWorkView(method, path, init.body) &&
@@ -171,6 +191,7 @@ export function createGameRouter({
         signal: init.signal,
         method,
         body: init.body,
+        canDispatch,
       });
     } else if (
       typeof bridgeAction === "function" &&
@@ -181,6 +202,7 @@ export function createGameRouter({
       result = await bridgeAction(route.owner, method, path, {
         signal: init.signal,
         body: init.body,
+        canDispatch,
       });
     } else if (
       typeof bridgeAction === "function" &&
@@ -205,6 +227,7 @@ export function createGameRouter({
       result = await bridgeAction(route.owner, method, path, {
         signal: init.signal,
         body: init.body,
+        canDispatch,
       });
     } else {
       throw fail("bridge_operation_not_supported");
