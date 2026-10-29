@@ -544,17 +544,6 @@ export function createAutomationService({
           telegram,
           chatId: globalRaidsChatId,
           getBoss,
-          readGame: gameJson,
-          actors: () => actors.values(),
-          canRead: (entry) =>
-            Boolean(
-              entry.credential &&
-              !entry.storageFailed &&
-              !entry.busy &&
-              !entry.inventoryBusy &&
-              !backgroundReadDeferred(entry) &&
-              accountHealth(entry.credential)?.status !== "credentials_invalid",
-            ),
           isClosed: () => closed,
         })
       : null;
@@ -2616,7 +2605,11 @@ export function createAutomationService({
       entry.busy = false;
     }
   }
-  async function refreshInvitations(entry, force = false) {
+  async function refreshInvitations(
+    entry,
+    force = false,
+    suppressSubscription = false,
+  ) {
     if (entry.controller.getSnapshot().pendingInvitation) {
       await entry.controller.refresh();
       const battleState = entry.controller.getSnapshot();
@@ -2693,12 +2686,18 @@ export function createAutomationService({
           ? "Вступление не подтверждено. Проверьте состояние перед новым приглашением."
           : null,
       };
+      try {
+        globalRaids?.observe(entry.playerId, raw, entry.invitations.items);
+      } catch {
+        // Global reporting must never interrupt account automation.
+      }
       entry.raidObservations = observeRaids(
         entry.raidObservations,
         entry.invitations.items,
         now(),
       );
-      entry.raidSubscription?.observe(entry.invitations.items, true);
+      if (!suppressSubscription)
+        entry.raidSubscription?.observe(entry.invitations.items, true);
       save(entry);
     } catch (error) {
       entry.raidSubscription?.observe([], false);
@@ -2876,12 +2875,15 @@ export function createAutomationService({
   }
   function discoverInvitations(entry) {
     const state = entry.controller.getSnapshot();
-    if (state.battle?.status === "active") {
+    const inBattle = state.battle?.status === "active";
+    if (inBattle) {
       // A fight prevents joining another. Do not count this unobserved time as
       // a quiet interval for an active subscription, and refresh after combat.
       entry.raidSubscription?.observe([], false);
-      entry.invitationDiscoveryAt = 0;
-      return;
+      if (!globalRaids) {
+        entry.invitationDiscoveryAt = 0;
+        return;
+      }
     }
     if (
       closed ||
@@ -2898,11 +2900,20 @@ export function createAutomationService({
       return;
     entry.invitationDiscoveryAt = now() + INVITATION_DISCOVERY_INTERVAL_MS;
     entry.busy = true;
-    const discovery = refreshInvitations(entry, true)
-      .catch(() => {
+    const discovery = refreshInvitations(entry, true, inBattle)
+      .catch((error) => {
         // Preserve observed history and wait for the next read. Never retry a mutation.
+        if (Number.isFinite(error?.retryAfterMs))
+          entry.invitationDiscoveryAt = Math.max(
+            entry.invitationDiscoveryAt,
+            now() + error.retryAfterMs,
+          );
       })
       .finally(() => {
+        entry.invitationDiscoveryAt = Math.max(
+          entry.invitationDiscoveryAt,
+          now() + INVITATION_DISCOVERY_INTERVAL_MS,
+        );
         entry.busy = false;
         if (entry.invitationDiscoveryPromise === discovery)
           entry.invitationDiscoveryPromise = null;

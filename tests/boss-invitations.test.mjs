@@ -319,6 +319,12 @@ function setup(directory, options = {}) {
       : {}),
     fetcher,
     now: () => currentNow,
+    ...(options.globalRaids
+      ? {
+          globalRaidsChatId: "-100123",
+          telegram: { request: async () => ({ message_id: 1 }) },
+        }
+      : {}),
     random: () => 0,
     schedule: options.schedule ?? (() => ({ unref() {} })),
     cancel: options.cancel ?? (() => {}),
@@ -337,6 +343,74 @@ function setup(directory, options = {}) {
     },
   };
 }
+
+test("TMA and global raids share one invitation read without battle detail requests", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "shared-invitation-poll-"));
+  const items = Array.from({ length: 6 }, (_, i) => ({
+    invitationId: `shared-${i}`,
+    battleId: `battle-${i}`,
+    bossId: 7,
+    leaderPlayerId: 42,
+    inviterPlayerId: 42,
+    peerPlayerId: 42,
+    peerNickname: "Leader",
+    status: "pending",
+    battleStatus: "active",
+    expiresAtUtc: future,
+    battleExpiresAtUtc: future,
+  }));
+  const ctx = setup(directory, { globalRaids: true, invitations: () => items });
+  try {
+    const entry = await ctx.service.identify(token);
+    await ctx.service.boot();
+    await issue(ctx.service, entry, "shared-read-01", "invitations.refresh");
+    assert.equal(
+      ctx.calls.filter((c) => c.path === BOSS_INVITATIONS_PATH).length,
+      1,
+    );
+    assert.equal(
+      ctx.calls.filter((c) => /^\/api\/bosses\/battles\//.test(c.path)).length,
+      0,
+    );
+    assert.equal(ctx.service.snapshot(entry).invitations.items.length, 6);
+    assert.equal(ctx.store.readGlobalRaids().raids[0].count, 6);
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a slow shared invitation poll waits a full interval after completion", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "slow-shared-invitation-"));
+  let release;
+  let started;
+  const begun = new Promise((resolve) => {
+    started = resolve;
+  });
+  const ctx = setup(directory, {
+    globalRaids: true,
+    invitations: () =>
+      new Promise((resolve) => {
+        release = resolve;
+        started();
+      }),
+  });
+  try {
+    await ctx.service.identify(token);
+    await ctx.service.boot();
+    await begun;
+    ctx.setNow(now + 90_000);
+    release([]);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    assert.equal(
+      ctx.calls.filter((c) => c.path === BOSS_INVITATIONS_PATH).length,
+      1,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 async function issue(service, entry, id, name, args = {}) {
   return service.command(entry, {
