@@ -192,6 +192,326 @@ test("a late stored read cannot publish after the session is cleared", async () 
   );
 });
 
+test("stored reads proceed while a game-backed fetch is stalled", async () => {
+  let releaseGameFetch;
+  const started = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "game-session" },
+    }),
+    authorizeStored: (request) => ({
+      ...request,
+      headers: { Authorization: "wiki-session" },
+    }),
+    fetcher: (url, options) => {
+      started.push({ url, options });
+      if (url.endsWith("/api/me"))
+        return new Promise((resolve) => {
+          releaseGameFetch = resolve;
+        });
+      return Promise.resolve(Response.json({ version: 7 }));
+    },
+  });
+
+  const gameRead = api.get("/api/me", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  const storedRead = await api.readStored("/api/automation/state");
+  assert.equal(storedRead.data.version, 7);
+  assert.deepEqual(
+    started.map(({ url }) => url),
+    ["/api/me", "/api/automation/state"],
+  );
+  assert.equal(started[1].options.headers.Authorization, "wiki-session");
+
+  releaseGameFetch(Response.json({ playerId: 42 }));
+  await gameRead;
+});
+
+test("only local stop and queue-cancel commands bypass a stalled game fetch", async () => {
+  let releaseGameFetch;
+  const started = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "game-session" },
+    }),
+    authorizeStored: (request) => ({
+      ...request,
+      headers: { Authorization: "wiki-session" },
+    }),
+    fetcher: (url, options) => {
+      started.push({ url, options });
+      if (url.endsWith("/api/me"))
+        return new Promise((resolve) => {
+          releaseGameFetch = resolve;
+        });
+      return Promise.resolve(Response.json({ ok: true }));
+    },
+  });
+
+  const gameRead = api.get("/api/me", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  await api.post("/api/automation/commands", {
+    id: "stop-1",
+    command: "work.stop",
+    args: {},
+  });
+  await api.post("/api/automation/commands", {
+    id: "cancel-1",
+    command: "queue.cancel",
+    args: { id: "queued-job" },
+  });
+  assert.deepEqual(
+    started.map(({ url }) => url),
+    ["/api/me", "/api/automation/commands", "/api/automation/commands"],
+  );
+  assert.equal(started[1].options.headers.Authorization, "game-session");
+  assert.equal(started[2].options.headers.Authorization, "game-session");
+
+  releaseGameFetch(Response.json({ playerId: 42 }));
+  await gameRead;
+});
+
+test("local reads and ordered stop commands bypass game pacing and stalled reads", async () => {
+  let releaseGameFetch;
+  let releaseStoredRead;
+  let storedStarted;
+  let pauseCalls = 0;
+  const storedRequestStarted = new Promise((resolve) => {
+    storedStarted = resolve;
+  });
+  const started = [];
+  const api = createSessionApi({
+    interval: 1100,
+    pause: async () => {
+      pauseCalls++;
+      throw new Error("Local operation unexpectedly used game pacing");
+    },
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "game-session" },
+    }),
+    authorizeStored: (request) => ({
+      ...request,
+      headers: { Authorization: "wiki-session" },
+    }),
+    fetcher: (url) => {
+      started.push(url);
+      if (url.endsWith("/api/me"))
+        return new Promise((resolve) => {
+          releaseGameFetch = resolve;
+        });
+      if (url.endsWith("/api/automation/state"))
+        return new Promise((resolve) => {
+          releaseStoredRead = resolve;
+          storedStarted();
+        });
+      return Promise.resolve(Response.json({ ok: true }));
+    },
+  });
+
+  const gameRead = api.get("/api/me", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  const storedRead = api.readStored("/api/automation/state");
+  await storedRequestStarted;
+  const firstStop = api.post("/api/automation/commands", {
+    id: "stop-1",
+    command: "work.stop",
+    args: {},
+  });
+  const secondStop = api.post("/api/automation/commands", {
+    id: "stop-2",
+    command: "auto.stop",
+    args: {},
+  });
+  await Promise.all([firstStop, secondStop]);
+
+  assert.deepEqual(started, [
+    "/api/me",
+    "/api/automation/state",
+    "/api/automation/commands",
+    "/api/automation/commands",
+  ]);
+  assert.equal(pauseCalls, 0);
+
+  releaseStoredRead(Response.json({ version: 7 }));
+  releaseGameFetch(Response.json({ playerId: 42 }));
+  await Promise.all([gameRead, storedRead]);
+});
+
+test("Wiki session authorizes only allowlisted local commands after game JWT expiry", async () => {
+  const previousWindow = globalThis.window;
+  const realNow = Date.now;
+  let now = 1000;
+  Date.now = () => now;
+  const target = new EventTarget();
+  const values = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    },
+    location: {
+      origin: "https://wiki.example",
+      hash:
+        "#tgWebAppData=" +
+        encodeURIComponent('user={"id":42}&hash=' + "a".repeat(64)),
+    },
+    dispatchEvent: target.dispatchEvent.bind(target),
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+  };
+  try {
+    const {
+      saveToken,
+      saveWikiSession,
+      clearToken,
+      authorizeRequest,
+      authorizeStoredRequest,
+      authorizeLocalAutomationCommand,
+    } = await import("../shared/auth-session.js");
+    const jwt = (payload) =>
+      [
+        Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url"),
+        Buffer.from(JSON.stringify(payload)).toString("base64url"),
+        "fake-signature",
+      ].join(".");
+    clearToken();
+    saveToken(jwt({ exp: 5 }));
+    saveWikiSession("wiki-session", {
+      expiresAt: Date.now() + 60_000,
+      gameConnection: "login-required",
+    });
+    now = 6000;
+    const calls = [];
+    const api = createSessionApi({
+      interval: 0,
+      authorize: authorizeRequest,
+      authorizeStored: authorizeStoredRequest,
+      authorizeLocalCommand: authorizeLocalAutomationCommand,
+      fetcher: async (_url, options) => {
+        calls.push(options);
+        return Response.json({ ok: true });
+      },
+    });
+
+    await api.post("/api/automation/commands", {
+      id: "stop-1",
+      command: "work.stop",
+      args: {},
+    });
+    assert.equal(calls[0].headers.Authorization, "Bearer wiki-session");
+    await assert.rejects(
+      api.post("/api/automation/commands", {
+        id: "enqueue-1",
+        command: "queue.enqueue",
+        args: { type: "work.start" },
+      }),
+      /JWT истёк|действующий JWT/,
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(
+      (await import("../shared/auth-session.js")).readSession().status,
+      "expired",
+    );
+    api.clear();
+    clearToken();
+  } finally {
+    Date.now = realNow;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test("Wiki-authenticated stop preserves the active game credential identity", async () => {
+  let releaseGameFetch;
+  const started = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "Bearer game-jwt" },
+    }),
+    authorizeLocalCommand: (request, command) => {
+      assert.equal(command, "work.stop");
+      return {
+        ...request,
+        headers: { Authorization: "Bearer wiki-session" },
+      };
+    },
+    fetcher: (url, options) => {
+      started.push({ url, options });
+      if (url.endsWith("/api/me"))
+        return new Promise((resolve) => {
+          releaseGameFetch = resolve;
+        });
+      return Promise.resolve(Response.json({ ok: true }));
+    },
+  });
+
+  const gameRead = api.get("/api/me", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  await api.post("/api/automation/commands", {
+    id: "stop-1",
+    command: "work.stop",
+    args: {},
+  });
+  assert.equal(started[1].options.headers.Authorization, "Bearer wiki-session");
+  releaseGameFetch(Response.json({ playerId: 42 }));
+  assert.deepEqual(await gameRead, { playerId: 42 });
+  assert.deepEqual(api.peek("/api/me"), { playerId: 42 });
+});
+
+test("game actions remain behind stalled game fetches", async () => {
+  let releaseGameFetch;
+  const started = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "game-session" },
+    }),
+    fetcher: (url, options) => {
+      started.push({ url, options });
+      if (url.endsWith("/api/me"))
+        return new Promise((resolve) => {
+          releaseGameFetch = resolve;
+        });
+      return Promise.resolve(Response.json({ ok: true }));
+    },
+  });
+
+  const gameRead = api.get("/api/me", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  let commandSettled = false;
+  const gameAction = api
+    .post("/api/automation/commands", {
+      id: "action-1",
+      command: "queue.enqueue",
+      args: { type: "work.start" },
+    })
+    .then(() => {
+      commandSettled = true;
+    });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(commandSettled, false);
+  assert.deepEqual(
+    started.map(({ url }) => url),
+    ["/api/me"],
+  );
+
+  releaseGameFetch(Response.json({ playerId: 42 }));
+  await Promise.all([gameRead, gameAction]);
+  assert.deepEqual(
+    started.map(({ url }) => url),
+    ["/api/me", "/api/automation/commands"],
+  );
+});
+
 test("strict stored reads reject paths outside the account snapshot contract", async () => {
   let calls = 0;
   const api = createSessionApi({

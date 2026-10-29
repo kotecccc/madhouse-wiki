@@ -6,7 +6,11 @@ import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { resolve } from "node:path";
 import { createAutomationStateStore } from "./state-store.mjs";
 import { createAutomationService } from "./service.mjs";
-import { createAutomationHttp, nodeAutomationHandler } from "./http.mjs";
+import {
+  createAutomationHttp,
+  nodeAutomationHandler,
+  localStopCommands,
+} from "./http.mjs";
 import { readKnowledgeBase } from "../catalogue/query.mjs";
 import { isAllowedBridgeQueueCommand } from "../bridge/queue-command.mjs";
 import {
@@ -244,7 +248,12 @@ export async function createAutomationRuntime({
       const failure = (status, error) =>
         new Response(JSON.stringify({ error }), { status, headers });
       if (!enabled) return failure(503, "automation_game_requests_disabled");
-      if (url.pathname !== "/api/automation/state" || request.method !== "GET")
+      const storedState =
+        url.pathname === "/api/automation/state" && request.method === "GET";
+      const localCommand =
+        url.pathname === "/api/automation/commands" &&
+        request.method === "POST";
+      if (!storedState && !localCommand)
         return failure(401, "game_connection_required");
       if (
         url.search ||
@@ -268,10 +277,40 @@ export async function createAutomationRuntime({
         const owner = bridge?.ownerForPlayer(String(playerId));
         if (owner && owner !== verified.telegramUserId)
           return failure(401, "game_session_required");
+        const entry = await service.readStoredPlayer(playerId);
+        if (storedState)
+          return new Response(JSON.stringify(service.snapshot(entry)), {
+            headers,
+          });
+        if (
+          request.headers.get("content-type")?.split(";")[0] !==
+          "application/json"
+        )
+          return failure(415, "json_required");
+        const reader = request.body?.getReader();
+        if (!reader) return failure(400, "command_required");
+        let size = 0;
+        const chunks = [];
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > 16384) {
+            await reader.cancel();
+            return failure(413, "body_too_large");
+          }
+          chunks.push(Buffer.from(value));
+        }
+        let input;
+        try {
+          input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        } catch {
+          return failure(400, "invalid_json");
+        }
+        if (!localStopCommands.has(input?.command))
+          return failure(401, "game_connection_required");
         return new Response(
-          JSON.stringify(
-            service.snapshot(await service.readStoredPlayer(playerId)),
-          ),
+          JSON.stringify(await service.command(entry, input)),
           { headers },
         );
       } catch (error) {

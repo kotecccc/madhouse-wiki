@@ -777,7 +777,31 @@ export function createAutomationService({
     // and reconciliation belong to the owner heartbeat/explicit jobs.
     const state = entry.controller.getSnapshot();
     const queueReadyAt = queueNotBefore(entry);
+    const recovery = (() => {
+      try {
+        if (typeof store.readActiveBridgeAttempts !== "function")
+          return { status: "unavailable", autoCheck: false };
+        const attempts = store
+          .readActiveBridgeAttempts()
+          .filter(
+            (attempt) => String(attempt.playerId) === String(entry.playerId),
+          );
+        return attempts.length
+          ? {
+              status: "unresolved",
+              reason: "bridge_attempt_unconfirmed",
+              pending: attempts.length,
+              autoCheck: false,
+            }
+          : { status: "clear", pending: 0, autoCheck: false };
+      } catch {
+        // Stored actor state stays available even if recovery metadata cannot
+        // be read. Never present an unreadable journal as clear.
+        return { status: "unavailable", autoCheck: false };
+      }
+    })();
     return {
+      recovery,
       raid: entry.raidWorker.getSnapshot(),
       subscription: (() => {
         const subscription = entry.raidSubscription.getSnapshot();

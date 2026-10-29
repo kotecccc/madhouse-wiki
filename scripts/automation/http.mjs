@@ -5,7 +5,7 @@ const headers = {
 };
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers });
-const stopCommands = new Set([
+export const localStopCommands = new Set([
   "auto.stop",
   "goal.stop",
   "raid.stop",
@@ -15,6 +15,7 @@ const stopCommands = new Set([
   "business.run.stop",
   "subscription.stop",
   "buddy.stop",
+  "queue.cancel",
 ]);
 
 export function createAutomationHttp({
@@ -79,7 +80,7 @@ export function createAutomationHttp({
           return json({ error: "invalid_json" }, 400);
         }
       }
-      const isStop = stopCommands.has(input?.command);
+      const isStop = localStopCommands.has(input?.command);
       entry =
         request.method === "GET" || isStop
           ? await service.readStored(request.headers.get("authorization"))

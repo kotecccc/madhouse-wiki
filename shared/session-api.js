@@ -117,6 +117,8 @@ export function observeGameResponse(response) {
 import {
   authorizeRequest,
   authorizeStoredRequest,
+  authorizeLocalAutomationCommand,
+  isLocalAutomationCommand,
   readSession,
   subscribeSession,
 } from "./auth-session.js";
@@ -126,6 +128,7 @@ import {
 export function createSessionApi({
   authorize,
   authorizeStored = authorize,
+  authorizeLocalCommand = authorize,
   fetcher = fetch,
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -143,6 +146,9 @@ export function createSessionApi({
   let generation = 0;
   let identity = null;
   let tail = Promise.resolve();
+  // Wiki-owned stop commands remain usable when game requests are stalled.
+  // They are ordered with each other, but stored reads do not occupy this lane.
+  let localCommandTail = Promise.resolve();
   let lastStarted = -Infinity;
   let refreshing = 0;
   const isSnapshotPath = (path) =>
@@ -178,6 +184,7 @@ export function createSessionApi({
     pending.clear();
     snapshotOnlyPending.clear();
     tail = Promise.resolve();
+    localCommandTail = Promise.resolve();
     for (const controller of controllers) controller.abort();
     controllers.clear();
     refreshing = 0;
@@ -201,12 +208,23 @@ export function createSessionApi({
     if (!/^\/api\/[\w/?.=&%+-]+$/.test(path))
       return Promise.reject(new Error("Недопустимый API-запрос"));
     // Validate even a cache hit, so expired/cleared sessions cannot reuse it.
+    const localCommand = isLocalAutomationCommand(
+      { url: path, method },
+      body?.command,
+    );
     try {
-      const current = (storedOnly ? authorizeStored : authorize)({
+      const current = (
+        storedOnly
+          ? authorizeStored
+          : localCommand
+            ? (request) => authorizeLocalCommand(request, body.command)
+            : authorize
+      )({
         url: path,
-        ...(storedOnly ? { method: "GET", storedOnly: true } : {}),
+        method,
+        ...(storedOnly ? { storedOnly: true } : {}),
       }).headers.Authorization;
-      if (!storedOnly && identity !== current) {
+      if (!storedOnly && !localCommand && identity !== current) {
         clear();
         identity = current;
       }
@@ -252,14 +270,21 @@ export function createSessionApi({
     const requestGeneration = generation;
     const entry = storedOnly ? {} : cached || {};
     const task = async () => {
-      const wait = interval - (now() - lastStarted);
+      const wait =
+        storedOnly || localCommand ? 0 : interval - (now() - lastStarted);
       if (wait > 0) await pause(wait);
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (generation !== requestGeneration)
         throw new Error("Сессия изменилась");
       // A queued refresh may reach its turn after the app was backgrounded.
       if (background && !shouldRefresh()) return entry.value;
-      const request = (storedOnly ? authorizeStored : authorize)({
+      const request = (
+        storedOnly
+          ? authorizeStored
+          : localCommand
+            ? (request) => authorizeLocalCommand(request, body.command)
+            : authorize
+      )({
         url: path,
         method,
         ...(storedOnly ? { storedOnly: true } : {}),
@@ -269,7 +294,7 @@ export function createSessionApi({
       signal?.addEventListener("abort", forwardAbort, { once: true });
       controllers.add(controller);
       const timeout = setTimeout(() => controller.abort(), 20000);
-      lastStarted = now();
+      if (!storedOnly && !localCommand) lastStarted = now();
       try {
         const options = {
           method,
@@ -301,7 +326,7 @@ export function createSessionApi({
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (generation !== requestGeneration || controller.signal.aborted)
             throw new Error("Сессия изменилась");
-          lastStarted = now();
+          if (!storedOnly && !localCommand) lastStarted = now();
           response = await fetcher(request.url, options);
           if (generation === requestGeneration && !controller.signal.aborted)
             observeGameResponse(response);
@@ -421,8 +446,11 @@ export function createSessionApi({
         controllers.delete(controller);
       }
     };
-    const promise = tail.then(task);
-    tail = promise.catch(() => {});
+    const promise = storedOnly
+      ? Promise.resolve().then(task)
+      : (localCommand ? localCommandTail : tail).then(task);
+    if (localCommand) localCommandTail = promise.catch(() => {});
+    else if (!storedOnly) tail = promise.catch(() => {});
     if (method === "GET" && !storedOnly) {
       if (!cached) entries.set(path, entry);
       pending.set(path, promise);
@@ -569,6 +597,7 @@ function ensureSessionApi() {
   sessionApi = createSessionApi({
     authorize: authorizeRequest,
     authorizeStored: authorizeStoredRequest,
+    authorizeLocalCommand: authorizeLocalAutomationCommand,
     shouldRefresh: () =>
       typeof document === "undefined" || document.visibilityState === "visible",
   });
@@ -647,7 +676,15 @@ export function readStoredSessionJson(path, { signal } = {}) {
 }
 export function postSessionJson(path, body, { signal } = {}) {
   ensureSessionApi();
-  if (readSession().status !== "ready") {
+  const session = readSession();
+  const localCommand = isLocalAutomationCommand(
+    { url: path, method: "POST" },
+    body?.command,
+  );
+  if (
+    session.status !== "ready" &&
+    !(localCommand && session.wikiSessionReady)
+  ) {
     sessionApi.clear();
     return Promise.reject(new Error("Требуется вход"));
   }

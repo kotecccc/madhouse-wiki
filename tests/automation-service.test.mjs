@@ -78,6 +78,45 @@ test("stored state reads survive a game credential outage without refreshing the
   );
 });
 
+test("stored automation state reports only the owner's unresolved bridge attempts without game traffic", async () => {
+  await withContext(async ({ service, store, game }) => {
+    await service.identify(tokenA);
+    game.calls.length = 0;
+    for (const [id, playerId] of [
+      ["00000000-0000-4000-8000-000000000001", "101"],
+      ["00000000-0000-4000-8000-000000000002", "202"],
+    ]) {
+      store.createBridgeAttempt({
+        id,
+        playerId,
+        operationId: "operation_1",
+        deviceId: "00000000-0000-4000-8000-000000000003",
+        bindingRevision: 1,
+        deviceGeneration: 1,
+        action: "mutation",
+        phase: "uncertain",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    }
+    const entry = await service.readStored(tokenA);
+    assert.deepEqual(service.snapshot(entry).recovery, {
+      status: "unresolved",
+      reason: "bridge_attempt_unconfirmed",
+      pending: 1,
+      autoCheck: false,
+    });
+    store.readActiveBridgeAttempts = () => {
+      throw new Error("storage unavailable");
+    };
+    assert.deepEqual(service.snapshot(entry).recovery, {
+      status: "unavailable",
+      autoCheck: false,
+    });
+    assert.equal(game.calls.length, 0);
+  });
+});
+
 test("queue.cancel reports unavailable storage instead of acknowledging a failed write", async () => {
   await withContext(async ({ service, store }) => {
     const entry = await service.identify(tokenA);
@@ -105,6 +144,41 @@ test("queue.cancel reports unavailable storage instead of acknowledging a failed
         error.message === "automation_storage_unavailable",
     );
   });
+});
+
+test("queue.cancel uses stored actor state without game identification", async () => {
+  const actor = { id: "stored" };
+  let identifications = 0;
+  const http = createAutomationHttp({
+    service: {
+      readStored: async () => actor,
+      identify: async () => {
+        identifications++;
+        throw new Error("game unavailable");
+      },
+      command: async (entry, command) => ({
+        actor: entry.id,
+        command: command.command,
+      }),
+    },
+  });
+  const response = await http(
+    new Request("https://wiki.test/api/automation/commands", {
+      method: "POST",
+      headers: { authorization: tokenA, "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "cancel-test",
+        command: "queue.cancel",
+        args: { id: "job-1" },
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    actor: "stored",
+    command: "queue.cancel",
+  });
+  assert.equal(identifications, 0);
 });
 
 function battle(now, id = "battle-1", status = "active", bossHealth = 40) {

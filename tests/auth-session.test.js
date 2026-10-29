@@ -7,6 +7,8 @@ import {
   clearToken,
   authorizeRequest,
   authorizeStoredRequest,
+  authorizeLocalAutomationCommand,
+  isLocalAutomationCommand,
   saveWikiSession,
   storedSessionIdentity,
   formatExpiry,
@@ -234,6 +236,39 @@ test("an independent Wiki session authorizes only stored reads after game expiry
       }).headers.Authorization,
       "Bearer wiki-session-secret",
     );
+    const localCommands = [
+      "auto.stop",
+      "goal.stop",
+      "raid.stop",
+      "floor.stop",
+      "work.stop",
+      "character.stop",
+      "business.run.stop",
+      "subscription.stop",
+      "buddy.stop",
+      "queue.cancel",
+    ];
+    for (const command of localCommands) {
+      const request = {
+        url: "/api/automation/commands",
+        method: "POST",
+        headers: { Authorization: "stale-game-token" },
+      };
+      assert.equal(isLocalAutomationCommand(request, command), true, command);
+      assert.equal(
+        authorizeLocalAutomationCommand(request, command).headers.Authorization,
+        "Bearer wiki-session-secret",
+      );
+    }
+    for (const [request, command] of [
+      [{ url: "/api/automation/commands?x=1", method: "POST" }, "work.stop"],
+      [{ url: "/api/automation/commands", method: "GET" }, "work.stop"],
+      [{ url: "/api/automation/commands", method: "POST" }, "queue.enqueue"],
+      [{ url: "/api/me", method: "POST" }, "work.stop"],
+    ]) {
+      assert.equal(isLocalAutomationCommand(request, command), false);
+      assert.throws(() => authorizeLocalAutomationCommand(request, command));
+    }
     assert.throws(() =>
       authorizeRequest({ url: "/api/automation/state", method: "GET" }),
     );
@@ -262,6 +297,37 @@ test("an independent Wiki session authorizes only stored reads after game expiry
   } finally {
     clearToken();
     Date.now = realNow;
+    if (previous === undefined) delete globalThis.window;
+    else globalThis.window = previous;
+  }
+});
+
+test("local stop authorization falls back to a valid game JWT without Wiki session", () => {
+  const previous = globalThis.window;
+  const target = new EventTarget();
+  const values = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    },
+    location: { origin: "https://wiki.example", hash: "" },
+    dispatchEvent: target.dispatchEvent.bind(target),
+  };
+  try {
+    clearToken();
+    const gameToken = jwt({ exp: Date.now() / 1000 + 60 });
+    saveToken(gameToken);
+    assert.equal(
+      authorizeLocalAutomationCommand(
+        { url: "/api/automation/commands", method: "POST" },
+        "work.stop",
+      ).headers.Authorization,
+      `Bearer ${gameToken}`,
+    );
+  } finally {
+    clearToken();
     if (previous === undefined) delete globalThis.window;
     else globalThis.window = previous;
   }

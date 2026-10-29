@@ -377,7 +377,7 @@ test("legacy account restores saved data by verified owner and exact token witho
   assert.equal(gameCalls, 1);
 });
 
-test("Wiki-only automation state is a local read and cannot send commands", async (t) => {
+test("Wiki-only automation state and stop remain local while game actions are denied", async (t) => {
   const s = setup();
   const start = await s.call("restore");
   await s.call("save", { ticket: start.ticket, accessToken: jwt() });
@@ -408,6 +408,7 @@ test("Wiki-only automation state is a local read and cannot send commands", asyn
     }),
   );
   assert.equal(state.status, 200);
+  const saved = await state.json();
   const command = await runtime.handle(
     new Request("http://wiki.test/api/automation/commands", {
       method: "POST",
@@ -415,10 +416,29 @@ test("Wiki-only automation state is a local read and cannot send commands", asyn
         Authorization: authorization,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ command: "auto.stop" }),
+      body: JSON.stringify({
+        id: "stop-wiki-session",
+        command: "auto.stop",
+        expectedVersion: saved.version,
+      }),
     }),
   );
-  assert.equal(command.status, 401);
+  assert.equal(command.status, 200);
+  const forbidden = await runtime.handle(
+    new Request("http://wiki.test/api/automation/commands", {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: "start-wiki-session",
+        command: "auto.start",
+        expectedVersion: saved.version,
+      }),
+    }),
+  );
+  assert.equal(forbidden.status, 401);
   assert.equal(gameCalls, before);
 });
 test("Wiki credential rejects tampering, expiry, and an unverified game playerId", async () => {

@@ -13,6 +13,18 @@ let volatileWikiSessionExpiresAt = null;
 let lastStoredCredential = null;
 let storedIdentityRevision = 0;
 const CHANGE_EVENT = "madhouse:auth-change";
+const LOCAL_AUTOMATION_COMMANDS = new Set([
+  "auto.stop",
+  "goal.stop",
+  "raid.stop",
+  "floor.stop",
+  "work.stop",
+  "character.stop",
+  "business.run.stop",
+  "subscription.stop",
+  "buddy.stop",
+  "queue.cancel",
+]);
 let authRestoreSettled = false;
 export const AUTH_RESTORE_SETTLED_EVENT = "madhouse:auth-restore-settled";
 
@@ -325,6 +337,41 @@ export function authorizeRequest(request, origin = window.location.origin) {
   for (const key of Object.keys(headers))
     if (key.toLowerCase() === "authorization") delete headers[key];
   headers.Authorization = `Bearer ${inspected.token}`;
+  return { ...request, headers };
+}
+const localAuthOrigin = () =>
+  typeof window === "undefined" ? "http://localhost" : window.location.origin;
+export function isLocalAutomationCommand(
+  request,
+  command,
+  origin = localAuthOrigin(),
+) {
+  const url = new URL(request.url, origin);
+  return (
+    url.origin === origin &&
+    url.pathname === "/api/automation/commands" &&
+    !url.search &&
+    request.method?.toUpperCase() === "POST" &&
+    LOCAL_AUTOMATION_COMMANDS.has(command)
+  );
+}
+// The Wiki principal is allowed only for the backend's local stop/cancel
+// allowlist. With no active Wiki principal, retain normal game JWT auth.
+export function authorizeLocalAutomationCommand(
+  request,
+  command,
+  origin = localAuthOrigin(),
+) {
+  const url = new URL(request.url, origin);
+  if (url.origin !== origin)
+    throw new Error("JWT Wiki используется только через локальный API-прокси.");
+  if (!isLocalAutomationCommand(request, command, origin))
+    throw new Error("Wiki-сессия разрешает только локальные stop-команды.");
+  if (!readSession().wikiSessionReady) return authorizeRequest(request, origin);
+  const headers = { ...request.headers };
+  for (const key of Object.keys(headers))
+    if (key.toLowerCase() === "authorization") delete headers[key];
+  headers.Authorization = `Bearer ${volatileWikiSession}`;
   return { ...request, headers };
 }
 // Saved-data reads may use the short-lived Wiki principal. All other requests
