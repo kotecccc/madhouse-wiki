@@ -198,6 +198,31 @@ test("session verification binds the credential digest on its first profile clai
     leases.claimStep("101", lease, "profile", 2, digest);
     leases.completeStep("101", lease, "profile", 2, 200);
     assert.equal(leases.canRegisterProfile("101", lease, digest), true);
+    assert.equal(leases.canFinishKnownProfileFailure("101", lease), false);
+
+    const failedLease = leases.acquire("102", "session_verify");
+    leases.markDispatched("102", failedLease);
+    leases.claimStep("102", failedLease, "profile", 1, digest);
+    leases.completeStep("102", failedLease, "profile", 1, 503);
+    assert.equal(
+      leases.canFinishKnownProfileFailure("102", failedLease),
+      false,
+    );
+    leases.claimStep("102", failedLease, "profile", 2, digest);
+    leases.completeStep("102", failedLease, "profile", 2, 502);
+    assert.equal(
+      leases.canFinishKnownProfileFailure("102", failedLease),
+      false,
+    );
+    leases.claimStep("102", failedLease, "profile", 3, digest);
+    assert.equal(
+      leases.canFinishKnownProfileFailure("102", failedLease),
+      false,
+    );
+    leases.completeStep("102", failedLease, "profile", 3, 504);
+    assert.equal(leases.canFinishKnownProfileFailure("102", failedLease), true);
+    assert.equal(leases.finishKnownProfileFailure("102", failedLease), true);
+    assert.deepEqual(leases.pending("102"), []);
   } finally {
     f.close();
   }

@@ -351,8 +351,10 @@ export function createConnectorOwnerLeases({
       .get(ownerKey, leaseId);
     return (
       row?.phase === "dispatched" &&
-      row.operation === "telegram_auth" &&
-      ["profile_retry_ready", "profile_complete"].includes(row.stage) &&
+      ((row.operation === "telegram_auth" &&
+        ["profile_retry_ready", "profile_complete"].includes(row.stage)) ||
+        (row.operation === "session_verify" &&
+          row.stage === "profile_complete")) &&
       Number.isInteger(row.last_status) &&
       row.last_status >= 300 &&
       row.last_status <= 599
@@ -372,8 +374,12 @@ export function createConnectorOwnerLeases({
         .get(ownerKey, leaseId);
       if (
         row?.phase !== "dispatched" ||
-        row.operation !== "telegram_auth" ||
-        !["profile_retry_ready", "profile_complete"].includes(row.stage) ||
+        !(
+          (row.operation === "telegram_auth" &&
+            ["profile_retry_ready", "profile_complete"].includes(row.stage)) ||
+          (row.operation === "session_verify" &&
+            row.stage === "profile_complete")
+        ) ||
         !validDigest(row.credential_digest) ||
         !Number.isInteger(row.last_status) ||
         row.last_status < 300 ||

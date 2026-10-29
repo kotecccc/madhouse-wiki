@@ -168,6 +168,35 @@ test("an independent owner bootstraps through signed IPC while an unrelated brid
       "/api/auth/telegram",
       "/api/me",
     ]);
+    const retryAuthorization = "Bearer retry-profile";
+    const retryDigest = createHash("sha256")
+      .update(retryAuthorization)
+      .digest("hex");
+    await assert.rejects(
+      guard.withOwnerLease(
+        "105",
+        "session_verify",
+        async (_register, context) => {
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            const result = await fetcher("https://cargohustle.online/api/me", {
+              headers: { authorization: retryAuthorization },
+              gameAttempt: attempt,
+              gameBootstrap: {
+                owner: context.owner,
+                leaseId: context.leaseId,
+                step: "profile",
+                attempt,
+                credentialDigest: retryDigest,
+              },
+            });
+            assert.equal(result.status, 503);
+          }
+          throw new Error("game_unavailable");
+        },
+      ),
+      /game_unavailable/,
+    );
+    assert.deepEqual(leases.pending("105"), []);
     assert.equal(journal.readActiveBridgeAttempts().length, 1);
     assert.equal(direct.boundary.diagnostics().durableBlocks, 1);
     assert.deepEqual(leases.pending("102"), []);
@@ -204,6 +233,9 @@ test("an independent owner bootstraps through signed IPC while an unrelated brid
       "/api/auth/telegram",
       "/api/me",
       "/api/auth/telegram",
+      "/api/me",
+      "/api/me",
+      "/api/me",
       "/api/me",
     ]);
   } finally {

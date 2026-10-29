@@ -59,6 +59,19 @@ export function createConnectorOwnerGuard({ verifyOwner, leases } = {}) {
     } catch (error) {
       if (!dispatched)
         await leases.finish(owner, lease, { definitelyFinished: true });
+      else if (
+        operation === "session_verify" &&
+        error?.message === "game_unavailable" &&
+        typeof leases.finishKnownProfileFailure === "function"
+      ) {
+        try {
+          // The Wiki ledger alone decides whether all profile attempts ended
+          // with known responses. An interrupted request stays fenced.
+          await leases.finishKnownProfileFailure(owner, lease);
+        } catch {
+          // Preserve both the original failure and any uncertain owner lease.
+        }
+      }
       throw error;
     }
   }
