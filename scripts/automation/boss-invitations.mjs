@@ -7,6 +7,32 @@ const identifier = (value) =>
 const text = (value) =>
   typeof value === "string" ? value.trim().slice(0, 80) : "";
 
+// An exact expired invitation and terminal battle are affirmative evidence;
+// absence from a possibly truncated list is not.
+export function isFinishedInvitation(raw, pending) {
+  if (
+    !Array.isArray(raw?.items) ||
+    raw.success === false ||
+    raw.partial === true ||
+    raw.error ||
+    !pending
+  )
+    return false;
+  const matches = raw.items.filter(
+    (item) => item?.invitationId === pending.invitationId,
+  );
+  if (matches.length !== 1) return false;
+  const item = matches[0];
+  return (
+    item.battleId === pending.battleId &&
+    item.bossId === pending.bossId &&
+    item.status === "expired" &&
+    ["won", "lost", "expired", "surrendered"].includes(
+      normalizeBossBattleStatus(item.battleStatus),
+    )
+  );
+}
+
 // Private account projection. Keep only validated identifiers needed by automation.
 export async function projectBossInvitations(raw, getBoss, now = Date.now()) {
   if (!Array.isArray(raw?.items))

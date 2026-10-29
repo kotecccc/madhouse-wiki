@@ -72,6 +72,7 @@ import { normalizePvpBattle } from "../../src/features/combat/ActiveBattleDock/a
 import { normalizeActiveBossBattle } from "../../shared/active-boss-battle.js";
 import {
   BOSS_INVITATIONS_PATH,
+  isFinishedInvitation,
   projectBossInvitations,
 } from "./boss-invitations.mjs";
 import { detectedRaids, observeRaids } from "./raid-observations.mjs";
@@ -2555,7 +2556,23 @@ export function createAutomationService({
           { retryAfterMs: battleState.errorRetryAfterMs },
         );
       const unresolved = battleState.pendingInvitation;
-      if (unresolved && unresolved.expiresAt <= now()) {
+      let terminalConfirmed = false;
+      if (
+        unresolved &&
+        unresolved.expiresAt > now() &&
+        battleState.errorStatus === 404
+      ) {
+        try {
+          const history = await gameJson(
+            entry.credential,
+            "/api/bosses/invitations?limit=100",
+          );
+          terminalConfirmed = isFinishedInvitation(history, unresolved);
+        } catch {
+          // A failed or incomplete history read cannot clear the checkpoint.
+        }
+      }
+      if (unresolved && (unresolved.expiresAt <= now() || terminalConfirmed)) {
         const me = await gameJson(entry.credential, "/api/me");
         let confirmedNoBattle =
           Object.hasOwn(me, "activeBossBattle") && me.activeBossBattle === null;
@@ -2575,7 +2592,12 @@ export function createAutomationService({
             // Keep the durable uncertain-accept checkpoint on read failure.
           }
         }
-        if (confirmedNoBattle) entry.controller.clearExpiredInvitation();
+        if (
+          confirmedNoBattle &&
+          entry.controller.getSnapshot().pendingInvitation?.invitationId ===
+            unresolved.invitationId
+        )
+          entry.controller.clearExpiredInvitation({ terminalConfirmed });
       }
     }
     if (
