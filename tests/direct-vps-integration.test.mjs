@@ -319,3 +319,65 @@ test("known credentials for one player share the account interval", async () => 
     boundary.close();
   }
 });
+
+test("a disabled bridge cannot erase durable restrictions from direct runtime startup", async () => {
+  const { createAutomationStateStore } =
+    await import("../scripts/automation/state-store.mjs");
+  const directory = mkdtempSync(join(tmpdir(), "bridge-disabled-fence-"));
+  const store = createAutomationStateStore({ directory });
+  store.createBridgeAttempt({
+    id: "00000000-0000-4000-8000-000000000003",
+    playerId: "42",
+    operationId: "operation_1",
+    deviceId: "00000000-0000-4000-8000-000000000001",
+    bindingRevision: 1,
+    deviceGeneration: 1,
+    action: "mutation",
+    phase: "uncertain",
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  store.close();
+  let calls = 0;
+  const direct = createDirectVpsOwner({
+    env: { MADHOUSE_GAME_EXECUTOR_KEY: "c".repeat(64) },
+    requireBridgeJournal: true,
+    resolvePlayer: () => 42,
+    fetcher: async () => {
+      calls++;
+      return Response.json({ playerId: 42 });
+    },
+  });
+  let runtime;
+  try {
+    await assert.rejects(
+      direct.wikiFetch("https://cargohustle.online/api/me", {
+        headers: { authorization: "Bearer token" },
+      }),
+      (error) => error.notDispatched,
+    );
+    runtime = await createAutomationRuntime({
+      env: {
+        MADHOUSE_AUTOMATION_STATE_DIR: directory,
+        MADHOUSE_AUTOMATION_GAME_ENABLED: "0",
+      },
+      bridge: null,
+      gameFetcher: direct.wikiFetch,
+      installGameRecoveryStore: direct.boundary.installBridgeStore,
+    });
+    assert.equal(direct.boundary.diagnostics().durableBlocks, 1);
+    const controller = new AbortController();
+    const blocked = direct.wikiFetch("https://cargohustle.online/api/me", {
+      headers: { authorization: "Bearer token" },
+      signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(blocked, (error) => error.notDispatched);
+    assert.equal(calls, 0);
+  } finally {
+    runtime?.close();
+    direct.boundary.close();
+    direct.server.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

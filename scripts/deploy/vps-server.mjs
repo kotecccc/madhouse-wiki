@@ -125,7 +125,7 @@ if (role === "wiki") {
   const accountStore = createBlobSessionStore();
   const direct = createDirectVpsOwner({
     env: process.env,
-    requireBridgeJournal: Boolean(bridgeLab?.runtime),
+    requireBridgeJournal: true,
     resolvePlayer: (authorization) =>
       automationRuntime?.gamePlayerId(authorization),
     credentialCurrent: (authorization) =>
@@ -182,6 +182,7 @@ if (role === "wiki") {
     root,
     bridge: bridgeLab?.runtime || null,
     gameFetcher: directFetch,
+    installGameRecoveryStore: direct.boundary.installBridgeStore,
   });
   apiHandlers = new Map([
     ["/api/automation/state", automationRuntime.nodeHandler],

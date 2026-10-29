@@ -29,6 +29,7 @@ export async function createAutomationRuntime({
   bridge = null,
   wikiSessionAuthority = null,
   gameFetcher,
+  installGameRecoveryStore,
 } = {}) {
   const enabled = env.MADHOUSE_AUTOMATION_GAME_ENABLED !== "0";
   const store = createAutomationStateStore({
@@ -36,7 +37,8 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
-  bridge?.installRecoveryStore?.(store);
+  if (installGameRecoveryStore) installGameRecoveryStore(store);
+  else bridge?.installRecoveryStore?.(store);
   const snapshots = createAccountSnapshots({
     store,
     ...(gameFetcher ? { fetcher: gameFetcher } : {}),
