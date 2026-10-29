@@ -579,6 +579,34 @@ test("custom status emoji are opt-in and preserve the four status meanings", () 
   assert.doesNotMatch(custom, /Завершён/);
 });
 
+test("stale observations are labelled unknown rather than waiting", () => {
+  const now = start + 40 * minute;
+  const state = {
+    day: "2026-10-29",
+    raids: [
+      {
+        active: false,
+        fresh: false,
+        lastBattleAt: now - 4 * minute,
+        bossId: 1,
+        leaderPlayerId: 1,
+        count: 10,
+      },
+    ],
+  };
+  for (const customEmoji of [false, true]) {
+    const summary = formatGlobalRaidSummary(
+      state,
+      now,
+      () => ({ name: "Босс" }),
+      { customEmoji },
+    );
+    assert.match(summary, /<td>❔/);
+    assert.match(summary, /Данные устарели, статус неизвестен/);
+    assert.doesNotMatch(summary, /5819143265412189249|⚪/);
+  }
+});
+
 test("boss emoji match the boss and are only included for custom emoji publishing", () => {
   const now = start + 40 * minute;
   const state = {
@@ -986,7 +1014,7 @@ test("the summary shows the Moscow update time above the table", () => {
   );
   assert.match(
     html,
-    /^<h3>🔥 Активные рейды • 29\.10\.2026 • 22:42 МСК<\/h3>\n<table/,
+    /^<h5>🔥 Активные рейды • 29\.10\.2026 • 22:42 МСК<\/h5>\n<table/,
   );
   assert.doesNotMatch(html, /Обновлено:/);
 });

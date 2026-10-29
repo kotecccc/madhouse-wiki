@@ -329,7 +329,7 @@ export function formatGlobalRaidPages(
     hour: "2-digit",
     minute: "2-digit",
   }).format(now);
-  const updated = `<h3>🔥 Активные рейды • ${date} • ${time} МСК</h3>`;
+  const updated = `<h5>🔥 Активные рейды • ${date} • ${time} МСК</h5>`;
   const knownNames = new Map();
   for (const observation of Object.values(state.observations || {})) {
     if (
@@ -389,7 +389,7 @@ export function formatGlobalRaidPages(
       kind === "active"
         ? marker("active")
         : kind === "unknown"
-          ? marker("waiting")
+          ? "❔"
           : kind === "waiting"
             ? marker("waiting")
             : marker("paused");
@@ -430,6 +430,9 @@ export function formatGlobalRaidPages(
     return [
       updated,
       table,
+      ...(selected.some((item) => item.kind === "unknown")
+        ? ["<p>❔ Данные устарели, статус неизвестен.</p>"]
+        : []),
       ...(hidden
         ? [
             `<p>${continuationUrl ? `<a href="${escapeAttribute(continuationUrl)}">Ещё рейдов: ${hidden}</a>` : `Ещё рейдов: ${hidden}`}</p>`,
@@ -469,7 +472,7 @@ export function formatGlobalRaidPages(
   const chosen = new Set(selected);
   const overflow = rendered.filter((item) => !chosen.has(item));
   const makeContinuation = (items) =>
-    `<h3>Остальные рейды • ${date} • ${time} МСК</h3>\n${tableHeader}${items.map((item) => item.line).join("")}</table>`;
+    `<h5>Остальные рейды • ${date} • ${time} МСК</h5>\n${tableHeader}${items.map((item) => item.line).join("")}</table>${items.some((item) => item.kind === "unknown") ? "\n<p>❔ Данные устарели, статус неизвестен.</p>" : ""}`;
   let page = [];
   for (const item of overflow) {
     if (
