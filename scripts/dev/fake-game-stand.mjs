@@ -114,7 +114,15 @@ let browserBootstrapStatus = "disabled";
 const stateDirectory = resolve(root, "state");
 const fixtureStore = createAutomationStateStore({ directory: stateDirectory });
 if (!fixtureStore.read(profile.playerId))
-  fixtureStore.write(profile.playerId, { schemaVersion: 1 });
+  fixtureStore.write(profile.playerId, {
+    schemaVersion: 1,
+    raidObservations: [1, 2, 3].map((number) => ({
+      leaderPlayerId: 43,
+      bossId: 1,
+      battleId: `fixture-raid-${number}`,
+      seenAt: Date.now(),
+    })),
+  });
 fixtureStore.close();
 const bootstrapScript = `const ENABLED = "madhouse.fake-stand.enabled";
 const report = (status) => fetch("/__fake/bootstrap-status", { method: "POST", body: status, cache: "no-store" }).catch(() => {});
@@ -199,7 +207,29 @@ const fakeFetch = async (url, init = {}) => {
   if (path === "/api/me/bag")
     return Response.json({ activityItems: [], consumables: [] });
   if (path === "/api/combat") return Response.json({ activeBattle: null });
-  if (path === "/api/bosses/invitations") return Response.json({ items: [] });
+  if (path === "/api/bosses/invitations")
+    return Response.json({
+      items:
+        mode === "ui-raid"
+          ? [
+              {
+                invitationId: "fixture-invitation",
+                battleId: "fixture-raid-3",
+                bossId: 1,
+                leaderPlayerId: 43,
+                inviterPlayerId: 43,
+                peerPlayerId: 43,
+                peerNickname: "FakeLeader",
+                status: "pending",
+                battleStatus: "active",
+                expiresAtUtc: new Date(Date.now() + 3600000).toISOString(),
+                battleExpiresAtUtc: new Date(
+                  Date.now() + 3600000,
+                ).toISOString(),
+              },
+            ]
+          : [],
+    });
   return Response.json(
     { error: "fake_route_unimplemented", path },
     { status: 501 },
