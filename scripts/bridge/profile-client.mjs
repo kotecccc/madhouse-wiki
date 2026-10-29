@@ -7,7 +7,7 @@ import {
 } from "./tls-duplex-connector.mjs";
 
 const MAX_PROFILE_BYTES = 4 * 1024 * 1024;
-const PROFILE_TIMEOUT_MS = 20_000;
+const PROFILE_TIMEOUT_MS = 30_000;
 const documentedReadPaths = gameReadPaths.map(
   (path) =>
     new RegExp(

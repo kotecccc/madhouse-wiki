@@ -60,6 +60,25 @@ test("a waiting request claims only a fresh reauthenticated tunnel", async () =>
   }
 });
 
+test("a closing consumed tunnel does not reject its authenticated replacement", async () => {
+  const pool = createDeviceTunnelPool({ authorize: async () => true });
+  try {
+    const old = new FakeSocket();
+    await pool.admit(identity, old);
+    const first = await pool.open("owner-a");
+    old.readyState = 2;
+    const fresh = new FakeSocket();
+    await pool.admit(identity, fresh);
+    assert.equal(old.readyState, 3);
+    const next = await pool.open("owner-a");
+    assert.equal(next.socket, fresh);
+    first.destroy();
+    next.destroy();
+  } finally {
+    pool.close();
+  }
+});
+
 test("waiting after a consumed stream ends on revocation or shutdown", async () => {
   for (const action of ["revoke", "close"]) {
     const pool = createDeviceTunnelPool({
@@ -187,6 +206,24 @@ test("an idle connection loss waits for a freshly authenticated replacement", as
     const fresh = new FakeSocket();
     await pool.admit(identity, fresh);
     const stream = await waiting;
+    assert.equal(stream.socket, fresh);
+    stream.destroy();
+  } finally {
+    pool.close();
+  }
+});
+
+test("a slow reconnect can complete a waiting request without replaying it", async () => {
+  const pool = createDeviceTunnelPool({ authorize: async () => true });
+  try {
+    const old = new FakeSocket();
+    await pool.admit(identity, old);
+    old.terminate();
+    const pending = pool.open("owner-a");
+    await new Promise((resolve) => setTimeout(resolve, 5100));
+    const fresh = new FakeSocket();
+    await pool.admit(identity, fresh);
+    const stream = await pending;
     assert.equal(stream.socket, fresh);
     stream.destroy();
   } finally {

@@ -12,7 +12,7 @@ function error(code) {
 export function createDeviceTunnelPool({
   authorize,
   reauthorizeMs = 1000,
-  reconnectWaitMs = 5000,
+  reconnectWaitMs = 18000,
 } = {}) {
   if (
     typeof authorize !== "function" ||
@@ -20,7 +20,7 @@ export function createDeviceTunnelPool({
     reauthorizeMs < 10 ||
     !Number.isSafeInteger(reconnectWaitMs) ||
     reconnectWaitMs < 0 ||
-    reconnectWaitMs > 10000
+    reconnectWaitMs > 18000
   )
     throw new TypeError("authorize_required");
   const connections = new Map();
@@ -90,6 +90,22 @@ export function createDeviceTunnelPool({
     const authorized = await Promise.resolve()
       .then(() => authorize(identity))
       .catch(() => false);
+    // A consumed WebSocket can still be completing its close handshake when
+    // the same device reconnects. It cannot carry another request once it is
+    // closing, so it must not reject the authenticated replacement.
+    const previous = connections.get(identity.owner);
+    if (
+      authorized === true &&
+      !stopped &&
+      revision === (revisions.get(identity.owner) || 0) &&
+      socket.readyState === 1 &&
+      previous &&
+      previous.socket.readyState > 1
+    ) {
+      connections.delete(identity.owner);
+      clearInterval(previous.timer);
+      previous.socket.terminate();
+    }
     if (
       authorized !== true ||
       stopped ||
