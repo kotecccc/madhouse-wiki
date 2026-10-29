@@ -9,6 +9,66 @@ import {
 
 const MAX_PROFILE_BYTES = 4 * 1024 * 1024;
 const PROFILE_TIMEOUT_MS = 30_000;
+const invitationReasons = new Set([
+  "battle_not_found",
+  "battle_full",
+  "battle_busy",
+  "battle_finished",
+  "battle_not_active",
+  "battle_already_finished",
+  "battle_ending",
+  "battle_expired",
+  "boss_battle_finished",
+  "boss_battle_not_active",
+  "boss_battle_expired",
+  "boss_battle_not_found",
+  "boss_battle_already_active",
+  "boss_fight_not_available",
+  "boss_level_required",
+  "boss_room_forbidden",
+  "invitation_expired",
+  "invitation_not_found",
+  "invitation_not_pending",
+  "invitation_already_accepted",
+  "boss_invitation_expired",
+  "boss_invitation_not_pending",
+  "participant_already_left",
+  "participant_already_joined",
+  "room_full",
+  "already_in_battle",
+  "already_joined",
+  "not_enough_energy",
+  "not_enough_health",
+  "insufficient_combat_energy",
+  "insufficient_energy",
+  "combat_cooldown",
+]);
+
+// Only fixed field names, known codes and hashes reach the log; server text,
+// account identifiers and credentials are never logged.
+export function invitationResponseDiagnostic(body) {
+  try {
+    const value = JSON.parse(body.toString("utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return { reason: "other", fingerprints: "non_object" };
+    const fingerprints = [];
+    let reason = "other";
+    for (const field of ["reason", "error", "errorCode", "code", "message"]) {
+      const item = value[field];
+      if (typeof item !== "string" || item.length > 512) continue;
+      if (invitationReasons.has(item)) reason = item;
+      fingerprints.push(
+        `${field}:${createHash("sha256").update(item).digest("hex").slice(0, 16)}`,
+      );
+    }
+    return {
+      reason,
+      fingerprints: fingerprints.join(",") || "no_string_fields",
+    };
+  } catch {
+    return { reason: "other", fingerprints: "non_json" };
+  }
+}
 const documentedReadPaths = gameReadPaths.map(
   (path) =>
     new RegExp(
@@ -136,46 +196,14 @@ function requestGameOverBridge({
               path,
             )
           ) {
-            let reason = "other";
-            try {
-              const value = JSON.parse(responseBody.toString("utf8"));
-              const code = value?.reason || value?.error || value?.errorCode;
-              if (
-                [
-                  "battle_not_found",
-                  "battle_full",
-                  "battle_busy",
-                  "battle_finished",
-                  "battle_not_active",
-                  "battle_already_finished",
-                  "boss_battle_finished",
-                  "boss_battle_not_active",
-                  "boss_battle_expired",
-                  "boss_battle_not_found",
-                  "invitation_expired",
-                  "invitation_not_found",
-                  "invitation_not_pending",
-                  "invitation_already_accepted",
-                  "boss_invitation_expired",
-                  "boss_invitation_not_pending",
-                  "participant_already_left",
-                  "participant_already_joined",
-                  "room_full",
-                  "already_in_battle",
-                  "already_joined",
-                  "not_enough_energy",
-                  "not_enough_health",
-                ].includes(code)
-              )
-                reason = code;
-            } catch {
-              // Never log the response body or arbitrary server text.
-            }
+            const { reason, fingerprints } =
+              invitationResponseDiagnostic(responseBody);
             console.info(
               "madhouse-bridge-invitation-status",
               response.statusCode,
               createHash("sha256").update(path).digest("hex").slice(0, 12),
               reason,
+              fingerprints,
             );
           }
           const retryAfter = response.headers["retry-after"];

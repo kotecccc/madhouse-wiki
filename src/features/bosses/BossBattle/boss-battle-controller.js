@@ -1319,13 +1319,13 @@ export function createBossBattleController({
       publish({ invitationOnly: false });
       return true;
     },
-    clearExpiredInvitation() {
+    clearExpiredInvitation({ terminalConfirmed = false } = {}) {
       const invitation = state.pendingInvitation;
       if (
         !invitation ||
         state.pending ||
         !Number.isFinite(invitation.expiresAt) ||
-        invitation.expiresAt > now()
+        (invitation.expiresAt > now() && terminalConfirmed !== true)
       )
         return false;
       publish({
@@ -1337,7 +1337,9 @@ export function createBossBattleController({
         error: null,
         errorStatus: null,
         purchase: null,
-        notice: null,
+        notice: terminalConfirmed
+          ? "Бой завершён, но результат вступления не подтверждён."
+          : null,
       });
       return true;
     },

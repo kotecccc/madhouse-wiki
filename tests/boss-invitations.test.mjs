@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  isFinishedInvitation,
   projectBossInvitations,
   BOSS_INVITATIONS_PATH,
 } from "../scripts/automation/boss-invitations.mjs";
@@ -14,6 +15,30 @@ import { actionQueueCards } from "../src/features/action-queue/action-queue-view
 const token = "Bearer invitations.token.sig";
 const now = 1_000_000;
 const future = new Date(now + 60_000).toISOString();
+
+test("only exact terminal invitation evidence can clear an uncertain join early", () => {
+  const pending = { invitationId: "i", battleId: "b", bossId: 7 };
+  const row = { ...pending, status: "expired", battleStatus: "won" };
+  assert.equal(isFinishedInvitation({ items: [row] }, pending), true);
+  assert.equal(
+    isFinishedInvitation({ items: [row], partial: true }, pending),
+    false,
+  );
+  assert.equal(
+    isFinishedInvitation({ items: [row], error: "failure" }, pending),
+    false,
+  );
+  for (const items of [
+    [],
+    [row, row],
+    [{ ...row, battleId: "other" }],
+    [{ ...row, bossId: 8 }],
+    [{ ...row, status: "pending" }],
+    [{ ...row, battleStatus: "active" }],
+  ])
+    assert.equal(isFinishedInvitation({ items }, pending), false);
+  assert.equal(isFinishedInvitation({}, pending), false);
+});
 
 test("invitation projection filters invalid records, deduplicates and limits public fields", async () => {
   const raw = {
@@ -184,22 +209,25 @@ function setup(directory, options = {}) {
       return Response.json({ activeBattle: null });
     if (url.pathname === BOSS_INVITATIONS_PATH.split("?")[0])
       return Response.json({
-        items: options.invitations
-          ? await options.invitations()
-          : accepted
-            ? []
-            : [
-                {
-                  invitationId: "invite-9",
-                  battleId: "battle-9",
-                  bossId: 7,
-                  status: "pending",
-                  battleStatus: "active",
-                  expiresAtUtc: future,
-                  battleExpiresAtUtc: future,
-                  peerNickname: "Bob",
-                },
-              ],
+        items:
+          accepted && url.searchParams.has("limit") && options.history
+            ? options.history
+            : options.invitations
+              ? await options.invitations()
+              : accepted
+                ? []
+                : [
+                    {
+                      invitationId: "invite-9",
+                      battleId: "battle-9",
+                      bossId: 7,
+                      status: "pending",
+                      battleStatus: "active",
+                      expiresAtUtc: future,
+                      battleExpiresAtUtc: future,
+                      peerNickname: "Bob",
+                    },
+                  ],
       });
     if (url.pathname === "/api/bosses/7")
       return accepted && options.bossSummaryUnavailable
@@ -251,6 +279,12 @@ function setup(directory, options = {}) {
         status: 429,
         headers: { "Retry-After": "120" },
       });
+    if (
+      url.pathname === "/api/bosses/battles/battle-9" &&
+      accepted &&
+      options.battleUnavailableAfterAccept
+    )
+      return new Response(null, { status: 404 });
     if (url.pathname === "/api/bosses/battles/battle-9")
       return Response.json({
         ...invitationBattle(
@@ -535,6 +569,73 @@ test("timed out accept remains checkpointed across restart and refresh never rep
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("terminal invitation clears an uncertain join only after confirming no active battle", async (t) => {
+  for (const active of [false, true]) {
+    await t.test(
+      active
+        ? "active battle keeps checkpoint"
+        : "finished battle releases checkpoint",
+      async () => {
+        const directory = mkdtempSync(
+          join(tmpdir(), "boss-invitations-terminal-"),
+        );
+        const ctx = setup(directory, {
+          timeoutPost: true,
+          battleUnavailableAfterAccept: true,
+          omitActiveBossBattle: true,
+          ...(active
+            ? { detailActiveBattle: { battleId: "other", bossId: 7 } }
+            : {}),
+          history: [
+            {
+              invitationId: "invite-9",
+              battleId: "battle-9",
+              bossId: 7,
+              status: "expired",
+              battleStatus: "won",
+            },
+          ],
+        });
+        try {
+          const entry = await ctx.service.identify(token);
+          await assert.rejects(
+            issue(
+              ctx.service,
+              entry,
+              "terminal-accept-1",
+              "invitations.accept",
+              { invitationId: "invite-9" },
+            ),
+          );
+          assert.ok(ctx.service.snapshot(entry).battle.pendingInvitation);
+          await issue(
+            ctx.service,
+            entry,
+            "terminal-refresh-1",
+            "invitations.refresh",
+          );
+          assert.equal(
+            ctx.service.snapshot(entry).battle.pendingInvitation === null,
+            !active,
+          );
+          assert.ok(
+            ctx.calls.some(
+              (call) => call.path === "/api/bosses/invitations?limit=100",
+            ),
+          );
+          assert.equal(
+            ctx.calls.filter((call) => call.method === "POST").length,
+            1,
+          );
+        } finally {
+          ctx.close();
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    );
   }
 });
 
