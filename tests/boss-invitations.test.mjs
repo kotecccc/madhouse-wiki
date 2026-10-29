@@ -11,6 +11,7 @@ import {
 import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 import { actionQueueCards } from "../src/features/action-queue/action-queue-view.js";
+import { inventoryGame } from "./helpers/inventory-game.mjs";
 
 const token = "Bearer invitations.token.sig";
 const now = 1_000_000;
@@ -196,6 +197,14 @@ function setup(directory, options = {}) {
     const url = new URL(typeof input === "string" ? input : input.url);
     const method = init.method || "GET";
     calls.push({ method, path: url.pathname + url.search });
+    if (
+      url.pathname === "/api/clothing/by-category/1" ||
+      url.pathname === "/api/weapons/repair" ||
+      url.pathname === "/api/weapons/select"
+    ) {
+      if (options.weaponGame) return options.weaponGame.fetcher(input, init);
+      if (method === "GET") return Response.json({ success: true, items: [] });
+    }
     if (url.pathname === "/api/me")
       return Response.json({
         playerId: 101,
@@ -904,6 +913,54 @@ test("floor mode accepts an invitation using the durable raid checkpoint", async
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("raid repairs a broken weapon before joining and never joins after an uncertain repair", async (t) => {
+  for (const failMutation of [false, true]) {
+    await t.test(
+      failMutation ? "lost repair reply" : "confirmed repair",
+      async () => {
+        const directory = mkdtempSync(join(tmpdir(), "raid-weapon-preflight-"));
+        const weaponGame = inventoryGame({
+          owned: true,
+          equipped: true,
+          broken: true,
+          pills: 10000,
+          cost: 30,
+          failMutation,
+        });
+        const ctx = setup(directory, {
+          omitActiveBossBattle: true,
+          weaponGame,
+        });
+        try {
+          const entry = await ctx.service.identify(token);
+          await entry.controller.open({ numericId: 7, name: "Boss 7" });
+          await issue(ctx.service, entry, "raid-weapon-start", "raid.start", {
+            settings: raidSettings,
+          });
+          await entry.raidWorker.tick();
+          assert.equal(weaponGame.mutations().length, 1);
+          assert.equal(weaponGame.mutations()[0].path, "/api/weapons/repair");
+          assert.equal(
+            ctx.calls.filter(
+              (call) => call.path.endsWith("/accept") && call.method === "POST",
+            ).length,
+            failMutation ? 0 : 1,
+          );
+          assert.equal(
+            Boolean(ctx.store.read("101").equipment.pending),
+            failMutation,
+          );
+          await entry.raidWorker.tick();
+          assert.equal(weaponGame.mutations().length, 1);
+        } finally {
+          ctx.close();
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    );
   }
 });
 
