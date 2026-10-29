@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createConnection } from "node:net";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { createServer, connect as connectTls } from "node:tls";
 import { test } from "node:test";
 import {
@@ -88,6 +90,26 @@ test("fails closed when the device is offline", async () => {
     openTunnel: () => Promise.reject(new Error("offline")),
   });
   await assert.rejects(dial(connector), { code: "bridge_offline" });
+});
+
+test("a slow game TLS handshake can complete after ten seconds", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const tunnel = new PassThrough();
+  const tlsSocket = new EventEmitter();
+  tlsSocket.authorized = true;
+  tlsSocket.destroy = () => {};
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => tunnel,
+    tlsConnect: () => tlsSocket,
+  });
+  const outcome = dial(connector).then(
+    (socket) => ({ socket }),
+    (error) => ({ error }),
+  );
+  t.mock.timers.tick(11_000);
+  tlsSocket.emit("secureConnect");
+  assert.equal((await outcome).socket, tlsSocket);
+  tunnel.destroy();
 });
 
 test("rejects the tunnel if authorization changes before TLS is ready", async () => {
