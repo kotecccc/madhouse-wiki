@@ -179,6 +179,32 @@ function requestGameOverBridge({
         agent,
       },
       (response) => {
+        const socket = attemptState.tunnel?.socket;
+        const pathname = path.split("?", 1)[0];
+        if (
+          socket?.bridgeRequestLog &&
+          socket.readyState === 1 &&
+          /^(GET|POST|PUT|DELETE)$/.test(method) &&
+          /^\/api\/[A-Za-z0-9_/$%.-]{1,250}$/.test(pathname) &&
+          Number.isInteger(response.statusCode) &&
+          response.statusCode >= 100 &&
+          response.statusCode <= 599
+        ) {
+          try {
+            socket.send(
+              JSON.stringify({
+                type: "response",
+                method,
+                path: pathname,
+                status: response.statusCode,
+              }),
+              { binary: false },
+              () => {},
+            );
+          } catch {
+            // Diagnostics must not affect the game request.
+          }
+        }
         let size = 0;
         const chunks = [];
         response.on("data", (chunk) => {

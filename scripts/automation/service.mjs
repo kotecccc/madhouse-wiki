@@ -578,6 +578,7 @@ export function createAutomationService({
             return gameJson(entry.credential, `/api/players/${playerId}`);
           },
           customEmoji: globalRaidsCustomEmoji,
+          pinCurrent: globalRaidsCustomEmoji,
           isClosed: () => closed,
         })
       : null;
@@ -2835,6 +2836,29 @@ export function createAutomationService({
       save(entry);
     } catch (error) {
       entry.raidSubscription?.observe([], false);
+      const diagnosticCodes = new Set([
+        "bridge_offline",
+        "bridge_unavailable",
+        "device_offline",
+        "game_credentials_stale",
+        "game_identity_unverified",
+        "game_route_changed",
+        "game_route_unavailable",
+        "game_outage_wait",
+        "bridge_operation_not_supported",
+      ]);
+      console.warn(
+        "madhouse-invitations-refresh-failed",
+        JSON.stringify({
+          status:
+            Number.isInteger(error?.status) &&
+            error.status >= 100 &&
+            error.status <= 599
+              ? error.status
+              : null,
+          code: diagnosticCodes.has(error?.code) ? error.code : "other",
+        }),
+      );
       entry.invitations.notice =
         "Не удалось обновить приглашения. Попробуйте позже.";
       save(entry);

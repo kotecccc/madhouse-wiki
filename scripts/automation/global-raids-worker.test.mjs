@@ -86,10 +86,7 @@ test("counts six distinct invitation battles once across accounts and never uses
     start + 6 * minute,
   );
   assert.equal(state.raids[0].count, 6);
-  assert.match(
-    format(state, start + 6 * minute),
-    /<tg-button type="copy_text" text="@leadername">@leadername<\/tg-button>/,
-  );
+  assert.match(format(state, start + 6 * minute), /<td>@leadername<\/td>/);
   assert.doesNotMatch(format(state, start + 6 * minute), /<td>Ведущий/);
 });
 
@@ -138,6 +135,204 @@ test("only a continuing series and its count cross midnight; active battle remai
   assert.equal(state.raids[0].count, 7);
   state = refreshGlobalRaidRows(state, midnight + 2 * minute);
   assert.equal(state.raids[0].count, 7);
+});
+
+test("reimporting yesterday's history does not add those battles to the carried count", async () => {
+  let state = await series();
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  state = await observe(
+    state,
+    "1",
+    [invitation(5, midnight - minute)],
+    midnight - minute,
+  );
+  const before = Object.values(state.observations).map((event) => ({
+    battleId: event.id,
+    bossId: event.bossId,
+    leaderPlayerId: event.leaderPlayerId,
+    seenAt: event.firstSeen,
+  }));
+  state = advanceGlobalRaidDay(state, midnight);
+  const item = invitation(5, midnight + minute);
+  const projected = await projectBossInvitations(
+    { items: [item] },
+    () => ({ name: "Босс" }),
+    midnight + minute,
+  );
+  state = observeGlobalInvitations(
+    state,
+    "1",
+    { items: [item] },
+    projected,
+    midnight + minute,
+    before,
+  );
+  assert.equal(state.raids[0].count, 6);
+  state = await observe(
+    state,
+    "1",
+    [invitation(6, midnight + 2 * minute)],
+    midnight + 2 * minute,
+  );
+  assert.equal(state.raids[0].count, 7);
+});
+
+test("old history cannot replace a carried series count with a larger two-hour total", () => {
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  const now = midnight + minute;
+  const observations = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => {
+      const id = `old-${i}`;
+      return [
+        id,
+        {
+          id,
+          bossId: 7,
+          leaderPlayerId: 42,
+          firstSeen: midnight - (20 - i) * minute,
+          lastSeen: midnight - (20 - i) * minute,
+          sources: {},
+        },
+      ];
+    }),
+  );
+  observations.new = {
+    id: "new",
+    bossId: 7,
+    leaderPlayerId: 42,
+    firstSeen: now,
+    lastSeen: now,
+    sources: { a: { active: true, checkedAt: now, expiresAt: now + minute } },
+  };
+  const base = {
+    key: "42:7",
+    bossId: 7,
+    leaderPlayerId: 42,
+    count: 7,
+    lastBattleAt: midnight - minute,
+    sources: {},
+    activeIds: [],
+  };
+  const state = {
+    day: "2026-10-30",
+    observations,
+    raids: [{ ...base, carried: true, base, carriedIds: [] }],
+  };
+  assert.equal(refreshGlobalRaidRows(state, now).raids[0].count, 8);
+});
+
+test("rollover preserves the previous message for a green finished update", async () => {
+  let state = await series();
+  const midnight = Date.parse("2026-10-29T21:00:00Z");
+  state.messageId = 21;
+  state.lastText =
+    '<h5>🔥 Активные рейды • вчера</h5><table><tr><td><tg-emoji emoji-id="5819095256267755019">⏺</tg-emoji> J3</td><td><tg-emoji emoji-id="123">👹</tg-emoji> Босс</td></tr></table>';
+  state.continuations = [
+    { messageId: 22, lastText: "<table><tr><td>⚪ A1</td></tr></table>" },
+  ];
+  const next = advanceGlobalRaidDay(state, midnight);
+  assert.deepEqual(
+    next.closing.map((item) => item.messageId),
+    [21, 22],
+  );
+  assert.match(next.closing[0].text, /<td>🟢 J3<\/td>/);
+  assert.match(next.closing[0].text, /^<h5>Рейды • вчера<\/h5>/);
+  assert.match(next.closing[0].text, /emoji-id="123"/);
+  assert.match(next.closing[1].text, /<td>🟢 A1<\/td>/);
+});
+
+test("pins the current day's message once, and schedules the next day independently", async () => {
+  let time = Date.parse("2026-10-29T21:00:00Z");
+  let data = {
+    schema: 2,
+    day: "2026-10-30",
+    observations: {},
+    raids: [],
+    messageId: 30,
+    nextPublishAt: time + 3600000,
+  };
+  const calls = [];
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (value) => {
+        data = structuredClone(value);
+      },
+    },
+    owner: "worker",
+    now: () => time,
+    chatId: "-100123",
+    getBoss: () => null,
+    isClosed: () => false,
+    pinCurrent: true,
+    telegram: {
+      request: async (method, payload) => {
+        calls.push({ method, payload });
+        return true;
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(data.pinnedMessageId, 30);
+  assert.deepEqual(
+    calls.map(({ method, payload }) => [
+      method,
+      payload.message_id,
+      payload.disable_notification,
+    ]),
+    [["pinChatMessage", 30, true]],
+  );
+  time += 31000;
+  await worker.tick();
+  assert.equal(calls.length, 1);
+  const next = advanceGlobalRaidDay(data, Date.parse("2026-10-30T21:00:00Z"));
+  assert.equal(next.pinnedMessageId, undefined);
+});
+
+test("previous message closure survives a failed edit and retries without a new send", async () => {
+  let time = Date.parse("2026-10-29T21:00:00Z");
+  let data = {
+    schema: 2,
+    day: "2026-10-30",
+    observations: {},
+    raids: [],
+    messageId: 30,
+    nextPublishAt: time + 3600000,
+    closing: [{ messageId: 21, text: "<p>🟢</p>" }],
+  };
+  const requests = [];
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (value) => {
+        data = structuredClone(value);
+      },
+    },
+    owner: "worker",
+    now: () => time,
+    chatId: "-100123",
+    getBoss: () => null,
+    isClosed: () => false,
+    telegram: {
+      request: async (method, payload) => {
+        requests.push({ method, payload });
+        if (requests.length === 1) throw new Error("temporary");
+        return true;
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(data.closing.length, 1);
+  time += 31000;
+  await worker.tick();
+  assert.deepEqual(data.closing, []);
+  assert.deepEqual(
+    requests.map((request) => [request.method, request.payload.message_id]),
+    [
+      ["editMessageText", 21],
+      ["editMessageText", 21],
+    ],
+  );
 });
 
 test("unknown send outcome is checkpointed and never sent again", async () => {
@@ -545,7 +740,7 @@ test("existing text message is edited with a native rich table preserving raid c
   );
   assert.match(
     request.payload.rich_message.html,
-    /<td>🔵 J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td>/,
+    /<td>🔵 J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td>@leadername<\/td>/,
   );
   assert.equal(data.messageId, 5);
 });
@@ -577,6 +772,34 @@ test("custom status emoji are opt-in and preserve the four status meanings", () 
     assert.match(custom, new RegExp(`emoji-id="${id}"`));
   assert.doesNotMatch(custom, /Идёт|Ждёт|Пауза/);
   assert.doesNotMatch(custom, /Завершён/);
+});
+
+test("stale observations are labelled unknown rather than waiting", () => {
+  const now = start + 40 * minute;
+  const state = {
+    day: "2026-10-29",
+    raids: [
+      {
+        active: false,
+        fresh: false,
+        lastBattleAt: now - 4 * minute,
+        bossId: 1,
+        leaderPlayerId: 1,
+        count: 10,
+      },
+    ],
+  };
+  for (const customEmoji of [false, true]) {
+    const summary = formatGlobalRaidSummary(
+      state,
+      now,
+      () => ({ name: "Босс" }),
+      { customEmoji },
+    );
+    assert.match(summary, /<td>❔/);
+    assert.match(summary, /Данные устарели, статус неизвестен/);
+    assert.doesNotMatch(summary, /5819143265412189249|⚪/);
+  }
 });
 
 test("boss emoji match the boss and are only included for custom emoji publishing", () => {
@@ -663,7 +886,7 @@ test("a quiet raid is not carried over at the exact thirty-minute boundary", () 
   assert.equal(state.raids.length, 0);
 });
 
-test("summary hides raids below ten and finished raids, sorts floors ascending, and shows copyable usernames", () => {
+test("summary hides raids below ten and finished raids, sorts floors ascending, and shows plain usernames", () => {
   const now = start + 60 * minute;
   const rows = [
     {
@@ -725,7 +948,7 @@ test("summary hides raids below ten and finished raids, sorts floors ascending, 
     (id) => boss[id],
   );
   assert.doesNotMatch(text, /too_few|finished_user|Not displayed/);
-  assert.match(text, /text="@lower_user">@lower_user<\/tg-button>/);
+  assert.match(text, /<td>@lower_user<\/td>/);
   assert.match(
     text,
     /<td>Без имени<\/td><td>10<\/td><td><tg-button type="copy_text" text="No verified username">No verified username<\/tg-button><\/td>/,
@@ -822,7 +1045,7 @@ test("overflow prioritizes the floor, distinct bosses and named leaders, and inc
   });
   assert.ok(pages.length > 1);
   assert.ok(pages.every((page) => page.length <= 3500));
-  assert.match(pages[0], /text="@named_leader"/);
+  assert.match(pages[0], /<td>@named_leader<\/td>/);
   assert.doesNotMatch(pages[0], /text="1">ID 1/);
   assert.doesNotMatch(pages[0], /Босс-100</);
   assert.match(pages[0], /href="https:\/\/t.me\/raids\/42"/);
@@ -986,7 +1209,7 @@ test("the summary shows the Moscow update time above the table", () => {
   );
   assert.match(
     html,
-    /^<h3>🔥 Активные рейды • 29\.10\.2026 • 22:42 МСК<\/h3>\n<table/,
+    /^<h5>🔥 Активные рейды • 29\.10\.2026 • 22:42 МСК<\/h5>\n<table/,
   );
   assert.doesNotMatch(html, /Обновлено:/);
 });

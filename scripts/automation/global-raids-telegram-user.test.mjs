@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Long } from "@mtcute/core";
 import { createGlobalRaidsTelegramUser } from "./global-raids-telegram-user.mjs";
 
-function harness({ premium = true, result, error } = {}) {
+function harness({ premium = true, result, error, pinnedId } = {}) {
   const calls = [];
   let destroyed = 0;
   const client = {
@@ -12,6 +12,8 @@ function harness({ premium = true, result, error } = {}) {
     call: async (request, options) => {
       calls.push({ request, options });
       if (error) throw error;
+      if (request._ === "channels.getFullChannel")
+        return { fullChat: { _: "channelFull", pinnedMsgId: pinnedId } };
       return (
         result ?? {
           updates: [
@@ -37,6 +39,28 @@ function harness({ premium = true, result, error } = {}) {
     },
   };
 }
+
+test("pins today's message silently and reconciles an already pinned message", async () => {
+  const payload = {
+    chat_id: "@channel",
+    message_id: 321,
+    disable_notification: true,
+  };
+  const newPin = harness();
+  assert.equal(await newPin.sender.request("pinChatMessage", payload), true);
+  assert.deepEqual(
+    newPin.calls.map((item) => item.request._),
+    ["channels.getFullChannel", "messages.updatePinnedMessage"],
+  );
+  assert.equal(newPin.calls[1].request.silent, true);
+  assert.equal(newPin.calls[1].options.maxRetryCount, 0);
+  const existing = harness({ pinnedId: 321 });
+  assert.equal(await existing.sender.request("pinChatMessage", payload), true);
+  assert.deepEqual(
+    existing.calls.map((item) => item.request._),
+    ["channels.getFullChannel"],
+  );
+});
 const payload = {
   chat_id: "@channel",
   rich_message: {
