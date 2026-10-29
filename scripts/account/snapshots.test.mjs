@@ -119,6 +119,175 @@ test("bridge profile writes keep at most 128 sections while preserving the profi
   assert.ok(sections["/api/weapons/128"]);
 });
 
+test("bridge profile read tickets reject stale revisions, older sequences, and late identity creation", () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-profile-read-ticket";
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("profile ticket commits must not fetch"),
+    now: () => 100,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: 42,
+    nickname: "initial",
+  });
+
+  const older = snapshots.beginBridgeProfileRead(authorization);
+  const latest = snapshots.beginBridgeProfileRead(authorization);
+  assert.equal(
+    snapshots.commitBridgeProfileRead(older, {
+      playerId: 42,
+      nickname: "older",
+    }),
+    false,
+  );
+  assert.equal(
+    snapshots.commitBridgeProfileRead(latest, {
+      playerId: 42,
+      nickname: "latest",
+    }),
+    true,
+  );
+  assert.equal(
+    store.readSnapshots()[0].sections["/api/me"].data.nickname,
+    "latest",
+  );
+
+  const beforeMutation = snapshots.beginBridgeProfileRead(authorization);
+  const mutation = snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/weapons/repair",
+  );
+  assert.equal(snapshots.commitMutationBarrier(mutation), true);
+  assert.equal(
+    snapshots.commitBridgeProfileRead(beforeMutation, {
+      playerId: 42,
+      nickname: "late-before-mutation",
+    }),
+    false,
+  );
+  assert.equal(
+    store.readSnapshots()[0].sections["/api/me"].data.nickname,
+    "latest",
+  );
+
+  const noSnapshotStore = memoryStore();
+  noSnapshotStore.write("43", { credential: "Bearer bridge-first-read" });
+  const noSnapshot = createAccountSnapshots({ store: noSnapshotStore });
+  const noSnapshotRead = noSnapshot.beginBridgeProfileRead(
+    "Bearer bridge-first-read",
+    { verifiedPlayerId: 43 },
+  );
+  noSnapshot.saveBridgeProfile("Bearer bridge-first-read", {
+    playerId: 43,
+    nickname: "profile created while waiting",
+  });
+  assert.equal(
+    noSnapshot.commitBridgeProfileRead(noSnapshotRead, {
+      playerId: 43,
+      nickname: "late overwrite",
+    }),
+    false,
+  );
+  assert.equal(
+    noSnapshotStore.readSnapshots()[0].sections["/api/me"].data.nickname,
+    "profile created while waiting",
+  );
+
+  const unknownStore = memoryStore();
+  const unknown = createAccountSnapshots({ store: unknownStore });
+  const unknownRead = unknown.beginBridgeProfileRead("Bearer not-indexed-yet");
+  unknown.saveBridgeProfile("Bearer not-indexed-yet", {
+    playerId: 44,
+    nickname: "identity created meanwhile",
+  });
+  assert.equal(
+    unknown.commitBridgeProfileRead(unknownRead, {
+      playerId: 44,
+      nickname: "unknown late response",
+    }),
+    false,
+  );
+  assert.equal(
+    unknownStore.readSnapshots()[0].sections["/api/me"].data.nickname,
+    "identity created meanwhile",
+  );
+
+  const noSnapshotMutationStore = memoryStore();
+  noSnapshotMutationStore.write("45", {
+    credential: "Bearer no-snapshot-mutation",
+  });
+  const noSnapshotMutation = createAccountSnapshots({
+    store: noSnapshotMutationStore,
+  });
+  const pendingBridgeProfile = noSnapshotMutation.beginBridgeProfileRead(
+    "Bearer no-snapshot-mutation",
+    { verifiedPlayerId: 45 },
+  );
+  const noSnapshotMutationTicket = noSnapshotMutation.beginMutation(
+    "Bearer no-snapshot-mutation",
+    "POST",
+    "/api/shop/buy",
+    { verifiedPlayerId: 45 },
+  );
+  assert.equal(
+    noSnapshotMutation.commitMutationBarrier(noSnapshotMutationTicket),
+    true,
+  );
+  assert.equal(
+    noSnapshotMutation.commitBridgeProfileRead(pendingBridgeProfile, {
+      playerId: 45,
+      nickname: "stale response after no-snapshot mutation",
+    }),
+    false,
+  );
+  assert.equal(noSnapshotMutationStore.readSnapshots().length, 0);
+});
+
+test("bridge profile ticket retries are idempotent only until another read or mutation", () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-profile-single-flight";
+  const snapshots = createAccountSnapshots({ store, now: () => 1100 });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: 49,
+    nickname: "before",
+  });
+  const ticket = snapshots.beginBridgeProfileRead(authorization);
+  const profile = { playerId: 49, nickname: "same" };
+  assert.equal(snapshots.commitBridgeProfileRead(ticket, profile), true);
+  const afterFirstCommit = store.readSnapshots()[0].sections["/api/me"];
+  assert.equal(snapshots.commitBridgeProfileRead(ticket, profile), true);
+  assert.deepEqual(
+    store.readSnapshots()[0].sections["/api/me"],
+    afterFirstCommit,
+  );
+  assert.equal(
+    snapshots.commitBridgeProfileRead(ticket, {
+      playerId: 49,
+      nickname: "different",
+    }),
+    false,
+  );
+
+  const older = snapshots.beginBridgeProfileRead(authorization);
+  const newer = snapshots.beginBridgeProfileRead(authorization);
+  assert.equal(snapshots.commitBridgeProfileRead(older, profile), false);
+  assert.equal(snapshots.commitBridgeProfileRead(newer, profile), true);
+
+  const beforeMutation = snapshots.beginBridgeProfileRead(authorization);
+  const mutation = snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/shop/buy",
+  );
+  assert.equal(snapshots.commitMutationBarrier(mutation), true);
+  assert.equal(
+    snapshots.commitBridgeProfileRead(beforeMutation, profile),
+    false,
+  );
+});
+
 test("verified automation credentials retain their player scope without a profile snapshot", () => {
   const store = memoryStore();
   store.write("41", { credential: "Bearer saved" });
@@ -253,7 +422,130 @@ test("stored snapshots survive restart and retain their original freshness metad
   assert.equal(offline.calls.length, 0);
 });
 
-test("a sparse post-restart refresh preserves prior timestamp and action reads stay raw", async () => {
+test("legacy snapshot sections migrate to unknown completeness without changing stored data or age", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer legacy-snapshot-section";
+  const digest = createHash("sha256").update(authorization).digest("hex");
+  store.writeSnapshot("97", {
+    schemaVersion: 1,
+    playerId: "97",
+    credentialHashes: [digest],
+    sections: {
+      "/api/rooms": {
+        data: { rooms: [{ id: 1, owned: true }] },
+        updatedAt: 500,
+      },
+    },
+  });
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("legacy stored read must not use the game"),
+    now: () => 900,
+  });
+  const response = snapshots.readStored(
+    `${origin}/api/rooms`,
+    auth("legacy-snapshot-section"),
+  );
+  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    response.headers.get("X-Madhouse-Snapshot-Completeness"),
+    "unknown",
+  );
+  assert.equal(response.headers.get("X-Madhouse-Section-Updated"), "500");
+  assert.deepEqual(await payload(response), {
+    rooms: [{ id: 1, owned: true }],
+  });
+  assert.deepEqual(snapshots.inventory(authorization).incomplete, [
+    "/api/rooms",
+  ]);
+  assert.equal(
+    store.readSnapshots()[0].sections["/api/rooms"].completeness,
+    undefined,
+  );
+});
+
+test("bridge profile is stale after a mutation barrier without fetching the game", () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-profile-mutation-stale";
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("bridge profile projection must not fetch"),
+    now: () => 1000,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: 98,
+    nickname: "saved",
+  });
+  const mutation = snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/shop/buy",
+  );
+  assert.equal(snapshots.commitMutationBarrier(mutation), true);
+  const response = snapshots.bridgeProfile(authorization);
+  assert.ok(response);
+  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(store.readSnapshots()[0].sections["/api/me"].dirty, true);
+});
+
+test("direct and bridge profile observations share exact replace and omission rules", async () => {
+  const directStore = memoryStore();
+  const bridgeStore = memoryStore();
+  const direct = createAccountSnapshots({
+    store: directStore,
+    fetcher: queueFetcher([
+      reply({ playerId: 100, nickname: "A", wallet: { gold: 1 } }),
+      reply({ playerId: 100, nickname: "B" }),
+    ]).fetcher,
+    now: () => 1500,
+    ttl: 0,
+  });
+  await direct.read(`${origin}/api/me`, auth("profile-observation-direct"));
+  await direct.liveFetch(
+    `${origin}/api/me`,
+    auth("profile-observation-direct"),
+  );
+
+  const bridgeAuthorization = "Bearer profile-observation-bridge";
+  const bridge = createAccountSnapshots({
+    store: bridgeStore,
+    now: () => 1500,
+  });
+  bridge.saveBridgeProfile(bridgeAuthorization, {
+    playerId: 100,
+    nickname: "A",
+    wallet: { gold: 1 },
+  });
+  const ticket = bridge.beginBridgeProfileRead(bridgeAuthorization);
+  assert.equal(
+    bridge.commitBridgeProfileRead(ticket, {
+      playerId: 100,
+      nickname: "B",
+    }),
+    true,
+  );
+
+  for (const record of [
+    directStore.readSnapshots()[0],
+    bridgeStore.readSnapshots()[0],
+  ]) {
+    const section = record.sections["/api/me"];
+    assert.deepEqual(section.data, {
+      playerId: 100,
+      nickname: "A",
+      wallet: { gold: 1 },
+    });
+    assert.equal(section.updatedAt, 1500);
+    assert.equal(section.dirty, true);
+    assert.deepEqual(section.latestObservation.raw, {
+      playerId: 100,
+      nickname: "B",
+    });
+    assert.equal(section.latestObservation.disposition, "retained_previous");
+  }
+});
+
+test("sparse post-restart observations preserve last-known data while actions receive raw", async () => {
   let now = 1000;
   const store = memoryStore();
   const initial = queueFetcher([
@@ -282,7 +574,7 @@ test("a sparse post-restart refresh preserves prior timestamp and action reads s
     auth("sparse-restart"),
   );
   assert.deepEqual(await payload(display), {
-    coins: 8,
+    coins: 7,
     items: ["confirmed"],
   });
   assert.equal(display.headers.get("X-Madhouse-Snapshot"), "stale");
@@ -293,7 +585,7 @@ test("a sparse post-restart refresh preserves prior timestamp and action reads s
     auth("sparse-restart"),
   );
   assert.deepEqual(await payload(stored), {
-    coins: 8,
+    coins: 7,
     items: ["confirmed"],
   });
   assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
@@ -311,7 +603,7 @@ test("a sparse post-restart refresh preserves prior timestamp and action reads s
     auth("sparse-restart"),
   );
   assert.deepEqual(await payload(storedAfterAction), {
-    coins: 9,
+    coins: 7,
     items: ["confirmed"],
   });
   assert.equal(storedAfterAction.headers.get("X-Madhouse-Snapshot"), "stale");
@@ -320,9 +612,13 @@ test("a sparse post-restart refresh preserves prior timestamp and action reads s
     "1000",
   );
   assert.equal(refresh.calls.length, 2);
+  assert.deepEqual(
+    store.readSnapshots()[0].sections["/api/me/bag"].latestObservation.raw,
+    { coins: 9 },
+  );
 });
 
-test("live profile returns observation time while its sparse merged snapshot stays stale", async () => {
+test("live profile returns raw observation time while sparse last-known profile stays stale", async () => {
   let now = 1000;
   const store = memoryStore();
   const initial = queueFetcher([
@@ -364,13 +660,17 @@ test("live profile returns observation time while its sparse merged snapshot sta
   assert.deepEqual(await payload(stored), {
     playerId: 45,
     wallet: { gold: 10 },
-    energy: { current: 2 },
+    energy: { current: 1 },
   });
+  assert.deepEqual(
+    store.readSnapshots()[0].sections["/api/me"].latestObservation.raw,
+    { playerId: 45, energy: { current: 2 } },
+  );
   assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
   assert.equal(stored.headers.get("X-Madhouse-Section-Updated"), "1000");
 });
 
-test("allowed nulls and explicit empty lists replace old values without retaining freshness debt", async () => {
+test("allowed nulls and explicit empty lists replace raw fields and retain unknown completeness", async () => {
   let now = 100;
   const buff = {
     setId: 2,
@@ -402,13 +702,91 @@ test("allowed nulls and explicit empty lists replace old values without retainin
     activeStashBuffs: [],
     items: [],
   });
-  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "current");
+  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    response.headers.get("X-Madhouse-Snapshot-Completeness"),
+    "unknown",
+  );
   const stored = snapshots.readStored(
     `${origin}/api/me/bag`,
     auth("allowed-clears"),
   );
-  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "current");
+  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
   assert.equal(stored.headers.get("X-Madhouse-Section-Updated"), "1200");
+});
+
+test("direct observations replace only structural supersets, preserve explicit null, and cooldown sparse retries", async () => {
+  let now = 10_000;
+  const store = memoryStore();
+  const queue = queueFetcher([
+    reply({ playerId: 96 }),
+    reply({ profile: { name: "A", rank: null }, items: [1, 2] }),
+    reply({ profile: { name: "B", rank: null } }),
+    reply({ profile: { name: null, rank: null }, items: [] }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: queue.fetcher,
+    now: () => now,
+    ttl: 0,
+    cooldown: 100,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("direct-structural"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("direct-structural"));
+
+  now += 1;
+  const sparse = await snapshots.liveFetch(
+    `${origin}/api/me/bag`,
+    auth("direct-structural"),
+  );
+  assert.deepEqual(await payload(sparse), {
+    profile: { name: "B", rank: null },
+  });
+  assert.equal(sparse.headers.get("X-Madhouse-Snapshot"), "current");
+  let section = store.readSnapshots()[0].sections["/api/me/bag"];
+  assert.deepEqual(section.data, {
+    profile: { name: "A", rank: null },
+    items: [1, 2],
+  });
+  assert.equal(section.dirty, true);
+  assert.equal(section.updatedAt, 10_000);
+  assert.equal(section.latestObservation.disposition, "retained_previous");
+
+  now += 1;
+  const cooled = await snapshots.read(
+    `${origin}/api/me/bag`,
+    auth("direct-structural"),
+  );
+  assert.deepEqual(await payload(cooled), section.data);
+  assert.equal(queue.calls.length, 3);
+
+  now += 100;
+  await snapshots.read(`${origin}/api/me/bag`, auth("direct-structural"));
+  section = store.readSnapshots()[0].sections["/api/me/bag"];
+  assert.deepEqual(section.data, {
+    profile: { name: null, rank: null },
+    items: [],
+  });
+  assert.equal(section.dirty, false);
+  assert.equal(section.updatedAt, now);
+  assert.equal(section.completeness, "unknown");
+  assert.equal(queue.calls.length, 4);
+
+  const restarted = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("restart read must remain stored"),
+    now: () => now,
+  });
+  const stored = restarted.readStored(
+    `${origin}/api/me/bag`,
+    auth("direct-structural"),
+  );
+  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    stored.headers.get("X-Madhouse-Snapshot-Completeness"),
+    "unknown",
+  );
+  assert.deepEqual(await payload(stored), section.data);
 });
 
 test("a read dispatched before a mutation cannot overwrite the invalidated snapshot", async () => {
@@ -561,7 +939,7 @@ test("identity response, not forged bearer claims, assigns isolated accounts", a
   );
 });
 
-test("sparse successful sections merge, while 5xx, 429, and timeout preserve known data", async () => {
+test("explicit null and empty arrays replace atomically, while 5xx, 429, and timeout preserve known data", async () => {
   for (const failure of [
     reply({}, 503),
     reply({}, 429),
@@ -586,7 +964,7 @@ test("sparse successful sections merge, while 5xx, 429, and timeout preserve kno
       await snapshots.read(`${origin}/api/me/bag`, auth("a")),
     );
     assert.deepEqual(merged, {
-      profile: { name: "Ada", level: 4 },
+      profile: { name: null, level: 4 },
       inventory: [],
     });
     const stale = await snapshots.read(`${origin}/api/me/bag`, auth("a"));
@@ -628,6 +1006,263 @@ test("TTL cache and concurrent demand deduplicate upstream section reads", async
   assert.deepEqual(await payload(expired), { bag: [1] });
   assert.equal(expired.headers.get("X-Madhouse-Snapshot"), "stale");
   assert.equal(queue.calls.length, 3);
+});
+
+test("snapshot read dedup requires matching credential, query, and refresh options", async () => {
+  const store = memoryStore();
+  const credentialA = "Bearer dedup-a";
+  const credentialB = "Bearer dedup-b";
+  const digest = (credential) =>
+    createHash("sha256").update(credential).digest("hex");
+  store.writeSnapshot("95", {
+    schemaVersion: 1,
+    playerId: "95",
+    sections: {
+      "/api/me": {
+        data: { playerId: 95 },
+        updatedAt: 1,
+        dirty: true,
+      },
+      "/api/me/bag": {
+        data: { coins: 0 },
+        updatedAt: 1,
+        dirty: true,
+      },
+    },
+    credentialHashes: [digest(credentialA), digest(credentialB)],
+  });
+  const requests = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: (url, init) =>
+      new Promise((resolve) =>
+        requests.push({ url: String(url), init, resolve }),
+      ),
+    now: () => 10_000,
+    ttl: 0,
+  });
+
+  const queryOne = snapshots.read(
+    `${origin}/api/friends?limit=1`,
+    auth("dedup-a"),
+  );
+  const queryTwo = snapshots.read(
+    `${origin}/api/friends?limit=2`,
+    auth("dedup-a"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 1);
+  requests[0].resolve(reply({ items: [1], nextCursor: null }));
+  assert.deepEqual(await payload(await queryOne), {
+    items: [1],
+    nextCursor: null,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 2);
+  requests[1].resolve(reply({ items: [1, 2], nextCursor: null }));
+  assert.deepEqual(await payload(await queryTwo), {
+    items: [1, 2],
+    nextCursor: null,
+  });
+
+  const firstCredential = snapshots.liveFetch(
+    `${origin}/api/me/bag`,
+    auth("dedup-a"),
+  );
+  const secondCredential = snapshots.liveFetch(
+    `${origin}/api/me/bag`,
+    auth("dedup-b"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 3);
+  assert.equal(
+    new Headers(requests[2].init.headers).get("authorization"),
+    credentialA,
+  );
+  requests[2].resolve(reply({ coins: 1 }));
+  assert.deepEqual(await payload(await firstCredential), { coins: 1 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 4);
+  assert.equal(
+    new Headers(requests[3].init.headers).get("authorization"),
+    credentialB,
+  );
+  requests[3].resolve(reply({ coins: 2 }));
+  assert.deepEqual(await payload(await secondCredential), { coins: 2 });
+
+  const regularProfile = snapshots.read(`${origin}/api/me`, auth("dedup-a"));
+  const liveProfile = snapshots.read(`${origin}/api/me`, {
+    headers: {
+      ...auth("dedup-a").headers,
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 5);
+  await regularProfile;
+  requests[4].resolve(reply({ playerId: 95, nickname: "live" }));
+  assert.deepEqual(await payload(await liveProfile), {
+    playerId: 95,
+    nickname: "live",
+  });
+  assert.equal(requests.length, 5);
+});
+
+test("snapshot read dedup separates requests with different forwarded headers", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer dedup-forwarded-headers";
+  const requests = [];
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: (url, init) =>
+      new Promise((resolve) =>
+        requests.push({ url: String(url), init, resolve }),
+      ),
+    now: () => 10_000,
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 96 });
+
+  const first = snapshots.liveFetch(`${origin}/api/friends`, {
+    headers: {
+      ...auth("dedup-forwarded-headers").headers,
+      Accept: "application/json",
+      "If-None-Match": '"revision-a"',
+    },
+  });
+  const second = snapshots.liveFetch(`${origin}/api/friends`, {
+    headers: {
+      ...auth("dedup-forwarded-headers").headers,
+      Accept: "application/vnd.example+json",
+      "If-None-Match": '"revision-b"',
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 2);
+  const etags = requests.map(({ init }) =>
+    new Headers(init.headers).get("if-none-match"),
+  );
+  assert.deepEqual(new Set(etags), new Set(['"revision-a"', '"revision-b"']));
+  requests[0].resolve(reply({ variant: "first" }));
+  assert.deepEqual(await payload(await first), { variant: "first" });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 2);
+  requests[1].resolve(reply({ variant: "second" }));
+  assert.deepEqual(await payload(await second), { variant: "second" });
+});
+
+test("query-bearing reads neither reuse nor replace the unqueried snapshot", async () => {
+  let now = 1000;
+  const queue = queueFetcher([
+    reply({ playerId: 97 }),
+    reply({ coins: 5, mode: "saved" }),
+    reply({ coins: 99, mode: "query-only" }),
+  ]);
+  const store = memoryStore();
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: queue.fetcher,
+    now: () => now,
+    ttl: 5000,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("query-isolation"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("query-isolation"));
+  now += 1;
+
+  const queried = await snapshots.read(
+    `${origin}/api/me/bag?view=compact`,
+    auth("query-isolation"),
+  );
+  assert.deepEqual(await payload(queried), { coins: 99, mode: "query-only" });
+  assert.equal(queried.headers.get("X-Madhouse-Section-Updated"), null);
+  assert.deepEqual(
+    await payload(
+      snapshots.readStored(`${origin}/api/me/bag`, auth("query-isolation")),
+    ),
+    { coins: 5, mode: "saved" },
+  );
+  assert.equal(queue.calls.length, 3);
+  assert.equal(
+    store.readSnapshots()[0].sections["/api/me/bag"].updatedAt,
+    1000,
+  );
+});
+
+test("signal and dispatch-gated reads do not join another caller's pending fetch", async () => {
+  const store = memoryStore();
+  const credential = "Bearer dedup-controls";
+  const digest = createHash("sha256").update(credential).digest("hex");
+  store.writeSnapshot("96", {
+    schemaVersion: 1,
+    playerId: "96",
+    sections: {
+      "/api/me": { data: { playerId: 96 }, updatedAt: 1 },
+      "/api/me/bag": { data: { coins: 0 }, updatedAt: 1, dirty: true },
+    },
+    credentialHashes: [digest],
+  });
+  const calls = [];
+  let releaseOrdinary;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: (url, init) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1)
+        return new Promise((resolve, reject) => {
+          init.signal.addEventListener(
+            "abort",
+            () => reject(new Error("caller aborted")),
+            { once: true },
+          );
+        });
+      if (calls.length === 2) return reply({ coins: 2 });
+      if (calls.length === 3)
+        return new Promise((resolve) => {
+          releaseOrdinary = resolve;
+        });
+      if (calls.length === 4)
+        return Promise.resolve(init.canDispatch()).then((allowed) =>
+          allowed
+            ? reply({ coins: 4 })
+            : reply({ error: "not_dispatched" }, 403),
+        );
+      throw new Error("unexpected request");
+    },
+  });
+
+  const controller = new AbortController();
+  const aborted = snapshots.liveFetch(`${origin}/api/me/bag`, {
+    ...auth("dedup-controls"),
+    signal: controller.signal,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const independent = snapshots.liveFetch(
+    `${origin}/api/me/bag`,
+    auth("dedup-controls"),
+  );
+  controller.abort();
+  assert.equal((await aborted).status, 503);
+  assert.deepEqual(await payload(await independent), { coins: 2 });
+  assert.equal(calls.length, 2);
+
+  const pendingOrdinary = snapshots.liveFetch(
+    `${origin}/api/me/bag`,
+    auth("dedup-controls"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const gated = snapshots.liveFetch(`${origin}/api/me/bag`, {
+    ...auth("dedup-controls"),
+    canDispatch: () => false,
+  });
+  assert.equal(calls.length, 3);
+  releaseOrdinary(reply({ coins: 3 }));
+  assert.deepEqual(await payload(await pendingOrdinary), { coins: 3 });
+  assert.equal((await gated).status, 403);
+  assert.equal(calls.length, 4);
+  assert.deepEqual(
+    calls.map(({ init }) => typeof init.canDispatch === "function"),
+    [false, false, false, true],
+  );
 });
 
 test("manual profile refresh bypasses TTL once per minute and persists its limiter", async () => {
@@ -1115,6 +1750,126 @@ test("lost mutation response keeps the durable barrier and is never replayed", a
   ]);
 });
 
+test("mutation barrier tickets commit synchronously without a game fetch and enforce revision ownership", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer mutation-ticket";
+  const credentialHash = createHash("sha256")
+    .update(authorization)
+    .digest("hex");
+  store.writeSnapshot("98", {
+    schemaVersion: 1,
+    playerId: "98",
+    profileRevision: 0,
+    sections: {
+      "/api/me": { data: { playerId: 98 }, updatedAt: 1 },
+      "/api/me/bag": { data: { coins: 3 }, updatedAt: 1 },
+      "/api/rooms": {
+        data: { catalog: { rooms: [] } },
+        updatedAt: 1,
+      },
+    },
+    credentialHashes: [credentialHash],
+  });
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("barrier must not call the game"),
+  });
+  const first = snapshots.beginMutation(authorization, "POST", "/api/shop/buy");
+  const competing = snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/shop/buy",
+  );
+  assert.equal(store.readSnapshots()[0].profileRevision, 0);
+  assert.equal(snapshots.commitMutationBarrier(first), true);
+  assert.equal(snapshots.commitMutationBarrier(first), false);
+  assert.equal(snapshots.commitMutationBarrier(competing), false);
+  const record = store.readSnapshots()[0];
+  assert.equal(record.profileRevision, 1);
+  assert.ok(Object.values(record.sections).every((section) => section.dirty));
+  assert.equal(record.sections["/api/me/bag"].inventoryDirty, undefined);
+  assert.equal(record.sections["/api/rooms"].inventoryDirty, true);
+  assert.equal(
+    snapshots.commitMutationBarrier(
+      snapshots.beginMutation(authorization, "POST", "/api/works/open"),
+    ),
+    false,
+  );
+
+  const noSnapshotStore = memoryStore();
+  noSnapshotStore.write("99", { credential: "Bearer first-profile" });
+  const noSnapshot = createAccountSnapshots({ store: noSnapshotStore });
+  const ticket = noSnapshot.beginMutation(
+    "Bearer first-profile",
+    "POST",
+    "/api/shop/buy",
+  );
+  noSnapshot.saveBridgeProfile("Bearer first-profile", { playerId: 99 });
+  assert.equal(noSnapshot.commitMutationBarrier(ticket), true);
+  assert.equal(
+    noSnapshotStore.readSnapshots()[0].sections["/api/me"].dirty,
+    true,
+  );
+
+  const bridgeOnlyStore = memoryStore();
+  bridgeOnlyStore.writeSnapshot("101", {
+    schemaVersion: 1,
+    playerId: "101",
+    profileRevision: 0,
+    sections: { "/api/me": { data: { playerId: 101 }, updatedAt: 1 } },
+    credentialHashes: [],
+  });
+  const bridgeOnly = createAccountSnapshots({ store: bridgeOnlyStore });
+  const bridgeTicket = bridgeOnly.beginMutation(
+    "Bearer bridge-canonical",
+    "POST",
+    "/api/shop/buy",
+    { verifiedPlayerId: 101 },
+  );
+  assert.equal(bridgeOnly.commitMutationBarrier(bridgeTicket), true);
+  assert.equal(
+    bridgeOnlyStore.readSnapshots()[0].sections["/api/me"].dirty,
+    true,
+  );
+
+  const mismatchTicket = snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/shop/buy",
+    { verifiedPlayerId: 99 },
+  );
+  assert.equal(snapshots.commitMutationBarrier(mismatchTicket), false);
+
+  const unavailableStore = memoryStore();
+  const blockedAuthorization = "Bearer mutation-storage-failure";
+  unavailableStore.writeSnapshot("100", {
+    schemaVersion: 1,
+    playerId: "100",
+    profileRevision: 0,
+    sections: { "/api/me": { data: { playerId: 100 }, updatedAt: 1 } },
+    credentialHashes: [
+      createHash("sha256").update(blockedAuthorization).digest("hex"),
+    ],
+  });
+  unavailableStore.writeSnapshot = () => {
+    throw new Error("snapshot storage unavailable");
+  };
+  let gameCalls = 0;
+  const blocked = createAccountSnapshots({
+    store: unavailableStore,
+    fetcher: () => {
+      gameCalls += 1;
+      return reply({ success: true });
+    },
+  });
+  const blockedResponse = await blocked.liveFetch(`${origin}/api/shop/buy`, {
+    ...auth("mutation-storage-failure"),
+    method: "POST",
+  });
+  assert.equal(blockedResponse.status, 503);
+  assert.equal(gameCalls, 0);
+});
+
 test("unknown sections never produce invented snapshots and invalid credentials are distinct", async () => {
   const queue = queueFetcher([
     reply({ playerId: 12 }),
@@ -1330,6 +2085,42 @@ test("explicit partial/error/empty object responses preserve successful sections
   }
 });
 
+test("a rejected partial observation does not become a required field in later recovery", async () => {
+  const store = memoryStore();
+  let now = 1000;
+  const snapshots = createAccountSnapshots({
+    store,
+    ttl: 0,
+    cooldown: 0,
+    now: () => now,
+    fetcher: queueFetcher([
+      reply({ playerId: 99 }),
+      reply({ items: [1] }),
+      reply({ partial: true, items: [1, 2], error: "incomplete" }),
+      reply({ items: [1, 2] }),
+    ]).fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("observation-recovery"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("observation-recovery"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("observation-recovery"));
+  let section = store.readSnapshots()[0].sections["/api/me/bag"];
+  assert.deepEqual(section.data, { items: [1] });
+  assert.equal(
+    section.latestObservation.disposition,
+    "rejected_invalid_or_partial",
+  );
+
+  now += 2;
+  const recovered = await snapshots.read(
+    `${origin}/api/me/bag`,
+    auth("observation-recovery"),
+  );
+  assert.deepEqual(await payload(recovered), { items: [1, 2] });
+  section = store.readSnapshots()[0].sections["/api/me/bag"];
+  assert.deepEqual(section.data, { items: [1, 2] });
+  assert.equal(section.latestObservation.disposition, "accepted");
+});
+
 test("bounded sections evict old demand data and oversized responses preserve the last success", async () => {
   const store = memoryStore();
   let clock = 1;
@@ -1377,6 +2168,7 @@ test("an explicit ended battle reference clears an older active battle instead o
 });
 
 test("boss detail activeBattle clears only on explicit null for the matching boss", async () => {
+  let now = 1000;
   const activeBattle = { battleId: "battle-7", bossId: 7 };
   const queue = queueFetcher([
     reply({ playerId: 7 }),
@@ -1388,6 +2180,7 @@ test("boss detail activeBattle clears only on explicit null for the matching bos
   const snapshots = createAccountSnapshots({
     store: memoryStore(),
     fetcher: queue.fetcher,
+    now: () => now,
     ttl: 0,
     cooldown: 0,
   });
@@ -1400,6 +2193,7 @@ test("boss detail activeBattle clears only on explicit null for the matching bos
   );
   assert.deepEqual((await payload(omitted)).activeBattle, activeBattle);
 
+  now += 2;
   const mismatched = await snapshots.read(
     `${origin}/api/bosses/7`,
     auth("boss-detail-snapshot"),
@@ -1407,6 +2201,7 @@ test("boss detail activeBattle clears only on explicit null for the matching bos
   assert.deepEqual((await payload(mismatched)).activeBattle, activeBattle);
   assert.equal(mismatched.headers.get("X-Madhouse-Snapshot"), "stale");
 
+  now += 2;
   const cleared = await snapshots.read(
     `${origin}/api/bosses/7`,
     auth("boss-detail-snapshot"),
@@ -1862,7 +2657,7 @@ test("inventory snapshots are private, survive restart, and level changes invali
     reply({ playerId: 44, exp: { level: 7 } }),
     reply({ items: [{ id: 1, owned: false, unlocked: true }] }),
     reply({ playerId: 44, exp: { level: 8 } }),
-    reply({ items: [{ id: 1, owned: true }] }),
+    reply({ items: [{ id: 1, owned: true, unlocked: true }] }),
   ]);
   let snapshots = createAccountSnapshots({ store, fetcher });
   await snapshots.read(`${origin}/api/me`, auth("inventory-a"));
@@ -1904,6 +2699,9 @@ test("inventory snapshots are private, survive restart, and level changes invali
     },
   });
   assert.deepEqual(snapshots.inventory("Bearer inventory-a").dirty, []);
+  assert.deepEqual(snapshots.inventory("Bearer inventory-a").incomplete, [
+    "/api/clothing/by-category/1",
+  ]);
   assert.equal(
     snapshots.inventory("Bearer inventory-a").sections[
       "/api/clothing/by-category/1"
@@ -1989,8 +2787,8 @@ test("known weapon mutation invalidates weapon details; an unknown subroute inva
   let sections = store.readSnapshots()[0].sections;
   assert.equal(sections["/api/clothing/by-category/1"].dirty, true);
   assert.equal(sections["/api/weapons/12"].dirty, true);
-  assert.equal(sections["/api/pets/13"].dirty, undefined);
-  assert.equal(sections["/api/rooms"].dirty, undefined);
+  assert.equal(sections["/api/pets/13"].dirty, false);
+  assert.equal(sections["/api/rooms"].dirty, false);
 
   await snapshots.liveFetch(`${origin}/api/weapons/repair/12`, {
     ...authorization,
@@ -2044,4 +2842,195 @@ test("active battle strikes preserve inventory snapshots across restart; termina
     method: "POST",
   });
   assert.deepEqual(snapshots.inventory(authorization).dirty, ["/api/rooms"]);
+});
+
+test("bridge observations keep raw partial knowledge separate from last-known data across restart", async () => {
+  const store = memoryStore();
+  let clock = 100;
+  const { fetcher } = queueFetcher([
+    reply({ playerId: 91 }),
+    reply({ rooms: [{ id: 1, owned: true }] }),
+  ]);
+  let snapshots = createAccountSnapshots({ store, fetcher, now: () => clock });
+  const authorization = "Bearer bridge-observation-storage";
+  await snapshots.read(`${origin}/api/me`, auth("bridge-observation-storage"));
+  await snapshots.read(
+    `${origin}/api/rooms`,
+    auth("bridge-observation-storage"),
+  );
+  const previousUpdatedAt =
+    store.readSnapshots()[0].sections["/api/rooms"].updatedAt;
+  const ticket = snapshots.beginBridgeObservation(authorization, "/api/rooms", {
+    verifiedPlayerId: 91,
+  });
+  clock = 200;
+  assert.equal(
+    snapshots.commitBridgeObservation(ticket, { rooms: null }),
+    true,
+  );
+
+  let section = store.readSnapshots()[0].sections["/api/rooms"];
+  assert.deepEqual(section.data, { rooms: null });
+  assert.notEqual(section.updatedAt, previousUpdatedAt);
+  assert.equal(section.dirty, false);
+  assert.equal(section.completeness, "unknown");
+  assert.equal(section.latestObservation.rawIsData, true);
+
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("stored observation must not call the game"),
+    now: () => clock,
+  });
+  const stored = snapshots.readStored(
+    `${origin}/api/rooms`,
+    auth("bridge-observation-storage"),
+  );
+  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    stored.headers.get("X-Madhouse-Snapshot-Completeness"),
+    "unknown",
+  );
+  assert.deepEqual(await payload(stored), { rooms: null });
+});
+
+test("bridge observations preserve empty array as an unknown raw response when no last-known section exists", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-observation-empty";
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("bridge observation must not call the game"),
+    now: () => 300,
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 92 });
+  const ticket = snapshots.beginBridgeObservation(authorization, "/api/rooms", {
+    verifiedPlayerId: 92,
+  });
+  assert.equal(snapshots.commitBridgeObservation(ticket, []), true);
+  const section = store.readSnapshots()[0].sections["/api/rooms"];
+  assert.deepEqual(section.data, []);
+  assert.equal(section.dirty, false);
+  assert.equal(section.completeness, "unknown");
+
+  const restarted = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("stored observation must not call the game"),
+    now: () => 301,
+  });
+  const response = restarted.readStored(
+    `${origin}/api/rooms`,
+    auth("bridge-observation-empty"),
+  );
+  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    response.headers.get("X-Madhouse-Snapshot-Completeness"),
+    "unknown",
+  );
+  assert.deepEqual(await payload(response), []);
+});
+
+test("bridge observations reject out-of-order tickets, invalid envelopes, and mismatched boss ids", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-observation-order";
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("bridge observation must not call the game"),
+    now: () => 400,
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 93 });
+  const older = snapshots.beginBridgeObservation(authorization, "/api/rooms", {
+    verifiedPlayerId: 93,
+  });
+  const newer = snapshots.beginBridgeObservation(authorization, "/api/rooms", {
+    verifiedPlayerId: 93,
+  });
+  assert.equal(snapshots.commitBridgeObservation(newer, []), true);
+  assert.equal(
+    snapshots.commitBridgeObservation(older, [{ rooms: "old" }]),
+    false,
+  );
+
+  const invalid = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/rooms",
+    {
+      verifiedPlayerId: 93,
+    },
+  );
+  assert.equal(
+    snapshots.commitBridgeObservation(invalid, { error: "temporary" }),
+    false,
+  );
+  const partial = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/rooms",
+    {
+      verifiedPlayerId: 93,
+    },
+  );
+  assert.equal(
+    snapshots.commitBridgeObservation(partial, { items: [], partial: true }),
+    false,
+  );
+  const wrongBoss = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/bosses/7",
+    { verifiedPlayerId: 93 },
+  );
+  assert.equal(
+    snapshots.commitBridgeObservation(wrongBoss, { id: 8, name: "wrong" }),
+    false,
+  );
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/rooms"].data, []);
+});
+
+test("direct reads and mutation barriers invalidate pending bridge observations", async () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-observation-race";
+  const { fetcher } = queueFetcher([reply({ rooms: [{ id: 2 }] })]);
+  const snapshots = createAccountSnapshots({ store, fetcher, now: () => 500 });
+  snapshots.saveBridgeProfile(authorization, { playerId: 94 });
+  const pending = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/rooms",
+    {
+      verifiedPlayerId: 94,
+    },
+  );
+  const direct = await snapshots.liveFetch(
+    `${origin}/api/rooms`,
+    auth("bridge-observation-race"),
+  );
+  assert.equal(direct.ok, true);
+  assert.equal(
+    snapshots.commitBridgeObservation(pending, { rooms: [] }),
+    false,
+  );
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/rooms"].data, {
+    rooms: [{ id: 2 }],
+  });
+
+  const noSnapshotStore = memoryStore();
+  const noSnapshotAuth = "Bearer bridge-observation-mutation";
+  const digest = createHash("sha256").update(noSnapshotAuth).digest("hex");
+  noSnapshotStore.write("95", { credentialHashes: [digest] });
+  const noSnapshot = createAccountSnapshots({
+    store: noSnapshotStore,
+    fetcher: () => assert.fail("mutation barrier must not call the game"),
+  });
+  const beforeMutation = noSnapshot.beginBridgeObservation(
+    noSnapshotAuth,
+    "/api/rooms",
+    { verifiedPlayerId: 95 },
+  );
+  const mutation = noSnapshot.beginMutation(
+    noSnapshotAuth,
+    "POST",
+    "/api/shop/buy",
+    {
+      verifiedPlayerId: 95,
+    },
+  );
+  assert.equal(noSnapshot.commitMutationBarrier(mutation), true);
+  assert.equal(noSnapshot.commitBridgeObservation(beforeMutation, []), false);
+  assert.equal(noSnapshotStore.readSnapshots().length, 0);
 });

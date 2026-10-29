@@ -133,6 +133,7 @@ test("strict stored reads preserve empty and stale snapshots and report missing 
       return Response.json([], {
         headers: {
           "X-Madhouse-Snapshot": "stale",
+          "X-Madhouse-Snapshot-Completeness": "unknown",
           "X-Madhouse-Section-Updated": "12345",
           "X-Madhouse-Snapshot-TTL": "1",
         },
@@ -152,6 +153,7 @@ test("strict stored reads preserve empty and stale snapshots and report missing 
     data: [],
     updatedAt: 12345,
     snapshotStatus: "stale",
+    snapshotCompleteness: "unknown",
     source: "stored",
     gameStatus: "unknown",
   });

@@ -158,6 +158,7 @@ export function usePlayerProfile() {
             : "error",
           updatedAt: stored.updatedAt,
           snapshotStatus: stored.snapshotStatus,
+          snapshotCompleteness: stored.snapshotCompleteness,
         }));
         try {
           const bag = await readStoredSessionJson("/api/me/bag", { signal });
@@ -223,6 +224,10 @@ export function usePlayerProfile() {
               event.data,
               current.profile ?? current.identity,
             ),
+            updatedAt: event.updatedAt ?? current.updatedAt,
+            snapshotStatus: event.snapshotStatus ?? current.snapshotStatus,
+            snapshotCompleteness:
+              event.snapshotCompleteness ?? current.snapshotCompleteness,
           }));
         } else {
           setState((current) => ({

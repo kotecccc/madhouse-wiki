@@ -123,6 +123,54 @@ test("queued mutation requires a matching live one-use permission", async () => 
   }
 });
 
+test("snapshot barrier must succeed after queue admission before bridge action bytes", async () => {
+  const gate = createQueueActionGate();
+  let sent = 0;
+  const f = fixture(goodProfile, null, {
+    queueActionGate: gate,
+    sendAction: async ({ validateTunnel }) => {
+      if ((await validateTunnel()) !== true) throw new Error("not admitted");
+      sent++;
+      return { status: 200, body: Buffer.from("{}") };
+    },
+  });
+  const job = {
+    id: "barrier-job",
+    status: "running",
+    type: "friend.response",
+    args: { playerId: 42, decision: "accept" },
+  };
+  try {
+    f.pair("101");
+    await f.service.bind("101", "Bearer private-test-token");
+    let calls = 0;
+    await gate.run(
+      job,
+      false,
+      "Bearer private-test-token",
+      async () => {
+        await assert.rejects(
+          f.service.send("101", "POST", "/api/friends/requests/42/accept", {
+            beforeDispatch: ({ authorization, playerId }) => {
+              calls++;
+              assert.equal(authorization, "Bearer private-test-token");
+              assert.equal(playerId, "42");
+              return false;
+            },
+          }),
+          { code: "bridge_unavailable" },
+        );
+      },
+      () => true,
+    );
+    assert.equal(calls, 1);
+    assert.equal(sent, 0);
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
+
 test("queued battle dispatch records both the queue job and its game operation identity", async () => {
   const gate = createQueueActionGate();
   let attempt;

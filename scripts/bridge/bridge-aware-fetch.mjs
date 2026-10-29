@@ -1,4 +1,5 @@
 import { createGameRouter } from "./game-router.mjs";
+import { bridgeProfileCurrent, bridgeReadCurrent } from "./account-service.mjs";
 
 const fail = (code) => Object.assign(new Error(code), { code });
 
@@ -31,50 +32,79 @@ export function createBridgeAwareAccountFetch({
   )
     throw new TypeError("bridge_fetch_dependencies_required");
 
-  // Concurrent login consumers share one bridge read. Cancellation belongs to
-  // each consumer; the device request stops only when nobody is waiting.
+  // Compatible login consumers share one bridge read and its snapshot ticket.
+  // Keep the flight alive through each consumer's router checks and commit so
+  // a new caller cannot invalidate a ticket between response and persistence.
   const pendingProfiles = new Map();
-  function readProfile(owner, authorization, signal, canDispatch) {
+  function readProfile(
+    owner,
+    authorization,
+    profileCredential,
+    signal,
+    canDispatch,
+    shareable,
+    createSnapshotRead,
+  ) {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Aborted", "AbortError"));
-    const key = `${owner}:${authorization}`;
+    const key = shareable
+      ? JSON.stringify([owner, authorization, profileCredential])
+      : Symbol("profile-read");
     let pending = pendingProfiles.get(key);
     if (!pending) {
       const controller = new AbortController();
-      pending = { controller, waiters: 0 };
+      pending = {
+        controller,
+        snapshotRead: createSnapshotRead(),
+        waiters: 0,
+      };
       const current = pending;
-      current.promise = Promise.resolve()
-        .then(() =>
-          accountService.profile(owner, {
-            signal: controller.signal,
-            canDispatch,
-          }),
-        )
-        .finally(() => {
-          if (pendingProfiles.get(key) === current) pendingProfiles.delete(key);
-        });
+      current.promise = Promise.resolve().then(() =>
+        accountService.profile(owner, {
+          signal: controller.signal,
+          canDispatch,
+        }),
+      );
       pendingProfiles.set(key, current);
     }
     pending.waiters += 1;
     return new Promise((resolve, reject) => {
-      let finished = false;
-      const finish = (callback, value) => {
-        if (finished) return;
-        finished = true;
+      let completed = false;
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
         signal?.removeEventListener("abort", abort);
         pending.waiters -= 1;
         if (!pending.waiters && pendingProfiles.get(key) === pending) {
           pendingProfiles.delete(key);
-          pending.controller.abort();
+          if (!pending.settled) pending.controller.abort();
         }
-        callback(value);
       };
-      const abort = () =>
-        finish(reject, new DOMException("Aborted", "AbortError"));
-      signal?.addEventListener("abort", abort, { once: true });
+      const abort = () => {
+        if (completed) {
+          release();
+          return;
+        }
+        completed = true;
+        release();
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
       pending.promise.then(
-        (result) => finish(resolve, result),
-        (error) => finish(reject, error),
+        (result) => {
+          pending.settled = true;
+          if (completed) return;
+          completed = true;
+          resolve({ result, snapshotRead: pending.snapshotRead, release });
+        },
+        (error) => {
+          if (completed) return;
+          completed = true;
+          release();
+          reject(error);
+        },
       );
     });
   }
@@ -95,6 +125,12 @@ export function createBridgeAwareAccountFetch({
     if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
       throw fail("game_identity_unverified");
     const identity = { authorization };
+    // Kept per dispatch (not on the shared pending profile read): concurrent
+    // consumers can have different snapshot revisions and must commit against
+    // their own tickets after the router has revalidated the route.
+    let bridgeProfileCommit = null;
+    let bridgeObservationCommit = null;
+    let releaseProfileRead = null;
     const resolveRoute = async () => {
       const known = accounts.resolveCredential(authorization);
       if (known) return known;
@@ -148,25 +184,100 @@ export function createBridgeAwareAccountFetch({
           const saved = snapshots.bridgeProfile(credential);
           if (saved) return saved;
         }
-        const result = await readProfile(
+        const profileRead = await readProfile(
           owner,
           authorization,
+          credential,
           options.signal,
           options.canDispatch,
+          !init.signal && !init.canDispatch,
+          () => {
+            const hasBridgeProfileReadApi =
+              typeof snapshots.beginBridgeProfileRead === "function" &&
+              typeof snapshots.commitBridgeProfileRead === "function";
+            const boundPlayer = Number(accounts.read?.(owner)?.playerId);
+            const ticket = hasBridgeProfileReadApi
+              ? snapshots.beginBridgeProfileRead(credential, {
+                  ...(Number.isSafeInteger(boundPlayer) && boundPlayer > 0
+                    ? { verifiedPlayerId: boundPlayer }
+                    : {}),
+                })
+              : null;
+            return { credential, ticket, hasBridgeProfileReadApi };
+          },
         );
-        snapshots.saveBridgeProfile?.(credential, result.profile);
+        releaseProfileRead = profileRead.release;
+        const { result, snapshotRead } = profileRead;
+        bridgeProfileCommit = {
+          ...snapshotRead,
+          profile: result.profile,
+          current: result[bridgeProfileCurrent],
+        };
         return new Response(JSON.stringify(result.profile), {
           status: 200,
           headers: {
             "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "private, no-store",
+            "X-Madhouse-Snapshot": "current",
+            "X-Madhouse-Snapshot-Completeness": "unknown",
+            "X-Madhouse-Section-Updated": String(Date.now()),
           },
         });
       },
       ...(typeof accountService.read === "function"
         ? {
             bridgeRead: async (owner, path, options) => {
+              const boundPlayer = Number(accounts.read?.(owner)?.playerId);
+              if (
+                !live &&
+                (options.method || "GET") === "GET" &&
+                new Headers(init.headers).get("X-Madhouse-Snapshot-Only") ===
+                  "1" &&
+                Number.isSafeInteger(boundPlayer) &&
+                boundPlayer > 0 &&
+                typeof snapshots.readStored === "function"
+              ) {
+                const stored = snapshots.readStored(
+                  new URL(path, url),
+                  {
+                    headers: {
+                      Authorization: canonicalCredential(authorization),
+                    },
+                  },
+                  { verifiedWiki: true, verifiedPlayerId: boundPlayer },
+                );
+                if (stored.ok) return stored;
+                if (stored.status !== 404) return stored;
+              }
+              const ticket = snapshots.beginBridgeObservation?.(
+                canonicalCredential(authorization),
+                path,
+                {
+                  ...(Number.isSafeInteger(boundPlayer) && boundPlayer > 0
+                    ? { verifiedPlayerId: boundPlayer }
+                    : {}),
+                },
+              );
               const result = await accountService.read(owner, path, options);
+              if (
+                ticket &&
+                result.status === 200 &&
+                Buffer.isBuffer(result.body)
+              ) {
+                try {
+                  bridgeObservationCommit = {
+                    ticket,
+                    data: JSON.parse(
+                      new TextDecoder("utf-8", { fatal: true }).decode(
+                        result.body,
+                      ),
+                    ),
+                    current: result[bridgeReadCurrent],
+                  };
+                } catch {
+                  // A malformed response is never saved as a resource.
+                }
+              }
               return new Response(
                 [204, 205, 304].includes(result.status) ? null : result.body,
                 {
@@ -174,6 +285,13 @@ export function createBridgeAwareAccountFetch({
                   headers: {
                     "Content-Type": "application/json; charset=utf-8",
                     "Cache-Control": "private, no-store",
+                    ...(ticket && result.status === 200
+                      ? {
+                          "X-Madhouse-Snapshot": "current",
+                          "X-Madhouse-Snapshot-Completeness": "unknown",
+                          "X-Madhouse-Section-Updated": String(Date.now()),
+                        }
+                      : {}),
                     ...(result.retryAfter
                       ? { "Retry-After": result.retryAfter }
                       : {}),
@@ -189,6 +307,20 @@ export function createBridgeAwareAccountFetch({
               const result = await accountService.send(owner, method, path, {
                 ...options,
                 callerAuthorization: authorization,
+                beforeDispatch: ({
+                  authorization: gameAuthorization,
+                  playerId,
+                }) => {
+                  const ticket = snapshots.beginMutation?.(
+                    gameAuthorization,
+                    method,
+                    path,
+                    { verifiedPlayerId: Number(playerId) },
+                  );
+                  return ticket
+                    ? snapshots.commitMutationBarrier(ticket)
+                    : typeof snapshots.beginMutation !== "function";
+                },
                 validateCaller: () => {
                   const route = accounts.resolveCredential(authorization);
                   return (
@@ -215,7 +347,55 @@ export function createBridgeAwareAccountFetch({
           }
         : {}),
     });
-    return router.fetchGame({ url, init, verifiedIdentity: identity });
+    try {
+      const response = await router.fetchGame({
+        url,
+        init,
+        verifiedIdentity: identity,
+      });
+      if (init.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (bridgeProfileCommit) {
+        const {
+          credential,
+          profile,
+          ticket,
+          hasBridgeProfileReadApi,
+          current,
+        } = bridgeProfileCommit;
+        if (current && current() !== true) throw fail("game_route_changed");
+        if (hasBridgeProfileReadApi) {
+          if (snapshots.commitBridgeProfileRead(ticket, profile) !== true)
+            return new Response(
+              JSON.stringify({ error: "snapshot_superseded" }),
+              {
+                status: 409,
+                headers: {
+                  "Content-Type": "application/json; charset=utf-8",
+                  "Cache-Control": "private, no-store",
+                },
+              },
+            );
+        } else snapshots.saveBridgeProfile?.(credential, profile);
+      }
+      if (bridgeObservationCommit) {
+        const { ticket, data, current } = bridgeObservationCommit;
+        if (current && current() !== true) throw fail("game_route_changed");
+        if (snapshots.commitBridgeObservation(ticket, data) !== true)
+          return new Response(
+            JSON.stringify({ error: "snapshot_superseded" }),
+            {
+              status: 409,
+              headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                "Cache-Control": "private, no-store",
+              },
+            },
+          );
+      }
+      return response;
+    } finally {
+      releaseProfileRead?.();
+    }
   }
   async function verifyLocal(authorization) {
     if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))

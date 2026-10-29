@@ -410,7 +410,7 @@ test("catalogue sync uses the same boundary and cannot bypass an offline bridge"
   }
 });
 
-test("concurrent login profile reads share one bridge request and cancellation is independent", async () => {
+test("profile reads with independent cancellation do not share a bridge request", async () => {
   let calls = 0;
   let release;
   const waiting = new Promise((resolve) => {
@@ -426,7 +426,7 @@ test("concurrent login profile reads share one bridge request and cancellation i
     profile: async (_owner, { signal }) => {
       calls += 1;
       await waiting;
-      assert.equal(signal.aborted, false);
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       return { profile: { playerId: 42 } };
     },
   });
@@ -441,9 +441,9 @@ test("concurrent login profile reads share one bridge request and cancellation i
   await assert.rejects(first, { name: "AbortError" });
   release();
   assert.deepEqual(await (await second).json(), { playerId: 42 });
-  assert.equal(calls, 1);
-  await fixture.boundary.fetch(url, options());
   assert.equal(calls, 2);
+  await fixture.boundary.fetch(url, options());
+  assert.equal(calls, 3);
 });
 
 test("shared profile reads do not cross credentials", async () => {
@@ -489,6 +489,7 @@ test("login reuses a persisted bridge profile until an explicit refresh", async 
     return createBridgeAwareAccountFetch({
       snapshots,
       accounts: {
+        read: () => ({ playerId: "42" }),
         resolveCredential: () => ({
           policy: "bridge_required",
           owner: "101",

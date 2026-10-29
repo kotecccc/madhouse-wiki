@@ -465,6 +465,9 @@ function ProfileSummary({ state }) {
                 {state.snapshotStatus === "stale"
                   ? " · могут быть устаревшими"
                   : ""}
+                {state.snapshotCompleteness === "unknown"
+                  ? " · полнота не подтверждена"
+                  : ""}
               </CardDescription>
             )}
             {!experienceKnown && energyContent}

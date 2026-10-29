@@ -380,6 +380,9 @@ export function createSessionApi({
         }
         const data = await response.json();
         const snapshotStatus = response.headers?.get?.("X-Madhouse-Snapshot");
+        const snapshotCompleteness = response.headers?.get?.(
+          "X-Madhouse-Snapshot-Completeness",
+        );
         if (storedOnly) {
           if (generation !== requestGeneration || controller.signal.aborted)
             throw new Error("Сессия изменилась");
@@ -391,6 +394,7 @@ export function createSessionApi({
             data,
             updatedAt: Number.isFinite(updated) && updated > 0 ? updated : null,
             snapshotStatus,
+            ...(snapshotCompleteness ? { snapshotCompleteness } : {}),
             storedOnly: true,
           });
           return {
@@ -398,6 +402,7 @@ export function createSessionApi({
             data,
             updatedAt: Number.isFinite(updated) && updated > 0 ? updated : null,
             snapshotStatus: snapshotStatus || "current",
+            ...(snapshotCompleteness ? { snapshotCompleteness } : {}),
             source: "stored",
             gameStatus:
               response.headers?.get?.("X-Madhouse-Game-Status") || "unknown",
@@ -436,6 +441,7 @@ export function createSessionApi({
           data,
           updatedAt: entry.updatedAt,
           snapshotStatus,
+          ...(snapshotCompleteness ? { snapshotCompleteness } : {}),
           liveRefresh: serverRefresh === "live",
           snapshotOnly,
         });

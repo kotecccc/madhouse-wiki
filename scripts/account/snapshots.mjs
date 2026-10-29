@@ -104,103 +104,138 @@ function sanitize(value, depth = 0) {
     );
   return value;
 }
-function normalizeMergePayload(value) {
-  if (Array.isArray(value)) return value.map(normalizeMergePayload);
-  if (!value || typeof value !== "object") return value;
-  const normalized = Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      normalizeMergePayload(item),
-    ]),
-  );
+function normalizeObservation(path, value) {
   if (
-    Object.hasOwn(normalized, "activeStashBuffs") &&
-    !Object.hasOwn(normalized, "activeStashBuff")
+    path !== "/api/me/bag" ||
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
   )
-    normalized.activeStashBuff = null;
-  else if (
-    Object.hasOwn(normalized, "activeStashBuff") &&
-    !Object.hasOwn(normalized, "activeStashBuffs")
+    return value;
+  if (
+    Object.hasOwn(value, "activeStashBuffs") &&
+    !Object.hasOwn(value, "activeStashBuff")
   )
-    normalized.activeStashBuffs = [];
-  return normalized;
+    return { ...value, activeStashBuff: null };
+  if (
+    Object.hasOwn(value, "activeStashBuff") &&
+    !Object.hasOwn(value, "activeStashBuffs")
+  )
+    return { ...value, activeStashBuffs: [] };
+  return value;
 }
-function sameJsonValue(left, right) {
-  if (Object.is(left, right)) return true;
-  if (
-    !left ||
-    !right ||
-    typeof left !== "object" ||
-    typeof right !== "object" ||
-    Array.isArray(left) !== Array.isArray(right)
-  )
-    return false;
-  if (Array.isArray(left))
+
+// Arrays are atomic resource values. Objects can replace prior observations
+// only when all previously observed object fields are still explicitly present.
+function containsObservedFields(previous, next, resourcePath) {
+  if (previous == null || typeof previous !== "object") return true;
+  if (next == null || typeof next !== "object") return false;
+  if (Array.isArray(previous) || Array.isArray(next))
+    return Array.isArray(previous) && Array.isArray(next);
+  return Object.entries(previous).every(([key, value]) => {
+    if (!Object.hasOwn(next, key)) return false;
+    const nextValue = next[key];
+    if (
+      (resourcePath === "/api/me/bag" &&
+        ["activeStashBuff", "activeStashBuffs"].includes(key)) ||
+      (resourcePath === "/api/me" &&
+        key === "activeBossBattle" &&
+        nextValue === null) ||
+      (resourcePath === "/api/me" &&
+        key === "exp" &&
+        Number.isSafeInteger(nextValue?.level) &&
+        nextValue.level !== value?.level) ||
+      (key === "activeBattle" &&
+        nextValue === null &&
+        /^\/api\/bosses\/([1-9][0-9]*)$/.test(resourcePath) &&
+        next.id === Number(resourcePath.split("/").at(-1)))
+    )
+      return true;
     return (
-      left.length === right.length &&
-      left.every((value, index) => sameJsonValue(value, right[index]))
+      !value ||
+      typeof value !== "object" ||
+      nextValue == null ||
+      typeof nextValue !== "object" ||
+      containsObservedFields(value, nextValue, resourcePath)
     );
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  return (
-    leftKeys.length === rightKeys.length &&
-    leftKeys.every(
-      (key) =>
-        Object.hasOwn(right, key) && sameJsonValue(left[key], right[key]),
-    )
-  );
+  });
 }
-// A sparse object cannot erase previously known fields. Empty successful lists
-// are authoritative; malformed/error envelopes are never successful sections.
-function merge(previous, next, resourcePath, depth = 0) {
-  // Normalize the two bag API shapes before both first-write and update paths.
-  if (next && typeof next === "object" && !Array.isArray(next)) {
+
+function projectExplicitResourceFields(previous, path, next) {
+  if (!previous || !next || typeof next !== "object" || Array.isArray(next))
+    return previous;
+  const data = previous.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return previous;
+  const fields = [];
+  if (path === "/api/me/bag")
+    fields.push("activeStashBuff", "activeStashBuffs");
+  if (path === "/api/me") {
+    fields.push("activeBossBattle");
     if (
-      Object.hasOwn(next, "activeStashBuffs") &&
-      !Object.hasOwn(next, "activeStashBuff")
+      Number.isSafeInteger(next.exp?.level) &&
+      next.exp.level !== data.exp?.level
     )
-      next = { ...next, activeStashBuff: null };
-    else if (
-      Object.hasOwn(next, "activeStashBuff") &&
-      !Object.hasOwn(next, "activeStashBuffs")
-    )
-      next = { ...next, activeStashBuffs: [] };
+      fields.push("exp");
   }
+  const bossDetail = path.match(/^\/api\/bosses\/([1-9][0-9]*)$/);
   if (
-    !previous ||
-    typeof previous !== "object" ||
-    Array.isArray(previous) ||
-    Array.isArray(next) ||
-    typeof next !== "object" ||
-    next === null
+    bossDetail &&
+    next.id === Number(bossDetail[1]) &&
+    next.activeBattle === null
   )
-    return next;
-  const result = { ...previous };
-  for (const [key, value] of Object.entries(next)) {
-    if (
-      ["activeStashBuff", "activeStashBuffs"].includes(key) &&
-      value !== undefined
-    )
-      result[key] = value;
-    else if (
-      key === "exp" &&
-      Number.isSafeInteger(value?.level) &&
-      value.level !== previous.exp?.level
-    )
-      result[key] = value;
-    else if (key === "activeBossBattle" && value === null) result[key] = null;
-    else if (
-      depth === 0 &&
-      key === "activeBattle" &&
-      value === null &&
-      /^\/api\/bosses\/([1-9][0-9]*)$/.test(resourcePath || "") &&
-      next.id === Number(resourcePath.split("/").at(-1))
-    )
-      result[key] = null;
-    else if (value !== null && value !== undefined)
-      result[key] = merge(previous[key], value, resourcePath, depth + 1);
-  }
-  return result;
+    fields.push("activeBattle");
+  const updates = Object.fromEntries(
+    fields
+      .filter((key) => Object.hasOwn(next, key))
+      .map((key) => [key, next[key]]),
+  );
+  return Object.keys(updates).length
+    ? { ...previous, data: { ...data, ...updates } }
+    : previous;
+}
+
+function observedSection(previous, path, raw, observedAt, source, cooldown) {
+  const normalized = normalizeObservation(path, raw);
+  const priorObservation = previous?.latestObservation;
+  const priorRaw =
+    priorObservation?.disposition === "rejected_invalid_or_partial"
+      ? undefined
+      : priorObservation?.rawIsData
+        ? previous.data
+        : priorObservation?.raw;
+  const replaces =
+    !previous ||
+    (containsObservedFields(previous.data, normalized, path) &&
+      (priorRaw === undefined ||
+        containsObservedFields(
+          normalizeObservation(path, priorRaw),
+          normalized,
+          path,
+        )));
+  const latestObservation = {
+    observedAt,
+    source,
+    completeness: "unknown",
+    disposition: replaces ? "accepted" : "retained_previous",
+    ...(replaces && JSON.stringify(raw) === JSON.stringify(normalized)
+      ? { rawIsData: true }
+      : { raw }),
+  };
+  if (replaces)
+    return {
+      data: normalized,
+      updatedAt: observedAt,
+      dirty: false,
+      completeness: "unknown",
+      latestObservation,
+    };
+  return {
+    ...projectExplicitResourceFields(previous, path, normalized),
+    dirty: true,
+    completeness: "unknown",
+    latestObservation,
+    revalidateAfter: observedAt + Math.max(1, Math.min(cooldown, 60_000)),
+  };
 }
 const json = (body, status = 200, headers = {}) =>
   new Response(JSON.stringify(body), {
@@ -223,10 +258,31 @@ export function createAccountSnapshots({
   const credentials = new Map();
   const pending = new Map();
   const reads = new Map();
+  const profileRevisions = new Map();
+  const mutationContexts = new WeakMap();
+  const bridgeProfileReadSequences = new Map();
+  const bridgeProfileReadTickets = new WeakMap();
+  const bridgeObservationSequences = new Map();
+  const bridgeObservationTickets = new WeakMap();
   for (const record of store.readSnapshots()) {
     if (record.schemaVersion !== 1) continue;
-    accounts.set(record.playerId, record);
-    for (const digest of record.credentialHashes || [])
+    const sections = Object.fromEntries(
+      Object.entries(record.sections || {}).map(([path, section]) => [
+        path,
+        section.completeness === undefined
+          ? {
+              ...section,
+              dirty: true,
+              completeness: "unknown",
+              revalidateAfter: now() + Math.max(1, Math.min(cooldown, 60_000)),
+            }
+          : section,
+      ]),
+    );
+    const loaded = { ...record, sections };
+    accounts.set(record.playerId, loaded);
+    profileRevisions.set(record.playerId, loaded.profileRevision ?? 0);
+    for (const digest of loaded.credentialHashes || [])
       credentials.set(digest, record.playerId);
   }
   // Existing verified automation credentials can read the same account after a
@@ -260,6 +316,553 @@ export function createAccountSnapshots({
     }
     return record;
   };
+  function beginMutation(
+    authorization,
+    method,
+    path,
+    { verifiedPlayerId } = {},
+  ) {
+    const normalizedMethod = String(method || "GET").toUpperCase();
+    const normalizedPath = new URL(path, "https://cargohustle.online").pathname;
+    // /api/works/open is a reader carried over POST transport.
+    if (
+      normalizedMethod === "GET" ||
+      (normalizedMethod === "POST" && normalizedPath === "/api/works/open")
+    )
+      return null;
+    if (
+      typeof authorization !== "string" ||
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
+    )
+      return null;
+    // verifiedPlayerId is only for a server caller that already resolved the
+    // bridge account binding; it is never taken from a request payload.
+    const authorizationDigest = hash(authorization);
+    const indexedPlayerId = credentials.get(authorizationDigest);
+    const verifiedId =
+      Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+        ? String(verifiedPlayerId)
+        : null;
+    const playerId =
+      indexedPlayerId && verifiedId && indexedPlayerId !== verifiedId
+        ? null
+        : indexedPlayerId || verifiedId;
+    const record = accounts.get(playerId);
+    const currentProfileRevision = Math.max(
+      profileRevisions.get(playerId) ?? 0,
+      record?.profileRevision ?? 0,
+    );
+    const token = Object.freeze({});
+    const context = {
+      authorizationDigest,
+      indexedPlayerId,
+      verifiedId,
+      identityValid:
+        (verifiedPlayerId === undefined || verifiedId !== null) &&
+        Boolean(indexedPlayerId || verifiedId),
+      playerId,
+      hadRecord: Boolean(record),
+      initialRevision: currentProfileRevision,
+      committed: false,
+      revision: null,
+      isBattleAttack: /^\/api\/bosses\/battles\/[^/]+\/attack$/.test(
+        normalizedPath,
+      ),
+      kind: mutationKind(normalizedPath),
+      path: normalizedPath,
+      priorInventoryDirty: new Map(),
+    };
+    mutationContexts.set(token, context);
+    return token;
+  }
+  function commitMutationBarrier(token) {
+    const context = token && mutationContexts.get(token);
+    if (!context || context.committed) return false;
+    const indexedPlayerId = credentials.get(context.authorizationDigest);
+    if (
+      !context.identityValid ||
+      !context.playerId ||
+      (context.indexedPlayerId &&
+        indexedPlayerId !== context.indexedPlayerId) ||
+      (indexedPlayerId && indexedPlayerId !== context.playerId) ||
+      (!indexedPlayerId && !context.verifiedId)
+    )
+      return false;
+    const record = accounts.get(context.playerId);
+    const currentProfileRevision = Math.max(
+      profileRevisions.get(context.playerId) ?? 0,
+      record?.profileRevision ?? 0,
+    );
+    if (currentProfileRevision !== context.initialRevision) return false;
+    if (context.hadRecord && !record) return false;
+    if (
+      record &&
+      context.hadRecord &&
+      (record.profileRevision ?? 0) !== context.initialRevision
+    )
+      return false;
+    try {
+      if (record) {
+        const sections = { ...record.sections };
+        for (const [sectionPath, section] of Object.entries(sections)) {
+          if (!mutationAffectsSection(context.kind, sectionPath)) continue;
+          if (context.isBattleAttack && isInventoryPath(sectionPath))
+            context.priorInventoryDirty.set(
+              sectionPath,
+              section.inventoryDirty ?? section.dirty ?? false,
+            );
+          sections[sectionPath] = {
+            ...section,
+            dirty: true,
+            ...(isInventoryPath(sectionPath)
+              ? {
+                  inventoryDirty:
+                    !context.kind ||
+                    (section.inventoryDirty ?? section.dirty ?? false) ||
+                    inventoryMutationAffects(context.path, sectionPath, true),
+                }
+              : {}),
+          };
+        }
+        context.revision = context.initialRevision + 1;
+        persist({ ...record, profileRevision: context.revision, sections });
+      } else {
+        // The verified bridge account may not have written its first profile yet.
+        // If a snapshot appeared since begin, the record above is invalidated;
+        // if none exists, there is no persisted personal data to fence.
+        context.revision = context.initialRevision + 1;
+      }
+      profileRevisions.set(context.playerId, context.revision);
+      bumpBridgeProfileReadSequence(context.playerId);
+      context.committed = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function settleMutation(token, response) {
+    const context = token && mutationContexts.get(token);
+    if (
+      !context?.committed ||
+      !context.isBattleAttack ||
+      !context.playerId ||
+      !response.ok
+    )
+      return;
+    let battleMayHaveFinished = true;
+    try {
+      const result = await response.clone().json();
+      battleMayHaveFinished = !(
+        result?.battle?.status === "active" && result?.battleFinished !== true
+      );
+    } catch {
+      // Unknown outcomes may contain rewards; retain the last snapshot but mark it stale.
+    }
+    const current = accounts.get(context.playerId);
+    if (
+      !battleMayHaveFinished &&
+      context.revision != null &&
+      current?.profileRevision === context.revision
+    ) {
+      const sections = { ...current.sections };
+      for (const [sectionPath, dirty] of context.priorInventoryDirty) {
+        const section = sections[sectionPath];
+        if (section)
+          sections[sectionPath] = { ...section, inventoryDirty: dirty };
+      }
+      persist({ ...current, sections });
+    }
+    mutationContexts.delete?.(token);
+  }
+  function bumpBridgeProfileReadSequence(playerId) {
+    const next = (bridgeProfileReadSequences.get(playerId) || 0) + 1;
+    bridgeProfileReadSequences.set(playerId, next);
+    return next;
+  }
+  const bridgeObservationSequenceKey = (playerId, path) =>
+    JSON.stringify([playerId, path]);
+  function bumpBridgeObservationSequence(playerId, path) {
+    const key = bridgeObservationSequenceKey(playerId, path);
+    const next = (bridgeObservationSequences.get(key) || 0) + 1;
+    bridgeObservationSequences.set(key, next);
+    return next;
+  }
+  function saveBridgeProfileForDigest(digest, profile) {
+    const data = sanitize(profile);
+    if (!Number.isSafeInteger(data?.playerId) || data.playerId <= 0)
+      throw new Error("invalid_game_identity");
+    const playerId = String(data.playerId);
+    const previousPlayer = credentials.get(digest);
+    if (previousPlayer && previousPlayer !== playerId)
+      throw new Error("game_identity_changed");
+    const record = accounts.get(playerId) || {
+      schemaVersion: 1,
+      playerId,
+      sections: {},
+      credentialHashes: [],
+      profileRevision: profileRevisions.get(playerId) ?? 0,
+    };
+    const profileRevision = Math.max(
+      profileRevisions.get(playerId) ?? 0,
+      record.profileRevision ?? 0,
+    );
+    const retainedAfterMutation =
+      profileRevision > (record.profileRevision ?? 0);
+    const observedAt = now();
+    const profileSection = observedSection(
+      record.sections["/api/me"],
+      "/api/me",
+      data,
+      observedAt,
+      "bridge",
+      cooldown,
+    );
+    if (
+      retainedAfterMutation &&
+      record.sections["/api/me"] &&
+      profileSection.data === record.sections["/api/me"].data
+    )
+      profileSection.dirty = true;
+    let updated = {
+      ...record,
+      profileRevision,
+      sections: {
+        ...record.sections,
+        "/api/me": profileSection,
+      },
+      credentialHashes: [
+        ...new Set([...(record.credentialHashes || []), digest]),
+      ].slice(-8),
+      revokedHashes: (record.revokedHashes || []).filter(
+        (value) => value !== digest,
+      ),
+      lastSuccessAt: observedAt,
+      health: {
+        ...(record.health || {}),
+        status: "available",
+        checkedAt: observedAt,
+        failedSections: (record.health?.failedSections || []).filter(
+          (path) => path !== "/api/me" && path !== "*",
+        ),
+      },
+    };
+    updated = boundSections(updated, new Set(["/api/me"]));
+    persist(updated);
+    credentials.set(digest, playerId);
+    profileRevisions.set(playerId, profileRevision);
+    bumpBridgeProfileReadSequence(playerId);
+  }
+  function saveBridgeProfile(authorization, profile) {
+    return saveBridgeProfileForDigest(hash(authorization), profile);
+  }
+  function beginBridgeProfileRead(authorization, { verifiedPlayerId } = {}) {
+    if (
+      typeof authorization !== "string" ||
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
+    )
+      return null;
+    const authorizationDigest = hash(authorization);
+    const indexedPlayerId = credentials.get(authorizationDigest) || null;
+    const verifiedId =
+      Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+        ? String(verifiedPlayerId)
+        : null;
+    const playerId =
+      indexedPlayerId && verifiedId && indexedPlayerId !== verifiedId
+        ? null
+        : indexedPlayerId || verifiedId;
+    const record = playerId ? accounts.get(playerId) : null;
+    const ticket = Object.freeze({});
+    const context = {
+      authorizationDigest,
+      indexedPlayerId,
+      verifiedId,
+      identityValid:
+        (verifiedPlayerId === undefined || verifiedId !== null) &&
+        Boolean(indexedPlayerId || verifiedId),
+      playerId,
+      identityKnown: Boolean(playerId),
+      hadRecord: Boolean(record),
+      profileRevision: Math.max(
+        profileRevisions.get(playerId) ?? 0,
+        record?.profileRevision ?? 0,
+      ),
+      sequence: playerId ? bumpBridgeProfileReadSequence(playerId) : null,
+      used: false,
+    };
+    bridgeProfileReadTickets.set(ticket, context);
+    return ticket;
+  }
+  function commitBridgeProfileRead(ticket, profile) {
+    const context = ticket && bridgeProfileReadTickets.get(ticket);
+    if (!context) return false;
+    if (context.used) {
+      const successful = context.successfulCommit;
+      if (!successful) return false;
+      let serialized;
+      try {
+        serialized = JSON.stringify(sanitize(profile));
+      } catch {
+        return false;
+      }
+      const indexedPlayerId =
+        credentials.get(context.authorizationDigest) || null;
+      const record = accounts.get(successful.playerId);
+      const currentRaw = record?.sections?.["/api/me"]?.latestObservation
+        ?.rawIsData
+        ? record.sections["/api/me"].data
+        : record?.sections?.["/api/me"]?.latestObservation?.raw;
+      return Boolean(
+        serialized === successful.serialized &&
+        indexedPlayerId === successful.playerId &&
+        Math.max(
+          profileRevisions.get(successful.playerId) ?? 0,
+          record?.profileRevision ?? 0,
+        ) === successful.profileRevision &&
+        bridgeProfileReadSequences.get(successful.playerId) ===
+          successful.sequence &&
+        record?.sections?.["/api/me"]?.latestObservation?.source === "bridge" &&
+        JSON.stringify(currentRaw) === successful.serialized,
+      );
+    }
+    context.used = true;
+    const indexedPlayerId =
+      credentials.get(context.authorizationDigest) || null;
+    if (
+      !context.identityValid ||
+      !context.identityKnown ||
+      !context.playerId ||
+      (context.indexedPlayerId &&
+        indexedPlayerId !== context.indexedPlayerId) ||
+      (indexedPlayerId && indexedPlayerId !== context.playerId) ||
+      (!indexedPlayerId && !context.verifiedId)
+    )
+      return false;
+    if (bridgeProfileReadSequences.get(context.playerId) !== context.sequence)
+      return false;
+    const record = accounts.get(context.playerId);
+    const currentProfileRevision = Math.max(
+      profileRevisions.get(context.playerId) ?? 0,
+      record?.profileRevision ?? 0,
+    );
+    if (
+      (context.hadRecord && !record) ||
+      (!context.hadRecord && record) ||
+      currentProfileRevision !== context.profileRevision ||
+      (record && (record.profileRevision ?? 0) !== context.profileRevision) ||
+      record?.revokedHashes?.includes(context.authorizationDigest) ||
+      String(profile?.playerId) !== context.playerId
+    )
+      return false;
+    try {
+      saveBridgeProfileForDigest(context.authorizationDigest, profile);
+      const sanitized = sanitize(profile);
+      context.successfulCommit = {
+        playerId: context.playerId,
+        serialized: JSON.stringify(sanitized),
+        profileRevision: Math.max(
+          profileRevisions.get(context.playerId) ?? 0,
+          accounts.get(context.playerId)?.profileRevision ?? 0,
+        ),
+        sequence: bridgeProfileReadSequences.get(context.playerId),
+      };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function beginBridgeObservation(
+    authorization,
+    path,
+    { verifiedPlayerId } = {},
+  ) {
+    if (
+      typeof authorization !== "string" ||
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
+      typeof path !== "string"
+    )
+      return null;
+    let parsed;
+    try {
+      parsed = new URL(path, "https://cargohustle.online");
+    } catch {
+      return null;
+    }
+    if (
+      parsed.origin !== "https://cargohustle.online" ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.pathname === "/api/me" ||
+      !isSnapshotPath(parsed.pathname)
+    )
+      return null;
+    const digest = hash(authorization);
+    const indexedPlayerId = credentials.get(digest) || null;
+    const verifiedId =
+      Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+        ? String(verifiedPlayerId)
+        : null;
+    const playerId =
+      indexedPlayerId && verifiedId && indexedPlayerId !== verifiedId
+        ? null
+        : indexedPlayerId || verifiedId;
+    const record = playerId ? accounts.get(playerId) : null;
+    const section = record?.sections?.[parsed.pathname];
+    const ticket = Object.freeze({});
+    const context = {
+      digest,
+      indexedPlayerId,
+      verifiedId,
+      identityValid:
+        (verifiedPlayerId === undefined || verifiedId !== null) &&
+        Boolean(indexedPlayerId || verifiedId),
+      playerId,
+      path: parsed.pathname,
+      hadRecord: Boolean(record),
+      hadSection: Boolean(section),
+      sectionFingerprint: section ? hash(JSON.stringify(section)) : null,
+      profileRevision: Math.max(
+        profileRevisions.get(playerId) ?? 0,
+        record?.profileRevision ?? 0,
+      ),
+      sequence: playerId
+        ? bumpBridgeObservationSequence(playerId, parsed.pathname)
+        : null,
+      used: false,
+    };
+    bridgeObservationTickets.set(ticket, context);
+    return ticket;
+  }
+  function commitBridgeObservation(ticket, body) {
+    const context = ticket && bridgeObservationTickets.get(ticket);
+    if (!context || context.used) return false;
+    context.used = true;
+    const indexedPlayerId = credentials.get(context.digest) || null;
+    if (
+      !context.identityValid ||
+      !context.playerId ||
+      (context.indexedPlayerId &&
+        indexedPlayerId !== context.indexedPlayerId) ||
+      (indexedPlayerId && indexedPlayerId !== context.playerId) ||
+      (!indexedPlayerId && !context.verifiedId) ||
+      bridgeObservationSequences.get(
+        bridgeObservationSequenceKey(context.playerId, context.path),
+      ) !== context.sequence
+    )
+      return false;
+    const record = accounts.get(context.playerId);
+    const profileRevision = Math.max(
+      profileRevisions.get(context.playerId) ?? 0,
+      record?.profileRevision ?? 0,
+    );
+    const section = record?.sections?.[context.path];
+    if (
+      (context.hadRecord && !record) ||
+      (!context.hadRecord && record) ||
+      (context.hadSection &&
+        (!section ||
+          hash(JSON.stringify(section)) !== context.sectionFingerprint)) ||
+      (!context.hadSection && section) ||
+      profileRevision !== context.profileRevision ||
+      (record && (record.profileRevision ?? 0) !== context.profileRevision) ||
+      record?.revokedHashes?.includes(context.digest)
+    )
+      return false;
+
+    let sanitized;
+    let serialized;
+    try {
+      sanitized = sanitize(body);
+      serialized = JSON.stringify(sanitized);
+      if (
+        serialized === undefined ||
+        Buffer.byteLength(serialized) > 1024 * 1024
+      )
+        return false;
+      if (
+        !sanitized ||
+        typeof sanitized !== "object" ||
+        (!Array.isArray(sanitized) &&
+          (!Object.keys(sanitized).length ||
+            sanitized.error ||
+            sanitized.success === false ||
+            sanitized.partial === true))
+      )
+        return false;
+      const bossDetail = context.path.match(/^\/api\/bosses\/([1-9][0-9]*)$/);
+      if (
+        bossDetail &&
+        (!Number.isSafeInteger(sanitized.id) ||
+          sanitized.id !== Number(bossDetail[1]))
+      )
+        return false;
+    } catch {
+      return false;
+    }
+    const observedAt = now();
+    const previous = section;
+    const nextSection = observedSection(
+      previous,
+      context.path,
+      sanitized,
+      observedAt,
+      "bridge",
+      cooldown,
+    );
+    nextSection.latestObservation.sequence = context.sequence;
+    const current = record || {
+      schemaVersion: 1,
+      playerId: context.playerId,
+      sections: {},
+      credentialHashes: [context.digest],
+      profileRevision: context.profileRevision,
+    };
+    let updated = {
+      ...current,
+      sections: { ...current.sections, [context.path]: nextSection },
+      credentialHashes: [
+        ...new Set([...(current.credentialHashes || []), context.digest]),
+      ].slice(-8),
+    };
+    try {
+      updated = boundSections(updated, new Set([context.path, "/api/me"]));
+      persist(updated);
+      credentials.set(context.digest, context.playerId);
+      profileRevisions.set(context.playerId, context.profileRevision);
+      return true;
+    } catch {
+      if (!previous) return false;
+      try {
+        const fallbackRecord = accounts.get(context.playerId) || current;
+        const fallbackSection = fallbackRecord.sections[context.path];
+        if (!fallbackSection) return false;
+        const sections = {
+          ...fallbackRecord.sections,
+          [context.path]: {
+            ...fallbackSection,
+            dirty: true,
+            completeness: "unknown",
+            latestObservation: {
+              observedAt,
+              source: "bridge",
+              completeness: "unknown",
+              sequence: context.sequence,
+              rawOmitted: true,
+            },
+          },
+        };
+        persist(
+          boundSections(
+            { ...fallbackRecord, sections },
+            new Set([context.path, "/api/me"]),
+          ),
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
   const state = (record) => {
     const failedFeatures = safeFailedFeatures(
       (record?.health?.failedSections || []).map(featureForGamePath),
@@ -315,7 +918,13 @@ export function createAccountSnapshots({
       ),
     };
   };
-  function withMetadata(response, record, section, stale = false) {
+  function withMetadata(
+    response,
+    record,
+    section,
+    stale = false,
+    observationAt = null,
+  ) {
     const headers = new Headers(response.headers);
     headers.set("X-Madhouse-Game-Status", state(record).status);
     headers.set(
@@ -339,6 +948,10 @@ export function createAccountSnapshots({
       headers.set("X-Madhouse-Last-Success", String(record.lastSuccessAt));
     if (section?.updatedAt)
       headers.set("X-Madhouse-Section-Updated", String(section.updatedAt));
+    if (Number.isFinite(observationAt))
+      headers.set("X-Madhouse-Observed-At", String(observationAt));
+    if (section?.completeness === "unknown")
+      headers.set("X-Madhouse-Snapshot-Completeness", "unknown");
     headers.set(
       "X-Madhouse-Snapshot",
       !response.ok ? "none" : stale ? "stale" : "current",
@@ -383,7 +996,9 @@ export function createAccountSnapshots({
     init,
     { fallback = true, cache = true, forceFailedRefresh = false } = {},
   ) {
-    const path = new URL(url).pathname;
+    const requestUrl = new URL(url);
+    const path = requestUrl.pathname;
+    const queryBearing = Boolean(requestUrl.search);
     const authorization = new Headers(init.headers).get("authorization");
     if (
       !authorization ||
@@ -392,6 +1007,7 @@ export function createAccountSnapshots({
     )
       return json({ error: "game_session_required" }, 401);
     const digest = hash(authorization);
+    const method = (init.method || "GET").toUpperCase();
     let playerId = credentials.get(digest);
     let record = playerId ? accounts.get(playerId) : null;
     const requestHeaders = new Headers(init.headers);
@@ -420,7 +1036,9 @@ export function createAccountSnapshots({
       playerId = credentials.get(digest);
       record = accounts.get(playerId);
     }
-    const savedSection = record?.sections?.[path];
+    if (method === "GET" && playerId && isSnapshotPath(path) && !queryBearing)
+      bumpBridgeObservationSequence(playerId, path);
+    const savedSection = queryBearing ? null : record?.sections?.[path];
     const manualRefresh = Boolean(manualRefreshRequested && playerId && record);
     if (
       manualRefresh &&
@@ -438,6 +1056,7 @@ export function createAccountSnapshots({
         savedSection,
         Boolean(
           savedSection.dirty ||
+          savedSection.completeness === "unknown" ||
           now() - savedSection.updatedAt >= ttl ||
           record?.health?.failedSections?.includes(path) ||
           (path === "/api/me" &&
@@ -449,11 +1068,37 @@ export function createAccountSnapshots({
     // Boss cards can use a saved tattoo zone, but must not fetch missing zones.
     if (snapshotOnly && path.startsWith("/api/ornaments/zones/"))
       return json({ error: "snapshot_unavailable" }, 404);
-    const key = `${playerId || digest}:${path}:${fallback ? "view" : "live"}:${manualRefreshRequested ? "refresh" : "normal"}:${liveProfile ? "strict" : "regular"}`;
-    if (pending.has(key)) return (await pending.get(key)).clone();
+    const forwardedHeaderFingerprint = hash(
+      JSON.stringify(
+        [...requestHeaders.entries()]
+          .filter(([name]) => name !== "authorization")
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
+    );
+    const key = [
+      playerId || digest,
+      digest,
+      `${requestUrl.origin}${requestUrl.pathname}${requestUrl.search}`,
+      forwardedHeaderFingerprint,
+      method,
+      fallback ? "view" : "live",
+      cache ? "cache" : "no-cache",
+      forceFailedRefresh ? "force" : "ordinary",
+      manualRefreshRequested ? "refresh" : "normal",
+      liveProfile ? "strict" : "regular",
+    ].join(":");
+    // A shared request uses the first caller's Authorization, AbortSignal and
+    // dispatch gate. Keep such per-caller control contexts out of dedup, and
+    // only coalesce equivalent bodyless GETs with the same credential/options.
+    const canShare =
+      method === "GET" &&
+      init.body == null &&
+      init.signal == null &&
+      typeof init.canDispatch !== "function";
+    if (canShare && pending.has(key)) return (await pending.get(key)).clone();
     const run = async () => {
       record = playerId ? accounts.get(playerId) : null;
-      let section = record?.sections?.[path];
+      let section = queryBearing ? null : record?.sections?.[path];
       const mayManualRefresh = Boolean(
         manualRefresh &&
         record &&
@@ -465,6 +1110,7 @@ export function createAccountSnapshots({
         persist(record);
       }
       if (
+        !queryBearing &&
         fallback &&
         !mayManualRefresh &&
         !forceFailedRefresh &&
@@ -480,6 +1126,17 @@ export function createAccountSnapshots({
           true,
         );
       if (
+        !queryBearing &&
+        fallback &&
+        cache &&
+        !mayManualRefresh &&
+        !forceFailedRefresh &&
+        section?.dirty &&
+        Number.isFinite(section.revalidateAfter) &&
+        section.revalidateAfter > now()
+      )
+        return withMetadata(json(section.data), record, section, true);
+      if (
         cache &&
         !mayManualRefresh &&
         !forceFailedRefresh &&
@@ -489,12 +1146,17 @@ export function createAccountSnapshots({
         !(path === "/api/me" && record.health?.failedSections?.includes("*")) &&
         now() - section.updatedAt < ttl
       )
-        return withMetadata(json(section.data), record, section);
+        return withMetadata(
+          json(section.data),
+          record,
+          section,
+          section.completeness === "unknown",
+        );
       const revisionAtDispatch = record?.profileRevision ?? 0;
       const response = await upstream(url, upstreamInit);
       // Re-read after await so concurrent section updates cannot overwrite one another.
       record = playerId ? accounts.get(playerId) : null;
-      section = record?.sections?.[path];
+      section = queryBearing ? null : record?.sections?.[path];
       if (response.status === 401) {
         if (record && path === "/api/me")
           persist({
@@ -563,6 +1225,7 @@ export function createAccountSnapshots({
         );
       }
       let data;
+      let rejectedObservation;
       if (response.ok) {
         try {
           const reader = response.body?.getReader();
@@ -581,12 +1244,7 @@ export function createAccountSnapshots({
           }
           const text = Buffer.concat(chunks).toString("utf8");
           data = sanitize(JSON.parse(text));
-          if (
-            Buffer.byteLength(
-              JSON.stringify(merge(section?.data, data, path)),
-            ) >
-            1024 * 1024
-          )
+          if (Buffer.byteLength(JSON.stringify(data)) > 1024 * 1024)
             throw new Error("snapshot_section_too_large");
           if (
             !data ||
@@ -596,8 +1254,10 @@ export function createAccountSnapshots({
                 data.error ||
                 data.partial === true ||
                 data.success === false))
-          )
+          ) {
+            rejectedObservation = data;
             throw new Error();
+          }
           if (
             path === "/api/me" &&
             (!Number.isSafeInteger(data.playerId) ||
@@ -617,6 +1277,7 @@ export function createAccountSnapshots({
         }
       }
       if (data !== undefined) {
+        const rawObservation = data;
         if (path === "/api/me" && liveProfile && refreshProfileProgress)
           data = await refreshProfileProgress(data, authorization);
         if (!playerId) playerId = String(data.playerId);
@@ -632,19 +1293,19 @@ export function createAccountSnapshots({
             ? withMetadata(json(previous.data), record, previous, true)
             : json({ error: "snapshot_superseded" }, 409);
         }
+        if (queryBearing)
+          return withMetadata(json(data), record, undefined, false);
         const previousSection = record.sections[path];
-        const mergedData = merge(previousSection?.data, data, path);
-        const retainedPreviousData =
-          previousSection &&
-          !sameJsonValue(mergedData, normalizeMergePayload(data));
-        const sections = {
-          ...record.sections,
-          [path]: {
-            data: mergedData,
-            updatedAt: retainedPreviousData ? previousSection.updatedAt : now(),
-            ...(retainedPreviousData ? { dirty: true } : {}),
-          },
-        };
+        const observedAt = now();
+        const section = observedSection(
+          previousSection,
+          path,
+          rawObservation,
+          observedAt,
+          "direct",
+          cooldown,
+        );
+        const sections = { ...record.sections, [path]: section };
         const oldLevel = record.sections["/api/me"]?.data?.exp?.level;
         const newLevel = data?.exp?.level;
         if (
@@ -670,10 +1331,10 @@ export function createAccountSnapshots({
           revokedHashes: (record.revokedHashes || []).filter(
             (revoked) => revoked !== digest,
           ),
-          lastSuccessAt: now(),
+          lastSuccessAt: observedAt,
           health: {
             status: failedSections.length ? "unavailable" : "available",
-            checkedAt: now(),
+            checkedAt: observedAt,
             failedSections,
             failedAt: Object.fromEntries(
               Object.entries(record.health?.failedAt || {}).filter(
@@ -693,20 +1354,54 @@ export function createAccountSnapshots({
             credentials.delete(known);
         }
         credentials.set(digest, playerId);
+        bumpBridgeObservationSequence(playerId, path);
+        if (path === "/api/me") bumpBridgeProfileReadSequence(playerId);
         const rawResponse = !fallback || liveProfile;
-        const responseSection =
-          rawResponse && retainedPreviousData
-            ? { ...sections[path], updatedAt: now() }
-            : sections[path];
+        const responseSection = rawResponse
+          ? {
+              ...sections[path],
+              updatedAt: sections[path].latestObservation.observedAt,
+            }
+          : sections[path];
         return withMetadata(
           json(fallback && !liveProfile ? sections[path].data : data),
           record,
           responseSection,
-          Boolean(fallback && !liveProfile && retainedPreviousData),
+          Boolean(
+            !rawResponse &&
+            (sections[path].dirty || sections[path].completeness === "unknown"),
+          ),
+          observedAt,
         );
       }
       // Only transient failures use stale data. Other 4xx stay distinct.
-      if (response.status === 429 || response.status >= 500 || response.ok) {
+      if (
+        !queryBearing &&
+        (response.status === 429 || response.status >= 500 || response.ok)
+      ) {
+        if (response.ok && rejectedObservation && section && record) {
+          const observedAt = now();
+          const sections = {
+            ...record.sections,
+            [path]: {
+              ...section,
+              dirty: true,
+              completeness: "unknown",
+              latestObservation: {
+                raw: rejectedObservation,
+                observedAt,
+                source: "direct",
+                completeness: "unknown",
+                disposition: "rejected_invalid_or_partial",
+              },
+              revalidateAfter:
+                observedAt + Math.max(1, Math.min(cooldown, 60_000)),
+            },
+          };
+          persist({ ...record, sections });
+          record = accounts.get(playerId);
+          section = record?.sections?.[path];
+        }
         mark(record, "unavailable", path);
         record = accounts.get(playerId);
         return withMetadata(
@@ -729,11 +1424,12 @@ export function createAccountSnapshots({
     const promise = (reads.get(accountKey) || Promise.resolve()).then(run);
     const tail = promise.catch(() => {});
     reads.set(accountKey, tail);
-    pending.set(key, promise);
+    const pendingKey = canShare ? key : Symbol("snapshot-read");
+    pending.set(pendingKey, promise);
     try {
       return (await promise).clone();
     } finally {
-      pending.delete(key);
+      if (pending.get(pendingKey) === promise) pending.delete(pendingKey);
       if (reads.get(accountKey) === tail) reads.delete(accountKey);
     }
   }
@@ -791,7 +1487,8 @@ export function createAccountSnapshots({
     );
     if (
       !response.ok ||
-      response.headers.get("X-Madhouse-Snapshot") !== "current"
+      (response.headers.get("X-Madhouse-Snapshot") !== "current" &&
+        !response.headers.has("X-Madhouse-Observed-At"))
     )
       return response;
     // /api/me was itself failed (or no profile snapshot exists). Recheck its
@@ -831,7 +1528,6 @@ export function createAccountSnapshots({
     const workRead = method === "POST" && path === "/api/works/open";
     const authorization = new Headers(init.headers).get("authorization");
     const playerId = authorization && credentials.get(hash(authorization));
-    let record = accounts.get(playerId);
     if (
       method === "GET" &&
       isSnapshotPath(new URL(url).pathname) &&
@@ -839,66 +1535,14 @@ export function createAccountSnapshots({
     )
       return execute(url, init, { fallback: false, cache: false });
     const mutating = method !== "GET" && !workRead;
-    const isBattleAttack = /^\/api\/bosses\/battles\/[^/]+\/attack$/.test(path);
-    const kind = mutationKind(path);
-    const revisionBeforeMutation = record?.profileRevision ?? 0;
-    const priorInventoryDirty = new Map();
-    // Persist the revision barrier before dispatch. A GET already in flight
-    // can then never commit over a mutation whose outcome is still unknown.
-    if (mutating && record) {
-      const sections = { ...record.sections };
-      for (const [sectionPath, section] of Object.entries(sections)) {
-        if (!mutationAffectsSection(kind, sectionPath)) continue;
-        if (isBattleAttack && isInventoryPath(sectionPath))
-          priorInventoryDirty.set(
-            sectionPath,
-            section.inventoryDirty ?? section.dirty ?? false,
-          );
-        sections[sectionPath] = {
-          ...section,
-          dirty: true,
-          ...(isInventoryPath(sectionPath)
-            ? {
-                inventoryDirty:
-                  !kind ||
-                  (section.inventoryDirty ?? section.dirty ?? false) ||
-                  inventoryMutationAffects(path, sectionPath, true),
-              }
-            : {}),
-        };
-      }
-      record = {
-        ...record,
-        profileRevision: revisionBeforeMutation + 1,
-        sections,
-      };
-      persist(record);
-    }
+    const mutationTicket = mutating
+      ? beginMutation(authorization, method, path)
+      : null;
+    if (mutating && !commitMutationBarrier(mutationTicket))
+      return json({ error: "snapshot_mutation_barrier_unavailable" }, 503);
     const response = await upstream(url, init);
-    if (mutating && record && isBattleAttack && response.ok) {
-      let battleMayHaveFinished = true;
-      try {
-        const result = await response.clone().json();
-        battleMayHaveFinished = !(
-          result?.battle?.status === "active" && result?.battleFinished !== true
-        );
-      } catch {
-        // Unknown outcomes may contain rewards; retain the last snapshot but mark it stale.
-      }
-      const current = accounts.get(playerId);
-      if (
-        !battleMayHaveFinished &&
-        current?.profileRevision === revisionBeforeMutation + 1
-      ) {
-        const sections = { ...current.sections };
-        for (const [sectionPath, dirty] of priorInventoryDirty) {
-          const section = sections[sectionPath];
-          if (section)
-            sections[sectionPath] = { ...section, inventoryDirty: dirty };
-        }
-        persist({ ...current, sections });
-      }
-    }
+    if (mutationTicket) await settleMutation(mutationTicket, response);
+    const record = accounts.get(playerId);
     const friendList = method === "GET" && path === "/api/friends";
     if (response.status === 429 || response.status >= 500)
       mark(accounts.get(playerId), "unavailable", friendList ? path : "*");
@@ -979,47 +1623,22 @@ export function createAccountSnapshots({
         json(section.data),
         record,
         section,
-        now() - section.updatedAt >= ttl,
+        Boolean(
+          section.dirty ||
+          section.completeness === "unknown" ||
+          now() - section.updatedAt >= ttl ||
+          record.health?.failedSections?.includes("/api/me") ||
+          record.health?.failedSections?.includes("*") ||
+          (record.health?.status === "unavailable" &&
+            record.health.retryAt > now()),
+        ),
       );
     },
-    saveBridgeProfile(authorization, profile) {
-      const data = sanitize(profile);
-      if (!Number.isSafeInteger(data?.playerId) || data.playerId <= 0)
-        throw new Error("invalid_game_identity");
-      const digest = hash(authorization);
-      const playerId = String(data.playerId);
-      const previousPlayer = credentials.get(digest);
-      if (previousPlayer && previousPlayer !== playerId)
-        throw new Error("game_identity_changed");
-      const record = accounts.get(playerId) || {
-        schemaVersion: 1,
-        playerId,
-        sections: {},
-        credentialHashes: [],
-      };
-      let updated = {
-        ...record,
-        sections: { ...record.sections, "/api/me": { data, updatedAt: now() } },
-        credentialHashes: [
-          ...new Set([...(record.credentialHashes || []), digest]),
-        ].slice(-8),
-        revokedHashes: (record.revokedHashes || []).filter(
-          (value) => value !== digest,
-        ),
-        lastSuccessAt: now(),
-        health: {
-          ...(record.health || {}),
-          status: "available",
-          checkedAt: now(),
-          failedSections: (record.health?.failedSections || []).filter(
-            (path) => path !== "/api/me" && path !== "*",
-          ),
-        },
-      };
-      updated = boundSections(updated, new Set(["/api/me"]));
-      persist(updated);
-      credentials.set(digest, playerId);
-    },
+    saveBridgeProfile,
+    beginBridgeProfileRead,
+    commitBridgeProfileRead,
+    beginBridgeObservation,
+    commitBridgeObservation,
     routingIdentity(authorization) {
       const identity = this.identity(authorization);
       if (!identity) return null;
@@ -1073,7 +1692,7 @@ export function createAccountSnapshots({
       const playerId = authorization && credentials.get(hash(authorization));
       const record = accounts.get(playerId);
       if (!record || record.revokedHashes?.includes(hash(authorization)))
-        return { sections: {}, dirty: [] };
+        return { sections: {}, dirty: [], incomplete: [] };
       const entries = Object.entries(record.sections || {}).filter(([path]) =>
         isInventoryPath(path),
       );
@@ -1083,6 +1702,9 @@ export function createAccountSnapshots({
         ),
         dirty: entries
           .filter(([, section]) => section.inventoryDirty ?? section.dirty)
+          .map(([path]) => path),
+        incomplete: entries
+          .filter(([, section]) => section.completeness === "unknown")
           .map(([path]) => path),
       };
     },
@@ -1165,6 +1787,7 @@ export function createAccountSnapshots({
         section,
         Boolean(
           section.dirty ||
+          section.completeness === "unknown" ||
           now() - section.updatedAt >= ttl ||
           record.health?.failedSections?.includes(parsed.pathname) ||
           (parsed.pathname === "/api/me" &&
@@ -1175,6 +1798,8 @@ export function createAccountSnapshots({
       );
     },
     liveFetch,
+    beginMutation,
+    commitMutationBarrier,
     async fetch(url, init = {}) {
       if (
         (init.method || "GET").toUpperCase() === "GET" &&

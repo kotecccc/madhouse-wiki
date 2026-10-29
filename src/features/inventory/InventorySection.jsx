@@ -57,6 +57,7 @@ export function InventorySection({
   active,
   responses,
   dirtyPaths = [],
+  incompletePaths = [],
   playerLevel,
   target,
   refreshGeneration = 0,
@@ -295,6 +296,11 @@ export function InventorySection({
 
   return (
     <section className="inventory-section" aria-label="Инвентарь">
+      {paths.some((path) => incompletePaths.includes(path)) && (
+        <CardDescription>
+          Полнота сохранённых данных не подтверждена.
+        </CardDescription>
+      )}
       {nextItems.length > 0 && (
         <Button icon="loot" onClick={() => setNextOpen(true)}>
           Уровень {playerLevel + 1} · {nextItems.length}

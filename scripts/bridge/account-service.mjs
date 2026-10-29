@@ -6,6 +6,10 @@ import {
   sendWorkTaskOverBridge,
 } from "./profile-client.mjs";
 
+// In-process proof checked synchronously before a profile snapshot commits.
+export const bridgeProfileCurrent = Symbol("bridge-profile-current");
+export const bridgeReadCurrent = Symbol("bridge-read-current");
+
 function failure(code) {
   return Object.assign(new Error(code), { code });
 }
@@ -189,7 +193,13 @@ export function createBridgeAccountService({
       throw failure("binding_changed");
     if (String(result.profile.playerId) !== account.playerId)
       throw failure("account_mismatch");
-    return { profile: sanitize(result.profile) };
+    const output = { profile: sanitize(result.profile) };
+    Object.defineProperty(output, bridgeProfileCurrent, {
+      value: () =>
+        registry.isActive(result.identity) &&
+        accounts.getRevision(verifiedOwner) === account.revision,
+    });
+    return output;
   }
 
   async function read(
@@ -257,14 +267,27 @@ export function createBridgeAccountService({
       !Buffer.isBuffer(result.body)
     )
       throw failure("bridge_unavailable");
-    return result;
+    const output = { ...result };
+    Object.defineProperty(output, bridgeReadCurrent, {
+      value: () =>
+        registry.isActive(identity) &&
+        accounts.getRevision(verifiedOwner) === account.revision,
+    });
+    return output;
   }
 
   async function send(
     verifiedOwner,
     method,
     path,
-    { signal, body, callerAuthorization, validateCaller, canDispatch } = {},
+    {
+      signal,
+      body,
+      callerAuthorization,
+      validateCaller,
+      canDispatch,
+      beforeDispatch,
+    } = {},
   ) {
     const account = accounts.read(verifiedOwner);
     if (!account || !queueActionGate) throw failure("bridge_unavailable");
@@ -328,14 +351,27 @@ export function createBridgeAccountService({
                     accounts.getRevision(verifiedOwner) === account.revision &&
                     (validateCaller ? validateCaller() === true : true),
                   canDispatch,
-                  () =>
-                    queueActionGate.claim({
-                      authorization:
-                        callerAuthorization ?? account.authorization,
-                      method,
-                      path,
-                      body,
-                    }),
+                  () => {
+                    if (
+                      !queueActionGate.claim({
+                        authorization:
+                          callerAuthorization ?? account.authorization,
+                        method,
+                        path,
+                        body,
+                      })
+                    )
+                      return false;
+                    // The shared snapshot barrier is persisted after the
+                    // live gate check, before the TLS socket reaches HTTP.
+                    return (
+                      !beforeDispatch ||
+                      beforeDispatch({
+                        authorization: account.authorization,
+                        playerId: account.playerId,
+                      }) === true
+                    );
+                  },
                 ),
             }),
           ),

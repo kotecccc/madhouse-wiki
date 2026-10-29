@@ -147,6 +147,7 @@ export function App() {
   );
   const [inventoryResponses, setInventoryResponses] = useState({});
   const [inventoryDirty, setInventoryDirty] = useState([]);
+  const [inventoryIncomplete, setInventoryIncomplete] = useState([]);
   const inventoryPathsSet = useRef(
     new Set(
       inventoryCategories.flatMap(({ id }) =>
@@ -158,14 +159,24 @@ export function App() {
     if (!authenticated) {
       setInventoryResponses({});
       setInventoryDirty([]);
+      setInventoryIncomplete([]);
       return;
     }
     let cancelled = false;
     const updated = new Set();
     const unsubscribe = subscribeSessionData((event) => {
-      if (event.cleared) setInventoryResponses({});
-      else if (inventoryPathsSet.current.has(event.path) && event.data) {
+      if (event.cleared) {
+        setInventoryResponses({});
+        setInventoryDirty([]);
+        setInventoryIncomplete([]);
+      } else if (inventoryPathsSet.current.has(event.path) && event.data) {
         updated.add(event.path);
+        if (event.snapshotCompleteness)
+          setInventoryIncomplete((current) =>
+            event.snapshotCompleteness === "unknown"
+              ? [...new Set([...current, event.path])]
+              : current.filter((path) => path !== event.path),
+          );
         setInventoryDirty((current) =>
           current.filter((path) => path !== event.path),
         );
@@ -182,6 +193,14 @@ export function App() {
             setInventoryDirty(
               (saved.dirty || []).filter((path) => !updated.has(path)),
             );
+            setInventoryIncomplete((current) => [
+              ...new Set([
+                ...(saved.incomplete || []).filter(
+                  (path) => !updated.has(path),
+                ),
+                ...current.filter((path) => updated.has(path)),
+              ]),
+            ]);
             setInventoryResponses((current) => ({
               ...saved.sections,
               ...Object.fromEntries(
@@ -584,6 +603,7 @@ export function App() {
                     refreshGeneration={inventoryRefresh}
                     responses={inventoryResponses}
                     dirtyPaths={inventoryDirty}
+                    incompletePaths={inventoryIncomplete}
                     playerLevel={profileState.profile?.playerLevel}
                     target={inventoryTarget}
                     onNotice={setInventoryNotice}
