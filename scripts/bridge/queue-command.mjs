@@ -100,10 +100,17 @@ export async function isAllowedBridgeQueueCommand(request) {
         "business.refresh",
         "business.goal",
         "character.refresh",
+        "character.upgrade",
+        "character.start",
+        "character.startAll",
         "character.stop",
+        "favorites.set",
         "invitations.refresh",
         "subscription.stop",
+        "buddy.stop",
       ].includes(input?.command) ||
+      (input?.command === "buddy.resolve" &&
+        ["booster", "stash"].includes(input.args?.kind)) ||
       (["buddy.set", "friends.favorite"].includes(input?.command) &&
         Number.isSafeInteger(input.args?.playerId) &&
         input.args.playerId > 0 &&
