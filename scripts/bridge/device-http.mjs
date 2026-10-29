@@ -200,6 +200,7 @@ export function createBridgeDeviceHttp({
         "invalid_game_token",
         "account_not_configured",
         "device_unavailable",
+        "device_offline",
         "device_changed",
         "account_mismatch",
         "account_already_bound",

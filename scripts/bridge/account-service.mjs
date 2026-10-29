@@ -80,7 +80,11 @@ export function createBridgeAccountService({
       });
     } catch (error) {
       logBridgeFailure(error);
-      throw failure("bridge_unavailable");
+      throw failure(
+        error?.code === "bridge_offline"
+          ? "device_offline"
+          : "bridge_unavailable",
+      );
     }
     if (result.status === 401 || result.status === 403)
       throw failure("invalid_game_token");
@@ -225,7 +229,8 @@ export function createBridgeAccountService({
             body,
           }),
       });
-    } catch {
+    } catch (error) {
+      logBridgeFailure(error);
       throw failure("bridge_unavailable");
     }
     if (

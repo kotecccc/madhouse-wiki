@@ -49,6 +49,26 @@ const goodProfile = async ({ validateTunnel }) => {
   return { status: 200, body: Buffer.from('{"playerId":42,"telegramId":101}') };
 };
 
+test("profile diagnostics distinguish an offline device from an ambiguous transport failure", async () => {
+  let code = "bridge_offline";
+  const f = fixture(async () => {
+    throw Object.assign(new Error("private details"), { code });
+  });
+  try {
+    f.pair("101");
+    await assert.rejects(f.service.bind("101", "Bearer token"), {
+      code: "device_offline",
+    });
+    code = "tls_failed";
+    await assert.rejects(f.service.bind("101", "Bearer token"), {
+      code: "bridge_unavailable",
+    });
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
+
 test("queued mutation requires a matching live one-use permission", async () => {
   const gate = createQueueActionGate();
   let sent = 0;

@@ -14,18 +14,16 @@ export function queuedInvitationAdapter({
   const state = () => entry.controller.getSnapshot();
   const confirmed = (job) =>
     (entry.manualBattle.receipts ?? []).includes(job.id);
-  function finish(job, failed = false) {
+  function finish(job) {
     entry.manualBattle.pending = null;
-    if (!failed && !confirmed(job))
+    if (!confirmed(job))
       entry.manualBattle.receipts = [
         ...entry.manualBattle.receipts.slice(-127),
         job.id,
       ];
     save(entry);
     if (entry.storageFailed) throw new Error("automation_storage_unavailable");
-    return failed
-      ? { status: "failed", reason: "invitation_expired" }
-      : { status: "completed" };
+    return { status: "completed" };
   }
   function joined(job) {
     const current = state();
@@ -47,13 +45,9 @@ export function queuedInvitationAdapter({
     try {
       await refresh();
       if (joined(job)) return finish(job);
-      if (
-        job.args.expiresAt <= now() &&
-        !state().pendingInvitation &&
-        !state().needsRefresh &&
-        !state().error
-      )
-        return finish(job, true);
+      // Expiry only prevents a new acceptance. The battle may have been
+      // joined and ended while the response was lost, so it cannot prove
+      // that an already submitted acceptance failed.
       return { status: "uncertain", reason: "Проверяем результат." };
     } catch (error) {
       return {

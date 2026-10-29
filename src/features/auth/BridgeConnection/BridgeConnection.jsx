@@ -10,11 +10,16 @@ import "./BridgeConnection.css";
 const errors = {
   invalid_game_token: "Игровой токен недействителен. Введите новый.",
   device_unavailable: "Сначала подключите устройство и запустите мост.",
-  bridge_unavailable: "Мост недоступен. Проверьте соединение устройства.",
+  device_offline:
+    "Мост устройства не подключён. Откройте iSH или Терминал и запустите его.",
+  wiki_unreachable:
+    "Нет связи с Wiki. Проверьте интернет и повторите проверку состояния.",
+  bridge_unavailable:
+    "Не удалось проверить соединение с игрой через мост. Проверьте устройство и повторите попытку.",
   device_changed: "Устройство отключилось. Повторите проверку.",
   account_mismatch: "Этот токен относится к другому игровому аккаунту.",
   account_already_bound: "Игровой аккаунт уже привязан к другому пользователю.",
-  profile_unavailable: "Игра не ответила на запрос профиля. Попробуйте позже.",
+  profile_unavailable: "Игра не смогла вернуть профиль. Попробуйте позже.",
   profile_invalid: "Игра вернула непонятный ответ. Попробуйте позже.",
   direct_requests_in_flight:
     "Есть незавершённый запрос к игре. Подключение станет доступно после его проверки.",
@@ -55,16 +60,19 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
             setDevice(nextDevice);
             setStatus(nextStatus);
             setLoaded(true);
+            setError("");
           }
         })
         .catch((reason) => {
           if (
             !controller.signal.aborted &&
             current === statusRequestRef.current
-          )
+          ) {
+            setStatus(null);
             setError(
               errors[reason?.code] || "Не удалось получить состояние моста.",
             );
+          }
         });
     }
     function onVisibilityChange() {
@@ -101,6 +109,8 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
     try {
       await action();
     } catch (reason) {
+      if (reason?.code === "device_offline")
+        setStatus((current) => current && { ...current, device: "offline" });
       setError(
         errors[reason?.code] ||
           "Не удалось выполнить действие. Повторите попытку.",
@@ -112,10 +122,16 @@ export function BridgeConnection({ client, createInstallCommand, onBound }) {
   }
   async function refresh() {
     const current = ++statusRequestRef.current;
-    const [nextDevice, nextStatus] = await Promise.all([
-      client.list(),
-      client.status(),
-    ]);
+    let nextDevice, nextStatus;
+    try {
+      [nextDevice, nextStatus] = await Promise.all([
+        client.list(),
+        client.status(),
+      ]);
+    } catch (reason) {
+      if (current === statusRequestRef.current) setStatus(null);
+      throw reason;
+    }
     if (current !== statusRequestRef.current) return;
     setDevice(nextDevice);
     setStatus(nextStatus);

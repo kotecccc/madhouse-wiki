@@ -702,6 +702,10 @@ export function actionQueueCards(state, catalogue = {}) {
         !job.cancelRequested && ["running", "reconciling"].includes(job.status)
           ? "Если действие уже отправлено, оно может завершиться; результат останется на проверке."
           : null,
+      reconciliationNotice:
+        job.status === "reconciling"
+          ? "Результат действия ещё не подтверждён. Проверяем состояние игры."
+          : null,
       retryAt:
         ["queued", "waiting", "reconciling"].includes(job.status) &&
         retryDeadline > time &&

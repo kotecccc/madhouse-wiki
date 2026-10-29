@@ -31,6 +31,37 @@ function request(path, body, requestOrigin = origin) {
   });
 }
 
+test("profile diagnostics expose only allowed error codes to the verified owner", async () => {
+  let code = "device_offline";
+  const handler = createBridgeDeviceHttp({
+    service: {},
+    accountService: {
+      profile: async () => {
+        throw Object.assign(new Error("private details"), { code });
+      },
+    },
+    botToken,
+    origin,
+    now: () => now,
+    consume: () => true,
+  });
+  const send = () =>
+    handler(
+      request("/api/bridge/device", {
+        operation: "profile",
+        initData: initData(101),
+      }),
+      "127.0.0.1",
+    );
+  let response = await send();
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "device_offline" });
+  code = "private-error";
+  response = await send();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "bridge_unavailable" });
+});
+
 test("session renewal requires a current binding and preserves its deadline", async () => {
   let current = now;
   let device = { deviceId: "device", generation: 1 };

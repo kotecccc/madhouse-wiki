@@ -3,6 +3,7 @@ const ACCOUNT_STATES = new Set(["saved", "not_configured"]);
 const ERROR_CODES = new Set([
   "invalid_game_token",
   "device_unavailable",
+  "device_offline",
   "device_changed",
   "account_mismatch",
   "account_already_bound",
@@ -45,7 +46,7 @@ export function createBridgeDeviceClient({
         signal,
       });
     } catch {
-      throw failure("bridge_unavailable");
+      throw failure("wiki_unreachable");
     }
     let value;
     try {

@@ -99,6 +99,74 @@ function fakeController(initial = baseState(), handlers = {}) {
   return controller;
 }
 
+test("lost queued healing stays pending across restart until stock confirms it", async () => {
+  const controller = fakeController();
+  let sends = 0;
+  controller.useMedicine = async (_type, options) => {
+    assert.equal(
+      options.allowed({ operationId: "heal-op" }, controller.getSnapshot()),
+      true,
+    );
+    sends++;
+    return { confirmed: false };
+  };
+  let assistant = createBattleAssistant({ controller });
+  await assistant.use("heal_10", false, { queueId: "heal-job" });
+  assistant = createBattleAssistant({
+    controller,
+    saved: assistant.exportState(),
+  });
+  assert.equal(await assistant.reconcileQueuedHeal("heal-job"), false);
+  assert.equal(assistant.queuedState().pending.queueId, "heal-job");
+  controller.setSnapshot(
+    baseState({ medicines: [{ ...baseState().medicines[0], quantity: 0 }] }),
+  );
+  assert.equal(await assistant.reconcileQueuedHeal("heal-job"), true);
+  assert.equal(await assistant.reconcileQueuedHeal("heal-job"), true);
+  assert.equal(sends, 1);
+});
+
+test("lost queued medicine purchase needs both stock and wallet confirmation", async () => {
+  const controller = fakeController();
+  let sends = 0;
+  controller.buyMedicine = async ({ quote, allowed }) => {
+    assert.equal(
+      allowed(quote, { operationId: "buy-op" }, controller.getSnapshot(), 100),
+      true,
+    );
+    sends++;
+    return { confirmed: false };
+  };
+  const quote = {
+    type: "heal_10",
+    currency: "gold",
+    quantity: 2,
+    unitPrice: 5,
+    total: 10,
+  };
+  let assistant = createBattleAssistant({ controller });
+  await assistant.buy(quote, false, { queueId: "buy-job" });
+  assistant = createBattleAssistant({
+    controller,
+    saved: assistant.exportState(),
+  });
+  controller.setSnapshot(
+    baseState({ medicines: [{ ...baseState().medicines[0], quantity: 3 }] }),
+  );
+  assert.equal(
+    await assistant.reconcileQueuedPurchase("buy-job", async () => 100),
+    false,
+  );
+  assert.equal(assistant.queuedState().pending.queueId, "buy-job");
+  controller.acknowledgePurchase = () => {};
+  assert.equal(
+    await assistant.reconcileQueuedPurchase("buy-job", async () => 90),
+    true,
+  );
+  assert.equal(assistant.exportState().spent.gold, 10);
+  assert.equal(sends, 1);
+});
+
 test("healing settings validate known fields, integer limits and currency budgets", () => {
   const valid = enabledSettings();
   assert.equal(valid.items.heal_10.currency, "gold");

@@ -108,6 +108,23 @@ test("profile verification preserves expired-token and offline errors", async ()
   await assert.rejects(client.profile(), { code: "invalid_game_token" });
   code = "bridge_unavailable";
   await assert.rejects(client.profile(), { code: "bridge_unavailable" });
+  code = "device_offline";
+  await assert.rejects(client.profile(), { code: "device_offline" });
+  code = "profile_unavailable";
+  await assert.rejects(client.profile(), { code: "profile_unavailable" });
+});
+
+test("a network failure does not claim the device is offline or expose the error", async () => {
+  const client = createBridgeDeviceClient({
+    getInitData: () => "signed-data",
+    fetcher: async () => {
+      throw new Error("private-network-details");
+    },
+  });
+  await assert.rejects(client.status(), {
+    code: "wiki_unreachable",
+    message: "wiki_unreachable",
+  });
 });
 
 test("binding reports a pending direct request distinctly", async () => {

@@ -417,6 +417,13 @@ test("a cancellable running or uncertain action explains what can happen after r
   }
   assert.equal(byId.waiting.cancelNotice, null);
   assert.equal(byId["cancelled-request"].cancelNotice, null);
+  assert.match(byId.uncertain.reconciliationNotice, /ещё не подтверждён/);
+  assert.match(
+    byId["cancelled-request"].reconciliationNotice,
+    /ещё не подтверждён/,
+  );
+  assert.equal(byId.running.reconciliationNotice, null);
+  assert.equal(byId.waiting.reconciliationNotice, null);
 });
 
 test("shows floor and character progress using authoritative actor state", () => {

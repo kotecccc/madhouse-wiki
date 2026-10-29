@@ -192,6 +192,9 @@ export function BattleSeriesContent({ card }) {
       {card.cancelNotice && (
         <CardDescription>{card.cancelNotice}</CardDescription>
       )}
+      {card.reconciliationNotice && (
+        <CardDescription>{card.reconciliationNotice}</CardDescription>
+      )}
       {card.position && (
         <CardDescription>В очереди: {card.position}</CardDescription>
       )}
