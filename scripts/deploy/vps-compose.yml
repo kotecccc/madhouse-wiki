@@ -69,6 +69,7 @@ services:
       WIKI_PUBLIC_ORIGIN: https://madhouse-wiki.ru
       CONNECTOR_PUBLIC_ORIGIN: https://connect.madhouse-wiki.ru
       MADHOUSE_STORAGE_ORIGIN: https://storage.madhouse-wiki.ru/_madhouse-storage
+      MADHOUSE_GAME_EXECUTOR_ORIGIN: http://wiki:9095
 
 volumes:
   automation_state:

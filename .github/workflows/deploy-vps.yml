@@ -102,6 +102,7 @@ jobs:
             --env MADHOUSE_AUTOMATION_GAME_ENABLED=0 \
             --env ACCOUNT_SESSION_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
             --env WIKI_SESSION_KEY=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --env MADHOUSE_GAME_EXECUTOR_KEY=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
             --env MADHOUSE_STORAGE_ORIGIN=https://storage.test \
             --env MADHOUSE_STORAGE_TOKEN=synthetic-storage-token-for-smoke-only \
             --env WIKI_PUBLIC_ORIGIN=https://wiki.test \
@@ -131,6 +132,8 @@ jobs:
             --env WIKI_INITDATA_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
             --env ACCOUNT_SESSION_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
             --env WIKI_SESSION_KEY=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --env MADHOUSE_GAME_EXECUTOR_KEY=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+            --env MADHOUSE_GAME_EXECUTOR_ORIGIN=http://wiki:9095 \
             --env MADHOUSE_STORAGE_ORIGIN=https://storage.test \
             --env MADHOUSE_STORAGE_TOKEN=synthetic-storage-token-for-smoke-only \
             --memory 384m \

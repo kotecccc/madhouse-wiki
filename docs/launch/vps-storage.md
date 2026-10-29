@@ -18,6 +18,8 @@ services that need private storage) use:
 
 - `MADHOUSE_STORAGE_ORIGIN=https://storage.madhouse-wiki.ru/_madhouse-storage`
 - `MADHOUSE_STORAGE_TOKEN` from the secret store
+- `MADHOUSE_GAME_EXECUTOR_KEY`, a separate 32-byte hexadecimal secret shared
+  by the Wiki and connector for internal direct executor IPC
 
 The server loads the matching token from `/opt/madhouse-storage/.env`.
 Do not expose port 9091 publicly. The service only accepts allowlisted paths,

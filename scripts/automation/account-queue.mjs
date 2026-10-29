@@ -9,6 +9,7 @@ export function createAccountQueue(
     captureRequestContext = () => () => false,
     captureDispatchContext = () => (callback) => callback(),
     beforeDispatch = () => {},
+    forwardDispatchGuard = false,
   } = {},
 ) {
   const accounts = new Map();
@@ -38,9 +39,11 @@ export function createAccountQueue(
         try {
           job.init.signal?.throwIfAborted();
           beforeDispatch(job.url, job.init, job.isQueuedAttempt);
-          const { canDispatch, ...requestInit } = job.init;
+          const { canDispatch } = job.init;
           if (canDispatch && !canDispatch())
             throw new DOMException("Queued action cancelled", "AbortError");
+          const requestInit = { ...job.init };
+          if (!forwardDispatchGuard) delete requestInit.canDispatch;
           dispatched = true;
           const response = await job.runContext(() =>
             fetcher(job.url, requestInit),

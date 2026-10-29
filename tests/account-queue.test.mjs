@@ -284,3 +284,19 @@ test("dispatch guard cancels a stopped queued action and is not forwarded upstre
   await Promise.all([read, rejected]);
   assert.equal(calls.length, 1);
 });
+
+test("the physical transport can recheck an action guard after the actor lane", async () => {
+  let allowed = true;
+  const request = createAccountQueue(
+    async (_url, init) => {
+      allowed = false;
+      assert.equal(init.canDispatch(), false);
+      return Response.json({});
+    },
+    { forwardDispatchGuard: true },
+  );
+  await request("https://game/api/me", {
+    headers: { Authorization: "Bearer account" },
+    canDispatch: () => allowed,
+  });
+});

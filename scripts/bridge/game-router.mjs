@@ -103,7 +103,20 @@ export function createGameRouter({
             throw fail("game_route_changed");
           markDispatched();
           const response = await drainDirectResponse(
-            await directFetch(parsed.href, { ...init, redirect: "manual" }),
+            await directFetch(parsed.href, {
+              ...init,
+              redirect: "manual",
+              canDispatch: async () => {
+                if (init.canDispatch && !(await init.canDispatch()))
+                  return false;
+                const latest = await resolveRoute(verifiedIdentity);
+                return (
+                  latest?.policy === "direct" &&
+                  latest.epoch === route.epoch &&
+                  latest.owner == null
+                );
+              },
+            }),
           );
           if (
             ["GET", "HEAD"].includes(String(init.method || "GET").toUpperCase())

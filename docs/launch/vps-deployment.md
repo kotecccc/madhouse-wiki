@@ -110,6 +110,32 @@ does not enable the timers or Nginx site. It creates the mode-0600 environment
 files only when they do not already exist.
 
 `/opt/madhouse-wiki/storage.env` holds the shared `MADHOUSE_STORAGE_TOKEN`.
+It also holds the distinct `MADHOUSE_GAME_EXECUTOR_KEY`, a separately generated
+32-byte (64 hexadecimal character) secret shared by the Wiki and connector for
+their authenticated internal game-executor IPC. Generate it independently from
+the storage token, session keys, and bridge IPC key; do not reuse any of them.
+The connector targets the Wiki executor at `http://wiki:9095` on the private
+Compose network via `MADHOUSE_GAME_EXECUTOR_ORIGIN`. This executor listener is
+private to the Compose network and is separate from the public Wiki listener.
+Do not publish this internal route or place the executor key in `wiki.env`,
+`connector.env`, source control, image layers, logs, or command arguments. Both
+services fail closed if the key is missing or malformed; the connector also
+fails closed if its internal origin does not match the configured Compose
+target.
+
+The supported Compose deployment has one Wiki service and one executor; do not
+scale or start a second Wiki container against the same game egress. The release
+updater stops the old service before starting its replacement. The executor is
+in memory and never persists or replays HTTP mutations. The following optional
+Wiki settings are operational pacing choices, not published game limits:
+`MADHOUSE_GAME_GLOBAL_INTERVAL_MS` (default 300),
+`MADHOUSE_GAME_ACCOUNT_INTERVAL_MS` (1100), `MADHOUSE_GAME_QUEUE_LIMIT` (100),
+and `MADHOUSE_GAME_QUEUE_WAIT_MS` (20000). Set
+`MADHOUSE_GAME_DIAGNOSTICS=1` for bounded, credential-free dispatch events in
+the Wiki log. A 429 for a known credential delays that account; a 429 before a
+credential is known delays the direct VPS egress. Bridge HTTP requests are not
+included in this budget and remain for phase 2B.
+
 `/opt/madhouse-wiki/wiki.env` requires the current production values for
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_WEBHOOK_SECRET`,
 `WIKI_ADMIN_TELEGRAM_ID`, `CRON_SECRET`, `ACCOUNT_SESSION_KEY`, and

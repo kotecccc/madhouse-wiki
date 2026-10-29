@@ -20,12 +20,18 @@ import {
 } from "../bridge/release-http.mjs";
 import { bridgeBootstrapSha } from "../bridge/release-config.mjs";
 import { validateVpsSessionConfig } from "./vps-session-config.mjs";
+import { createBlobSessionStore } from "../../connector/blob-session-store.js";
+import { readAccountRecord } from "../../shared/wiki-session.js";
+import {
+  createDirectVpsConnector,
+  createDirectVpsOwner,
+} from "../game/direct-vps.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const role = process.argv[2] || process.env.MADHOUSE_SERVICE;
 if (!new Set(["wiki", "connector"]).has(role))
   throw new Error("MADHOUSE_SERVICE must be wiki or connector");
-validateVpsSessionConfig(process.env);
+validateVpsSessionConfig({ ...process.env, MADHOUSE_SERVICE: role });
 
 if (role === "wiki") {
   const catalogueFile = resolve(
@@ -113,7 +119,48 @@ const json = (body, status = 200, headers = {}) =>
 
 let apiHandlers;
 let automationRuntime;
+let directBoundary;
+let directPrivateServer;
 if (role === "wiki") {
+  const accountStore = createBlobSessionStore();
+  const direct = createDirectVpsOwner({
+    env: process.env,
+    resolvePlayer: (authorization) =>
+      automationRuntime?.gamePlayerId(authorization),
+    credentialCurrent: (authorization) =>
+      Boolean(automationRuntime) &&
+      automationRuntime.gameCredentialCurrent(authorization),
+    bindingCurrent: async ({ accountPath, revision }) => {
+      const record = await readAccountRecord(
+        accountStore,
+        process.env.ACCOUNT_SESSION_KEY,
+        accountPath,
+      );
+      return record?.revision === revision;
+    },
+  });
+  directBoundary = direct.boundary;
+  const directFetch = (url, init = {}) => {
+    const originalCheck = init.canDispatch;
+    const authorization = new Headers(init.headers).get("authorization");
+    return direct.wikiFetch(url, {
+      ...init,
+      canDispatch: async () =>
+        (!originalCheck || (await originalCheck())) &&
+        (!authorization ||
+          !automationRuntime ||
+          automationRuntime.gameCredentialCurrent(authorization)),
+    });
+  };
+  directPrivateServer = direct.server;
+  // Acquire the private listener before automation boot can send anything.
+  await new Promise((resolveListen, reject) => {
+    directPrivateServer.once("error", reject);
+    directPrivateServer.listen(9095, "0.0.0.0", () => {
+      directPrivateServer.removeListener("error", reject);
+      resolveListen();
+    });
+  });
   const [catalogue, raids, feedback, analytics, cleanup, bot, raidsSync] =
     await Promise.all([
       import("../../api/catalogue.js"),
@@ -128,6 +175,7 @@ if (role === "wiki") {
   automationRuntime = await createAutomationRuntime({
     root,
     bridge: bridgeLab?.runtime || null,
+    gameFetcher: directFetch,
   });
   apiHandlers = new Map([
     ["/api/automation/state", automationRuntime.nodeHandler],
@@ -137,9 +185,13 @@ if (role === "wiki") {
     [
       "/api/catalogue",
       catalogue.createCatalogueHandler({
-        ...(automationRuntime.bridgeActive
-          ? { fetcher: automationRuntime.gameFetch }
-          : {}),
+        fetcher: (url, init) =>
+          (automationRuntime.bridgeActive
+            ? automationRuntime.gameFetch
+            : directFetch)(url, {
+            ...init,
+            gameSource: "catalogue",
+          }),
         onCatalogue: automationRuntime.updateCatalogue,
       }),
     ],
@@ -157,12 +209,14 @@ if (role === "wiki") {
     ["/api/telegram/raids-sync", raidsSync.default],
   ]);
 } else {
+  const directFetch = createDirectVpsConnector({ env: process.env });
   const makeConnectorHandler = (endpoint) =>
     createVercelConnectorHandler({
       wikiOrigin,
       wikiOrigins,
       connectorOrigin,
       endpoint,
+      fetcher: directFetch,
       ...(bridgeLab?.guard ? { connectorGuard: bridgeLab.guard } : {}),
     });
   apiHandlers = new Map([
@@ -379,6 +433,8 @@ server.listen(
 
 server.once("close", () => {
   automationRuntime?.close();
+  directBoundary?.close();
+  directPrivateServer?.close();
   bridgeLab?.privateServer?.close();
   bridgeLab?.runtime?.close();
 });

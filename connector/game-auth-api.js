@@ -142,6 +142,7 @@ export function createConnectorApi({
       return json({ error: "invalid_request" }, 400);
     }
     const exchange = async (registerVerified) => {
+      let authResponseReceived = false;
       try {
         const result = await fetcher(UPSTREAM + "/api/auth/telegram", {
           method: "POST",
@@ -154,9 +155,10 @@ export function createConnectorApi({
           redirect: "error",
           signal: AbortSignal.timeout(20000),
         });
+        authResponseReceived = true;
         if (result.status >= 500) {
           await result.body?.cancel();
-          return json({ error: "game_unavailable" }, 502);
+          return json({ error: "game_result_unknown" }, 502);
         }
         if (!result.ok) {
           await result.body?.cancel();
@@ -242,8 +244,18 @@ export function createConnectorApi({
           ...experience,
           ...(activeBossBattle ? { activeBossBattle } : {}),
         });
-      } catch {
-        return json({ error: "game_unavailable" }, 502);
+      } catch (error) {
+        // The internal response may have been lost after the auth POST reached
+        // the game. A fresh launch must not automatically repeat that POST.
+        return json(
+          {
+            error:
+              error?.notDispatched && !authResponseReceived
+                ? "game_unavailable"
+                : "game_result_unknown",
+          },
+          502,
+        );
       }
     };
     if (!withGameSessionLease) return exchange();

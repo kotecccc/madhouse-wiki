@@ -42,7 +42,8 @@ async function hmac(key, value) {
   return new Uint8Array(await subtle.sign("HMAC", cryptoKey, utf8(value)));
 }
 
-async function readAccountRecord(store, encryptionKey, accountPath) {
+export async function readAccountRecord(store, encryptionKey, accountPath) {
+  if (!sessionPath(accountPath || "")) return null;
   const stored = await store.read(accountPath);
   if (!stored) return null;
   try {

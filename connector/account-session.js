@@ -283,6 +283,7 @@ export function createAccountSessions({
       // its own Telegram identity field must match signed Wiki launch identity.
       const verificationSignal = AbortSignal.timeout(15000);
       const verificationOptions = {
+        gameBinding: { accountPath: id, revision: found.record.revision },
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
@@ -297,10 +298,10 @@ export function createAccountSessions({
           let me;
           for (let attempt = 0; attempt < 3; attempt++) {
             verificationSignal.throwIfAborted();
-            me = await fetcher(
-              "https://cargohustle.online/api/me",
-              verificationOptions,
-            );
+            me = await fetcher("https://cargohustle.online/api/me", {
+              ...verificationOptions,
+              gameAttempt: attempt + 1,
+            });
             if (![500, 502, 503, 504].includes(me.status)) break;
             await me.body?.cancel();
             if (attempt === 2) throw new Error("game_unavailable");

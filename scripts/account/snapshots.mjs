@@ -286,6 +286,8 @@ export function createAccountSnapshots({
     if (!playerId && path !== "/api/me") {
       const identity = await read("https://cargohustle.online/api/me", {
         headers: { Authorization: authorization },
+        signal: init.signal,
+        canDispatch: init.canDispatch,
       });
       if (!identity.ok) return identity;
       playerId = credentials.get(digest);
@@ -381,6 +383,8 @@ export function createAccountSnapshots({
           // last-good section data is safe to return.
           const identity = await upstream("https://cargohustle.online/api/me", {
             headers: { Authorization: authorization },
+            signal: init.signal,
+            canDispatch: init.canDispatch,
           });
           let identityData;
           if (identity.ok) {
@@ -677,7 +681,12 @@ export function createAccountSnapshots({
     for (const path of retryPaths) {
       const result = await execute(
         new URL(path, url),
-        { method: "GET", headers: { Authorization: authorization } },
+        {
+          method: "GET",
+          headers: { Authorization: authorization },
+          signal: init.signal,
+          canDispatch: init.canDispatch,
+        },
         { fallback: false, cache: false, forceFailedRefresh: true },
       );
       if (result.status === 401) return result;
@@ -781,6 +790,34 @@ export function createAccountSnapshots({
     return response;
   }
   return {
+    credentialPlayerId(authorization) {
+      if (!authorization) return null;
+      const digest = hash(authorization);
+      const playerId = credentials.get(digest);
+      if (accounts.get(playerId)?.revokedHashes?.includes(digest)) return null;
+      const value = Number(playerId);
+      return Number.isSafeInteger(value) && value > 0 ? value : null;
+    },
+    credentialCurrent(authorization) {
+      if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
+        return false;
+      const digest = hash(authorization);
+      const record = accounts.get(credentials.get(digest));
+      if (record?.revokedHashes?.includes(digest)) return false;
+      const parts = authorization.slice(7).split(".");
+      if (parts.length === 3) {
+        try {
+          const claims = JSON.parse(
+            Buffer.from(parts[1], "base64url").toString("utf8"),
+          );
+          if (Number.isFinite(claims.exp) && claims.exp * 1000 <= now())
+            return false;
+        } catch {
+          // Unknown credentials must still be verified by the game.
+        }
+      }
+      return true;
+    },
     bridgeProfile(authorization) {
       const digest = hash(authorization);
       const playerId = credentials.get(digest);

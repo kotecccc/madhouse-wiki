@@ -275,6 +275,7 @@ export function createAutomationService({
   }
   fetcher = createGameOutageFetch({
     fetcher: createAccountQueue(fetcher, {
+      forwardDispatchGuard: true,
       accountKey: (authorization) =>
         [...actors.values()].find((entry) => entry.credential === authorization)
           ?.playerId ??

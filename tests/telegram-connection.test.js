@@ -571,6 +571,28 @@ test("temporary game failures request fresh launches and never replay initData",
   assert.equal(new Set(exchanged).size, 3);
 });
 
+test("an unknown auth outcome never starts another exchange", async () => {
+  let launches = 0;
+  let exchanges = 0;
+  const conn = createConnection({
+    createClient: () =>
+      client({
+        openWebview: async () => {
+          launches++;
+          return { url: launch };
+        },
+      }),
+    pause: async () => {},
+    exchange: async () => {
+      exchanges++;
+      throw new Error("game_result_unknown");
+    },
+  });
+  await assert.rejects(conn.gameLogin("42"), /game_result_unknown/);
+  assert.equal(launches, 1);
+  assert.equal(exchanges, 1);
+});
+
 test("repeated signed launches and permanent game rejection are not replayed", async () => {
   for (const category of ["game_unavailable", "game_auth_rejected"]) {
     let launches = 0,
@@ -614,7 +636,7 @@ test("cancellation stops recovery before requesting another signed launch", asyn
   assert.equal(launches, 1);
 });
 
-test("game 5xx are temporary outages rather than rejected Telegram credentials", async () => {
+test("game 5xx leave an auth exchange outcome unknown", async () => {
   for (const upstream of [400, 401, 403, 429, 500, 502, 503, 504]) {
     let calls = 0;
     const api = createConnectorApi({
@@ -644,7 +666,7 @@ test("game 5xx are temporary outages rather than rejected Telegram credentials",
     assert.equal(
       (await response.json()).error,
       upstream >= 500
-        ? "game_unavailable"
+        ? "game_result_unknown"
         : upstream === 429
           ? "try_later"
           : "game_auth_rejected",

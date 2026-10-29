@@ -65,54 +65,57 @@ export async function createAutomationRuntime({
     readProgress: readPlayerProgress,
     origin: env.WIKI_PUBLIC_ORIGIN,
   });
-  const proxy = createProxy(transport.fetch, {
-    denyGameCredential: isWikiSessionCredential,
-    storedFetch: async (url, init) => {
-      const authorization = new Headers(init.headers).get("authorization");
-      let verified = null;
-      if (authorization?.startsWith("Bearer ") && wikiAuthority) {
-        try {
-          verified = await wikiAuthority.verify(authorization.slice(7));
-        } catch {
-          throw Object.assign(new Error("wiki_session_store_unavailable"), {
-            status: 503,
-          });
+  const proxy = createProxy(
+    (url, init) => transport.fetch(url, { ...init, gameSource: "proxy" }),
+    {
+      denyGameCredential: isWikiSessionCredential,
+      storedFetch: async (url, init) => {
+        const authorization = new Headers(init.headers).get("authorization");
+        let verified = null;
+        if (authorization?.startsWith("Bearer ") && wikiAuthority) {
+          try {
+            verified = await wikiAuthority.verify(authorization.slice(7));
+          } catch {
+            throw Object.assign(new Error("wiki_session_store_unavailable"), {
+              status: 503,
+            });
+          }
         }
-      }
-      if (verified?.legacyAuthorization) {
-        const playerId = snapshots.resolveStoredOwner(
-          verified.legacyAuthorization,
-          verified.telegramUserId,
-        );
-        if (!playerId)
-          return new Response(
-            JSON.stringify({ error: "snapshot_unavailable" }),
-            {
-              status: 404,
-              headers: {
-                "Content-Type": "application/json",
-                "Cache-Control": "private, no-store",
-              },
-            },
+        if (verified?.legacyAuthorization) {
+          const playerId = snapshots.resolveStoredOwner(
+            verified.legacyAuthorization,
+            verified.telegramUserId,
           );
-        verified = { ...verified, playerId };
-      }
-      if (verified && bridge) {
-        const owner = bridge.ownerForPlayer(String(verified.playerId));
-        if (owner && owner !== verified.telegramUserId)
-          return new Response(null, {
-            status: 401,
-            headers: { "Cache-Control": "private, no-store" },
+          if (!playerId)
+            return new Response(
+              JSON.stringify({ error: "snapshot_unavailable" }),
+              {
+                status: 404,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Cache-Control": "private, no-store",
+                },
+              },
+            );
+          verified = { ...verified, playerId };
+        }
+        if (verified && bridge) {
+          const owner = bridge.ownerForPlayer(String(verified.playerId));
+          if (owner && owner !== verified.telegramUserId)
+            return new Response(null, {
+              status: 401,
+              headers: { "Cache-Control": "private, no-store" },
+            });
+        }
+        if (verified)
+          return snapshots.readStored(url, init, {
+            verifiedWiki: true,
+            verifiedPlayerId: verified.playerId,
           });
-      }
-      if (verified)
-        return snapshots.readStored(url, init, {
-          verifiedWiki: true,
-          verifiedPlayerId: verified.playerId,
-        });
-      return transport.readStored(url, init);
+        return transport.readStored(url, init);
+      },
     },
-  });
+  );
   let catalogue;
   const getCatalogue = () => (catalogue ??= readKnowledgeBase(root));
   const telegram = env.TELEGRAM_BOT_TOKEN
@@ -163,8 +166,10 @@ export async function createAutomationRuntime({
     : null;
   const service = createAutomationService({
     store,
-    fetcher: transport.liveFetch,
-    snapshotFetch: transport.fetch,
+    fetcher: (url, init) =>
+      transport.liveFetch(url, { ...init, gameSource: "automation" }),
+    snapshotFetch: (url, init) =>
+      transport.fetch(url, { ...init, gameSource: "automation" }),
     ...(bridge ? { queueActionGate: bridge.queueActionGate } : {}),
     ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     accountHealth: snapshots.health,
@@ -172,6 +177,7 @@ export async function createAutomationRuntime({
       const response = await transport.fetch(
         "https://cargohustle.online/api/me",
         {
+          gameSource: "identity",
           headers: {
             Authorization: authorization,
             "X-Madhouse-Snapshot-Only": "1",
@@ -369,6 +375,8 @@ export async function createAutomationRuntime({
     handle,
     proxy,
     gameFetch: transport.fetch,
+    gameCredentialCurrent: snapshots.credentialCurrent,
+    gamePlayerId: snapshots.credentialPlayerId,
     bridgeActive: Boolean(bridge),
     updateCatalogue(model) {
       catalogue = model;

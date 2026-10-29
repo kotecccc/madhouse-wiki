@@ -50,6 +50,15 @@ function queueFetcher(steps) {
   return { fetcher, calls };
 }
 
+test("verified automation credentials retain their player scope without a profile snapshot", () => {
+  const store = memoryStore();
+  store.write("41", { credential: "Bearer saved" });
+  const snapshots = createAccountSnapshots({ store });
+  assert.equal(snapshots.identity("Bearer saved"), null);
+  assert.equal(snapshots.credentialPlayerId("Bearer saved"), 41);
+  assert.equal(snapshots.credentialPlayerId("Bearer unknown"), null);
+});
+
 test("identity snapshot returns only verified account identity and never numeric profile data", async () => {
   const queue = queueFetcher([
     reply({

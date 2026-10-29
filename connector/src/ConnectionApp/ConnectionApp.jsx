@@ -66,6 +66,8 @@ const messages = {
   telegram_unavailable: "Не удалось соединиться с Telegram.",
   game_auth_rejected: "Игра не приняла вход. Попробуйте подключиться заново.",
   game_unavailable: "Игра сейчас недоступна.",
+  game_result_unknown:
+    "Не удалось подтвердить результат подключения. Попробуйте позже.",
   bridge_route_required:
     "Этот аккаунт подключён через мост. Запустите мост и используйте сохранённый игровой токен.",
   invalid_wiki_identity: "Откройте Wiki заново через меню бота Telegram.",
