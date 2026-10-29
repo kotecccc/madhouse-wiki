@@ -162,6 +162,7 @@ test("saved reconciling action is not reported as clear when no transport fence 
       reason: "game_result_unconfirmed",
       pending: 1,
       autoCheck: false,
+      operation: "battle.attack",
     });
     assert.equal(game.calls.length, 0);
   });

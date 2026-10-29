@@ -802,6 +802,10 @@ export function createAutomationService({
     const state = entry.controller.getSnapshot();
     const queueReadyAt = queueNotBefore(entry);
     const queuedActions = entry.actionQueue.snapshot();
+    const recoveryOperation = (job) =>
+      ["battle.attack", "work.perform", "inventory"].includes(job?.type)
+        ? job.type
+        : null;
     const recovery = (() => {
       try {
         if (typeof store.readActiveBridgeAttempts !== "function")
@@ -816,13 +820,7 @@ export function createAutomationService({
           const matchingJob = queuedActions.find(
             (item) => item.id === attempt.operationId,
           );
-          const operation = [
-            "battle.attack",
-            "work.perform",
-            "inventory",
-          ].includes(matchingJob?.type)
-            ? matchingJob.type
-            : null;
+          const operation = recoveryOperation(matchingJob);
           const job = queuedActions.find(
             (item) =>
               item.id === attempt.operationId &&
@@ -860,6 +858,10 @@ export function createAutomationService({
               reason: "game_result_unconfirmed",
               pending: reconciling.length,
               autoCheck: Boolean(heartbeat) && !entry.storageFailed,
+              operation:
+                reconciling.length === 1
+                  ? recoveryOperation(reconciling[0])
+                  : null,
             }
           : { status: "clear", pending: 0, autoCheck: false };
       } catch {
