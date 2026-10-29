@@ -131,6 +131,55 @@ function opaqueId(key, playerId) {
     .digest("hex");
 }
 
+const BRIDGE_ATTEMPT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const BRIDGE_OPERATION_ID = /^[A-Za-z0-9_-]{8,120}$/;
+const BRIDGE_ATTEMPT_PHASES = new Set([
+  "prepared",
+  "dispatched",
+  "uncertain",
+  "completed",
+  "rejected",
+]);
+const BRIDGE_ATTEMPT_ACTIVE = new Set(["prepared", "dispatched", "uncertain"]);
+const BRIDGE_PHASE_TRANSITIONS = {
+  prepared: new Set(["dispatched", "uncertain", "rejected"]),
+  dispatched: new Set(["uncertain", "completed", "rejected"]),
+  uncertain: new Set(["completed", "rejected"]),
+  completed: new Set(),
+  rejected: new Set(),
+};
+
+function validateBridgeAttempt(attempt) {
+  if (
+    !attempt ||
+    typeof attempt !== "object" ||
+    Array.isArray(attempt) ||
+    Object.keys(attempt).sort().join(",") !==
+      "action,bindingRevision,createdAt,deviceGeneration,deviceId,id,operationId,phase,playerId,updatedAt"
+  )
+    throw new TypeError("invalid_bridge_attempt");
+  const playerId = normalizePlayerId(attempt.playerId);
+  if (
+    !BRIDGE_ATTEMPT_ID.test(attempt.id) ||
+    !BRIDGE_OPERATION_ID.test(attempt.operationId) ||
+    !BRIDGE_ATTEMPT_ID.test(attempt.deviceId) ||
+    !Number.isSafeInteger(attempt.bindingRevision) ||
+    attempt.bindingRevision < 1 ||
+    !Number.isSafeInteger(attempt.deviceGeneration) ||
+    attempt.deviceGeneration < 1 ||
+    typeof attempt.action !== "string" ||
+    !/^[a-z][a-z0-9._-]{0,63}$/.test(attempt.action) ||
+    !BRIDGE_ATTEMPT_PHASES.has(attempt.phase) ||
+    !Number.isSafeInteger(attempt.createdAt) ||
+    attempt.createdAt < 0 ||
+    !Number.isSafeInteger(attempt.updatedAt) ||
+    attempt.updatedAt < attempt.createdAt
+  )
+    throw new TypeError("invalid_bridge_attempt");
+  return { ...attempt, playerId };
+}
+
 function encrypt(key, id, record) {
   const plaintext = Buffer.from(JSON.stringify(record));
   if (plaintext.byteLength > MAX_RECORD_BYTES)
@@ -240,6 +289,11 @@ export function createAutomationStateStore({ directory }) {
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       record TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS bridge_attempts (
+      attempt_key TEXT PRIMARY KEY NOT NULL,
+      revision INTEGER NOT NULL CHECK (revision >= 1),
+      record TEXT NOT NULL
+    ) WITHOUT ROWID;
   `);
   for (const suffix of ["-wal", "-shm"]) {
     const sidecar = databasePath + suffix;
@@ -292,6 +346,18 @@ export function createAutomationStateStore({ directory }) {
   const saveGameOutage =
     db.prepare(`INSERT INTO game_outage (singleton, record) VALUES (1, ?)
     ON CONFLICT(singleton) DO UPDATE SET record = excluded.record`);
+  const insertBridgeAttempt = db.prepare(
+    "INSERT INTO bridge_attempts (attempt_key, revision, record) VALUES (?, 1, ?)",
+  );
+  const selectBridgeAttempt = db.prepare(
+    "SELECT revision, record FROM bridge_attempts WHERE attempt_key = ?",
+  );
+  const selectBridgeAttempts = db.prepare(
+    "SELECT attempt_key, revision, record FROM bridge_attempts",
+  );
+  const updateBridgeAttempt = db.prepare(
+    "UPDATE bridge_attempts SET revision = ?, record = ? WHERE attempt_key = ? AND revision = ?",
+  );
   const saveCooldown =
     db.prepare(`INSERT INTO queue_cooldown (singleton, ready_at, failures) VALUES (1, ?, ?)
     ON CONFLICT(singleton) DO UPDATE SET ready_at = excluded.ready_at, failures = excluded.failures`);
@@ -371,6 +437,108 @@ export function createAutomationStateStore({ directory }) {
       for (const suffix of ["-wal", "-shm"])
         if (existsSync(databasePath + suffix))
           chmodSync(databasePath + suffix, 0o600);
+    },
+    createBridgeAttempt(attempt) {
+      const value = validateBridgeAttempt(attempt);
+      const attemptKey = createHmac("sha256", key)
+        .update("automation-bridge-attempt:")
+        .update(value.id)
+        .digest("hex");
+      const record = { ...value, revision: 1 };
+      const encrypted = encrypt(key, attemptKey, record);
+      transaction(() => insertBridgeAttempt.run(attemptKey, encrypted));
+      for (const suffix of ["-wal", "-shm"])
+        if (existsSync(databasePath + suffix))
+          chmodSync(databasePath + suffix, 0o600);
+      return record;
+    },
+    readActiveBridgeAttempts() {
+      return selectBridgeAttempts
+        .all()
+        .map((row) => {
+          const record = decrypt(key, row.attempt_key, row.record);
+          if (
+            !record ||
+            record.revision !== row.revision ||
+            !BRIDGE_ATTEMPT_ID.test(record.id || "") ||
+            createHmac("sha256", key)
+              .update("automation-bridge-attempt:")
+              .update(record.id)
+              .digest("hex") !== row.attempt_key
+          )
+            throw new Error("bridge_attempt_corrupt");
+          const value = validateBridgeAttempt({
+            id: record.id,
+            playerId: record.playerId,
+            operationId: record.operationId,
+            deviceId: record.deviceId,
+            bindingRevision: record.bindingRevision,
+            deviceGeneration: record.deviceGeneration,
+            action: record.action,
+            phase: record.phase,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+          });
+          return { ...value, revision: row.revision };
+        })
+        .filter((record) => BRIDGE_ATTEMPT_ACTIVE.has(record.phase));
+    },
+    compareAndSetBridgeAttempt(id, expectedRevision, updates) {
+      if (
+        !BRIDGE_ATTEMPT_ID.test(id || "") ||
+        !Number.isSafeInteger(expectedRevision) ||
+        expectedRevision < 1 ||
+        !updates ||
+        typeof updates !== "object" ||
+        Array.isArray(updates) ||
+        Object.keys(updates).sort().join(",") !== "phase,updatedAt" ||
+        !BRIDGE_ATTEMPT_PHASES.has(updates.phase) ||
+        !Number.isSafeInteger(updates.updatedAt) ||
+        updates.updatedAt < 0
+      )
+        throw new TypeError("invalid_bridge_attempt_update");
+      const attemptKey = createHmac("sha256", key)
+        .update("automation-bridge-attempt:")
+        .update(id)
+        .digest("hex");
+      return transaction(() => {
+        const current = selectBridgeAttempt.get(attemptKey);
+        if (!current || current.revision !== expectedRevision) return null;
+        const record = decrypt(key, attemptKey, current.record);
+        if (!record || record.id !== id || record.revision !== expectedRevision)
+          throw new Error("bridge_attempt_corrupt");
+        const validated = validateBridgeAttempt({
+          id: record.id,
+          playerId: record.playerId,
+          operationId: record.operationId,
+          deviceId: record.deviceId,
+          bindingRevision: record.bindingRevision,
+          deviceGeneration: record.deviceGeneration,
+          action: record.action,
+          phase: record.phase,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        });
+        if (
+          !BRIDGE_PHASE_TRANSITIONS[validated.phase].has(updates.phase) ||
+          updates.updatedAt < validated.updatedAt
+        )
+          throw new TypeError("invalid_bridge_attempt_transition");
+        const next = {
+          ...validated,
+          phase: updates.phase,
+          updatedAt: updates.updatedAt,
+          revision: expectedRevision + 1,
+        };
+        const encrypted = encrypt(key, attemptKey, next);
+        const result = updateBridgeAttempt.run(
+          next.revision,
+          encrypted,
+          attemptKey,
+          expectedRevision,
+        );
+        return result.changes === 1 ? next : null;
+      });
     },
     list() {
       const rows = selectAll.all();
