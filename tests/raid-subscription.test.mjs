@@ -148,9 +148,46 @@ test("a lost join reply survives restart and is never submitted a second time", 
   await restored.worker.tick();
   assert.deepEqual(restored.calls, []);
   restored.setReconciliation("absent");
+  restored.setTime(1_015_000);
   await restored.worker.tick();
   assert.equal(restored.getSaved().phase, "waiting");
   assert.equal(restored.calls.filter((call) => call[0] === "join").length, 0);
+});
+
+test("uncertain invitation reads are throttled without repeating the join", async () => {
+  let time = 100_000;
+  let reads = 0;
+  let joins = 0;
+  let result = "unknown";
+  const worker = createRaidSubscription({
+    saved: {
+      enabled: true,
+      phase: "confirming",
+      checkpoint: {},
+      battleId: "battle-a",
+      lastAttemptedInvitationId: "invite-a",
+    },
+    now: () => time,
+    persist: () => true,
+    lock: () => true,
+    unlock: () => {},
+    priorityActive: () => true,
+    join: () => joins++,
+    reconcile: async () => {
+      reads++;
+      return result;
+    },
+  });
+  await worker.tick();
+  await worker.tick();
+  assert.equal(reads, 1);
+  assert.equal(joins, 0);
+  time += 15_000;
+  result = "joined";
+  await worker.tick();
+  assert.equal(reads, 2);
+  assert.equal(joins, 0);
+  assert.equal(worker.getSnapshot().phase, "fighting");
 });
 
 test("outage does not count towards the quiet period and fresh reads are required", async () => {
