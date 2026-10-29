@@ -257,6 +257,19 @@ export function ActionQueueSection({
           Откройте карточку, чтобы посмотреть детали и управлять задачей.
         </CardDescription>
       </Disclosure>
+      {authenticated && state?.recovery?.status === "unresolved" && (
+        <CardDescription>
+          Результат игрового действия пока неизвестен.{" "}
+          {state.recovery.autoCheck
+            ? "Сервер продолжит проверку."
+            : "Автоматическая проверка пока недоступна; связанные действия могут быть ограничены."}
+        </CardDescription>
+      )}
+      {authenticated && state?.recovery?.status === "unavailable" && (
+        <CardDescription>
+          Статус восстановления сейчас недоступен.
+        </CardDescription>
+      )}
       {!authenticated ? (
         <CardDescription>Войдите, чтобы увидеть свои действия.</CardDescription>
       ) : presence === "missing" ? (
