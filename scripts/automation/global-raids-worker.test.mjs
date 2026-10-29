@@ -176,9 +176,9 @@ test("a slow publish schedules the next attempt after completion", async () => {
   assert.equal(sends, 1);
 });
 
-test("five observations are insufficient and old observations do not meet the two-hour threshold", async () => {
+test("two observations are insufficient and old observations do not meet the two-hour threshold", async () => {
   let state = advanceGlobalRaidDay({}, start);
-  for (let i = 0; i < 5; i++)
+  for (let i = 0; i < 2; i++)
     state = await observe(
       state,
       "1",
@@ -189,8 +189,8 @@ test("five observations are insufficient and old observations do not meet the tw
   state = await observe(
     state,
     "1",
-    [invitation(5, start + 121 * minute)],
-    start + 121 * minute,
+    [invitation(2, start + 122 * minute)],
+    start + 122 * minute,
   );
   assert.equal(state.raids.length, 0);
 });
@@ -244,15 +244,15 @@ test("updates observed during Telegram send remain durable", async () => {
   assert.equal(data.pendingSend, false);
 });
 
-test("the sixth battle outside the two-hour window does not trigger a raid", async () => {
+test("fewer than three battles in the two-hour window do not trigger an active raid", async () => {
   const base = start - 4 * 60 * minute;
   let state = advanceGlobalRaidDay({}, base);
-  for (let i = 0; i < 6; i++)
+  for (let i = 0; i < 3; i++)
     state = await observe(
       state,
       "1",
-      [invitation(i, base + i * 25 * minute)],
-      base + i * 25 * minute,
+      [invitation(i, base + i * 61 * minute)],
+      base + i * 61 * minute,
     );
   assert.equal(state.raids.length, 0);
 });
@@ -362,4 +362,108 @@ test("the message omits the removed informational lines", async () => {
   const text = format(await series(), start + 5 * minute);
   assert.doesNotMatch(text, /Время: МСК|Замечено боёв · по приглашениям/);
   assert.match(text, /Игрок №42 · 6/);
+});
+
+test("existing TMA history makes the active raid visible and deduplicates overlapping accounts", async () => {
+  let state = advanceGlobalRaidDay({}, start);
+  const raw = {
+    items: [
+      invitation(9, start, {
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+        peerNickname: "Лидер",
+      }),
+    ],
+  };
+  const projected = await projectBossInvitations(
+    raw,
+    () => ({ name: "Босс" }),
+    start,
+  );
+  const history = [
+    {
+      leaderPlayerId: 42,
+      bossId: 7,
+      battleId: "old-1",
+      seenAt: start - 90 * minute,
+    },
+    {
+      leaderPlayerId: 42,
+      bossId: 7,
+      battleId: "old-2",
+      seenAt: start - 50 * minute,
+    },
+    { leaderPlayerId: 42, bossId: 7, battleId: "b9", seenAt: start - minute },
+  ];
+  state = observeGlobalInvitations(state, "1", raw, projected, start, history);
+  state = observeGlobalInvitations(state, "2", raw, projected, start, history);
+  assert.equal(state.raids.filter((row) => row.active).length, 1);
+  assert.equal(state.raids.find((row) => row.active).count, 3);
+  assert.match(format(state, start), /🔵 Идёт.*Лидер.*3/);
+});
+
+test("a stored history without a currently available invitation does not assert an active raid", () => {
+  const history = [
+    { leaderPlayerId: 42, bossId: 7, battleId: "old", seenAt: start - minute },
+  ];
+  const state = observeGlobalInvitations(
+    advanceGlobalRaidDay({}, start),
+    "1",
+    { items: [] },
+    [],
+    start,
+    history,
+  );
+  assert.equal(Object.keys(state.observations).length, 0);
+  assert.equal(state.raids.length, 0);
+});
+
+test("TMA histories from multiple accounts count a shared battle once even when one observation is older than the window", async () => {
+  let state = advanceGlobalRaidDay({}, start);
+  const raw = {
+    items: [
+      invitation(9, start, {
+        leaderPlayerId: 42,
+        inviterPlayerId: 42,
+        peerPlayerId: 42,
+      }),
+    ],
+  };
+  const projected = await projectBossInvitations(
+    raw,
+    () => ({ name: "Босс" }),
+    start,
+  );
+  const observations = [
+    { leaderPlayerId: 42, bossId: 7, battleId: "a", seenAt: start - minute },
+    { leaderPlayerId: 42, bossId: 7, battleId: "b", seenAt: start - minute },
+    { leaderPlayerId: 42, bossId: 7, battleId: "b9", seenAt: start - minute },
+  ];
+  state.observations.a = {
+    id: "a",
+    leaderPlayerId: 42,
+    bossId: 7,
+    firstSeen: start - 121 * minute,
+    lastSeen: start - 121 * minute,
+    sources: {},
+  };
+  state = observeGlobalInvitations(
+    state,
+    "1",
+    raw,
+    projected,
+    start,
+    observations,
+  );
+  state = observeGlobalInvitations(
+    state,
+    "2",
+    raw,
+    projected,
+    start,
+    observations,
+  );
+  assert.equal(state.raids.filter((row) => row.active).length, 1);
+  assert.equal(state.raids.find((row) => row.active).count, 3);
 });

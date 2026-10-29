@@ -380,6 +380,74 @@ test("TMA and global raids share one invitation read without battle detail reque
   }
 });
 
+test("global summary imports the saved TMA history on the shared invitation poll", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "global-existing-history-"));
+  let ctx = setup(directory);
+  try {
+    await ctx.service.identify(token);
+    const saved = ctx.store.read(101);
+    saved.raidObservations = [
+      {
+        leaderPlayerId: 42,
+        bossId: 7,
+        battleId: "old-1",
+        seenAt: now - 300_000,
+      },
+      {
+        leaderPlayerId: 42,
+        bossId: 7,
+        battleId: "old-2",
+        seenAt: now - 200_000,
+      },
+      {
+        leaderPlayerId: 42,
+        bossId: 7,
+        battleId: "old-3",
+        seenAt: now - 100_000,
+      },
+    ];
+    ctx.store.write(101, saved);
+    ctx.close();
+    ctx = setup(directory, {
+      globalRaids: true,
+      invitations: () => [
+        {
+          invitationId: "active-invite",
+          battleId: "old-3",
+          bossId: 7,
+          leaderPlayerId: 42,
+          inviterPlayerId: 42,
+          peerPlayerId: 42,
+          peerNickname: "Leader",
+          status: "pending",
+          battleStatus: "active",
+          expiresAtUtc: future,
+          battleExpiresAtUtc: future,
+        },
+      ],
+    });
+    await ctx.service.boot();
+    const entry = await ctx.service.identify(token);
+    await issue(ctx.service, entry, "history-read-01", "invitations.refresh");
+    const detected = ctx.service.snapshot(entry).detectedRaids;
+    const rows = ctx.store.readGlobalRaids().raids;
+    assert.equal(detected[0].count, 3);
+    assert.equal(rows[0].count, 3);
+    assert.equal(rows[0].active, true);
+    assert.equal(
+      ctx.calls.filter((c) => c.path === BOSS_INVITATIONS_PATH).length,
+      1,
+    );
+    assert.equal(
+      ctx.calls.filter((c) => /^\/api\/bosses\/battles\//.test(c.path)).length,
+      0,
+    );
+  } finally {
+    ctx.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("a slow shared invitation poll waits a full interval after completion", async () => {
   const directory = mkdtempSync(join(tmpdir(), "slow-shared-invitation-"));
   let release;
