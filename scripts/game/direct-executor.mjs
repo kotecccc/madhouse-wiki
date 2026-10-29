@@ -47,6 +47,10 @@ export function createDirectExecutor({
   // One durable reason per attempt. A result for one attempt cannot remove
   // another account/device restriction.
   const durableBlocks = new Map();
+  // An ambiguous transport remains fenced, but it is not an executing request.
+  // Mutation attempts normally have a durable block; safe reads can still need
+  // an in-memory transport fence until their relay is known to have stopped.
+  const volatileBlocks = new Map();
   let globalReadyAt = 0,
     timer = null,
     closed = false,
@@ -100,7 +104,10 @@ export function createDirectExecutor({
       item.delayReason = "identity_unverified_during_recovery";
       return Infinity;
     }
-    for (const block of durableBlocks.values()) {
+    for (const block of [
+      ...durableBlocks.values(),
+      ...volatileBlocks.values(),
+    ]) {
       if (
         canonical(block.accountId) === account ||
         (item.transport === "bridge" && block.deviceId === item.deviceId)
@@ -272,8 +279,17 @@ export function createDirectExecutor({
             })
             .finally(() => {
               if (candidate.quarantined) {
-                pump();
-                return;
+                const covered = [...durableBlocks.values()].some(
+                  (block) =>
+                    canonical(block.accountId) ===
+                      canonical(candidate.accountId) &&
+                    block.deviceId === candidate.deviceId,
+                );
+                if (!covered)
+                  volatileBlocks.set(candidate.id, {
+                    accountId: candidate.accountId,
+                    deviceId: candidate.deviceId,
+                  });
               }
               const account = canonical(candidate.accountId);
               const count = (activeAccounts.get(account) || 1) - 1;
@@ -461,6 +477,7 @@ export function createDirectExecutor({
         activeDirect,
         activeDevices: activeDevices.size,
         durableBlocks: durableBlocks.size,
+        volatileBlocks: volatileBlocks.size,
         accountsCoolingDown: [...accountCooldownUntil].filter(
           ([, until]) => until > now(),
         ).length,

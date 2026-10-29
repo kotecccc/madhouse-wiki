@@ -202,8 +202,33 @@ test("uncertain bridge attempt quarantines only its account and device", async (
   );
   const independent = executor.request(url, {}, { accountId: "b" });
   assert.equal((await independent).status, 200);
+  const sameDeviceAbort = new AbortController();
+  const sameDevice = executor.bridge(
+    () => response(),
+    {},
+    {
+      accountId: "c",
+      deviceId: "one",
+      signal: sameDeviceAbort.signal,
+    },
+  );
+  const sameAccountAbort = new AbortController();
+  const sameAccount = executor.bridge(
+    () => response(),
+    {},
+    {
+      accountId: "a",
+      deviceId: "two",
+      signal: sameAccountAbort.signal,
+    },
+  );
+  sameDeviceAbort.abort();
+  sameAccountAbort.abort();
+  await assert.rejects(sameDevice, (error) => error.notDispatched);
+  await assert.rejects(sameAccount, (error) => error.notDispatched);
   abort.abort();
   await assert.rejects(blocked, (error) => error.notDispatched);
-  assert.equal(executor.diagnostics().activeDevices, 1);
+  assert.equal(executor.diagnostics().activeDevices, 0);
+  assert.equal(executor.diagnostics().volatileBlocks, 1);
   executor.close();
 });
