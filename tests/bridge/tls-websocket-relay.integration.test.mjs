@@ -7,6 +7,7 @@ import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { createConnection } from "node:net";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { connect as connectTls } from "node:tls";
 import { test } from "node:test";
 import WebSocket from "ws";
@@ -189,7 +190,9 @@ for (const mode of ["lost", "rate-limited", "python-stop"])
           python = spawn(
             "python3",
             [
-              new URL("./fixtures/python-relay.py", import.meta.url).pathname,
+              fileURLToPath(
+                new URL("./fixtures/python-relay.py", import.meta.url),
+              ),
               process.env.MADHOUSE_TEST_BRIDGE_AGENT,
               String(bridge.address().port),
               String(game.address().port),
