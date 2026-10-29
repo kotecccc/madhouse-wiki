@@ -128,6 +128,16 @@ function requestGameOverBridge({
             reject(new Error("profile_incomplete"));
             return;
           }
+          if (
+            method === "POST" &&
+            /^\/api\/bosses\/invitations\/[A-Za-z0-9_-]{1,120}\/accept$/.test(
+              path,
+            )
+          )
+            console.info(
+              "madhouse-bridge-invitation-status",
+              response.statusCode,
+            );
           const retryAfter = response.headers["retry-after"];
           resolve({
             status: response.statusCode,
