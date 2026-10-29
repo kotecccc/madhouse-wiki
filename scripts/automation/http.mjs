@@ -78,6 +78,7 @@ export function createAutomationHttp({
             ? await service.refreshFriends(
                 entry,
                 request.headers.get("authorization"),
+                { ifStale: input?.ifStale === true },
               )
             : url.pathname.endsWith("/launch")
               ? await service.launch(entry, input?.activeBossBattle)

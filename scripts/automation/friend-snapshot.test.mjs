@@ -90,7 +90,7 @@ test("combat defers background friends and invitations but allows a requested fr
       0,
     );
     entry.busy = true;
-    await service.refreshFriends(entry, "Bearer account-a");
+    await service.refreshFriends(entry, "Bearer account-a", { ifStale: true });
     assert.equal(calls.filter((path) => path === "/api/friends").length, 0);
     entry.busy = false;
     await waitFor(
@@ -114,11 +114,13 @@ test("a complete friend snapshot stays account-isolated through a partial outage
   const directory = mkdtempSync(join(tmpdir(), "friend-snapshot-"));
   const store = createAutomationStateStore({ directory });
   let clock = 1000000,
-    partial = false;
+    partial = false,
+    friendReads = 0;
   const fetcher = async (url, init = {}) => {
     const parsed = new URL(url),
       auth = new Headers(init.headers).get("authorization");
     if (parsed.pathname === "/api/friends") {
+      friendReads++;
       const cursor = parsed.searchParams.get("cursor");
       if (auth === "Bearer account-b")
         return Response.json({ items: [row(8, "Other")], nextCursor: null });
@@ -184,6 +186,19 @@ test("a complete friend snapshot stays account-isolated through a partial outage
       /game_session_required/,
     );
     clock += 1000;
+    const readsBeforeReopen = friendReads;
+    const reopen = await handle(
+      new Request("https://example.test/api/automation/friends/refresh", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer account-a",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ ifStale: true }),
+      }),
+    );
+    assert.deepEqual(await reopen.json(), { scheduled: false });
+    assert.equal(friendReads, readsBeforeReopen);
     const refresh = await handle(
       new Request("https://example.test/api/automation/friends/refresh", {
         method: "POST",
@@ -198,6 +213,7 @@ test("a complete friend snapshot stays account-isolated through a partial outage
     await waitFor(
       () => service.friends(a, "Bearer account-a").updatedAt === clock,
     );
+    assert.equal(friendReads, readsBeforeReopen + 2);
     assert.notEqual(service.friends(b, "Bearer account-b").updatedAt, clock);
     partial = true;
     clock += 300000;

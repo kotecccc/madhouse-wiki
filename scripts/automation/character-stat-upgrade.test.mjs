@@ -56,6 +56,42 @@ test("persists before a single point is submitted and verifies the result", asyn
   assert.equal(saves, 2);
 });
 
+test("a confirmed final upgrade is saved in the character snapshot", async () => {
+  const before = profile();
+  before.characterStatsUpgrade.madness.dailyUsed = 17;
+  before.characterStatsUpgrade.madness.dailyRemaining = 1;
+  before.characterStatsUpgrade.madness.nextCost = 5000;
+  before.characterStatsUpgrade.madness.costPerPoint = 5000;
+  before.wallet.gold = 6000;
+  const state = { profile: before };
+  let saved;
+  const result = await upgradeCharacterPoint({
+    state,
+    stat: "madness",
+    expected: characterUpgradeQuote(before, "madness", 1),
+    getProfile: async () => before,
+    operationId: () => uuid,
+    persist: () => {
+      saved = structuredClone(state);
+      return true;
+    },
+    post: async () => ({
+      success: true,
+      balance: { gold: 1000 },
+      characterStats: { madness: { base: 13, total: 23 } },
+      characterStatsUpgrade: {
+        resetAtUtc: before.characterStatsUpgrade.resetAtUtc,
+        madness: { dailyLimit: 18, dailyUsed: 18, dailyRemaining: 0 },
+      },
+    }),
+  });
+  assert.equal(result.status, "confirmed");
+  assert.equal(saved.pending, null);
+  assert.equal(saved.profile.characterStatsUpgrade.madness.dailyRemaining, 0);
+  assert.equal(saved.profile.characterStats.madness.total, 23);
+  assert.equal(saved.profile.wallet.gold, 1000);
+});
+
 test("lost response leaves a durable pending operation and forbids replay", async () => {
   const state = {};
   const before = profile();

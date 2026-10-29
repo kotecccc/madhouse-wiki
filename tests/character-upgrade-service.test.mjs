@@ -27,6 +27,70 @@ test("an unresolved assistant operation blocks stat spending even after battle r
   );
 });
 
+test("completed daily limits survive restart and skip passive reads until reset", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "character-daily-snapshot-"));
+  const store = createAutomationStateStore({ directory });
+  let clock = Date.parse("2026-10-28T12:00:00Z");
+  let reads = 0;
+  const stat = { dailyLimit: 2, dailyUsed: 2, dailyRemaining: 0 };
+  const profile = {
+    playerId: 101,
+    wallet: { gold: 100, pills: 100 },
+    characterStats: {},
+    characterStatsUpgrade: {
+      resetAtUtc: "2026-10-29T00:00:00Z",
+      madness: stat,
+      aggression: stat,
+      rage: stat,
+    },
+  };
+  const options = {
+    store,
+    now: () => clock,
+    identifyPlayer: async () => ({ playerId: 101 }),
+    getBoss: () => null,
+    fetcher: async (url) => {
+      if (new URL(url).pathname === "/api/me") {
+        reads++;
+        return Response.json(profile);
+      }
+      return Response.json({ items: [] });
+    },
+  };
+  let service = createAutomationService(options);
+  try {
+    let entry = await service.identify("Bearer a.b.c");
+    const refresh = (id, args = {}) =>
+      service.command(entry, {
+        id,
+        command: "character.refresh",
+        expectedVersion: service.snapshot(entry).version,
+        args,
+      });
+    await refresh("daily-initial", { ifComplete: true });
+    assert.equal(reads, 1);
+    service.close();
+    service = createAutomationService(options);
+    entry = await service.identify("Bearer a.b.c");
+    await refresh("daily-cached", { ifComplete: true });
+    assert.equal(reads, 1);
+    await refresh("daily-manual");
+    assert.equal(reads, 2);
+    entry.characterUpgrade.pending = { stat: "madness", resetAt: "unknown" };
+    await refresh("daily-uncertain", { ifComplete: true });
+    assert.equal(reads, 3);
+    assert.ok(entry.characterUpgrade.pending);
+    entry.characterUpgrade.pending = null;
+    clock = Date.parse(profile.characterStatsUpgrade.resetAtUtc);
+    await refresh("daily-reset", { ifComplete: true });
+    assert.equal(reads, 4);
+  } finally {
+    service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("character action is account scoped, checkpointed, and never replayed after a lost reply", async () => {
   const directory = mkdtempSync(join(tmpdir(), "character-upgrade-"));
   const store = createAutomationStateStore({ directory });

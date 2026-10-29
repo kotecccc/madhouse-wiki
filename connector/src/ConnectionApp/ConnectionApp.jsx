@@ -9,6 +9,11 @@ import { CHANNEL, VERSION, createMessageGate } from "../../protocol.js";
 import { normalizePhoneNumber } from "../../phone-auth.js";
 import { createConnection } from "../../session.js";
 import { connectorWikiIdentity } from "../../wiki-identity.js";
+import {
+  clearIdentityProof,
+  readIdentityProof,
+  saveIdentityProof,
+} from "../../identity-proof-storage.js";
 import { silentlyRefreshSharedSessionData } from "../../shared-session-refresh.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
@@ -354,29 +359,55 @@ export function ConnectionApp() {
   }, [authCooldownUntil, delivery?.nextType, delivery?.resendAt]);
   const accountSession = useCallback(async (request, action, extra = {}) => {
     if (!request?.data.wikiInitData) return null;
-    const response = await fetch("/api/account-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...(identityProof.current?.launch === request.data.wikiInitData
-          ? { wikiProof: identityProof.current.proof }
-          : { wikiInitData: request.data.wikiInitData }),
-        action,
-        ...extra,
-      }),
-      cache: "no-store",
-      credentials: "omit",
-      redirect: "error",
-      signal: AbortSignal.timeout(20000),
-    });
-    const data = await response.json();
+    const launch = request.data.wikiInitData;
+    let storage;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      /* storage denied */
+    }
+    const proof =
+      identityProof.current?.launch === launch
+        ? identityProof.current.proof
+        : await readIdentityProof(storage, launch);
+    const send = (identity) =>
+      fetch("/api/account-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...identity,
+          action,
+          ...extra,
+        }),
+        cache: "no-store",
+        credentials: "omit",
+        redirect: "error",
+        signal: AbortSignal.timeout(20000),
+      });
+    let response = await send(
+      proof ? { wikiProof: proof } : { wikiInitData: launch },
+    );
+    let data = await response.json();
+    if (!response.ok && proof && data.error === "invalid_wiki_identity") {
+      identityProof.current = null;
+      clearIdentityProof(storage);
+      response = await send({ wikiInitData: launch });
+      data = await response.json();
+    }
     if (!response.ok)
       throw new Error(data.error || "session_store_unavailable");
-    if (typeof data.wikiProof === "string")
+    if (typeof data.wikiProof === "string") {
       identityProof.current = {
-        launch: request.data.wikiInitData,
+        launch,
         proof: data.wikiProof,
       };
+      if (action !== "logout")
+        await saveIdentityProof(storage, launch, data.wikiProof);
+    }
+    if (action === "logout") {
+      identityProof.current = null;
+      clearIdentityProof(storage);
+    }
     return data;
   }, []);
   const disconnect = useCallback(
@@ -386,6 +417,12 @@ export function ConnectionApp() {
         connection.current.logout(),
         accountSession(request, "logout"),
       ]);
+      identityProof.current = null;
+      try {
+        clearIdentityProof(window.sessionStorage);
+      } catch {
+        /* storage denied */
+      }
       clearPendingLogin(request?.data.expectedUserId);
       phoneChallenge.current = null;
       setDelivery(null);

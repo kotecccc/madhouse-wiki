@@ -39,7 +39,7 @@ export function CharacterUpgrade({
   const [submittedSingle, setSubmittedSingle] = useState(null);
   const previousRunStatus = useRef(state.run?.status);
   useEffect(() => {
-    void characterUpgrade.refresh();
+    void characterUpgrade.refresh({ ifComplete: true });
   }, []);
   useEffect(() => {
     const finished =

@@ -85,9 +85,9 @@ export function FriendsSection({
   const [page, setPage] = useState(0);
   useEffect(() => {
     if (active)
-      void postSessionJson("/api/automation/friends/refresh", {}).catch(
-        () => {},
-      );
+      void postSessionJson("/api/automation/friends/refresh", {
+        ifStale: true,
+      }).catch(() => {});
   }, [active]);
   useEffect(() => {
     if (!active) return;

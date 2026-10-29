@@ -5,6 +5,11 @@ import {
   createAccountSessions,
   verifyWikiIdentity,
 } from "../connector/account-session.js";
+import {
+  clearIdentityProof,
+  readIdentityProof,
+  saveIdentityProof,
+} from "../connector/identity-proof-storage.js";
 const verificationKey = "11".repeat(32),
   encryptionKey = "22".repeat(32);
 const now = 1900000000000;
@@ -195,6 +200,43 @@ test("short launch bootstrap exchanges for a bounded encrypted connector proof, 
   await assert.rejects(
     s.api({ action: "restore", wikiProof: initial.wikiProof }),
     /invalid_wiki_identity/,
+  );
+});
+
+test("a reload restores with the saved proof for the same launch only", async () => {
+  const s = setup();
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const launch = signed();
+  const start = await s.api({ action: "restore", wikiInitData: launch });
+  await s.api({
+    action: "save",
+    wikiProof: start.wikiProof,
+    ticket: start.ticket,
+    accessToken: jwt(),
+  });
+  await saveIdentityProof(storage, launch, start.wikiProof);
+  assert.equal(
+    [...values.values()].some((value) => value.includes(launch)),
+    false,
+  );
+  s.setTime(now + 600000);
+  const proof = await readIdentityProof(storage, launch);
+  assert.equal(
+    (await s.api({ action: "restore", wikiProof: proof })).accessToken,
+    jwt(),
+  );
+  assert.equal(await readIdentityProof(storage, signed(99)), null);
+  await s.api({ action: "logout", wikiProof: proof });
+  clearIdentityProof(storage);
+  assert.equal(await readIdentityProof(storage, launch), null);
+  assert.equal(
+    (await s.api({ action: "restore", wikiProof: proof })).revoked,
+    true,
   );
 });
 

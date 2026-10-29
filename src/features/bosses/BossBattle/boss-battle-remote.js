@@ -1000,7 +1000,7 @@ export function createRemoteBattleSession({
       return () => characterListeners.delete(listener);
     },
     getSnapshot: () => characterSnapshot,
-    refresh: () => send("character.refresh"),
+    refresh: (options = {}) => send("character.refresh", options),
     upgrade: (args) => send("character.upgrade", args),
     start: (args) => send("character.start", args),
     startAll: (args) => send("character.startAll", args),

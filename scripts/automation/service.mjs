@@ -65,7 +65,10 @@ import { createBusinessCollector } from "./business-collector.mjs";
 import { advanceBusinessUpgrade } from "./business-upgrade.mjs";
 import { upgradeCharacterPoint } from "./character-stat-upgrade.mjs";
 import { createCharacterStatBatch } from "./character-stat-batch.mjs";
-import { characterUpgradeQuote } from "../../src/lib/character-stat-upgrades.js";
+import {
+  allCharacterUpgradesComplete,
+  characterUpgradeQuote,
+} from "../../src/lib/character-stat-upgrades.js";
 import { createBattleSeries } from "./battle-series.mjs";
 import { createBossBattleRequest } from "../../src/features/bosses/BossBattle/boss-battle-request.js";
 import { normalizePvpBattle } from "../../src/features/combat/ActiveBattleDock/active-battle-state.js";
@@ -347,8 +350,22 @@ export function createAutomationService({
       throw failure(502, "game_response_too_large");
     return JSON.parse(text);
   };
-  const readCharacterProfile = async (entry, credential) => {
+  const readCharacterProfile = async (
+    entry,
+    credential,
+    { ifComplete = false } = {},
+  ) => {
     const character = entry.characterUpgrade;
+    if (
+      ifComplete &&
+      !character.pending &&
+      character.run?.status !== "running" &&
+      allCharacterUpgradesComplete(
+        character.profile?.characterStatsUpgrade,
+        now(),
+      )
+    )
+      return character.profile;
     const response = await fetcher("https://cargohustle.online/api/me", {
       headers: {
         Authorization: credential,
@@ -3647,7 +3664,9 @@ export function createAutomationService({
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
       const credential = entry.credential;
-      await readCharacterProfile(entry, credential);
+      await readCharacterProfile(entry, credential, {
+        ifComplete: input.args?.ifComplete === true,
+      });
       if (entry.credential !== credential)
         throw failure(409, "character_account_changed");
       save(entry);
@@ -4289,7 +4308,9 @@ export function createAutomationService({
         }
         case "character.refresh": {
           const character = entry.characterUpgrade;
-          const profile = await readCharacterProfile(entry, entry.credential);
+          const profile = await readCharacterProfile(entry, entry.credential, {
+            ifComplete: input.args?.ifComplete === true,
+          });
           const pending = character.pending;
           if (
             pending &&
@@ -5006,8 +5027,18 @@ export function createAutomationService({
         throw failure(503, "automation_storage_unavailable");
       return true;
     },
-    async refreshFriends(entry, authorization) {
+    async refreshFriends(entry, authorization, { ifStale = false } = {}) {
       requireEntryCredential(entry, authorization);
+      if (
+        ifStale &&
+        (entry.friendSnapshotRefreshing ||
+          (entry.friendSnapshot.enabled &&
+            !entry.friendSnapshot.failures &&
+            Array.isArray(entry.friendSnapshot.items) &&
+            Number.isFinite(entry.friendSnapshot.updatedAt) &&
+            now() - entry.friendSnapshot.updatedAt < 300000))
+      )
+        return { scheduled: false };
       entry.friendSnapshot.enabled = true;
       entry.friendSnapshotRequested = true;
       if (!entry.friendSnapshot.failures) entry.friendSnapshot.nextAt = 0;

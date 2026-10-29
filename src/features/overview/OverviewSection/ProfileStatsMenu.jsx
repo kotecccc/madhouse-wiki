@@ -24,7 +24,7 @@ export function ProfileStatsMenu() {
     characterUpgrade.getSnapshot,
   );
   useEffect(() => {
-    void characterUpgrade.refresh();
+    void characterUpgrade.refresh({ ifComplete: true });
   }, []);
   const resetAt = Date.parse(state.profile?.characterStatsUpgrade?.resetAtUtc);
   useEffect(() => {
@@ -61,8 +61,13 @@ export function ProfileStatsMenu() {
         }
       />
       {stats.map(([stat, label]) => {
-        const single = characterUpgradeQuote(state.profile, stat, 1);
-        const maximum = affordableCharacterUpgradeQuote(state.profile, stat);
+        const current = resetAt > Date.now();
+        const single = current
+          ? characterUpgradeQuote(state.profile, stat, 1)
+          : null;
+        const maximum = current
+          ? affordableCharacterUpgradeQuote(state.profile, stat)
+          : null;
         const total = state.profile?.characterStats?.[stat]?.total;
         const limitReached =
           resetAt > Date.now() &&
@@ -72,9 +77,9 @@ export function ProfileStatsMenu() {
             <div className="overview-stat-menu-heading">
               <div className="overview-stat-menu-label">
                 <Icon type={stat} />
-                <CardTitle>{label}</CardTitle>
+                <CardTitle size="sm">{label}</CardTitle>
               </div>
-              <CardTitle>
+              <CardTitle size="sm">
                 {Number.isSafeInteger(total) ? fmt(total) : "—"}
               </CardTitle>
             </div>

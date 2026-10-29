@@ -119,6 +119,41 @@ export async function upgradeCharacterPoint({
     (quote.amount === 1 ? charge !== quote.nextCost : charge > quote.maxPrice)
   )
     return { status: "uncertain" };
+  // Preserve only an explicitly confirmed daily limit in the durable profile.
+  // If the response is incomplete, a later live read remains necessary.
+  if (
+    state.profile?.characterStatsUpgrade?.resetAtUtc === quote.resetAt &&
+    after.dailyLimit === quote.dailyLimit &&
+    after.dailyRemaining === quote.dailyRemaining - quote.amount &&
+    after.dailyUsed + after.dailyRemaining === after.dailyLimit
+  ) {
+    const previous = state.profile.characterStatsUpgrade[stat];
+    const fields = [
+      "currency",
+      "costPerPoint",
+      "nextCost",
+      "startCost",
+      "maxCost",
+      "dailyLimit",
+      "dailyUsed",
+      "dailyRemaining",
+    ];
+    state.profile.characterStatsUpgrade[stat] = {
+      ...previous,
+      ...Object.fromEntries(
+        fields
+          .filter((key) => after[key] !== undefined)
+          .map((key) => [key, after[key]]),
+      ),
+    };
+    state.profile.characterStats[stat] = {
+      base,
+      total: Number.isSafeInteger(response.characterStats[stat].total)
+        ? response.characterStats[stat].total
+        : null,
+    };
+    state.profile.wallet[quote.currency] = response.balance[quote.currency];
+  }
   onConfirmed(quote, charge);
   state.pending = null;
   if (persist() === false) {

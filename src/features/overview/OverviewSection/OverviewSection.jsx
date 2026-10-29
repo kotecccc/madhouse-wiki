@@ -588,6 +588,7 @@ function ProfileSummary({ state }) {
           onClosed={finishMenu}
           preferFit
           scrollable
+          fullWidth
         >
           {boosterError && <ErrorToast message={boosterError} />}
           <ProfileStatsMenu />
