@@ -297,10 +297,13 @@ export function refreshGlobalRaidRows(state, now) {
 
 export function formatGlobalRaidSummary(state, now, getBoss) {
   const lines = [
-    `🔥 <b>РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</b>`,
-    "",
+    `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`,
   ];
   const rows = [...state.raids].sort((a, b) => b.lastBattleAt - a.lastBattleAt);
+  const table = [
+    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Ведущий</th><th>Бои</th></tr>",
+  ];
+  let shown = 0;
   for (const row of rows) {
     const age = now - row.lastBattleAt;
     const status = row.active
@@ -320,17 +323,21 @@ export function formatGlobalRaidSummary(state, now, getBoss) {
     const username = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "")
       ? ` (@${row.leaderUsername})`
       : "";
-    const line = `${status} · ${escape(zone)} · ${escape(boss?.name || `Босс №${row.bossId}`)} · ${escape(name)}${username} · ${row.count}`;
-    if (lines.join("\n").length + line.length > 3500) {
-      lines.push(`Ещё рейдов: ${rows.length - (lines.length - 2)}`);
+    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${escape(name)}${username}</td><td>${row.count}</td></tr>`;
+    if (table.join("").length + line.length > 3500) {
       break;
     }
-    lines.push(line);
+    table.push(line);
+    shown++;
   }
-  if (!rows.length) lines.push("Активных рейдов пока нет.");
+  if (rows.length) {
+    lines.push(`${table.join("")}</table>`);
+    if (shown < rows.length)
+      lines.push(`<p>Ещё рейдов: ${rows.length - shown}</p>`);
+  } else lines.push("<p>Активных рейдов пока нет.</p>");
   lines.push(
     "",
-    `Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК`,
+    `<p>Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`,
   );
   return lines.join("\n");
 }
@@ -397,12 +404,11 @@ export function createGlobalRaidsWorker({
         }
         try {
           const result = await telegram.request(
-            messageId ? "editMessageText" : "sendMessage",
+            messageId ? "editMessageText" : "sendRichMessage",
             {
               chat_id: chatId,
               ...(messageId ? { message_id: messageId } : {}),
-              text,
-              parse_mode: "HTML",
+              rich_message: { html: text },
             },
           );
           if (isClosed()) return;

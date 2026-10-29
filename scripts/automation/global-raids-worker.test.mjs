@@ -345,23 +345,24 @@ test("updates the same message after one minute without changing status threshol
     telegram: {
       request: async (method) => {
         methods.push(method);
-        return method === "sendMessage" ? { message_id: 7 } : true;
+        return method === "sendRichMessage" ? { message_id: 7 } : true;
       },
     },
   });
   await worker.tick();
   time += 30000;
   await worker.tick();
-  assert.deepEqual(methods, ["sendMessage"]);
+  assert.deepEqual(methods, ["sendRichMessage"]);
   time += 30000;
   await worker.tick();
-  assert.deepEqual(methods, ["sendMessage", "editMessageText"]);
+  assert.deepEqual(methods, ["sendRichMessage", "editMessageText"]);
 });
 
 test("the message omits the removed informational lines", async () => {
   const text = format(await series(), start + 5 * minute);
   assert.doesNotMatch(text, /Время: МСК|Замечено боёв · по приглашениям/);
-  assert.match(text, /Игрок №42 · 6/);
+  assert.match(text, /<td>Игрок №42<\/td><td>6<\/td>/);
+  assert.match(text, /<table bordered striped>/);
 });
 
 test("existing TMA history makes the active raid visible and deduplicates overlapping accounts", async () => {
@@ -466,4 +467,44 @@ test("TMA histories from multiple accounts count a shared battle once even when 
   );
   assert.equal(state.raids.filter((row) => row.active).length, 1);
   assert.equal(state.raids.find((row) => row.active).count, 3);
+});
+
+test("existing text message is edited with a native rich table preserving raid content", async () => {
+  let data = await series();
+  data.messageId = 5;
+  data.nextPublishAt = 0;
+  let request;
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (v) => {
+        data = structuredClone(v);
+      },
+    },
+    owner: "worker",
+    now: () => start + 5 * minute,
+    chatId: "@channel",
+    getBoss: () => ({ name: "Босс <опасно>", departmentId: "dept-J3" }),
+    isClosed: () => false,
+    telegram: {
+      request: async (method, payload) => {
+        request = { method, payload };
+        return true;
+      },
+    },
+  });
+  await worker.tick();
+  assert.equal(request.method, "editMessageText");
+  assert.equal(request.payload.message_id, 5);
+  assert.equal(request.payload.text, undefined);
+  assert.match(request.payload.rich_message.html, /<table bordered striped>/);
+  assert.match(
+    request.payload.rich_message.html,
+    /<th>Статус<\/th><th>Зона<\/th><th>Босс<\/th><th>Ведущий<\/th><th>Бои<\/th>/,
+  );
+  assert.match(
+    request.payload.rich_message.html,
+    /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>Игрок №42<\/td><td>6<\/td>/,
+  );
+  assert.equal(data.messageId, 5);
 });
