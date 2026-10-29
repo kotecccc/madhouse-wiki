@@ -31,6 +31,13 @@ export function createDirectBoundary({
       1100,
       60000,
     ),
+    minDeviceSpacingMs: setting(
+      env,
+      "MADHOUSE_GAME_DEVICE_INTERVAL_MS",
+      300,
+      60000,
+    ),
+    maxDirectInFlight: setting(env, "MADHOUSE_GAME_DIRECT_CONCURRENCY", 4, 128),
     maxQueueSize: setting(env, "MADHOUSE_GAME_QUEUE_LIMIT", 100, 10000),
     maxQueueWaitMs: setting(env, "MADHOUSE_GAME_QUEUE_WAIT_MS", 20000, 120000),
     ...(env.MADHOUSE_GAME_DIAGNOSTICS === "1"
@@ -41,6 +48,39 @@ export function createDirectBoundary({
       : {}),
   });
   const players = new Map();
+  function account(authorization, playerId) {
+    const digest = authorization
+      ? createHash("sha256").update(authorization).digest("hex")
+      : null;
+    const verified = /^[1-9][0-9]*$/.test(String(playerId || ""))
+      ? `player:${playerId}`
+      : null;
+    if (digest && verified) {
+      executor.bindAccount(digest, verified);
+      players.set(digest, verified);
+    }
+    return digest ? players.get(digest) || digest : undefined;
+  }
+  function bridge({
+    authorization,
+    playerId,
+    deviceId,
+    signal,
+    method,
+    execute,
+  }) {
+    return executor.bridge(
+      execute,
+      { signal, method },
+      {
+        accountId: account(authorization, playerId),
+        deviceId,
+        signal,
+        source: method && method !== "GET" ? "automation" : "wiki",
+        cooldownScope: authorization ? "account" : "global",
+      },
+    );
+  }
   async function request(url, init = {}, source = "wiki") {
     const { gameAttempt, gameSource, ...requestInit } = init;
     const authorization = new Headers(init.headers).get("authorization");
@@ -84,5 +124,11 @@ export function createDirectBoundary({
     }
     return result;
   }
-  return { request, close: executor.close, diagnostics: executor.diagnostics };
+  return {
+    request,
+    bridge,
+    bindVerified: account,
+    close: executor.close,
+    diagnostics: executor.diagnostics,
+  };
 }
