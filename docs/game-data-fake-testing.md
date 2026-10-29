@@ -119,3 +119,88 @@ npm run build:connector
 Passing fake tests establish only the modeled behavior exercised by those fixtures. They do not establish live game outcomes, public service state, production data correctness, browser appearance, client installation, or deployment behavior. The Python source at commit `9db18ce` is a local test input here; this guide does not install or publish it. Older bridge clients that do not advertise and complete the stop-ack exchange cannot provide that transport proof. Their attempts remain unresolved. No timeout, reconnect, negative read, or lost response authorizes replay of a game mutation or removal of its fence.
 
 These checks are evidence for engineering review, not a release-readiness claim.
+
+## Reproducible revisions
+
+The acceptance code is Wiki `8c94c54fba480d01372e37ceb3fb6230bf2806b0`, based on the upstream merge at `8f1cd63` (upstream `218ed2112b35efe72ccaa67487ffe451001d0dd6`). The compatible Python relay is `9db18cede7ecc0a0ca1499d854fe5319a7a44bef`, based on `3f409d62b0c9979094c6079ee0dbe75a373fb1bf`. The tracked incremental bundle `docs/fixtures/bridge-recovery-ack.bundle` contains the relay commit; SHA-256 `278452570fbb76b694e37a3ca355b7b71f481989d7bfe2d31b78cdfd32728889`. It requires that base commit, available in the local bridge repository. The bundle contains tracked Git data, not untracked files from a worktree.
+
+In separate copies, with the two local repositories present:
+
+```sh
+git clone --no-hardlinks /Users/mac/projects/madhouse-wiki /tmp/madhouse-wiki-acceptance
+git -C /tmp/madhouse-wiki-acceptance checkout --detach 8c94c54fba480d01372e37ceb3fb6230bf2806b0
+cd /tmp/madhouse-wiki-acceptance
+npm ci
+node scripts/catalogue/restore-seed.mjs
+git clone --no-hardlinks --no-checkout /Users/mac/projects/madhouse-wiki-bridge /tmp/madhouse-bridge-acceptance
+git -C /tmp/madhouse-bridge-acceptance fetch /tmp/madhouse-wiki-acceptance/docs/fixtures/bridge-recovery-ack.bundle HEAD:refs/heads/fake-relay
+git -C /tmp/madhouse-bridge-acceptance checkout --detach 9db18cede7ecc0a0ca1499d854fe5319a7a44bef
+MADHOUSE_TEST_BRIDGE_AGENT=/tmp/madhouse-bridge-acceptance/agent/bridge.py node --test tests/bridge/tls-websocket-relay.integration.test.mjs
+```
+
+The stop-ack change advertises the capability and echoes the connection-bound stop challenge only after that tunnel's relay worker stops. Old clients still connect normally, but cannot furnish this proof. Neither version proves what the game did with previously received bytes. The copied Python relay uses the test-only import stubs described above; this is not an installable bridge release.
+
+## Interactive local fake Wiki
+
+This is a limited **direct-route** harness for manual UI exploration; bridge recovery and Telegram session restoration are exercised by the separate automated tests below. The fake has a synthetic profile and empty responses for other GETs, not a full game model. It rejects mutations. Its Vite configuration removes the real game proxy and injects an in-process fake fetcher; other `/api/` routes return 404. It has no Connector, bridge gateway, or real game service address. Browser CSP blocks external connections and images; some catalogue images will therefore be absent. It does not alter production authentication.
+
+From the Wiki checkout, in a terminal:
+
+```sh
+cd /tmp/madhouse-wiki-acceptance
+FAKE_DIR=$(mktemp -d /tmp/madhouse-fake.XXXXXXXX)
+printf 'Test data: %s\n' "$FAKE_DIR"
+node scripts/dev/fake-game-stand.mjs "$FAKE_DIR"
+```
+
+The process prints the app address `http://127.0.0.1:43774/`, the mode file and a private token file. In another terminal, copy the **synthetic** token shown by `cat /tmp/madhouse-fake.XXXXXXXX/token` (replace with the printed directory), and enter it using the application's ordinary token login. Never use a real token. To check without a browser:
+
+```sh
+FAKE_DIR=/tmp/madhouse-fake.XXXXXXXX # replace with the directory printed above
+curl -i http://127.0.0.1:43774/
+curl -i http://127.0.0.1:43774/api/me # 401 without credentials
+curl -i -H "Authorization: Bearer $(cat "$FAKE_DIR/token")" http://127.0.0.1:43774/api/me
+```
+
+After a successful profile read, `printf 'offline\n' > "$FAKE_DIR/mode"` simulates game unavailability and `printf '429\n' > "$FAKE_DIR/mode"` simulates rate limiting. To trigger a read rather than reuse the fresh cache:
+
+```sh
+curl -i -H "Authorization: Bearer $(cat "$FAKE_DIR/token")" \
+  -H 'X-Madhouse-Snapshot-Refresh: live' http://127.0.0.1:43774/api/me
+```
+
+A retained profile can be returned as stale; inspect `X-Madhouse-Snapshot` and `X-Madhouse-Game-Status` as well as HTTP status. `printf 'online\n' > "$FAKE_DIR/mode"` restores the fake. For a strictly stored read replace the refresh header with `X-Madhouse-Stored-Only: 1`; it must not print a `FAKE GET` line. A missing stored section is distinct from a successfully stored empty array. The synthetic token expires after 24 hours; create a new test directory for a new session. This harness does not issue Wiki sessions after game-token expiry.
+
+Stop with Ctrl-C in the server terminal. Restart with the same `node ... "$FAKE_DIR"` command to reuse its test snapshot and token. Reset only the test data after stopping, using the exact printed directory (never substitute a production path):
+
+```sh
+rm -r -- "$FAKE_DIR"
+```
+
+Bridge disconnect, old-client compatibility, unknown mutation and crash recovery are reproducible through the scripted loopback scenarios, not an interactive bridge in this harness:
+
+```sh
+MADHOUSE_TEST_BRIDGE_AGENT=/tmp/madhouse-bridge-acceptance/agent/bridge.py node --test \
+  tests/bridge/tls-websocket-relay.integration.test.mjs \
+  tests/bridge/bridge-crash-recovery-harness.test.mjs \
+  tests/bridge/automation-actor-crash-recovery.test.mjs \
+  tests/bridge/automation-actor-recovery.integration.test.mjs \
+  tests/bridge/bridge-resource-observation.integration.test.mjs \
+  tests/bridge/device-gateway.test.mjs tests/bridge/bridge-aware-fetch.test.mjs
+```
+
+Confirm `python-stop` ran and the test summary says zero skipped. The fake game receives the uncertain POST once; after crash it stays unresolved and is not repeated. Raw bridge 429 and `Retry-After` reach the live caller; the saved stale snapshot remains separately readable. For actual transport cooldown evidence see `scripts/game/direct-scheduler.test.mjs` and the relay test. The test harness supplies transport stop proof in the actor reconciliation test; the separate Python relay test verifies actual transport stop, not the same combined process.
+
+## What testers can expect
+
+- Missing snapshot: data is unavailable until an authorized read succeeds; an empty saved collection is a valid empty result, not a missing section. Stale/incomplete data can remain visible with an age or availability warning; it is not evidence of current game state.
+- Expired game token: game operations require reconnection. An independently valid Wiki session can still read saved data and issue allowed local stop/cancel commands; the manual direct harness does not simulate issuance of that session.
+- Offline bridge: bridge-routed live reads and actions fail closed; locally saved views and local stop/cancel remain available when the Wiki session is valid. An old bridge without stop-ack capability cannot provide the recovery transport proof.
+- Lost mutation response: the account/device fence and checkpoint remain unresolved across restart; do not retry the mutation. Some narrowly scoped queued battle reads may be reconciled only after trusted stop acknowledgement and with the correct active owner/checkpoint. A stopped relay does not prove the game did not process already-received bytes.
+- If automatic reconciliation is unavailable or insufficient, saved views and local stop/cancel remain usable where authorized, but affected game operations remain blocked and need manual investigation. A negative read or timeout is not universal evidence of a mutation's outcome.
+
+## Acceptance result
+
+On Wiki `8c94c54fba480d01372e37ceb3fb6230bf2806b0`, `npm run check` passed: 1782 tests passed, one Python-specific case skipped because the optional agent variable was absent; Wiki build passed. `npm run build:connector` passed. With the reconstructed bridge `9db18cede7ecc0a0ca1499d854fe5319a7a44bef` explicitly supplied, the relay tests passed 3/3 with zero skips, including `python-stop`; the relay unit tests passed 6/6. The combined Python relay and actor/transport recovery suite passed 6/6 with zero skips. A clean local clone was restored from the included catalogue seed and served the application, virtual catalogue and fake API over loopback; unauthenticated profile returned 401, fake profile and persisted stored read returned 200, and simulated 429 returned stale data on the snapshot route. No visual or real game verification was performed.
+
+Before a production release: review and publish a complete signed bridge package and verify installation on intended devices; validate deployment configuration, credentials and migration/rollback separately; perform explicitly authorized real-game and browser/device acceptance; update the release version and changelog according to `AGENTS.md`. None of these are established by the fake stand.
