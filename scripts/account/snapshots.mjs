@@ -30,6 +30,59 @@ const inventoryMutationAffects = (mutation, section, battleMayHaveFinished) => {
     return section.startsWith("/api/ornaments/zones/");
   return false;
 };
+const mutationKind = (path) => {
+  if (/^\/api\/bosses\/battles\/[^/]+\/attack$/.test(path)) return "battle";
+  if (
+    ["/api/weapons/buy", "/api/weapons/repair", "/api/weapons/select"].includes(
+      path,
+    )
+  )
+    return "weapon";
+  if (["/api/pets/buy", "/api/pets/select"].includes(path)) return "pet";
+  if (["/api/rooms/buy", "/api/rooms/select"].includes(path)) return "room";
+  if (
+    ["/api/clothing/items/buy", "/api/clothing/equip"].includes(path) ||
+    /^\/api\/clothing\/equip\/[^/]+$/.test(path)
+  )
+    return "clothing";
+  if (
+    ["/api/ornaments/elements/buy", "/api/ornaments/equip"].includes(path) ||
+    /^\/api\/ornaments\/equip\/[^/]+$/.test(path)
+  )
+    return "ornament";
+  if (
+    [
+      "/api/me/bag/boosters/buy",
+      "/api/me/bag/boosters/use",
+      "/api/me/bag/combat-items/buy",
+    ].includes(path)
+  )
+    return "bag";
+  return null;
+};
+const mutationAffectsSection = (kind, section) => {
+  if (!kind) return true;
+  if (section === "/api/me") return true;
+  if (kind === "bag") return section === "/api/me/bag";
+  if (kind === "weapon")
+    return (
+      section === "/api/clothing/by-category/1" ||
+      /^\/api\/weapons\/[1-9][0-9]*$/.test(section)
+    );
+  if (kind === "pet")
+    return (
+      section === "/api/clothing/by-category/9" ||
+      /^\/api\/pets\/[1-9][0-9]*$/.test(section)
+    );
+  if (kind === "room") return section === "/api/rooms";
+  if (kind === "clothing") return section === "/api/clothing";
+  if (kind === "ornament") return section.startsWith("/api/ornaments/zones/");
+  if (kind === "battle")
+    return (
+      isInventoryPath(section) || /^\/api\/bosses\/[1-9][0-9]*$/.test(section)
+    );
+  return false;
+};
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const MAX_BYTES = 3 * 1024 * 1024;
 const MAX_SECTIONS = 128;
@@ -51,9 +104,55 @@ function sanitize(value, depth = 0) {
     );
   return value;
 }
+function normalizeMergePayload(value) {
+  if (Array.isArray(value)) return value.map(normalizeMergePayload);
+  if (!value || typeof value !== "object") return value;
+  const normalized = Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      normalizeMergePayload(item),
+    ]),
+  );
+  if (
+    Object.hasOwn(normalized, "activeStashBuffs") &&
+    !Object.hasOwn(normalized, "activeStashBuff")
+  )
+    normalized.activeStashBuff = null;
+  else if (
+    Object.hasOwn(normalized, "activeStashBuff") &&
+    !Object.hasOwn(normalized, "activeStashBuffs")
+  )
+    normalized.activeStashBuffs = [];
+  return normalized;
+}
+function sameJsonValue(left, right) {
+  if (Object.is(left, right)) return true;
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object" ||
+    Array.isArray(left) !== Array.isArray(right)
+  )
+    return false;
+  if (Array.isArray(left))
+    return (
+      left.length === right.length &&
+      left.every((value, index) => sameJsonValue(value, right[index]))
+    );
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.hasOwn(right, key) && sameJsonValue(left[key], right[key]),
+    )
+  );
+}
 // A sparse object cannot erase previously known fields. Empty successful lists
 // are authoritative; malformed/error envelopes are never successful sections.
-function merge(previous, next) {
+function merge(previous, next, resourcePath, depth = 0) {
   // Normalize the two bag API shapes before both first-write and update paths.
   if (next && typeof next === "object" && !Array.isArray(next)) {
     if (
@@ -90,8 +189,16 @@ function merge(previous, next) {
     )
       result[key] = value;
     else if (key === "activeBossBattle" && value === null) result[key] = null;
+    else if (
+      depth === 0 &&
+      key === "activeBattle" &&
+      value === null &&
+      /^\/api\/bosses\/([1-9][0-9]*)$/.test(resourcePath || "") &&
+      next.id === Number(resourcePath.split("/").at(-1))
+    )
+      result[key] = null;
     else if (value !== null && value !== undefined)
-      result[key] = merge(previous[key], value);
+      result[key] = merge(previous[key], value, resourcePath, depth + 1);
   }
   return result;
 }
@@ -132,6 +239,26 @@ export function createAccountSnapshots({
       throw new Error("snapshot_capacity_exceeded");
     store.writeSnapshot(record.playerId, record);
     accounts.set(record.playerId, record);
+  };
+  const boundSections = (record, retainedPaths) => {
+    while (
+      Object.keys(record.sections || {}).length > MAX_SECTIONS ||
+      (Buffer.byteLength(JSON.stringify(record)) > MAX_BYTES &&
+        Object.keys(record.sections || {}).length > 1)
+    ) {
+      const oldest = Object.keys(record.sections || {})
+        .filter((path) => !retainedPaths.has(path))
+        .sort(
+          (a, b) =>
+            record.sections[a].updatedAt - record.sections[b].updatedAt ||
+            a.localeCompare(b),
+        )[0];
+      if (!oldest) break;
+      const sections = { ...record.sections };
+      delete sections[oldest];
+      record = { ...record, sections };
+    }
+    return record;
   };
   const state = (record) => {
     const failedFeatures = safeFailedFeatures(
@@ -455,7 +582,9 @@ export function createAccountSnapshots({
           const text = Buffer.concat(chunks).toString("utf8");
           data = sanitize(JSON.parse(text));
           if (
-            Buffer.byteLength(JSON.stringify(merge(section?.data, data))) >
+            Buffer.byteLength(
+              JSON.stringify(merge(section?.data, data, path)),
+            ) >
             1024 * 1024
           )
             throw new Error("snapshot_section_too_large");
@@ -474,6 +603,13 @@ export function createAccountSnapshots({
             (!Number.isSafeInteger(data.playerId) ||
               data.playerId <= 0 ||
               (playerId && String(data.playerId) !== playerId))
+          )
+            throw new Error();
+          const bossDetail = path.match(/^\/api\/bosses\/([1-9][0-9]*)$/);
+          if (
+            bossDetail &&
+            (!Number.isSafeInteger(data.id) ||
+              data.id !== Number(bossDetail[1]))
           )
             throw new Error();
         } catch {
@@ -496,12 +632,17 @@ export function createAccountSnapshots({
             ? withMetadata(json(previous.data), record, previous, true)
             : json({ error: "snapshot_superseded" }, 409);
         }
-        // Bound section count by retaining the most recently used successful data.
+        const previousSection = record.sections[path];
+        const mergedData = merge(previousSection?.data, data, path);
+        const retainedPreviousData =
+          previousSection &&
+          !sameJsonValue(mergedData, normalizeMergePayload(data));
         const sections = {
           ...record.sections,
           [path]: {
-            data: merge(record.sections[path]?.data, data),
-            updatedAt: now(),
+            data: mergedData,
+            updatedAt: retainedPreviousData ? previousSection.updatedAt : now(),
+            ...(retainedPreviousData ? { dirty: true } : {}),
           },
         };
         const oldLevel = record.sections["/api/me"]?.data?.exp?.level;
@@ -515,12 +656,6 @@ export function createAccountSnapshots({
           for (const [key, section] of Object.entries(sections))
             if (isInventoryPath(key))
               sections[key] = { ...section, dirty: true, inventoryDirty: true };
-        }
-        if (Object.keys(sections).length > MAX_SECTIONS) {
-          const oldest = Object.keys(sections)
-            .filter((key) => key !== "/api/me" && key !== path)
-            .sort((a, b) => sections[a].updatedAt - sections[b].updatedAt)[0];
-          delete sections[oldest];
         }
         const failedSections = (record.health?.failedSections || []).filter(
           (failed) =>
@@ -551,28 +686,23 @@ export function createAccountSnapshots({
               : {}),
           },
         };
-        while (
-          Buffer.byteLength(JSON.stringify(record)) > MAX_BYTES &&
-          Object.keys(record.sections).length > 1
-        ) {
-          const oldest = Object.keys(record.sections)
-            .filter((key) => key !== path && key !== "/api/me")
-            .sort(
-              (a, b) =>
-                record.sections[a].updatedAt - record.sections[b].updatedAt,
-            )[0];
-          delete record.sections[oldest];
-        }
+        record = boundSections(record, new Set([path, "/api/me"]));
         persist(record);
         for (const [known, account] of credentials) {
           if (account === playerId && !record.credentialHashes.includes(known))
             credentials.delete(known);
         }
         credentials.set(digest, playerId);
+        const rawResponse = !fallback || liveProfile;
+        const responseSection =
+          rawResponse && retainedPreviousData
+            ? { ...sections[path], updatedAt: now() }
+            : sections[path];
         return withMetadata(
           json(fallback && !liveProfile ? sections[path].data : data),
           record,
-          sections[path],
+          responseSection,
+          Boolean(fallback && !liveProfile && retainedPreviousData),
         );
       }
       // Only transient failures use stale data. Other 4xx stay distinct.
@@ -701,52 +831,73 @@ export function createAccountSnapshots({
     const workRead = method === "POST" && path === "/api/works/open";
     const authorization = new Headers(init.headers).get("authorization");
     const playerId = authorization && credentials.get(hash(authorization));
-    const record = accounts.get(playerId);
+    let record = accounts.get(playerId);
     if (
       method === "GET" &&
       isSnapshotPath(new URL(url).pathname) &&
       !new URL(url).search
     )
       return execute(url, init, { fallback: false, cache: false });
-    const response = await upstream(url, init);
-    if (method !== "GET" && !workRead && record && response.ok) {
-      let battleMayHaveFinished = true;
-      if (/^\/api\/bosses\/battles\/[^/]+\/attack$/.test(path)) {
-        try {
-          const result = await response.clone().json();
-          battleMayHaveFinished = !(
-            result?.battle?.status === "active" &&
-            result?.battleFinished !== true
+    const mutating = method !== "GET" && !workRead;
+    const isBattleAttack = /^\/api\/bosses\/battles\/[^/]+\/attack$/.test(path);
+    const kind = mutationKind(path);
+    const revisionBeforeMutation = record?.profileRevision ?? 0;
+    const priorInventoryDirty = new Map();
+    // Persist the revision barrier before dispatch. A GET already in flight
+    // can then never commit over a mutation whose outcome is still unknown.
+    if (mutating && record) {
+      const sections = { ...record.sections };
+      for (const [sectionPath, section] of Object.entries(sections)) {
+        if (!mutationAffectsSection(kind, sectionPath)) continue;
+        if (isBattleAttack && isInventoryPath(sectionPath))
+          priorInventoryDirty.set(
+            sectionPath,
+            section.inventoryDirty ?? section.dirty ?? false,
           );
-        } catch {
-          // Unknown outcomes may contain rewards; retain the last snapshot but mark it stale.
-        }
+        sections[sectionPath] = {
+          ...section,
+          dirty: true,
+          ...(isInventoryPath(sectionPath)
+            ? {
+                inventoryDirty:
+                  !kind ||
+                  (section.inventoryDirty ?? section.dirty ?? false) ||
+                  inventoryMutationAffects(path, sectionPath, true),
+              }
+            : {}),
+        };
+      }
+      record = {
+        ...record,
+        profileRevision: revisionBeforeMutation + 1,
+        sections,
+      };
+      persist(record);
+    }
+    const response = await upstream(url, init);
+    if (mutating && record && isBattleAttack && response.ok) {
+      let battleMayHaveFinished = true;
+      try {
+        const result = await response.clone().json();
+        battleMayHaveFinished = !(
+          result?.battle?.status === "active" && result?.battleFinished !== true
+        );
+      } catch {
+        // Unknown outcomes may contain rewards; retain the last snapshot but mark it stale.
       }
       const current = accounts.get(playerId);
-      persist({
-        ...current,
-        profileRevision: (current.profileRevision ?? 0) + 1,
-        sections: Object.fromEntries(
-          Object.entries(current.sections).map(([sectionPath, section]) => [
-            sectionPath,
-            {
-              ...section,
-              dirty: true,
-              ...(isInventoryPath(sectionPath)
-                ? {
-                    inventoryDirty:
-                      (section.inventoryDirty ?? section.dirty ?? false) ||
-                      inventoryMutationAffects(
-                        path,
-                        sectionPath,
-                        battleMayHaveFinished,
-                      ),
-                  }
-                : {}),
-            },
-          ]),
-        ),
-      });
+      if (
+        !battleMayHaveFinished &&
+        current?.profileRevision === revisionBeforeMutation + 1
+      ) {
+        const sections = { ...current.sections };
+        for (const [sectionPath, dirty] of priorInventoryDirty) {
+          const section = sections[sectionPath];
+          if (section)
+            sections[sectionPath] = { ...section, inventoryDirty: dirty };
+        }
+        persist({ ...current, sections });
+      }
     }
     const friendList = method === "GET" && path === "/api/friends";
     if (response.status === 429 || response.status >= 500)
@@ -846,7 +997,7 @@ export function createAccountSnapshots({
         sections: {},
         credentialHashes: [],
       };
-      const updated = {
+      let updated = {
         ...record,
         sections: { ...record.sections, "/api/me": { data, updatedAt: now() } },
         credentialHashes: [
@@ -865,6 +1016,7 @@ export function createAccountSnapshots({
           ),
         },
       };
+      updated = boundSections(updated, new Set(["/api/me"]));
       persist(updated);
       credentials.set(digest, playerId);
     },

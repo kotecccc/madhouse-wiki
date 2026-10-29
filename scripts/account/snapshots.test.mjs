@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +50,74 @@ function queueFetcher(steps) {
   };
   return { fetcher, calls };
 }
+
+test("bridge profile writes share byte capacity eviction with direct snapshots", () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-profile-capacity";
+  const digest = createHash("sha256").update(authorization).digest("hex");
+  store.writeSnapshot("41", {
+    schemaVersion: 1,
+    playerId: "41",
+    sections: {
+      "/api/me": {
+        data: { playerId: 41, nickname: "Old" },
+        updatedAt: 1,
+      },
+      "/api/weapons/1": {
+        data: { payload: "w".repeat(2_100_000) },
+        updatedAt: 2,
+      },
+      "/api/rooms": {
+        data: { payload: "r".repeat(500_000) },
+        updatedAt: 3,
+      },
+    },
+    credentialHashes: [digest],
+  });
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: () => assert.fail("snapshot save must not call the game"),
+    now: () => 4,
+  });
+
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: 41,
+    nickname: "Current",
+    payload: "p".repeat(600_000),
+  });
+
+  const record = store.readSnapshots()[0];
+  assert.ok(Buffer.byteLength(JSON.stringify(record)) <= 3 * 1024 * 1024);
+  assert.equal(record.sections["/api/me"].data.nickname, "Current");
+  assert.equal(record.sections["/api/weapons/1"], undefined);
+  assert.ok(record.sections["/api/rooms"]);
+});
+
+test("bridge profile writes keep at most 128 sections while preserving the profile", () => {
+  const store = memoryStore();
+  const authorization = "Bearer bridge-profile-section-capacity";
+  const digest = createHash("sha256").update(authorization).digest("hex");
+  store.writeSnapshot("41", {
+    schemaVersion: 1,
+    playerId: "41",
+    sections: Object.fromEntries(
+      Array.from({ length: 128 }, (_, index) => [
+        `/api/weapons/${index + 1}`,
+        { data: { owned: true }, updatedAt: index + 1 },
+      ]),
+    ),
+    credentialHashes: [digest],
+  });
+  const snapshots = createAccountSnapshots({ store });
+
+  snapshots.saveBridgeProfile(authorization, { playerId: 41 });
+
+  const sections = store.readSnapshots()[0].sections;
+  assert.equal(Object.keys(sections).length, 128);
+  assert.ok(sections["/api/me"]);
+  assert.equal(sections["/api/weapons/1"], undefined);
+  assert.ok(sections["/api/weapons/128"]);
+});
 
 test("verified automation credentials retain their player scope without a profile snapshot", () => {
   const store = memoryStore();
@@ -182,6 +251,164 @@ test("stored snapshots survive restart and retain their original freshness metad
     401,
   );
   assert.equal(offline.calls.length, 0);
+});
+
+test("a sparse post-restart refresh preserves prior timestamp and action reads stay raw", async () => {
+  let now = 1000;
+  const store = memoryStore();
+  const initial = queueFetcher([
+    reply({ playerId: 43 }),
+    reply({ coins: 7, items: ["confirmed"] }),
+  ]);
+  let snapshots = createAccountSnapshots({
+    store,
+    fetcher: initial.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("sparse-restart"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("sparse-restart"));
+
+  now = 1200;
+  const refresh = queueFetcher([reply({ coins: 8 }), reply({ coins: 9 })]);
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: refresh.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  const display = await snapshots.read(
+    `${origin}/api/me/bag`,
+    auth("sparse-restart"),
+  );
+  assert.deepEqual(await payload(display), {
+    coins: 8,
+    items: ["confirmed"],
+  });
+  assert.equal(display.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(display.headers.get("X-Madhouse-Section-Updated"), "1000");
+
+  const stored = snapshots.readStored(
+    `${origin}/api/me/bag`,
+    auth("sparse-restart"),
+  );
+  assert.deepEqual(await payload(stored), {
+    coins: 8,
+    items: ["confirmed"],
+  });
+  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(stored.headers.get("X-Madhouse-Section-Updated"), "1000");
+
+  const actionRead = await snapshots.liveFetch(
+    `${origin}/api/me/bag`,
+    auth("sparse-restart"),
+  );
+  assert.deepEqual(await payload(actionRead), { coins: 9 });
+  assert.equal(actionRead.headers.get("X-Madhouse-Snapshot"), "current");
+  assert.equal(actionRead.headers.get("X-Madhouse-Section-Updated"), "1200");
+  const storedAfterAction = snapshots.readStored(
+    `${origin}/api/me/bag`,
+    auth("sparse-restart"),
+  );
+  assert.deepEqual(await payload(storedAfterAction), {
+    coins: 9,
+    items: ["confirmed"],
+  });
+  assert.equal(storedAfterAction.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(
+    storedAfterAction.headers.get("X-Madhouse-Section-Updated"),
+    "1000",
+  );
+  assert.equal(refresh.calls.length, 2);
+});
+
+test("live profile returns observation time while its sparse merged snapshot stays stale", async () => {
+  let now = 1000;
+  const store = memoryStore();
+  const initial = queueFetcher([
+    reply({ playerId: 45, wallet: { gold: 10 }, energy: { current: 1 } }),
+  ]);
+  let snapshots = createAccountSnapshots({
+    store,
+    fetcher: initial.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("live-profile-metadata"));
+
+  now = 2000;
+  const live = queueFetcher([reply({ playerId: 45, energy: { current: 2 } })]);
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: live.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  const response = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      ...auth("live-profile-metadata").headers,
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  assert.deepEqual(await payload(response), {
+    playerId: 45,
+    energy: { current: 2 },
+  });
+  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "current");
+  assert.equal(response.headers.get("X-Madhouse-Section-Updated"), "2000");
+
+  const stored = snapshots.readStored(
+    `${origin}/api/me`,
+    auth("live-profile-metadata"),
+  );
+  assert.deepEqual(await payload(stored), {
+    playerId: 45,
+    wallet: { gold: 10 },
+    energy: { current: 2 },
+  });
+  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(stored.headers.get("X-Madhouse-Section-Updated"), "1000");
+});
+
+test("allowed nulls and explicit empty lists replace old values without retaining freshness debt", async () => {
+  let now = 100;
+  const buff = {
+    setId: 2,
+    name: "Effect",
+    expiresAtUtc: "2030-01-01T00:00:00Z",
+  };
+  const queue = queueFetcher([
+    reply({ playerId: 44 }),
+    reply({ activeStashBuff: buff, activeStashBuffs: [buff], items: [1] }),
+    reply({ activeStashBuff: null, activeStashBuffs: [], items: [] }),
+  ]);
+  const store = memoryStore();
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: queue.fetcher,
+    now: () => now,
+    ttl: 1000,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("allowed-clears"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("allowed-clears"));
+  now = 1200;
+  const response = await snapshots.read(
+    `${origin}/api/me/bag`,
+    auth("allowed-clears"),
+  );
+
+  assert.deepEqual(await payload(response), {
+    activeStashBuff: null,
+    activeStashBuffs: [],
+    items: [],
+  });
+  assert.equal(response.headers.get("X-Madhouse-Snapshot"), "current");
+  const stored = snapshots.readStored(
+    `${origin}/api/me/bag`,
+    auth("allowed-clears"),
+  );
+  assert.equal(stored.headers.get("X-Madhouse-Snapshot"), "current");
+  assert.equal(stored.headers.get("X-Madhouse-Section-Updated"), "1200");
 });
 
 test("a read dispatched before a mutation cannot overwrite the invalidated snapshot", async () => {
@@ -773,15 +1000,16 @@ test("snapshot-only misses perform initial reads and internal header is never fo
   assert.equal(queue.calls.length, 1);
 });
 
-test("failed mutations do not invalidate saved sections", async () => {
+test("a failed mutation leaves its profile invalidation barrier in place", async () => {
   let now = 1000;
+  const store = memoryStore();
   const queue = queueFetcher([
     reply({ playerId: 92 }),
     reply({ owned: true }),
     reply({}, 500),
   ]);
   const snapshots = createAccountSnapshots({
-    store: memoryStore(),
+    store,
     fetcher: queue.fetcher,
     now: () => now,
     cooldown: 0,
@@ -793,6 +1021,8 @@ test("failed mutations do not invalidate saved sections", async () => {
     method: "POST",
   });
   assert.equal(failed.ok, false);
+  assert.equal(snapshots.health("Bearer mutation-user").profileRevision, 1);
+  assert.equal(store.readSnapshots()[0].sections["/api/me"].dirty, true);
   now += 1;
   const cached = await snapshots.read(`${origin}/api/weapons/1`, {
     headers: {
@@ -801,8 +1031,88 @@ test("failed mutations do not invalidate saved sections", async () => {
     },
   });
   assert.deepEqual(await payload(cached), { owned: true });
-  assert.equal(cached.headers.get("X-Madhouse-Snapshot"), "current");
+  assert.equal(cached.headers.get("X-Madhouse-Snapshot"), "stale");
   assert.equal(queue.calls.length, 3);
+});
+
+test("mutation barrier supersedes a delayed GET before its response can commit", async () => {
+  const store = memoryStore();
+  const calls = [];
+  let releaseProfile;
+  let releaseMutation;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1)
+        return reply({ playerId: 93, wallet: { gold: 1 } });
+      if (init.method === "POST")
+        return new Promise((resolve) => {
+          releaseMutation = resolve;
+        });
+      return new Promise((resolve) => {
+        releaseProfile = resolve;
+      });
+    },
+  });
+  await snapshots.read(`${origin}/api/me`, auth("delayed-mutation"));
+  const oldRead = snapshots.liveFetch(
+    `${origin}/api/me`,
+    auth("delayed-mutation"),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const mutation = snapshots.liveFetch(`${origin}/api/shop/buy`, {
+    ...auth("delayed-mutation"),
+    method: "POST",
+  });
+  assert.equal(snapshots.health("Bearer delayed-mutation").profileRevision, 1);
+  assert.equal(store.readSnapshots()[0].sections["/api/me"].dirty, true);
+
+  releaseProfile(reply({ playerId: 93, wallet: { gold: 99 } }));
+  const superseded = await oldRead;
+  assert.equal(superseded.status, 409);
+  assert.deepEqual(store.readSnapshots()[0].sections["/api/me"].data.wallet, {
+    gold: 1,
+  });
+  releaseMutation(reply({ success: true }));
+  assert.equal((await mutation).status, 200);
+  assert.equal(calls.filter(({ init }) => init.method === "POST").length, 1);
+});
+
+test("lost mutation response keeps the durable barrier and is never replayed", async () => {
+  let now = 1234;
+  const store = memoryStore();
+  const queue = queueFetcher([
+    reply({ playerId: 94, wallet: { gold: 2 } }),
+    reply({ coins: 4 }),
+    reply({ catalog: { rooms: [{ id: 1, owned: true }] } }),
+    new Error("connection lost after dispatch"),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: queue.fetcher,
+    now: () => now,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("lost-mutation"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("lost-mutation"));
+  await snapshots.read(`${origin}/api/rooms`, auth("lost-mutation"));
+  const response = await snapshots.liveFetch(`${origin}/api/shop/buy`, {
+    ...auth("lost-mutation"),
+    method: "POST",
+  });
+  assert.equal(response.status, 503);
+  assert.equal(queue.calls.length, 4);
+  assert.equal(snapshots.health("Bearer lost-mutation").profileRevision, 1);
+  const stored = store.readSnapshots()[0].sections["/api/me"];
+  assert.equal(stored.dirty, true);
+  assert.deepEqual(stored.data.wallet, { gold: 2 });
+  assert.equal(stored.updatedAt, now);
+  const record = store.readSnapshots()[0];
+  assert.equal(record.sections["/api/me/bag"].dirty, true);
+  assert.equal(record.sections["/api/rooms"].dirty, true);
+  assert.deepEqual(snapshots.inventory("Bearer lost-mutation").dirty, [
+    "/api/rooms",
+  ]);
 });
 
 test("unknown sections never produce invented snapshots and invalid credentials are distinct", async () => {
@@ -1064,6 +1374,51 @@ test("an explicit ended battle reference clears an older active battle instead o
   await snapshots.read(`${origin}/api/me`, auth("a"));
   const result = await snapshots.read(`${origin}/api/me`, auth("a"));
   assert.equal((await result.json()).activeBossBattle, null);
+});
+
+test("boss detail activeBattle clears only on explicit null for the matching boss", async () => {
+  const activeBattle = { battleId: "battle-7", bossId: 7 };
+  const queue = queueFetcher([
+    reply({ playerId: 7 }),
+    reply({ id: 7, name: "Boss", activeBattle }),
+    reply({ id: 7, name: "Boss updated" }),
+    reply({ id: 8, activeBattle: null }),
+    reply({ id: 7, activeBattle: null }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    ttl: 0,
+    cooldown: 0,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("boss-detail-snapshot"));
+  await snapshots.read(`${origin}/api/bosses/7`, auth("boss-detail-snapshot"));
+
+  const omitted = await snapshots.read(
+    `${origin}/api/bosses/7`,
+    auth("boss-detail-snapshot"),
+  );
+  assert.deepEqual((await payload(omitted)).activeBattle, activeBattle);
+
+  const mismatched = await snapshots.read(
+    `${origin}/api/bosses/7`,
+    auth("boss-detail-snapshot"),
+  );
+  assert.deepEqual((await payload(mismatched)).activeBattle, activeBattle);
+  assert.equal(mismatched.headers.get("X-Madhouse-Snapshot"), "stale");
+
+  const cleared = await snapshots.read(
+    `${origin}/api/bosses/7`,
+    auth("boss-detail-snapshot"),
+  );
+  assert.equal((await payload(cleared)).activeBattle, null);
+
+  const stored = snapshots.readStored(
+    `${origin}/api/bosses/7`,
+    auth("boss-detail-snapshot"),
+  );
+  assert.equal((await payload(stored)).activeBattle, null);
+  assert.equal(queue.calls.length, 5);
 });
 
 test("stash buff clears survive snapshot restart and retire the alternate API shape", async (t) => {
@@ -1557,13 +1912,15 @@ test("inventory snapshots are private, survive restart, and level changes invali
   );
 });
 
-test("unrelated work actions preserve inventory counters while purchases invalidate the affected category", async () => {
+test("unclassified work writes invalidate conservatively; known weapon purchases stay scoped", async () => {
   const store = memoryStore();
   const { fetcher } = queueFetcher([
     reply({ playerId: 45, exp: { level: 7 } }),
     reply({ items: [{ id: 1, owned: false }] }),
     reply({ items: [{ id: 2, owned: false }] }),
     reply({ success: true }),
+    reply({ items: [{ id: 1, owned: false }] }),
+    reply({ items: [{ id: 2, owned: false }] }),
     reply({ success: true }),
   ]);
   const snapshots = createAccountSnapshots({ store, fetcher });
@@ -1580,9 +1937,17 @@ test("unrelated work actions preserve inventory counters while purchases invalid
     ...auth("inventory-b"),
     method: "POST",
   });
-  assert.equal(
-    Object.keys(snapshots.inventory("Bearer inventory-b").sections).length,
-    2,
+  assert.deepEqual(snapshots.inventory("Bearer inventory-b").dirty, [
+    "/api/clothing/by-category/1",
+    "/api/clothing/by-category/9",
+  ]);
+  await snapshots.read(
+    `${origin}/api/clothing/by-category/1`,
+    auth("inventory-b"),
+  );
+  await snapshots.read(
+    `${origin}/api/clothing/by-category/9`,
+    auth("inventory-b"),
   );
   await snapshots.liveFetch(`${origin}/api/weapons/buy`, {
     ...auth("inventory-b"),
@@ -1596,6 +1961,47 @@ test("unrelated work actions preserve inventory counters while purchases invalid
       "/api/clothing/by-category/9"
     ],
   );
+});
+
+test("known weapon mutation invalidates weapon details; an unknown subroute invalidates all", async () => {
+  const store = memoryStore();
+  const queue = queueFetcher([
+    reply({ playerId: 47 }),
+    reply({ items: [{ id: 1, owned: false }] }),
+    reply({ id: 12, durability: 4 }),
+    reply({ id: 13, active: true }),
+    reply({ catalog: { rooms: [{ id: 2, owned: true }] } }),
+    reply({ success: true }),
+    reply({ success: true }),
+  ]);
+  const snapshots = createAccountSnapshots({ store, fetcher: queue.fetcher });
+  const authorization = auth("mutation-route-map");
+  await snapshots.read(`${origin}/api/me`, authorization);
+  await snapshots.read(`${origin}/api/clothing/by-category/1`, authorization);
+  await snapshots.read(`${origin}/api/weapons/12`, authorization);
+  await snapshots.read(`${origin}/api/pets/13`, authorization);
+  await snapshots.read(`${origin}/api/rooms`, authorization);
+
+  await snapshots.liveFetch(`${origin}/api/weapons/repair`, {
+    ...authorization,
+    method: "POST",
+  });
+  let sections = store.readSnapshots()[0].sections;
+  assert.equal(sections["/api/clothing/by-category/1"].dirty, true);
+  assert.equal(sections["/api/weapons/12"].dirty, true);
+  assert.equal(sections["/api/pets/13"].dirty, undefined);
+  assert.equal(sections["/api/rooms"].dirty, undefined);
+
+  await snapshots.liveFetch(`${origin}/api/weapons/repair/12`, {
+    ...authorization,
+    method: "POST",
+  });
+  sections = store.readSnapshots()[0].sections;
+  assert.ok(Object.values(sections).every((section) => section.dirty === true));
+  assert.deepEqual(snapshots.inventory("Bearer mutation-route-map").dirty, [
+    "/api/clothing/by-category/1",
+    "/api/rooms",
+  ]);
 });
 
 test("active battle strikes preserve inventory snapshots across restart; terminal or uncertain strikes mark them stale without hiding them", async () => {
