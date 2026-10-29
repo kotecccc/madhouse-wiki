@@ -2686,16 +2686,21 @@ export function createAutomationService({
           ? "Вступление не подтверждено. Проверьте состояние перед новым приглашением."
           : null,
       };
-      try {
-        globalRaids?.observe(entry.playerId, raw, entry.invitations.items);
-      } catch {
-        // Global reporting must never interrupt account automation.
-      }
       entry.raidObservations = observeRaids(
         entry.raidObservations,
         entry.invitations.items,
         now(),
       );
+      try {
+        globalRaids?.observe(
+          entry.playerId,
+          raw,
+          entry.invitations.items,
+          entry.raidObservations,
+        );
+      } catch {
+        // Global reporting must never interrupt account automation.
+      }
       if (!suppressSubscription)
         entry.raidSubscription?.observe(entry.invitations.items, true);
       save(entry);

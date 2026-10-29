@@ -46,7 +46,14 @@ export function advanceGlobalRaidDay(state, now) {
   };
 }
 
-export function observeGlobalInvitations(state, playerId, raw, projected, now) {
+export function observeGlobalInvitations(
+  state,
+  playerId,
+  raw,
+  projected,
+  now,
+  history = [],
+) {
   if (
     !Array.isArray(raw?.items) ||
     raw.partial ||
@@ -124,6 +131,51 @@ export function observeGlobalInvitations(state, playerId, raw, projected, now) {
     };
     state.observations[value.id] = value;
   }
+  // The TMA history is account-scoped and already validated. Only import
+  // histories for leaders with a currently available invitation; a history
+  // record alone cannot establish that a raid is active.
+  const activeKeys = new Set(
+    projected
+      .filter(
+        (item) =>
+          item.available &&
+          positive(item.leaderPlayerId) &&
+          positive(item.bossId),
+      )
+      .map((item) => `${item.leaderPlayerId}:${item.bossId}`),
+  );
+  for (const item of Array.isArray(history) ? history : []) {
+    if (
+      !identifier(item?.battleId) ||
+      !positive(item.leaderPlayerId) ||
+      !positive(item.bossId) ||
+      !Number.isFinite(item.seenAt) ||
+      item.seenAt > now ||
+      item.seenAt <= now - 7200000 ||
+      !activeKeys.has(`${item.leaderPlayerId}:${item.bossId}`)
+    )
+      continue;
+    const existing = state.observations[item.battleId];
+    if (
+      existing &&
+      (existing.leaderPlayerId !== item.leaderPlayerId ||
+        existing.bossId !== item.bossId)
+    )
+      continue;
+    if (existing) {
+      existing.firstSeen = Math.min(existing.firstSeen, item.seenAt);
+      existing.tmaSeenAt = { ...existing.tmaSeenAt, [source]: item.seenAt };
+    } else
+      state.observations[item.battleId] = {
+        id: item.battleId,
+        bossId: item.bossId,
+        leaderPlayerId: item.leaderPlayerId,
+        firstSeen: item.seenAt,
+        lastSeen: item.seenAt,
+        sources: {},
+        tmaSeenAt: { [source]: item.seenAt },
+      };
+  }
   return refreshGlobalRaidRows(state, now);
 }
 
@@ -196,14 +248,42 @@ export function refreshGlobalRaidRows(state, now) {
           row.sources[id] = source;
       }
     }
-    if (row)
-      row.activeIds = events
-        .filter((e) =>
-          Object.values(e.sources || {}).some(
-            (s) => s.active && s.expiresAt > now && now - s.checkedAt <= FRESH,
-          ),
-        )
-        .map((e) => e.id);
+    const activeEvents = events.filter((e) =>
+      Object.values(e.sources || {}).some(
+        (s) => s.active && s.expiresAt > now && now - s.checkedAt <= FRESH,
+      ),
+    );
+    const recentCount = events.filter((e) => {
+      const observations = Object.values(e.tmaSeenAt || {});
+      return (observations.length ? observations : [e.firstSeen]).some(
+        (at) => Number.isFinite(at) && at > now - 7200000 && at <= now,
+      );
+    }).length;
+    // TMA displays an active invitation after three observed battles. Match
+    // that view even when a longer quiet period split historical series.
+    if (activeEvents.length && recentCount >= 3) {
+      const active = activeEvents.at(-1);
+      if (!row) {
+        row = {
+          key,
+          bossId: active.bossId,
+          leaderPlayerId: active.leaderPlayerId,
+          count: 0,
+          lastBattleAt: active.lastSeen,
+          sources: {},
+          carried: false,
+        };
+        rows.push(row);
+      }
+      row.count = Math.max(row.count, recentCount);
+      row.lastBattleAt = Math.max(row.lastBattleAt || 0, active.lastSeen);
+      row.lastBattleId = active.id;
+      row.leaderName = active.leaderName || row.leaderName;
+      row.leaderUsername = active.leaderUsername || row.leaderUsername;
+      for (const [id, source] of Object.entries(active.sources || {}))
+        row.sources[id] = source;
+      row.activeIds = activeEvents.map((e) => e.id);
+    } else if (row) row.activeIds = activeEvents.map((e) => e.id);
   }
   for (const row of rows) {
     row.active = row.activeIds?.length > 0;
@@ -289,7 +369,7 @@ export function createGlobalRaidsWorker({
     return advanceGlobalRaidDay(state, now());
   };
   return {
-    observe(playerId, raw, projected) {
+    observe(playerId, raw, projected, history = []) {
       if (isClosed()) return;
       const state = observeGlobalInvitations(
         load(),
@@ -297,6 +377,7 @@ export function createGlobalRaidsWorker({
         raw,
         projected,
         now(),
+        history,
       );
       save(state);
     },
