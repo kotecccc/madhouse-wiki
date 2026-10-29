@@ -2933,6 +2933,44 @@ export function createAutomationService({
     } else {
       if (!allowed() || !canAct(entry, Boolean(entry.queueBattleDispatch)))
         throw failure(409, "raid_stopped");
+      // The game rejects joining when the equipped weapon is broken. Check it
+      // before reserving the invitation so a repair has its own durable intent
+      // and a lost repair response cannot lead to an invitation POST.
+      if (
+        entry.raidWorker.getSnapshot().enabled ||
+        entry.raidSubscription.getSnapshot().enabled
+      ) {
+        if (entry.inventoryBusy || entry.equipment?.pending)
+          throw failure(409, "weapon_equipment_uncertain");
+        const credential = entry.credential;
+        const maintainAllowed = () =>
+          !closed &&
+          !entry.storageFailed &&
+          entry.credential === credential &&
+          allowed() &&
+          canAct(entry, true) &&
+          !entry.controller.getSnapshot().pendingInvitation &&
+          (entry.raidWorker.getSnapshot().enabled ||
+            entry.raidSubscription.getSnapshot().enabled);
+        entry.inventoryBusy = true;
+        try {
+          await recoverBrokenWeapon({
+            entry,
+            fetcher: createWeaponRecoveryFetch({
+              fetcher,
+              gate: queueActionGate,
+              entry,
+              allowed: maintainAllowed,
+            }),
+            save,
+            allowed: maintainAllowed,
+          });
+        } finally {
+          entry.inventoryBusy = false;
+        }
+        if (!maintainAllowed() || invitation.expiresAt <= now())
+          throw failure(409, "raid_stopped");
+      }
       const goal = entry.goal.getSnapshot();
       if (
         goal &&
