@@ -1,17 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, webcrypto } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createAutomationRuntime } from "../scripts/automation/runtime.mjs";
+import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
+import { createSessionApi } from "../shared/session-api.js";
 import {
   createAccountSessions,
   verifyWikiIdentity,
 } from "../connector/account-session.js";
+import {
+  createWikiSessionAuthority,
+  isWikiSessionCredential,
+} from "../shared/wiki-session.js";
 import {
   clearIdentityProof,
   readIdentityProof,
   saveIdentityProof,
 } from "../connector/identity-proof-storage.js";
 const verificationKey = "11".repeat(32),
-  encryptionKey = "22".repeat(32);
+  encryptionKey = "22".repeat(32),
+  wikiSessionKey = "33".repeat(32);
 const now = 1900000000000;
 const signed = (id = 42, time = now, key = verificationKey) => {
   const p = new URLSearchParams({
@@ -43,6 +54,7 @@ function setup({ profileStatuses = [], withOwnerLease } = {}) {
   let profileCalls = 0;
   let clock = now,
     gameId = 42,
+    playerId = 2042,
     accepted = true;
   const store = {
     async read(key) {
@@ -59,6 +71,7 @@ function setup({ profileStatuses = [], withOwnerLease } = {}) {
     store,
     verificationKey,
     encryptionKey,
+    wikiSessionKey,
     now: () => clock,
     pause: async () => {},
     withOwnerLease,
@@ -70,6 +83,7 @@ function setup({ profileStatuses = [], withOwnerLease } = {}) {
       return new Response(
         JSON.stringify({
           telegramId: gameId,
+          playerId,
           privateProfile: "never-store-this",
         }),
         { status: profileStatuses.shift() ?? (accepted ? 200 : 401) },
@@ -78,13 +92,63 @@ function setup({ profileStatuses = [], withOwnerLease } = {}) {
   });
   const call = (action, extra = {}, id = 42) =>
     api({ action, wikiInitData: signed(id, clock), ...extra });
+  const makeLegacy = async () => {
+    const [path, stored] = [...records.entries()][0] || [];
+    assert.ok(path && stored);
+    const key = await webcrypto.subtle.importKey(
+      "raw",
+      Buffer.from(encryptionKey, "hex"),
+      "AES-GCM",
+      false,
+      ["decrypt", "encrypt"],
+    );
+    const envelope = JSON.parse(stored.value);
+    const plain = await webcrypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: Buffer.from(envelope.iv, "base64url"),
+        additionalData: new TextEncoder().encode(path),
+      },
+      key,
+      Buffer.from(envelope.data, "base64url"),
+    );
+    const record = JSON.parse(new TextDecoder().decode(plain));
+    delete record.playerId;
+    delete record.telegramUserId;
+    const iv = webcrypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await webcrypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv,
+        additionalData: new TextEncoder().encode(path),
+      },
+      key,
+      new TextEncoder().encode(JSON.stringify(record)),
+    );
+    records.set(path, {
+      ...stored,
+      value: JSON.stringify({
+        v: 1,
+        iv: Buffer.from(iv).toString("base64url"),
+        data: Buffer.from(ciphertext).toString("base64url"),
+      }),
+    });
+  };
   return {
     call,
     records,
     store,
+    wikiSessions: createWikiSessionAuthority({
+      store,
+      encryptionKey,
+      signingKey: wikiSessionKey,
+      now: () => clock,
+    }),
     api,
     setTime: (t) => (clock = t),
     setGameId: (id) => (gameId = id),
+    setPlayerId: (id) => (playerId = id),
+    makeLegacy,
     rejectGame: () => (accepted = false),
     profileCalls: () => profileCalls,
   };
@@ -117,6 +181,290 @@ test("same signed account restores across independent clients; another account n
     assert.ok(!record.value.includes(jwt()));
     assert.ok(!record.value.includes("never-store-this"));
   }
+});
+test("Wiki credential is bound to the verified player and current revocable account revision", async () => {
+  const s = setup();
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  const restored = await s.call("restore");
+  assert.equal(restored.status, "connected");
+  assert.equal(restored.gameConnection, "connected");
+  assert.equal(restored.wikiSession.split(".").length, 3);
+  const claims = JSON.parse(
+    Buffer.from(restored.wikiSession.split(".")[1], "base64url").toString(),
+  );
+  assert.equal(claims.exp, Math.floor((now + 86400000) / 1000));
+  assert.equal(
+    (await s.wikiSessions.verify(restored.wikiSession)).playerId,
+    2042,
+  );
+  s.setTime(now + 3600001);
+  const expiredGame = await s.call("restore");
+  assert.equal(expiredGame.status, "login-required");
+  assert.equal(expiredGame.gameConnection, "login-required");
+  assert.equal(
+    (await s.wikiSessions.verify(expiredGame.wikiSession)).playerId,
+    2042,
+  );
+  await s.call("logout");
+  assert.equal(await s.wikiSessions.verify(expiredGame.wikiSession), null);
+});
+
+test("expired game session restores Wiki access through the runtime proxy without game traffic", async (t) => {
+  const s = setup();
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  const directory = mkdtempSync(join(tmpdir(), "wiki-stored-route-"));
+  let gameCalls = 0;
+  const runtime = await createAutomationRuntime({
+    env: {
+      MADHOUSE_AUTOMATION_STATE_DIR: directory,
+      MADHOUSE_AUTOMATION_GAME_ENABLED: "0",
+    },
+    wikiSessionAuthority: s.wikiSessions,
+    gameFetcher: async () => {
+      gameCalls++;
+      return Response.json({ playerId: 2042, nickname: "Saved" });
+    },
+  });
+  t.after(() => {
+    runtime.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  await runtime.gameFetch("https://cargohustle.online/api/me", {
+    headers: { Authorization: `Bearer ${jwt()}` },
+  });
+  assert.equal(gameCalls, 1);
+  s.setTime(now + 3600001);
+  const connectorCalls = s.profileCalls();
+  const restored = await s.call("restore");
+  assert.equal(restored.gameConnection, "login-required");
+  assert.equal(s.profileCalls(), connectorCalls);
+  assert.equal(isWikiSessionCredential(`Bearer ${restored.wikiSession}`), true);
+  assert.equal(isWikiSessionCredential(`Bearer ${jwt()}`), false);
+  const call = async (path, credential) => {
+    const response = {
+      setHeader() {},
+      end(body) {
+        this.body = body;
+      },
+    };
+    await runtime.proxy(
+      {
+        method: "GET",
+        url: path,
+        headers: {
+          authorization: `Bearer ${credential}`,
+          "x-madhouse-stored-only": "1",
+        },
+      },
+      response,
+    );
+    return response;
+  };
+  assert.equal((await call("/api/me", restored.wikiSession)).statusCode, 200);
+  assert.equal(
+    (await call("/api/rooms", restored.wikiSession)).statusCode,
+    404,
+  );
+  const client = createSessionApi({
+    authorize: ({ url }) => ({
+      url,
+      headers: { Authorization: `Bearer ${restored.wikiSession}` },
+    }),
+    interval: 0,
+    fetcher: async (url, options) => {
+      const headers = {};
+      const response = {
+        setHeader(key, value) {
+          headers[key] = value;
+        },
+        end(body) {
+          this.body = body;
+        },
+      };
+      await runtime.proxy(
+        {
+          method: options.method,
+          url,
+          headers: Object.fromEntries(new Headers(options.headers)),
+        },
+        response,
+      );
+      return new Response(response.body, {
+        status: response.statusCode,
+        headers,
+      });
+    },
+  });
+  assert.equal((await client.readStored("/api/me")).data.playerId, 2042);
+  assert.equal((await client.readStored("/api/rooms")).presence, "unknown");
+  const denied = {
+    setHeader() {},
+    end(body) {
+      this.body = body;
+    },
+  };
+  await runtime.proxy(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: {
+        authorization: `Bearer ${restored.wikiSession}`,
+        "x-madhouse-snapshot-refresh": "live",
+      },
+    },
+    denied,
+  );
+  assert.equal(denied.statusCode, 401);
+  assert.equal(gameCalls, 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gameCalls, 1);
+  await s.call("logout");
+  assert.notEqual(
+    (await call("/api/me", restored.wikiSession)).statusCode,
+    200,
+  );
+  assert.equal(gameCalls, 1);
+});
+
+test("legacy account restores saved data by verified owner and exact token without game traffic", async (t) => {
+  const s = setup();
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  await s.makeLegacy();
+  const directory = mkdtempSync(join(tmpdir(), "wiki-legacy-route-"));
+  let gameCalls = 0;
+  const runtime = await createAutomationRuntime({
+    env: {
+      MADHOUSE_AUTOMATION_STATE_DIR: directory,
+      MADHOUSE_AUTOMATION_GAME_ENABLED: "0",
+    },
+    wikiSessionAuthority: s.wikiSessions,
+    gameFetcher: async () => {
+      gameCalls++;
+      return Response.json({ playerId: 2042, telegramId: 42 });
+    },
+  });
+  t.after(() => {
+    runtime.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  await runtime.gameFetch("https://cargohustle.online/api/me", {
+    headers: { Authorization: `Bearer ${jwt()}` },
+  });
+  s.setTime(now + 3600001);
+  const restored = await s.call("restore");
+  const response = {
+    setHeader() {},
+    end(body) {
+      this.body = body;
+    },
+  };
+  await runtime.proxy(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: {
+        authorization: `Bearer ${restored.wikiSession}`,
+        "x-madhouse-stored-only": "1",
+      },
+    },
+    response,
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).playerId, 2042);
+  assert.equal(gameCalls, 1);
+});
+
+test("Wiki-only automation state is a local read and cannot send commands", async (t) => {
+  const s = setup();
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  s.setTime(now + 3600001);
+  const restored = await s.call("restore");
+  const directory = mkdtempSync(join(tmpdir(), "wiki-automation-state-"));
+  const store = createAutomationStateStore({ directory });
+  store.write("2042", { credential: `Bearer ${jwt()}` });
+  store.close();
+  let gameCalls = 0;
+  const runtime = await createAutomationRuntime({
+    env: { MADHOUSE_AUTOMATION_STATE_DIR: directory },
+    wikiSessionAuthority: s.wikiSessions,
+    gameFetcher: async () => {
+      gameCalls++;
+      throw Error("game unavailable");
+    },
+  });
+  t.after(() => {
+    runtime.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const authorization = `Bearer ${restored.wikiSession}`;
+  const before = gameCalls;
+  const state = await runtime.handle(
+    new Request("http://wiki.test/api/automation/state", {
+      headers: { Authorization: authorization },
+    }),
+  );
+  assert.equal(state.status, 200);
+  const command = await runtime.handle(
+    new Request("http://wiki.test/api/automation/commands", {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ command: "auto.stop" }),
+    }),
+  );
+  assert.equal(command.status, 401);
+  assert.equal(gameCalls, before);
+});
+test("Wiki credential rejects tampering, expiry, and an unverified game playerId", async () => {
+  const s = setup();
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  const credential = (await s.call("restore")).wikiSession;
+  assert.equal(await s.wikiSessions.verify(credential + "x"), null);
+  s.setTime(now + 86400001);
+  assert.equal(await s.wikiSessions.verify(credential), null);
+
+  const badProfile = setup();
+  badProfile.setPlayerId(0);
+  const pending = await badProfile.call("restore");
+  await assert.rejects(
+    badProfile.call("save", { ticket: pending.ticket, accessToken: jwt() }),
+    /game_account_mismatch/,
+  );
+  assert.equal((await badProfile.call("restore")).wikiSession, undefined);
+});
+test("legacy verified account record resolves internally without exposing or refreshing its expired game token", async () => {
+  const s = setup();
+  const start = await s.call("restore");
+  await s.call("save", { ticket: start.ticket, accessToken: jwt() });
+  await s.makeLegacy();
+  s.setTime(now + 3600001);
+  const restored = await s.call("restore");
+  assert.equal(restored.status, "login-required");
+  assert.equal(restored.accessToken, undefined);
+  assert.equal(typeof restored.wikiSession, "string");
+  const internal = await s.wikiSessions.verify(restored.wikiSession);
+  assert.deepEqual(internal, {
+    legacyAuthorization: `Bearer ${jwt()}`,
+    telegramUserId: "42",
+    expiresAt: Math.floor((now + 3600001 + 86400000) / 1000) * 1000,
+  });
+  assert.equal(
+    Buffer.from(restored.wikiSession.split(".")[1], "base64url")
+      .toString()
+      .includes(jwt()),
+    false,
+  );
+  const other = await s.call("restore", {}, 99);
+  assert.equal(other.wikiSession, undefined);
+  await s.call("logout");
+  assert.equal(await s.wikiSessions.verify(restored.wikiSession), null);
 });
 test("server requires actual game authentication and its Telegram account identity, not decoded JWT claims", async () => {
   const s = setup();

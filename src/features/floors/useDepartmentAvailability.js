@@ -1,5 +1,5 @@
 import {
-  getSessionJson,
+  readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
@@ -125,7 +125,7 @@ export function useDepartmentAvailability(
     floorStatus === "ready" &&
     floorAvailable === true &&
     isLastAvailableFloor === true &&
-    readSession().status === "ready",
+    (readSession().status === "ready" || readSession().wikiSessionReady),
   );
   const cachedBody =
     shouldLoad && path ? peekSessionJson(path, { allowStale: true }) : null;
@@ -139,7 +139,10 @@ export function useDepartmentAvailability(
     setState(cachedResult || { code, status: "loading" });
     const load = async () => {
       try {
-        const body = await getSessionJson(path, { signal });
+        const saved = await readStoredSessionJson(path, { signal });
+        if (saved.presence !== "present")
+          throw new Error("snapshot_unavailable");
+        const body = saved.data;
         if (!signal.aborted) setState(departmentResult(code, body));
       } catch {
         if (!signal.aborted && !cachedResult)

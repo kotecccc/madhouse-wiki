@@ -113,7 +113,10 @@ export function createGameRouter({
           // Keep the lease until it is reconciled rather than assuming failure.
           if (
             response.status >= 500 ||
-            response.headers.get("x-madhouse-snapshot") === "stale"
+            (!["GET", "HEAD"].includes(
+              String(init.method || "GET").toUpperCase(),
+            ) &&
+              response.headers.get("x-madhouse-snapshot") === "stale")
           )
             throw fail("direct_result_uncertain");
           return response;

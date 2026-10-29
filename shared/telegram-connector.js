@@ -139,6 +139,9 @@ export function createConnectorBridge({
           "kind",
           "status",
           "accessToken",
+          "wikiSession",
+          "wikiSessionExpiresAt",
+          "gameConnection",
           "playerLevel",
           "currentExp",
           "expToNextLevel",
@@ -162,6 +165,7 @@ export function createConnectorBridge({
       ![
         "connected",
         "disconnected",
+        "wiki-connected",
         "login-required",
         "pending",
         "failed",
@@ -210,11 +214,57 @@ export function createConnectorBridge({
     if (data.expToNextLevel != null && data.status !== "connected") return;
     if (data.activeBossBattle != null && data.status !== "connected") return;
     if (pending.message.action !== "connect-game" && data.accessToken) return;
+    if (
+      data.wikiSession != null &&
+      (typeof data.wikiSession !== "string" ||
+        data.wikiSession.length < 1 ||
+        data.wikiSession.length > 4096 ||
+        pending.message.action !== "connect-game" ||
+        !["connected", "wiki-connected"].includes(data.status) ||
+        !Number.isFinite(data.wikiSessionExpiresAt) ||
+        data.wikiSessionExpiresAt <= 0)
+    )
+      return;
+    if (
+      data.wikiSessionExpiresAt != null &&
+      (!data.wikiSession ||
+        !Number.isFinite(data.wikiSessionExpiresAt) ||
+        data.wikiSessionExpiresAt <= 0)
+    )
+      return;
+    if (
+      data.gameConnection != null &&
+      !["connected", "login-required"].includes(data.gameConnection)
+    )
+      return;
+    if (
+      data.status === "wiki-connected" &&
+      (pending.message.action !== "connect-game" ||
+        !data.wikiSession ||
+        !data.wikiSessionExpiresAt ||
+        data.gameConnection !== "login-required" ||
+        data.accessToken)
+    )
+      return;
+    if (
+      data.status === "connected" &&
+      data.gameConnection != null &&
+      data.gameConnection !== "connected"
+    )
+      return;
+    if (
+      data.gameConnection === "login-required" &&
+      !["wiki-connected", "login-required"].includes(data.status)
+    )
+      return;
     if (data.status === "failed") finish(new Error("connection_failed"));
     else
       finish(null, {
         status: data.status,
         accessToken: data.accessToken,
+        wikiSession: data.wikiSession,
+        wikiSessionExpiresAt: data.wikiSessionExpiresAt,
+        gameConnection: data.gameConnection,
         playerLevel: data.playerLevel,
         currentExp: data.currentExp,
         expToNextLevel: data.expToNextLevel,

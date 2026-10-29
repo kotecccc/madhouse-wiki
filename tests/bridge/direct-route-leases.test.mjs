@@ -282,7 +282,7 @@ test("missing account record never reactivates a previous direct route", async (
   }
 });
 
-test("a completed stale read releases the lease without accepting stale data", async () => {
+test("a completed stale display read releases the lease and preserves its metadata", async () => {
   const directory = mkdtempSync(join(tmpdir(), "bridge-lease-"));
   const storage = createBridgeStorage({ directory });
   try {
@@ -296,10 +296,11 @@ test("a completed stale read releases the lease without accepting stale data", a
         }),
       bridgeProfile: () => assert.fail("unexpected bridge"),
     });
-    await assert.rejects(
-      router.fetchGame({ url, verifiedIdentity: { playerId: "42" } }),
-      { code: "direct_result_uncertain" },
-    );
+    const response = await router.fetchGame({
+      url,
+      verifiedIdentity: { playerId: "42" },
+    });
+    assert.equal(response.headers.get("X-Madhouse-Snapshot"), "stale");
     const pending = storage.directRoutes.pending("42");
     assert.equal(pending.length, 0);
   } finally {

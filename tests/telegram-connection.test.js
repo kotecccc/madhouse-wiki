@@ -389,6 +389,50 @@ test("bridge timeout cancels the child flow and a failed exchange can start with
   });
   bridge.destroy();
 });
+test("parent bridge accepts an independent Wiki session without a game token", async () => {
+  let receive;
+  const sent = [];
+  const child = { postMessage: (data) => sent.push(data) };
+  const bridge = createConnectorBridge({
+    origin: "https://connect.example",
+    source: () => child,
+    listen: (listener) => {
+      receive = listener;
+    },
+    unlisten: () => {},
+  });
+  const emit = (data) =>
+    receive({
+      origin: "https://connect.example",
+      source: child,
+      data: { channel: CHANNEL, version: VERSION, ...data },
+    });
+  emit({ kind: "ready" });
+  const pending = bridge.request("connect-game");
+  const wikiSessionExpiresAt = Date.now() + 60000;
+  emit({
+    kind: "result",
+    id: sent[0].id,
+    status: "wiki-connected",
+    wikiSession: "signed-wiki-session",
+    wikiSessionExpiresAt,
+    gameConnection: "login-required",
+  });
+  assert.deepEqual(await pending, {
+    status: "wiki-connected",
+    accessToken: undefined,
+    wikiSession: "signed-wiki-session",
+    wikiSessionExpiresAt,
+    gameConnection: "login-required",
+    playerLevel: undefined,
+    currentExp: undefined,
+    expToNextLevel: undefined,
+    activeBossBattle: null,
+    remoteRevoked: false,
+    localCleared: false,
+  });
+  bridge.destroy();
+});
 test("auth relay has one fixed POST destination, strips old credentials, returns no profile", async () => {
   let call;
   const api = createConnectorApi({

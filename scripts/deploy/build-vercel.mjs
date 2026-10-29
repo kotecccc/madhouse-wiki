@@ -186,6 +186,7 @@ if (service === "connector") {
     "connector/worker.js",
     "connector/account-session.js",
     "connector/blob-session-store.js",
+    "shared/wiki-session.js",
     "scripts/storage/client.mjs",
   ];
   for (const [name, endpoint] of [
@@ -323,6 +324,7 @@ if (service === "connector") {
   const catalogueFiles = [
     "api/catalogue.js",
     "scripts/catalogue/sync-api.mjs",
+    "shared/wiki-session.js",
     "scripts/catalogue/store.mjs",
     "scripts/catalogue/query.mjs",
     "scripts/catalogue/projection.mjs",

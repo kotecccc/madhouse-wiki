@@ -320,7 +320,7 @@ export function createAccountSnapshots({
     // Boss cards can use a saved tattoo zone, but must not fetch missing zones.
     if (snapshotOnly && path.startsWith("/api/ornaments/zones/"))
       return json({ error: "snapshot_unavailable" }, 404);
-    const key = `${playerId || digest}:${path}:${fallback ? "view" : "live"}`;
+    const key = `${playerId || digest}:${path}:${fallback ? "view" : "live"}:${manualRefreshRequested ? "refresh" : "normal"}:${liveProfile ? "strict" : "regular"}`;
     if (pending.has(key)) return (await pending.get(key)).clone();
     const run = async () => {
       record = playerId ? accounts.get(playerId) : null;
@@ -361,6 +361,7 @@ export function createAccountSnapshots({
         now() - section.updatedAt < ttl
       )
         return withMetadata(json(section.data), record, section);
+      const revisionAtDispatch = record?.profileRevision ?? 0;
       const response = await upstream(url, upstreamInit);
       // Re-read after await so concurrent section updates cannot overwrite one another.
       record = playerId ? accounts.get(playerId) : null;
@@ -485,6 +486,12 @@ export function createAccountSnapshots({
           sections: {},
           credentialHashes: [],
         };
+        if ((record.profileRevision ?? 0) !== revisionAtDispatch) {
+          const previous = record.sections[path];
+          return fallback && previous
+            ? withMetadata(json(previous.data), record, previous, true)
+            : json({ error: "snapshot_superseded" }, 409);
+        }
         // Bound section count by retaining the most recently used successful data.
         const sections = {
           ...record.sections,
@@ -894,7 +901,90 @@ export function createAccountSnapshots({
       const playerId = authorization && credentials.get(hash(authorization));
       return state(accounts.get(playerId));
     },
+    resolveStoredOwner(authorization, telegramUserId) {
+      if (
+        typeof authorization !== "string" ||
+        !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
+        !/^[1-9][0-9]{0,19}$/.test(telegramUserId || "")
+      )
+        return null;
+      const playerId = credentials.get(hash(authorization));
+      const record = accounts.get(playerId);
+      const profile = record?.sections?.["/api/me"]?.data;
+      const owner = profile?.telegramId;
+      const ownerId =
+        typeof owner === "number" && Number.isSafeInteger(owner) && owner > 0
+          ? String(owner)
+          : typeof owner === "string" && /^[1-9][0-9]{0,19}$/.test(owner)
+            ? owner
+            : null;
+      // The connector's verified legacy record binds this exact credential to
+      // the Telegram owner; the snapshot index independently binds it to the
+      // verified player. A saved owner, when present, must agree as well.
+      const id = Number(playerId);
+      return record &&
+        String(record.playerId) === playerId &&
+        Number.isSafeInteger(id) &&
+        id > 0 &&
+        (!profile || profile.playerId == null || profile.playerId === id) &&
+        (owner == null || ownerId === telegramUserId)
+        ? id
+        : null;
+    },
     read,
+    readStored(
+      url,
+      init = {},
+      { verifiedWiki = false, verifiedPlayerId } = {},
+    ) {
+      const authorization = new Headers(init.headers).get("authorization");
+      if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
+        return json({ error: "game_session_required" }, 401);
+      const token = authorization.slice(7);
+      const parts = token.split(".");
+      if (!verifiedWiki && parts.length === 3) {
+        try {
+          const claims = JSON.parse(
+            Buffer.from(parts[1], "base64url").toString("utf8"),
+          );
+          if (!Number.isFinite(claims.exp) || claims.exp * 1000 <= now())
+            return json({ error: "game_credentials_invalid" }, 401);
+        } catch {
+          return json({ error: "game_credentials_invalid" }, 401);
+        }
+      }
+      const digest = hash(authorization);
+      const playerId =
+        verifiedWiki &&
+        Number.isSafeInteger(verifiedPlayerId) &&
+        verifiedPlayerId > 0
+          ? String(verifiedPlayerId)
+          : credentials.get(digest);
+      const record = accounts.get(playerId);
+      if (!record)
+        return verifiedWiki && playerId
+          ? json({ error: "snapshot_unavailable" }, 404)
+          : json({ error: "game_identity_unverified" }, 401);
+      if (!verifiedWiki && record.revokedHashes?.includes(digest))
+        return json({ error: "game_credentials_invalid" }, 401);
+      const parsed = new URL(url);
+      const section = !parsed.search && record.sections?.[parsed.pathname];
+      if (!section) return json({ error: "snapshot_unavailable" }, 404);
+      return withMetadata(
+        json(section.data),
+        record,
+        section,
+        Boolean(
+          section.dirty ||
+          now() - section.updatedAt >= ttl ||
+          record.health?.failedSections?.includes(parsed.pathname) ||
+          (parsed.pathname === "/api/me" &&
+            record.health?.failedSections?.includes("*")) ||
+          (record.health?.status === "unavailable" &&
+            record.health.retryAt > now()),
+        ),
+      );
+    },
     liveFetch,
     async fetch(url, init = {}) {
       if (

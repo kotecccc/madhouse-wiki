@@ -458,6 +458,15 @@ function ProfileSummary({ state }) {
               {!Number.isSafeInteger(profile.playerLevel) &&
                 state.levelStatus === "loading" && <Skeleton variant="text" />}
             </div>
+            {state.updatedAt && (
+              <CardDescription as="span" size="xs">
+                Данные игры от{" "}
+                {new Date(state.updatedAt).toLocaleString("ru-RU")}
+                {state.snapshotStatus === "stale"
+                  ? " · могут быть устаревшими"
+                  : ""}
+              </CardDescription>
+            )}
             {!experienceKnown && energyContent}
             {Number.isSafeInteger(profile.playerLevel) && experienceKnown && (
               <div

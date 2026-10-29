@@ -55,3 +55,56 @@ test("only a version conflict is marked as safe to rebase", async () => {
     undefined,
   );
 });
+
+test("state GET uses the stored identity without game identity requests", async () => {
+  let identifyCalls = 0;
+  let readCalls = 0;
+  const service = {
+    identify: async () => {
+      identifyCalls++;
+      throw new Error("game must not be consulted");
+    },
+    readStored: async () => {
+      readCalls++;
+      return { playerId: "101" };
+    },
+    snapshot: (entry) => ({ playerId: entry.playerId }),
+  };
+  const handle = createAutomationHttp({ service, enabled: true });
+  const response = await handle(
+    new Request("https://example.test/api/automation/state", {
+      headers: { authorization: "Bearer saved-token" },
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { playerId: "101" });
+  assert.equal(readCalls, 1);
+  assert.equal(identifyCalls, 0);
+});
+
+test("local stop commands use the stored identity rather than game identity", async () => {
+  let identified = 0;
+  const service = {
+    readStored: async () => ({}),
+    identify: async () => {
+      identified++;
+      throw new Error("must not identify against game");
+    },
+    command: async (_entry, input) => ({ stopped: input.command }),
+    snapshot: () => ({}),
+  };
+  const handle = createAutomationHttp({ service, enabled: true });
+  const response = await handle(
+    new Request("https://example.test/api/automation/commands", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer saved-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ command: "auto.stop" }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { stopped: "auto.stop" });
+  assert.equal(identified, 0);
+});

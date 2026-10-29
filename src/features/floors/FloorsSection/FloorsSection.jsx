@@ -79,7 +79,8 @@ export function FloorsSection({
     .reverse()
     .find((floor) => availability[floor.code] === true)?.code;
   const defaultFloor =
-    status === "ready" && readSession().status === "ready"
+    status === "ready" &&
+    (readSession().status === "ready" || readSession().wikiSessionReady)
       ? orderedFloors.find((floor) => floor.code === lastAvailableFloorCode) ||
         orderedFloors[0]
       : orderedFloors[0];

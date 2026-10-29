@@ -4,7 +4,7 @@ import {
   subscribeSession,
 } from "../../../../shared/auth-session.js";
 import {
-  getSessionJson,
+  readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
@@ -39,16 +39,27 @@ export function useBusinessState(business, enabled = true) {
     [path],
   );
   useEffect(() => {
-    if (!enabled || !path || readSession().status !== "ready") return;
+    if (
+      !enabled ||
+      !path ||
+      (readSession().status !== "ready" && !readSession().wikiSessionReady)
+    )
+      return;
     const controller = new AbortController();
-    void getSessionJson(path, { signal: controller.signal })
-      .then((data) => {
-        if (!controller.signal.aborted) setState({ path, data });
+    void readStoredSessionJson(path, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted && result.presence === "present")
+          setState({ path, data: result.data });
       })
       .catch(() => {});
     return () => controller.abort();
   }, [path, enabled, revision]);
-  if (!enabled || !path || readSession().status !== "ready") return null;
+  if (
+    !enabled ||
+    !path ||
+    (readSession().status !== "ready" && !readSession().wikiSessionReady)
+  )
+    return null;
   const data =
     peekSessionJson(path, { allowStale: true }) ??
     (state?.path === path ? state.data : null);

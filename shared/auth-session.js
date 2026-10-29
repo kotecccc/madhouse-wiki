@@ -7,6 +7,11 @@ let volatileOwner = null;
 let volatilePlayerLevel = null;
 let volatileExperience = null;
 let volatileActiveBossBattle = null;
+let volatileWikiSession = null;
+let volatileWikiSessionOwner = null;
+let volatileWikiSessionExpiresAt = null;
+let lastStoredCredential = null;
+let storedIdentityRevision = 0;
 const CHANGE_EVENT = "madhouse:auth-change";
 let authRestoreSettled = false;
 export const AUTH_RESTORE_SETTLED_EVENT = "madhouse:auth-restore-settled";
@@ -77,9 +82,30 @@ export function inspectToken(value, now = Date.now()) {
 }
 export function readSession(now = Date.now()) {
   if (typeof window === "undefined")
-    return { status: "empty", expiresAt: null };
+    return {
+      status: "empty",
+      expiresAt: null,
+      wikiSessionReady: false,
+      gameConnection: "login-required",
+    };
   const context = telegramContext();
   const expected = context.userId;
+  if (
+    volatileWikiSession &&
+    (context.isTelegram
+      ? !expected || volatileWikiSessionOwner !== expected
+      : volatileWikiSessionOwner !== null)
+  )
+    clearWikiSession();
+  const wikiSessionReady = Boolean(
+    volatileWikiSession &&
+    volatileWikiSessionExpiresAt > now &&
+    (!context.isTelegram || volatileWikiSessionOwner === expected),
+  );
+  const wikiState = {
+    wikiSessionReady,
+    gameConnection: "login-required",
+  };
   let token, owner;
   if (context.isTelegram) {
     // The server is canonical for Mini App sessions. Never reuse a disk JWT
@@ -108,10 +134,21 @@ export function readSession(now = Date.now()) {
       (context.isTelegram && !expected))
   ) {
     clearToken();
-    return { status: "empty", expiresAt: null, activeBossBattle: null };
+    return {
+      status: "empty",
+      expiresAt: null,
+      activeBossBattle: null,
+      wikiSessionReady: false,
+      gameConnection: "login-required",
+    };
   }
   if (!token)
-    return { status: "empty", expiresAt: null, activeBossBattle: null };
+    return {
+      status: "empty",
+      expiresAt: null,
+      activeBossBattle: null,
+      ...wikiState,
+    };
   try {
     const { status, expiresAt, notBefore } = inspectToken(token, now);
     return {
@@ -130,9 +167,17 @@ export function readSession(now = Date.now()) {
         status === "ready" && token === volatileToken && owner === volatileOwner
           ? volatileActiveBossBattle
           : null,
+      ...wikiState,
+      gameConnection:
+        status === "ready" ? "connected" : wikiState.gameConnection,
     };
   } catch {
-    return { status: "invalid", expiresAt: null, activeBossBattle: null };
+    return {
+      status: "invalid",
+      expiresAt: null,
+      activeBossBattle: null,
+      ...wikiState,
+    };
   }
 }
 export function saveToken(
@@ -169,6 +214,7 @@ export function saveToken(
   volatilePlayerLevel = normalizedLevel;
   volatileExperience = normalizedExperience;
   volatileActiveBossBattle = normalizedActiveBossBattle;
+  storedIdentityRevision++;
   try {
     if (telegramContext().isTelegram) {
       window.localStorage.removeItem(TOKEN_KEY);
@@ -188,6 +234,8 @@ export function clearToken() {
   volatilePlayerLevel = null;
   volatileExperience = null;
   volatileActiveBossBattle = null;
+  clearWikiSession(false);
+  storedIdentityRevision++;
   try {
     window.localStorage.removeItem(TOKEN_KEY);
     window.localStorage.removeItem(TOKEN_OWNER_KEY);
@@ -195,6 +243,42 @@ export function clearToken() {
     /* An unavailable store cannot supply the active in-memory token. */
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+export function saveWikiSession(
+  value,
+  { expiresAt, gameConnection = "login-required" } = {},
+) {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 4096 ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= Date.now() ||
+    !["connected", "login-required"].includes(gameConnection)
+  )
+    throw new Error("Недействительная Wiki-сессия.");
+  const owner = telegramContext().userId || null;
+  if (!owner) throw new Error("Wiki-сессия требует Telegram-пользователя.");
+  if (
+    volatileWikiSession !== value ||
+    volatileWikiSessionOwner !== owner ||
+    volatileWikiSessionExpiresAt !== expiresAt
+  ) {
+    volatileWikiSession = value;
+    volatileWikiSessionOwner = owner;
+    volatileWikiSessionExpiresAt = expiresAt;
+    storedIdentityRevision++;
+    window.dispatchEvent(new Event(CHANGE_EVENT));
+  }
+}
+export function clearWikiSession(dispatch = true) {
+  if (!volatileWikiSession) return;
+  volatileWikiSession = null;
+  volatileWikiSessionOwner = null;
+  volatileWikiSessionExpiresAt = null;
+  storedIdentityRevision++;
+  if (dispatch && typeof window !== "undefined")
+    window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 export function subscribeSession(listener) {
   const onStorage = (event) => {
@@ -242,6 +326,54 @@ export function authorizeRequest(request, origin = window.location.origin) {
     if (key.toLowerCase() === "authorization") delete headers[key];
   headers.Authorization = `Bearer ${inspected.token}`;
   return { ...request, headers };
+}
+// Saved-data reads may use the short-lived Wiki principal. All other requests
+// continue through authorizeRequest and therefore require a live game JWT.
+export function authorizeStoredRequest(
+  request,
+  origin = window.location.origin,
+) {
+  const url = new URL(request.url, origin);
+  if (!url.pathname.startsWith("/api/")) return request;
+  if (url.origin !== origin)
+    throw new Error("JWT Wiki используется только через локальный API-прокси.");
+  const session = readSession();
+  if (session.wikiSessionReady) {
+    if (
+      (request.method && request.method.toUpperCase() !== "GET") ||
+      url.search ||
+      !/^\/api\/(?:automation\/state|me|me\/bag|stash\/sets|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
+        url.pathname,
+      )
+    )
+      throw new Error(
+        "Wiki-сессия разрешает только чтение сохранённых данных.",
+      );
+    const headers = { ...request.headers };
+    for (const key of Object.keys(headers))
+      if (key.toLowerCase() === "authorization") delete headers[key];
+    headers.Authorization = `Bearer ${volatileWikiSession}`;
+    return { ...request, headers };
+  }
+  return authorizeRequest(request, origin);
+}
+// A stable per-document identity signal for caches and async consumers. It
+// reveals neither the Wiki credential nor the game JWT.
+export function storedSessionIdentity() {
+  try {
+    const credential = authorizeStoredRequest({ url: "/api/me" }).headers
+      ?.Authorization;
+    if (credential !== lastStoredCredential) {
+      lastStoredCredential = credential;
+      storedIdentityRevision++;
+    }
+  } catch {
+    if (lastStoredCredential !== null) {
+      lastStoredCredential = null;
+      storedIdentityRevision++;
+    }
+  }
+  return `stored-session-${storedIdentityRevision}`;
 }
 export function formatExpiry(session, now = Date.now()) {
   if (session.status === "empty") return "Токен не добавлен";

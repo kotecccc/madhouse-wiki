@@ -31,6 +31,7 @@ export function TelegramConnection({
   onClose,
   onBack,
   onToken,
+  onWikiSession,
   onWarning,
   onEmpty,
   onRetry,
@@ -48,9 +49,10 @@ export function TelegramConnection({
     interactiveActive = useRef(false),
     restoreAttempted = useRef(false),
     requestedFooterFor = useRef(null),
-    callbacks = useRef({ onToken, onClose, onWarning });
+    callbacks = useRef({ onToken, onClose, onWarning, onWikiSession });
   callbacks.current = {
     onToken,
+    onWikiSession,
     onClose,
     onWarning,
     onEmpty,
@@ -116,6 +118,12 @@ export function TelegramConnection({
           result.currentExp,
           result.expToNextLevel,
           result.activeBossBattle,
+        );
+      if (result.wikiSession)
+        callbacks.current.onWikiSession?.(
+          result.wikiSession,
+          result.wikiSessionExpiresAt,
+          result.gameConnection,
         );
       else if (result.status === "login-required")
         callbacks.current.onEmpty?.();

@@ -65,7 +65,7 @@ for (const result of ["timed_out", "lost", "active", "absent"]) {
       assert.equal(service.snapshot(entry).battle.battle.status, "active");
       const before = calls.length;
       now += 2000;
-      service.snapshot(entry);
+      service.reconcileStored(entry);
       await new Promise((resolve) => setImmediate(resolve));
       const snapshot = service.snapshot(entry);
       if (result === "absent") {

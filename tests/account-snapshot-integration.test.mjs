@@ -72,7 +72,20 @@ test("restarted gateway serves saved identity offline, accepts queued work inten
   await service.boot();
   let gateway = createAutomationHttp({ service });
 
+  // Identity bootstrap is an explicit launch request. State GET itself only
+  // reads the locally verified actor and must not identify against the game.
   let response = await gateway(
+    new Request("http://wiki.test/api/automation/launch", {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ activeBossBattle: null }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  response = await gateway(
     new Request("http://wiki.test/api/automation/state", {
       headers: { Authorization: authorization },
     }),

@@ -14,20 +14,12 @@ import {
   readIdentityProof,
   saveIdentityProof,
 } from "../../identity-proof-storage.js";
-import { silentlyRefreshSharedSessionData } from "../../shared-session-refresh.js";
+import {
+  isWikiReadOnlyRestore,
+  sharedSessionRestoreReply,
+} from "../../shared-session-restore.js";
 import { connectionFailure, diagnosticSuffix } from "../../diagnostics.js";
 import "./ConnectionApp.css";
-
-function hasLevelProgress(value) {
-  return (
-    Number.isSafeInteger(value?.playerLevel) &&
-    value.playerLevel > 0 &&
-    Number.isSafeInteger(value?.currentExp) &&
-    value.currentExp >= 0 &&
-    Number.isSafeInteger(value?.expToNextLevel) &&
-    value.expToNextLevel > 0
-  );
-}
 
 function levelProgressFields(value) {
   return {
@@ -457,11 +449,12 @@ export function ConnectionApp() {
       // Restore the signed account's server session BEFORE touching browser IDB.
       const shared = await accountSession(request, "restore");
       if (currentRequest.current !== request) return;
-      if (shared?.status === "connected" && hasLevelProgress(shared)) {
-        const refreshed = await silentlyRefreshSharedSessionData(() =>
-          connection.current.gameLogin(request.data.expectedUserId),
-        );
-        if (currentRequest.current !== request) return;
+      const restoredReply = sharedSessionRestoreReply(shared);
+      if (
+        restoredReply &&
+        (restoredReply.status !== "wiki-connected" ||
+          isWikiReadOnlyRestore(request, restoredReply))
+      ) {
         clearPendingLogin(request.data.expectedUserId);
         setCode("");
         setPassword("");
@@ -472,15 +465,7 @@ export function ConnectionApp() {
         connection.current.discardPhoneAuth();
         setAuthCooldownUntil(0);
         request.freshLogin = false;
-        reply(request, {
-          status: "connected",
-          accessToken: shared.accessToken,
-          ...levelProgressFields(shared),
-          ...levelProgressFields(refreshed),
-          ...(refreshed?.activeBossBattle
-            ? { activeBossBattle: refreshed.activeBossBattle }
-            : {}),
-        });
+        reply(request, restoredReply);
         return;
       }
       if (shared?.revoked && !request.data.interactive) {
@@ -525,7 +510,7 @@ export function ConnectionApp() {
             ? shared
             : null;
       if (result.status === "connected" && shared) {
-        await accountSession(request, "save", {
+        const saved = await accountSession(request, "save", {
           ticket: shared.ticket,
           accessToken: result.accessToken,
           ...levelProgressFields(connectedProfile),
@@ -533,6 +518,10 @@ export function ConnectionApp() {
         if (currentRequest.current !== request) {
           await accountSession(request, "logout");
           return;
+        }
+        if (saved?.wikiSession) {
+          connectedProfile.wikiSession = saved.wikiSession;
+          connectedProfile.wikiSessionExpiresAt = saved.wikiSessionExpiresAt;
         }
       }
       if (connectedProfile) {
@@ -549,6 +538,13 @@ export function ConnectionApp() {
         reply(request, {
           status: "connected",
           accessToken: connectedProfile.accessToken,
+          gameConnection: "connected",
+          ...(typeof connectedProfile.wikiSession === "string"
+            ? { wikiSession: connectedProfile.wikiSession }
+            : {}),
+          ...(Number.isFinite(connectedProfile.wikiSessionExpiresAt)
+            ? { wikiSessionExpiresAt: connectedProfile.wikiSessionExpiresAt }
+            : {}),
           ...levelProgressFields(connectedProfile),
           ...(connectedProfile.activeBossBattle
             ? { activeBossBattle: connectedProfile.activeBossBattle }

@@ -1,11 +1,10 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { refreshRetainedProfileProgress } from "../../../../shared/profile-progress.js";
 import {
   telegramContext,
   accountStorageKey,
 } from "../../../../shared/telegram-context.js";
 import {
-  getSessionJson,
+  readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
@@ -14,6 +13,9 @@ import {
   readSession,
   authorizeRequest,
   saveToken,
+  saveWikiSession,
+  clearWikiSession,
+  storedSessionIdentity,
   clearToken,
   subscribeSession,
   formatExpiry,
@@ -98,10 +100,10 @@ export function LoginControl() {
   });
   const [profileAnchor, setProfileAnchor] = useState(null);
   const refreshProfileRef = useRef(() => {});
-  const progressAttempts = useRef(new Set());
   const bridgeSessionRef = useRef(null);
   const bridgeRestoreGeneration = useRef(0);
-  const authenticated = session.status === "ready";
+  const gameAuthenticated = session.status === "ready";
+  const authenticated = gameAuthenticated || session.wikiSessionReady;
   useEffect(() => {
     if (
       !bridgeAvailable ||
@@ -252,7 +254,7 @@ export function LoginControl() {
     let controller;
     const sessionIdentity = () => {
       try {
-        return authorizeRequest({ url: "/api/me" }).headers.Authorization;
+        return storedSessionIdentity();
       } catch {
         return null;
       }
@@ -262,42 +264,25 @@ export function LoginControl() {
       controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
-      if (readSession().status !== "ready") {
+      const currentSession = readSession();
+      if (
+        currentSession.status !== "ready" &&
+        !currentSession.wikiSessionReady
+      ) {
         setProfile(null);
         if (!shouldRestoreTelegramSession()) setRestoring(false);
         return;
       }
       setRestoring(true);
       try {
-        const credential = authorizeRequest({ url: "/api/me" }).headers
-          .Authorization;
-        const data = await getSessionJson("/api/me", {
-          signal,
-          revalidate: false,
-        });
+        const result = await readStoredSessionJson("/api/me", { signal });
         if (!signal.aborted) {
-          setProfile(normalizePlayerProfile(data));
+          setProfile(
+            result.presence === "present"
+              ? normalizePlayerProfile(result.data)
+              : null,
+          );
           setRestoring(false);
-          if (
-            !shouldRestoreTelegramSession() &&
-            TELEGRAM_CONNECTOR_ORIGIN &&
-            !progressAttempts.current.has(credential)
-          ) {
-            progressAttempts.current.add(credential);
-            void refreshRetainedProfileProgress({
-              telegramId: data.telegramId,
-              request: (id) => telegramRef.current.refreshProgress(id),
-              isCurrent: () =>
-                !signal.aborted &&
-                authorizeRequest({ url: "/api/me" }).headers.Authorization ===
-                  credential,
-              apply: (progress) =>
-                saveToken(credential, {
-                  ...progress,
-                  activeBossBattle: readSession().activeBossBattle,
-                }),
-            });
-          }
         }
       } catch {
         // A failed or cancelled profile request must not expose credentials.
@@ -445,9 +430,12 @@ export function LoginControl() {
                 {activeProfile.name}
               </CardTitle>
               <CardDescription as="span" size="2xs" className="profile-status">
-                {activeProfile.username
-                  ? `@${activeProfile.username}`
-                  : "Профиль игрока"}
+                {session.wikiSessionReady &&
+                session.gameConnection !== "connected"
+                  ? "Игра отключена"
+                  : activeProfile.username
+                    ? `@${activeProfile.username}`
+                    : "Профиль игрока"}
               </CardDescription>
             </span>
             <span className="profile-chevron" aria-hidden="true">
@@ -498,6 +486,19 @@ export function LoginControl() {
                 Мост устройства
               </Button>
             )}
+            {session.wikiSessionReady &&
+              session.gameConnection !== "connected" && (
+                <Button
+                  variant="menu-item"
+                  onClick={() => {
+                    setOpen(false);
+                    setMenuClosing(false);
+                    connect();
+                  }}
+                >
+                  Переподключить игру
+                </Button>
+              )}
             <Button variant="menu-item" icon="logout" onClick={logout}>
               Выйти
             </Button>
@@ -518,6 +519,7 @@ export function LoginControl() {
           onRetry={connect}
           onEmpty={() => {
             if (readSession().status !== "empty") clearToken();
+            else clearWikiSession();
             setSession(readSession());
             setPendingLogin(false);
             setRestoring(false);
@@ -566,6 +568,18 @@ export function LoginControl() {
             setPendingLogin(false);
             setSession(readSession());
             close();
+          }}
+          onWikiSession={(value, expiresAt, gameConnection) => {
+            try {
+              saveWikiSession(value, { expiresAt, gameConnection });
+              setSession(readSession());
+              setRestoring(false);
+            } catch {
+              setError(
+                "Не удалось восстановить Wiki-сессию. Откройте Wiki заново.",
+              );
+              setRestoring(false);
+            }
           }}
         />
       )}

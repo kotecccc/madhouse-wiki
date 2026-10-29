@@ -180,11 +180,15 @@ export function ActiveBattleControl({ children, hideIndicators = false }) {
   const disconnectTimer = useRef(null);
   useEffect(() => {
     window.clearTimeout(disconnectTimer.current);
+    const sessionReady = () => {
+      const session = readSession();
+      return session.status === "ready" || session.wikiSessionReady;
+    };
     const sync = () => {
       disconnectBattleSession();
-      if (readSession().status === "ready") void connectBattleSession();
+      if (sessionReady()) void connectBattleSession();
     };
-    if (readSession().status === "ready") void connectBattleSession();
+    if (sessionReady()) void connectBattleSession();
     const unsubscribe = subscribeSession(sync);
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {

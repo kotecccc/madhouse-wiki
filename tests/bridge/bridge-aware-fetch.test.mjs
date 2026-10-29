@@ -1,8 +1,104 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createBridgeAwareAccountFetch } from "../../scripts/bridge/bridge-aware-fetch.mjs";
+import { createAccountSnapshots } from "../../scripts/account/snapshots.mjs";
+import { createProxy } from "../../api/[...path].js";
+import {
+  createBridgeBrowserSessions,
+  resolveBridgeBrowserSession,
+} from "../../scripts/bridge/browser-session.mjs";
 
 const url = "https://cargohustle.online/api/me";
+
+test("strict proxy reads use the verified bridge session offline and never dispatch to a transport", async () => {
+  const records = new Map();
+  const store = {
+    readSnapshots: () => [...records.values()],
+    writeSnapshot: (id, value) =>
+      records.set(String(id), structuredClone(value)),
+    list: () => [],
+  };
+  const token = `Bearer x.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.x`;
+  const snapshots = createAccountSnapshots({
+    store,
+    now: () => 5000,
+    fetcher: () => assert.fail("game fetch"),
+  });
+  snapshots.saveBridgeProfile(token, { playerId: 42, nickname: "Saved" });
+  let active = true;
+  let deviceCalls = 0;
+  const sessions = createBridgeBrowserSessions({
+    key: Buffer.alloc(32, 7),
+    now: () => 5000,
+  });
+  const device = { deviceId: "device", generation: 1 };
+  const wikiToken = sessions.issue("101", 2, device);
+  const resolve = (auth) =>
+    resolveBridgeBrowserSession(auth?.slice(7), {
+      sessions,
+      accounts: {
+        read: () => (active ? { revision: 2, authorization: token } : null),
+      },
+      devices: { listDevice: () => device },
+    });
+  const boundary = createBridgeAwareAccountFetch({
+    snapshots,
+    accounts: {
+      resolveCredential: (auth) =>
+        resolve(auth)
+          ? {
+              policy: "bridge_required",
+              owner: "101",
+              epoch: 2,
+              credentialCurrent: true,
+            }
+          : null,
+    },
+    directRoutes: {
+      resolve: () => null,
+      registerVerifiedDirect() {},
+      withDirectLease: () => assert.fail("direct"),
+    },
+    accountService: {
+      profile: () => {
+        deviceCalls++;
+        throw Error("offline");
+      },
+    },
+    canonicalCredential: (auth) => resolve(auth)?.authorization || auth,
+  });
+  const proxy = createProxy(() => assert.fail("game fetch"), {
+    storedFetch: boundary.readStored,
+  });
+  const call = async (path) => {
+    const response = {
+      headers: {},
+      setHeader(k, v) {
+        this.headers[k] = v;
+      },
+      end(body) {
+        this.body = body;
+      },
+    };
+    await proxy(
+      {
+        method: "GET",
+        url: path,
+        headers: {
+          authorization: `Bearer ${wikiToken}`,
+          "x-madhouse-stored-only": "1",
+        },
+      },
+      response,
+    );
+    return response;
+  };
+  assert.equal((await call("/api/me")).statusCode, 200);
+  assert.equal((await call("/api/rooms")).statusCode, 404);
+  active = false;
+  assert.equal((await call("/api/me")).statusCode, 401);
+  assert.equal(deviceCalls, 0);
+});
 const options = (token = "valid") => ({
   headers: { Authorization: `Bearer ${token}` },
 });

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createProxy } from "../api/[...path].js";
+import { createAccountSnapshots } from "../scripts/account/snapshots.mjs";
 function response() {
   return {
     headers: {},
@@ -12,6 +13,63 @@ function response() {
     },
   };
 }
+test("strict stored reads through the production proxy never reach the game", async () => {
+  const records = new Map();
+  const store = {
+    readSnapshots: () => [...records.values()],
+    writeSnapshot: (id, record) =>
+      records.set(String(id), structuredClone(record)),
+    list: () => [],
+  };
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async () => {
+      calls++;
+      return Response.json({ playerId: 42 });
+    },
+  });
+  await snapshots.read("https://cargohustle.online/api/me", {
+    headers: { Authorization: "Bearer valid" },
+  });
+  const proxy = createProxy(
+    () => {
+      throw new Error("unexpected game call");
+    },
+    { storedFetch: snapshots.readStored },
+  );
+  for (const [path, status] of [
+    ["/api/me", 200],
+    ["/api/rooms", 404],
+  ]) {
+    const res = response();
+    await proxy(
+      {
+        method: "GET",
+        url: path,
+        headers: {
+          authorization: "Bearer valid",
+          "x-madhouse-stored-only": "1",
+        },
+      },
+      res,
+    );
+    assert.equal(res.statusCode, status);
+  }
+  assert.equal(calls, 1);
+  const unavailable = response();
+  await createProxy(() => {
+    throw new Error("unexpected game call");
+  })(
+    {
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: "Bearer valid", "x-madhouse-stored-only": "1" },
+    },
+    unavailable,
+  );
+  assert.equal(unavailable.statusCode, 503);
+});
 test("production proxy rejects undocumented methods, unknown destinations and missing sessions without upstream calls", async () => {
   const proxy = createProxy(() => {
     throw new Error("must not fetch");

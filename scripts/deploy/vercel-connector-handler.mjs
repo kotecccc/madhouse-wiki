@@ -34,6 +34,7 @@ export function createVercelConnectorHandler({
       store: createBlobSessionStore(),
       verificationKey: process.env.WIKI_INITDATA_KEY,
       encryptionKey: process.env.ACCOUNT_SESSION_KEY,
+      wikiSessionKey: process.env.WIKI_SESSION_KEY,
       fetcher,
       ...(connectorGuard
         ? { withOwnerLease: connectorGuard.withOwnerLease }

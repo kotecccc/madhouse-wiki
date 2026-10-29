@@ -76,6 +76,179 @@ test("identity snapshot returns only verified account identity and never numeric
   assert.equal(queue.calls.length, 1);
 });
 
+test("stored reads never use the game for unknown identity or missing data", async () => {
+  const queue = queueFetcher([reply({ playerId: 41 })]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  assert.equal(
+    snapshots.readStored(`${origin}/api/me/bag`, auth("unknown")).status,
+    401,
+  );
+  await snapshots.read(`${origin}/api/me`, auth("known"));
+  assert.equal(
+    snapshots.readStored(`${origin}/api/me/bag`, auth("known")).status,
+    404,
+  );
+  assert.deepEqual(
+    await payload(snapshots.readStored(`${origin}/api/me`, auth("known"))),
+    { playerId: 41 },
+  );
+  assert.equal(queue.calls.length, 1);
+});
+
+test("legacy owner resolution requires the exact saved credential and matching verified Telegram identity", async () => {
+  const queue = queueFetcher([reply({ playerId: 41, telegramId: 101 })]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("known"));
+  assert.equal(snapshots.resolveStoredOwner("Bearer known", "101"), 41);
+  assert.equal(snapshots.resolveStoredOwner("Bearer known", "102"), null);
+  assert.equal(snapshots.resolveStoredOwner("Bearer other", "101"), null);
+  assert.equal(queue.calls.length, 1);
+  const noOwner = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queueFetcher([reply({ playerId: 42 })]).fetcher,
+  });
+  await noOwner.read(`${origin}/api/me`, auth("verified-legacy"));
+  assert.equal(noOwner.resolveStoredOwner("Bearer verified-legacy", "101"), 42);
+});
+
+test("an expired game JWT cannot authorize stored reads without independent Wiki verification", async () => {
+  const token = `header.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.signature`;
+  const queue = queueFetcher([reply({ playerId: 41 })]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    now: () => 2000,
+  });
+  await snapshots.read(`${origin}/api/me`, auth(token));
+  assert.equal(
+    snapshots.readStored(`${origin}/api/me`, auth(token)).status,
+    401,
+  );
+  assert.equal(
+    snapshots.readStored(`${origin}/api/me`, auth(token), {
+      verifiedWiki: true,
+      verifiedPlayerId: 41,
+    }).status,
+    200,
+  );
+  assert.equal(queue.calls.length, 1);
+});
+
+test("stored snapshots survive restart and retain their original freshness metadata offline", async () => {
+  let now = 1000;
+  const store = memoryStore();
+  const initial = queueFetcher([reply({ playerId: 41 }), reply([])]);
+  let snapshots = createAccountSnapshots({
+    store,
+    fetcher: initial.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("known"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("known"));
+  now = 1200;
+  const offline = queueFetcher([]);
+  snapshots = createAccountSnapshots({
+    store,
+    fetcher: offline.fetcher,
+    now: () => now,
+    ttl: 100,
+  });
+  const saved = snapshots.readStored(`${origin}/api/me/bag`, auth("known"));
+  assert.deepEqual(await payload(saved), []);
+  assert.equal(saved.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(saved.headers.get("X-Madhouse-Section-Updated"), "1000");
+  assert.equal(
+    snapshots.readStored(`${origin}/api/rooms`, auth("known")).status,
+    404,
+  );
+  assert.equal(
+    snapshots.readStored(`${origin}/api/me/bag`, auth("other")).status,
+    401,
+  );
+  assert.equal(offline.calls.length, 0);
+});
+
+test("a read dispatched before a mutation cannot overwrite the invalidated snapshot", async () => {
+  let finishRead;
+  let startedRead;
+  const started = new Promise((resolve) => {
+    startedRead = resolve;
+  });
+  const queue = queueFetcher([
+    reply({ playerId: 41 }),
+    reply({ coins: 10 }),
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+        startedRead();
+      }),
+    reply({ ok: true }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    ttl: 0,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("known"));
+  await snapshots.read(`${origin}/api/me/bag`, auth("known"));
+  const pending = snapshots.read(`${origin}/api/me/bag`, auth("known"));
+  await started;
+  await snapshots.liveFetch(`${origin}/api/shop/buy`, {
+    ...auth("known"),
+    method: "POST",
+  });
+  finishRead(reply({ coins: 99 }));
+  const result = await pending;
+  assert.deepEqual(await payload(result), { coins: 10 });
+  assert.equal(result.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.deepEqual(
+    await payload(snapshots.readStored(`${origin}/api/me/bag`, auth("known"))),
+    { coins: 10 },
+  );
+});
+
+test("a forced profile refresh does not join an ordinary pending read", async () => {
+  let finishRead;
+  let signalStarted;
+  const started = new Promise((resolve) => {
+    signalStarted = resolve;
+  });
+  const queue = queueFetcher([
+    reply({ playerId: 41, nickname: "old" }),
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+        signalStarted();
+      }),
+    reply({ playerId: 41, nickname: "new" }),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+    ttl: 0,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("known"));
+  const normal = snapshots.read(`${origin}/api/me`, auth("known"));
+  await started;
+  const refresh = snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer known",
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  finishRead(reply({ playerId: 41, nickname: "intermediate" }));
+  await normal;
+  assert.equal((await payload(await refresh)).nickname, "new");
+  assert.equal(queue.calls.length, 3);
+});
+
 test("encrypted snapshots survive restart and serve stale sections while offline", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "madhouse-snapshot-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

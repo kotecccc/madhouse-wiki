@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { CatalogueStore } from "./store.mjs";
 import { readKnowledgeBase } from "./query.mjs";
+import { isWikiSessionCredential } from "../../shared/wiki-session.js";
 
 const GAME_ORIGIN = "https://cargohustle.online";
 const BOSS_ID = /^[1-9][0-9]{0,8}$/;
@@ -25,7 +26,10 @@ function json(body, status = 200) {
 }
 function safeAuthorization(request) {
   const value = request.headers.get("authorization") || "";
-  return /^Bearer [A-Za-z0-9._~-]{20,4096}$/.test(value) ? value : null;
+  return /^Bearer [A-Za-z0-9._~-]{20,4096}$/.test(value) &&
+    !isWikiSessionCredential(value)
+    ? value
+    : null;
 }
 
 export function createCatalogueSyncApi({

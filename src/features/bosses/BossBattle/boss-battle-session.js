@@ -4,6 +4,7 @@ import {
 } from "../../../../shared/session-api.js";
 import {
   authorizeRequest,
+  authorizeStoredRequest,
   readSession,
 } from "../../../../shared/auth-session.js";
 import { createRemoteBattleSession } from "./boss-battle-remote.js";
@@ -11,7 +12,10 @@ import { readAutomationResponse } from "./automation-response.js";
 export { createBossBattleRequest } from "./boss-battle-request.js";
 
 async function automationRequest(method, path, body) {
-  const authorized = authorizeRequest({ url: path });
+  const authorized =
+    method === "GET" && path === "/api/automation/state"
+      ? authorizeStoredRequest({ url: path, method })
+      : authorizeRequest({ url: path, method });
   const response = await fetch(authorized.url, {
     method,
     headers: {

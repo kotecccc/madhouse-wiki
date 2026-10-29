@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   getSessionJson,
+  readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
 import {
-  authorizeRequest,
   readSession,
+  storedSessionIdentity,
   subscribeSession,
 } from "../../../shared/auth-session.js";
 import {
@@ -37,7 +38,7 @@ function livePlayerProfile(data, previous) {
 }
 
 function cachedState() {
-  if (readSession().status !== "ready")
+  if (readSession().status !== "ready" && !readSession().wikiSessionReady)
     return { status: "idle", profile: null };
   const data = peekSessionJson("/api/me", { allowStale: true });
   return {
@@ -65,7 +66,7 @@ export function usePlayerProfile() {
     let controller;
     const sessionIdentity = () => {
       try {
-        return authorizeRequest({ url: "/api/me" }).headers.Authorization;
+        return storedSessionIdentity();
       } catch {
         return null;
       }
@@ -121,7 +122,7 @@ export function usePlayerProfile() {
       const currentIdentity = sessionIdentity();
       const changed = identity !== currentIdentity;
       identity = currentIdentity;
-      if (session.status !== "ready") {
+      if (session.status !== "ready" && !session.wikiSessionReady) {
         setState({ status: "idle", profile: null });
         return;
       }
@@ -134,125 +135,43 @@ export function usePlayerProfile() {
         profileRefreshQueued = false;
         setState(cachedState());
       }
-      const requestLevel = async () => {
-        const request = authorizeRequest({
-          url: "/api/automation/profile-level",
-        });
-        const response = await fetch(request.url, {
-          headers: request.headers,
-          cache: "no-store",
-          signal,
-        });
-        if (!response.ok) throw new Error("level_unavailable");
-        return response.json();
-      };
-      // The server resolves the verified account itself, so the level read can
-      // start before /api/me. Keep failures handled until the profile arrives.
-      const earlyLevel = requestLevel().catch(() => null);
-      const loadLevel = async (playerId, early = null) => {
-        setState((current) => ({ ...current, levelStatus: "loading" }));
-        try {
-          const data = (early && (await early)) || (await requestLevel());
-          if (
-            data.playerId !== playerId ||
-            !Number.isSafeInteger(data.level) ||
-            data.level < 1
-          )
-            throw new Error("level_unavailable");
-          if (!signal.aborted && sessionIdentity() === currentIdentity)
-            setState((current) =>
-              current.profile?.playerId === playerId
-                ? {
-                    ...current,
-                    levelStatus: "ready",
-                    profile: {
-                      ...current.profile,
-                      playerLevel: data.level,
-                      experience:
-                        current.profile.playerLevel != null &&
-                        current.profile.playerLevel !== data.level
-                          ? { current: undefined, toNextLevel: undefined }
-                          : current.profile.experience,
-                    },
-                  }
-                : current,
-            );
-        } catch {
-          if (!signal.aborted && sessionIdentity() === currentIdentity)
-            setState((current) => ({
-              ...current,
-              levelStatus: "error",
-              profile:
-                current.profile?.playerId === current.identity?.playerId &&
-                Number.isSafeInteger(current.identity?.playerLevel)
-                  ? {
-                      ...current.profile,
-                      playerLevel: current.identity.playerLevel,
-                    }
-                  : current.profile,
-            }));
-        }
-      };
-      void (async () => {
-        try {
-          const request = authorizeRequest({
-            url: "/api/automation/profile-identity",
-          });
-          const response = await fetch(request.url, {
-            headers: request.headers,
-            cache: "no-store",
-            signal,
-          });
-          if (!response.ok) return;
-          const data = await response.json();
-          if (!signal.aborted && sessionIdentity() === currentIdentity) {
-            window.dispatchEvent(
-              new CustomEvent("madhouse:profile-identity", { detail: data }),
-            );
-            setState((current) => {
-              const cached = profileIdentity(data);
-              return {
-                ...current,
-                identity: cached,
-                profile:
-                  current.profile?.playerId === cached.playerId
-                    ? retainProfileProgress(current.profile, cached)
-                    : current.profile,
-              };
-            });
-          }
-        } catch {
-          // Identity is optional; the fresh profile remains authoritative.
-        }
-      })();
       try {
-        // The public account snapshot can be old even when it is returned with
-        // a successful HTTP response. Revalidate it on mount and keep the
-        // current profile in state if the live refresh fails.
-        const data = await getSessionJson("/api/me", {
-          signal,
-          revalidate: false,
-        });
+        const stored = await readStoredSessionJson("/api/me", { signal });
         if (signal.aborted) return;
+        if (stored.presence === "unknown") {
+          setState({
+            status: "error",
+            profile: null,
+            message:
+              "Данные профиля ещё не получены. Обновите их после подключения игры.",
+          });
+          return;
+        }
+        const data = stored.data;
         setState((current) => ({
           ...current,
           status: "ready",
+          identity: profileIdentity(data),
           profile: livePlayerProfile(data, current.profile ?? current.identity),
           levelStatus: Number.isSafeInteger(data.exp?.level)
             ? "ready"
-            : "loading",
+            : "error",
+          updatedAt: stored.updatedAt,
+          snapshotStatus: stored.snapshotStatus,
         }));
-        if (!Number.isSafeInteger(data.exp?.level))
-          void loadLevel(data.playerId, earlyLevel);
         try {
-          const bag = await getSessionJson("/api/me/bag", { signal });
+          const bag = await readStoredSessionJson("/api/me/bag", { signal });
           if (!signal.aborted)
             setState((current) => ({
               ...current,
               profile: current.profile && {
                 ...current.profile,
-                stashBuffs: normalizeActiveStashBuffs(bag),
-                stashBuffsStatus: "ready",
+                stashBuffs:
+                  bag.presence === "present"
+                    ? normalizeActiveStashBuffs(bag.data)
+                    : [],
+                stashBuffsStatus:
+                  bag.presence === "present" ? "ready" : "error",
               },
             }));
         } catch {

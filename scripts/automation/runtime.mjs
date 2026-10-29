@@ -9,11 +9,18 @@ import { createAutomationService } from "./service.mjs";
 import { createAutomationHttp, nodeAutomationHandler } from "./http.mjs";
 import { readKnowledgeBase } from "../catalogue/query.mjs";
 import { isAllowedBridgeQueueCommand } from "../bridge/queue-command.mjs";
+import {
+  createWikiSessionAuthority,
+  isWikiSessionCredential,
+} from "../../shared/wiki-session.js";
+import { createBlobSessionStore } from "../../connector/blob-session-store.js";
 
 export async function createAutomationRuntime({
   root = process.cwd(),
   env = process.env,
   bridge = null,
+  wikiSessionAuthority = null,
+  gameFetcher,
 } = {}) {
   const enabled = env.MADHOUSE_AUTOMATION_GAME_ENABLED !== "0";
   const store = createAutomationStateStore({
@@ -21,9 +28,21 @@ export async function createAutomationRuntime({
       env.MADHOUSE_AUTOMATION_STATE_DIR ||
       resolve(root, "local-data/automation"),
   });
-  const snapshots = createAccountSnapshots({ store });
+  const snapshots = createAccountSnapshots({
+    store,
+    ...(gameFetcher ? { fetcher: gameFetcher } : {}),
+  });
   // Bridge admission is injected only after the host has satisfied all gates.
   const transport = bridge ? bridge.wrapSnapshots(snapshots) : snapshots;
+  const wikiAuthority =
+    wikiSessionAuthority ||
+    (env.WIKI_SESSION_KEY && env.ACCOUNT_SESSION_KEY
+      ? createWikiSessionAuthority({
+          store: createBlobSessionStore(),
+          encryptionKey: env.ACCOUNT_SESSION_KEY,
+          signingKey: env.WIKI_SESSION_KEY,
+        })
+      : null);
   const readPlayerProgress = bridge
     ? createPlayerProgressReader({ fetcher: transport.fetch })
     : createPlayerProgressReader();
@@ -39,7 +58,54 @@ export async function createAutomationRuntime({
     readProgress: readPlayerProgress,
     origin: env.WIKI_PUBLIC_ORIGIN,
   });
-  const proxy = createProxy(transport.fetch);
+  const proxy = createProxy(transport.fetch, {
+    denyGameCredential: isWikiSessionCredential,
+    storedFetch: async (url, init) => {
+      const authorization = new Headers(init.headers).get("authorization");
+      let verified = null;
+      if (authorization?.startsWith("Bearer ") && wikiAuthority) {
+        try {
+          verified = await wikiAuthority.verify(authorization.slice(7));
+        } catch {
+          throw Object.assign(new Error("wiki_session_store_unavailable"), {
+            status: 503,
+          });
+        }
+      }
+      if (verified?.legacyAuthorization) {
+        const playerId = snapshots.resolveStoredOwner(
+          verified.legacyAuthorization,
+          verified.telegramUserId,
+        );
+        if (!playerId)
+          return new Response(
+            JSON.stringify({ error: "snapshot_unavailable" }),
+            {
+              status: 404,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "private, no-store",
+              },
+            },
+          );
+        verified = { ...verified, playerId };
+      }
+      if (verified && bridge) {
+        const owner = bridge.ownerForPlayer(String(verified.playerId));
+        if (owner && owner !== verified.telegramUserId)
+          return new Response(null, {
+            status: 401,
+            headers: { "Cache-Control": "private, no-store" },
+          });
+      }
+      if (verified)
+        return snapshots.readStored(url, init, {
+          verifiedWiki: true,
+          verifiedPlayerId: verified.playerId,
+        });
+      return transport.readStored(url, init);
+    },
+  });
   let catalogue;
   const getCatalogue = () => (catalogue ??= readKnowledgeBase(root));
   const telegram =
@@ -137,7 +203,7 @@ export async function createAutomationRuntime({
     origin: env.WIKI_PUBLIC_ORIGIN || null,
   });
   const bossCardsHandle = createBossCardsHttp({
-    identify: service.identify,
+    identify: service.readStored,
     snapshots,
     ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     getCatalogue,
@@ -145,6 +211,54 @@ export async function createAutomationRuntime({
   });
   const handle = async (request) => {
     const url = new URL(request.url);
+    if (
+      url.pathname.startsWith("/api/automation/") &&
+      isWikiSessionCredential(request.headers.get("authorization"))
+    ) {
+      const headers = {
+        "Content-Type": "application/json",
+        "Cache-Control": "private, no-store",
+      };
+      const failure = (status, error) =>
+        new Response(JSON.stringify({ error }), { status, headers });
+      if (!enabled) return failure(503, "automation_game_requests_disabled");
+      if (url.pathname !== "/api/automation/state" || request.method !== "GET")
+        return failure(401, "game_connection_required");
+      if (
+        url.search ||
+        (request.headers.get("origin") &&
+          request.headers.get("origin") !==
+            (env.WIKI_PUBLIC_ORIGIN || url.origin))
+      )
+        return failure(403, "origin_rejected");
+      try {
+        const authorization = request.headers.get("authorization");
+        const verified = await wikiAuthority?.verify(authorization.slice(7));
+        if (!verified) return failure(401, "game_session_required");
+        const playerId =
+          verified.playerId ||
+          (verified.legacyAuthorization &&
+            snapshots.resolveStoredOwner(
+              verified.legacyAuthorization,
+              verified.telegramUserId,
+            ));
+        if (!playerId) return failure(404, "automation_state_unknown");
+        const owner = bridge?.ownerForPlayer(String(playerId));
+        if (owner && owner !== verified.telegramUserId)
+          return failure(401, "game_session_required");
+        return new Response(
+          JSON.stringify(
+            service.snapshot(await service.readStoredPlayer(playerId)),
+          ),
+          { headers },
+        );
+      } catch (error) {
+        return failure(
+          Number.isInteger(error?.status) ? error.status : 503,
+          error?.code || "automation_unavailable",
+        );
+      }
+    }
     if (bridge && url.pathname.startsWith("/api/automation/")) {
       let route;
       try {
@@ -197,7 +311,7 @@ export async function createAutomationRuntime({
           : null;
         identity =
           route?.policy === "bridge_required"
-            ? (await service.identify(authorization)).player
+            ? (await service.readStored(authorization)).player
             : snapshots.identity(authorization);
       } catch {
         identity = null;
@@ -222,7 +336,7 @@ export async function createAutomationRuntime({
         return new Response(null, { status: 403, headers });
       const authorization = request.headers.get("authorization");
       try {
-        await service.identify(authorization);
+        await service.readStored(authorization);
         return new Response(
           JSON.stringify(
             snapshots.inventory(

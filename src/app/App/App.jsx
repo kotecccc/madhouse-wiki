@@ -101,9 +101,10 @@ export function App() {
   const [upgradeDialog, setUpgradeDialog] = useState(null);
   const [conditionDialog, setConditionDialog] = useState(null);
   const [queueDialog, setQueueDialog] = useState(null);
-  const [sessionStatus, setSessionStatus] = useState(
-    () => readSession().status,
-  );
+  const [sessionStatus, setSessionStatus] = useState(() => {
+    const session = readSession();
+    return session.wikiSessionReady ? "ready" : session.status;
+  });
   const authenticated = sessionStatus === "ready";
   const [activeScreen, setActiveScreen] = useState(() =>
     typeof window === "undefined"
@@ -257,7 +258,10 @@ export function App() {
   });
 
   useEffect(() => {
-    const syncSession = () => setSessionStatus(readSession().status);
+    const syncSession = () => {
+      const session = readSession();
+      setSessionStatus(session.wikiSessionReady ? "ready" : session.status);
+    };
     const unsubscribe = subscribeSession(() => {
       syncSession();
       setSessionGeneration((value) => value + 1);

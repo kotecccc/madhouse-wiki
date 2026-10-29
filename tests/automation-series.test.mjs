@@ -1014,6 +1014,7 @@ test("expired time goal cancels queued next battle", async () => {
       const entry = await ctx.openAndConfigure("time", 1, { durationHours: 1 });
       await ctx.command(entry, "autostart09", "auto.start");
       await ctx.advance(3_600_000);
+      ctx.service.reconcileStored(entry);
       assert.equal(ctx.service.snapshot(entry).goal.status, "completed");
       await ctx.advance(1000);
       assert.equal(ctx.starts, 0);
@@ -1031,6 +1032,7 @@ test("expired quantitative goal cancels queued next battle", async () => {
       });
       await ctx.command(entry, "autostart10", "auto.start");
       await ctx.advance(3_600_000);
+      ctx.service.reconcileStored(entry);
       assert.equal(ctx.service.snapshot(entry).goal.status, "expired");
       await ctx.advance(1000);
       assert.equal(ctx.starts, 0);

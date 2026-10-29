@@ -5,6 +5,17 @@ const headers = {
 };
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers });
+const stopCommands = new Set([
+  "auto.stop",
+  "goal.stop",
+  "raid.stop",
+  "floor.stop",
+  "work.stop",
+  "character.stop",
+  "business.run.stop",
+  "subscription.stop",
+  "buddy.stop",
+]);
 
 export function createAutomationHttp({
   service,
@@ -68,7 +79,11 @@ export function createAutomationHttp({
           return json({ error: "invalid_json" }, 400);
         }
       }
-      entry = await service.identify(request.headers.get("authorization"));
+      const isStop = stopCommands.has(input?.command);
+      entry =
+        request.method === "GET" || isStop
+          ? await service.readStored(request.headers.get("authorization"))
+          : await service.identify(request.headers.get("authorization"));
       return json(
         request.method === "GET"
           ? url.pathname.endsWith("/friends")
@@ -111,13 +126,15 @@ export function createAutomationHttp({
           error:
             error.message === "game_unavailable_actions_paused"
               ? "game_unavailable_actions_paused"
-              : status === 400
-                ? "invalid_automation_command"
-                : status === 401
-                  ? "game_session_required"
-                  : status === 409
-                    ? "automation_state_changed"
-                    : "automation_unavailable",
+              : status === 404 && error.message === "automation_state_unknown"
+                ? "automation_state_unknown"
+                : status === 400
+                  ? "invalid_automation_command"
+                  : status === 401
+                    ? "game_session_required"
+                    : status === 409
+                      ? "automation_state_changed"
+                      : "automation_unavailable",
           ...(["inventory.action", "inventory.refresh"].includes(
             input?.command,
           ) &&

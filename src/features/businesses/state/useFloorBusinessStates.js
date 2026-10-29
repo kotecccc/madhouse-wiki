@@ -5,6 +5,7 @@ import {
 } from "../../../../shared/auth-session.js";
 import {
   getSessionJson,
+  readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
 } from "../../../../shared/session-api.js";
@@ -32,6 +33,7 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
     businessAssistant.getSnapshot,
     businessAssistant.getSnapshot,
   );
+  const previousRun = useRef(assistant.run);
 
   useEffect(
     () =>
@@ -54,20 +56,29 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
     [path],
   );
   useEffect(() => {
-    if (!enabled || !path || readSession().status !== "ready") return;
+    if (
+      !enabled ||
+      !path ||
+      (readSession().status !== "ready" && !readSession().wikiSessionReady)
+    )
+      return;
     const controller = new AbortController();
     const cached = peekSessionJson(path, { allowStale: true });
     if (cached) setState({ path, data: businessStatesFromFloorInfo(cached) });
-    void getSessionJson(path, { signal: controller.signal })
-      .then((data) => {
-        if (!controller.signal.aborted)
-          setState({ path, data: businessStatesFromFloorInfo(data) });
+    void readStoredSessionJson(path, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted && result.presence === "present")
+          setState({ path, data: businessStatesFromFloorInfo(result.data) });
       })
       .catch(() => {});
     return () => controller.abort();
   }, [path, enabled, revision]);
 
   useEffect(() => {
+    const previous = previousRun.current;
+    previousRun.current = assistant.run;
+    if (previous?.status !== "running" || previous.id !== assistant.run?.id)
+      return;
     if (!enabled || !path || readSession().status !== "ready") return;
     const run = assistant.run;
     const cached = peekSessionJson(path, { allowStale: true });
@@ -86,7 +97,12 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
     );
   }, [assistant.run, enabled, path, state]);
 
-  if (!enabled || !path || readSession().status !== "ready") return null;
+  if (
+    !enabled ||
+    !path ||
+    (readSession().status !== "ready" && !readSession().wikiSessionReady)
+  )
+    return null;
   const cached = peekSessionJson(path, { allowStale: true });
   return cached
     ? businessStatesFromFloorInfo(cached)

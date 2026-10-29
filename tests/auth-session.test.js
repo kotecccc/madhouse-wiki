@@ -6,6 +6,9 @@ import {
   readSession,
   clearToken,
   authorizeRequest,
+  authorizeStoredRequest,
+  saveWikiSession,
+  storedSessionIdentity,
   formatExpiry,
   TOKEN_KEY,
   subscribeSession,
@@ -180,5 +183,126 @@ test("WebViews without localStorage can use a document-local JWT and still isola
     clearToken();
   } finally {
     globalThis.window = previous;
+  }
+});
+
+test("an independent Wiki session authorizes only stored reads after game expiry", () => {
+  const previous = globalThis.window;
+  const realNow = Date.now;
+  let now = 1000;
+  Date.now = () => now;
+  const target = new EventTarget();
+  globalThis.window = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
+    location: {
+      origin: "https://wiki.example",
+      hash:
+        "#tgWebAppData=" +
+        encodeURIComponent('auth_date=1&user={"id":42}&hash=' + "a".repeat(64)),
+    },
+    dispatchEvent: target.dispatchEvent.bind(target),
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+  };
+  try {
+    clearToken();
+    saveToken(jwt({ exp: 5 }));
+    saveWikiSession("wiki-session-secret", {
+      expiresAt: 9000,
+      gameConnection: "connected",
+    });
+    assert.equal(readSession().gameConnection, "connected");
+    now = 6000;
+    const session = readSession();
+    assert.equal(session.status, "expired");
+    assert.equal(session.wikiSessionReady, true);
+    assert.equal(session.gameConnection, "login-required");
+    assert.throws(() => authorizeRequest({ url: "/api/me" }));
+    assert.equal(
+      authorizeStoredRequest({ url: "/api/me", method: "GET" }).headers
+        .Authorization,
+      "Bearer wiki-session-secret",
+    );
+    assert.equal(
+      authorizeStoredRequest({
+        url: "/api/automation/state",
+        method: "GET",
+      }).headers.Authorization,
+      "Bearer wiki-session-secret",
+    );
+    assert.throws(() =>
+      authorizeRequest({ url: "/api/automation/state", method: "GET" }),
+    );
+    assert.throws(() =>
+      authorizeStoredRequest({
+        url: "/api/automation/state",
+        method: "POST",
+      }),
+    );
+    assert.throws(() =>
+      authorizeStoredRequest({
+        url: "/api/automation/commands",
+        method: "POST",
+      }),
+    );
+    assert.throws(() =>
+      authorizeStoredRequest({ url: "/api/automation/bosses", method: "GET" }),
+    );
+    assert.equal(
+      storedSessionIdentity().includes("wiki-session-secret"),
+      false,
+    );
+    now = 10_000;
+    assert.equal(readSession().wikiSessionReady, false);
+    assert.throws(() => authorizeStoredRequest({ url: "/api/me" }));
+  } finally {
+    clearToken();
+    Date.now = realNow;
+    if (previous === undefined) delete globalThis.window;
+    else globalThis.window = previous;
+  }
+});
+
+test("a Telegram account switch clears the in-memory Wiki-only principal", () => {
+  const previous = globalThis.window;
+  const target = new EventTarget();
+  const launch = (id) =>
+    "#tgWebAppData=" +
+    encodeURIComponent(
+      new URLSearchParams({
+        user: JSON.stringify({ id }),
+        auth_date: "1",
+        hash: "a".repeat(64),
+      }),
+    );
+  globalThis.window = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
+    location: { origin: "https://wiki.example", hash: launch(42) },
+    dispatchEvent: target.dispatchEvent.bind(target),
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+  };
+  try {
+    clearToken();
+    saveWikiSession("account-42-wiki-session", {
+      expiresAt: Date.now() + 60000,
+      gameConnection: "login-required",
+    });
+    assert.equal(readSession().wikiSessionReady, true);
+    window.location.hash = launch(99);
+    assert.equal(readSession().wikiSessionReady, false);
+    assert.throws(() => authorizeStoredRequest({ url: "/api/me" }));
+  } finally {
+    clearToken();
+    if (previous === undefined) delete globalThis.window;
+    else globalThis.window = previous;
   }
 });

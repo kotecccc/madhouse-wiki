@@ -116,6 +116,7 @@ export function observeGameResponse(response) {
 
 import {
   authorizeRequest,
+  authorizeStoredRequest,
   readSession,
   subscribeSession,
 } from "./auth-session.js";
@@ -124,6 +125,7 @@ import {
 // No JWT or personal response is written to the catalogue or local storage.
 export function createSessionApi({
   authorize,
+  authorizeStored = authorize,
   fetcher = fetch,
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -147,6 +149,11 @@ export function createSessionApi({
     /^\/api\/(?:automation\/bosses|me|me\/bag|stash\/sets|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
     );
+  // `automation/bosses` has its own server contract and is not an account
+  // snapshot resource. Keep it out of the strict saved-data reader.
+  const isStoredReadPath = (path) =>
+    path === "/api/automation/state" ||
+    (isSnapshotPath(path) && path !== "/api/automation/bosses");
   function publish(event) {
     for (const listener of [...listeners]) {
       try {
@@ -185,6 +192,7 @@ export function createSessionApi({
       signal,
       background = false,
       snapshotOnly = false,
+      storedOnly = false,
       serverRefresh = false,
       afterPending = false,
       refreshBoss,
@@ -194,8 +202,11 @@ export function createSessionApi({
       return Promise.reject(new Error("Недопустимый API-запрос"));
     // Validate even a cache hit, so expired/cleared sessions cannot reuse it.
     try {
-      const current = authorize({ url: path }).headers.Authorization;
-      if (identity !== current) {
+      const current = (storedOnly ? authorizeStored : authorize)({
+        url: path,
+        ...(storedOnly ? { method: "GET", storedOnly: true } : {}),
+      }).headers.Authorization;
+      if (!storedOnly && identity !== current) {
         clear();
         identity = current;
       }
@@ -204,7 +215,7 @@ export function createSessionApi({
       return Promise.reject(error);
     }
     const cached = method === "GET" ? entries.get(path) : null;
-    if (method === "GET" && pending.has(path)) {
+    if (!storedOnly && method === "GET" && pending.has(path)) {
       const active = pending.get(path);
       if ((fresh && snapshotOnlyPending.has(path)) || afterPending) {
         const waitingGeneration = generation;
@@ -230,10 +241,16 @@ export function createSessionApi({
       }
       return active;
     }
-    if (!fresh && cached && !isSnapshotPath(path) && now() < cached.until)
+    if (
+      !storedOnly &&
+      !fresh &&
+      cached &&
+      !isSnapshotPath(path) &&
+      now() < cached.until
+    )
       return Promise.resolve(cached.value);
     const requestGeneration = generation;
-    const entry = cached || {};
+    const entry = storedOnly ? {} : cached || {};
     const task = async () => {
       const wait = interval - (now() - lastStarted);
       if (wait > 0) await pause(wait);
@@ -242,7 +259,11 @@ export function createSessionApi({
         throw new Error("Сессия изменилась");
       // A queued refresh may reach its turn after the app was backgrounded.
       if (background && !shouldRefresh()) return entry.value;
-      const request = authorize({ url: path });
+      const request = (storedOnly ? authorizeStored : authorize)({
+        url: path,
+        method,
+        ...(storedOnly ? { storedOnly: true } : {}),
+      });
       const controller = new AbortController();
       const forwardAbort = () => controller.abort();
       signal?.addEventListener("abort", forwardAbort, { once: true });
@@ -254,6 +275,7 @@ export function createSessionApi({
           method,
           headers: {
             ...request.headers,
+            ...(storedOnly ? { "X-Madhouse-Stored-Only": "1" } : {}),
             ...(snapshotOnly ? { "X-Madhouse-Snapshot-Only": "1" } : {}),
             ...(serverRefresh && method === "GET" && isSnapshotPath(path)
               ? {
@@ -275,7 +297,8 @@ export function createSessionApi({
           signal: controller.signal,
         };
         let response;
-        for (let attempt = 0; attempt < 3; attempt++) {
+        const maxAttempts = storedOnly ? 1 : 3;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (generation !== requestGeneration || controller.signal.aborted)
             throw new Error("Сессия изменилась");
           lastStarted = now();
@@ -293,7 +316,22 @@ export function createSessionApi({
           await response.body?.cancel();
           await pause(Math.max(interval, 1000) * (attempt + 1));
         }
+        if (generation !== requestGeneration || controller.signal.aborted)
+          throw new Error("Сессия изменилась");
         if (!response.ok) {
+          const storedFailure =
+            storedOnly && response.status === 404
+              ? await response.json().catch(() => null)
+              : null;
+          if (storedFailure?.error === "snapshot_unavailable") {
+            return {
+              presence: "unknown",
+              data: null,
+              updatedAt: null,
+              snapshotStatus: "missing",
+              source: "stored",
+            };
+          }
           const error = new Error("Не удалось загрузить данные");
           error.status = response.status;
           if (path === "/api/automation/commands") {
@@ -317,6 +355,29 @@ export function createSessionApi({
         }
         const data = await response.json();
         const snapshotStatus = response.headers?.get?.("X-Madhouse-Snapshot");
+        if (storedOnly) {
+          if (generation !== requestGeneration || controller.signal.aborted)
+            throw new Error("Сессия изменилась");
+          const updated = Number(
+            response.headers?.get?.("X-Madhouse-Section-Updated"),
+          );
+          publish({
+            path,
+            data,
+            updatedAt: Number.isFinite(updated) && updated > 0 ? updated : null,
+            snapshotStatus,
+            storedOnly: true,
+          });
+          return {
+            presence: "present",
+            data,
+            updatedAt: Number.isFinite(updated) && updated > 0 ? updated : null,
+            snapshotStatus: snapshotStatus || "current",
+            source: "stored",
+            gameStatus:
+              response.headers?.get?.("X-Madhouse-Game-Status") || "unknown",
+          };
+        }
         if (serverRefresh === "live" && snapshotStatus === "stale") {
           throw new Error("Актуальные данные профиля недоступны");
         }
@@ -362,7 +423,7 @@ export function createSessionApi({
     };
     const promise = tail.then(task);
     tail = promise.catch(() => {});
-    if (method === "GET") {
+    if (method === "GET" && !storedOnly) {
       if (!cached) entries.set(path, entry);
       pending.set(path, promise);
       if (snapshotOnly) snapshotOnlyPending.add(path);
@@ -446,9 +507,27 @@ export function createSessionApi({
       }
       const promise = request("GET", path, undefined, {
         ...options,
+        // Ordinary snapshot reads are shared by components. A component may
+        // unmount while another is still waiting, so its signal must not cancel
+        // the shared transport. getSessionJson cancels that caller's wait.
+        ...(!options.fresh && isSnapshotPath(path)
+          ? { signal: undefined }
+          : {}),
         snapshotOnly: !options.fresh && isSnapshotPath(path) && !cached,
       });
       return promise;
+    },
+    readStored(path, options = {}) {
+      if (!/^\/api\/[\w/?.=&%+-]+$/.test(path) || !isStoredReadPath(path))
+        return Promise.reject(new Error("Недопустимый сохранённый ресурс"));
+      return request("GET", path, undefined, {
+        ...options,
+        fresh: true,
+        storedOnly: true,
+        snapshotOnly: false,
+        serverRefresh: false,
+        background: false,
+      });
     },
     post: (path, body, options) => request("POST", path, body, options),
     peek(path, { allowStale = false } = {}) {
@@ -489,13 +568,11 @@ function ensureSessionApi() {
   if (sessionApi) return sessionApi;
   sessionApi = createSessionApi({
     authorize: authorizeRequest,
+    authorizeStored: authorizeStoredRequest,
     shouldRefresh: () =>
       typeof document === "undefined" || document.visibilityState === "visible",
   });
-  if (typeof window !== "undefined")
-    subscribeSession(() => {
-      if (readSession().status !== "ready") sessionApi.clear();
-    });
+  if (typeof window !== "undefined") subscribeSession(() => sessionApi.clear());
   if (!refreshLifecycleStarted && typeof window !== "undefined") {
     refreshLifecycleStarted = true;
     const refresh = () => {
@@ -538,6 +615,27 @@ export function getSessionJson(
     afterPending,
     refreshBoss,
   });
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+// Strict display bootstrap read. Missing snapshots are explicit, while an
+// empty saved resource remains a present payload (for example data: []).
+export function readStoredSessionJson(path, { signal } = {}) {
+  ensureSessionApi();
+  const session = readSession();
+  if (session.status !== "ready" && !session.wikiSessionReady) {
+    sessionApi.clear();
+    return Promise.reject(new Error("Требуется вход"));
+  }
+  if (signal?.aborted)
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  const promise = sessionApi.readStored(path, { signal });
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
     const abort = () => reject(new DOMException("Aborted", "AbortError"));

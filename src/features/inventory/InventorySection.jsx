@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import {
   getSessionJson,
+  readStoredSessionJson,
   postSessionJson,
   peekSessionUpdatedAt,
   subscribeSessionData,
@@ -202,6 +203,21 @@ export function InventorySection({
           [path]: peekSessionUpdatedAt(path),
         }));
         setRequestState((current) => ({ ...current, [path]: "loading" }));
+        if (!fresh) {
+          void readStoredSessionJson(path, { signal: controller.signal })
+            .then((result) => {
+              if (!controller.signal.aborted)
+                setRequestState((current) => ({
+                  ...current,
+                  [path]: result.presence === "present" ? "ready" : "missing",
+                }));
+            })
+            .catch(() => {
+              if (!controller.signal.aborted)
+                setRequestState((current) => ({ ...current, [path]: "error" }));
+            });
+          continue;
+        }
         void runInventoryReadAttempts({
           signal: controller.signal,
           read: (attempt, signal) =>
@@ -248,7 +264,10 @@ export function InventorySection({
   useEffect(() => {
     onLoadingChange?.(inventoryHeaderLoading(active, loading));
   }, [active, loading, onLoadingChange]);
-  const failed = paths.filter((path) => requestState[path] === "error").length;
+  const failed = paths.filter((path) =>
+    ["error", "missing"].includes(requestState[path]),
+  ).length;
+  const missing = paths.some((path) => requestState[path] === "missing");
   const loaded = paths.filter((path) => responses[path]).length;
   const categoryUpdatedAt =
     paths.length &&
@@ -437,6 +456,14 @@ export function InventorySection({
             <Skeleton key={id} as="article" />
           ))}
         </div>
+      )}
+      {!loading && missing && (
+        <StatusMessage
+          compact
+          icon="loot"
+          title="Данные ещё не получены"
+          description="Обновите категорию после подключения игры."
+        />
       )}
       {!loading && !failed && !filtered.length && (
         <StatusMessage

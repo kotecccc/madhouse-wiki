@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { createWikiSessionAuthority } from "../shared/wiki-session.js";
 const subtle = webcrypto.subtle;
 const encoder = new TextEncoder();
 const utf8 = (s) => encoder.encode(s);
@@ -7,13 +8,22 @@ const verificationFailure = (error) =>
   new Error(
     error?.code === "bridge_route_required"
       ? "bridge_route_required"
-      : "game_unavailable",
+      : error?.code === "game_account_mismatch"
+        ? "game_account_mismatch"
+        : "game_unavailable",
   );
 const keyBytes = (value) => {
   if (!/^[a-f0-9]{64}$/i.test(value || ""))
     throw new Error("session_config_unavailable");
   return Buffer.from(value, "hex");
 };
+const validPlayerId = (value) => Number.isSafeInteger(value) && value > 0;
+const normalizeTelegramId = (value) =>
+  typeof value === "number" && Number.isSafeInteger(value)
+    ? String(value)
+    : typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value)
+      ? value
+      : null;
 async function mac(key, value) {
   const cryptoKey = await subtle.importKey(
     "raw",
@@ -79,6 +89,7 @@ export function createAccountSessions({
   store,
   verificationKey,
   encryptionKey,
+  wikiSessionKey,
   fetcher = fetch,
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -127,6 +138,15 @@ export function createAccountSessions({
   async function write(id, record, etag) {
     await store.write(id, await seal(record, id), etag);
   }
+  const wikiSessions =
+    wikiSessionKey && encryptionKey
+      ? createWikiSessionAuthority({
+          store,
+          encryptionKey,
+          signingKey: wikiSessionKey,
+          now,
+        })
+      : null;
   async function ticket(id, revision) {
     return (
       revision +
@@ -304,17 +324,20 @@ export function createAccountSessions({
                     /^[1-9][0-9]{0,15}$/.test(profile.telegramId)
                   ? profile.telegramId
                   : null;
-            if (
-              telegramId !== userId ||
-              !Number.isSafeInteger(profile?.playerId) ||
-              profile.playerId <= 0
-            )
-              throw new Error("game_account_mismatch");
+            if (telegramId !== userId || !validPlayerId(profile?.playerId))
+              throw Object.assign(new Error("game_account_mismatch"), {
+                code: "game_account_mismatch",
+              });
             const digest = hex(
               await subtle.digest("SHA-256", utf8(`Bearer ${token}`)),
             );
             await registerVerified(String(profile.playerId), digest);
           }
+          const telegramId = normalizeTelegramId(profile?.telegramId);
+          if (telegramId !== userId || !validPlayerId(profile?.playerId))
+            throw Object.assign(new Error("game_account_mismatch"), {
+              code: "game_account_mismatch",
+            });
           return { status: me.status, profile };
         };
         checked =
@@ -327,40 +350,53 @@ export function createAccountSessions({
       if (checked.status < 200 || checked.status >= 300)
         throw new Error("invalid_game_session");
       const profile = checked.profile;
-      const telegramId =
-        typeof profile?.telegramId === "number" &&
-        Number.isSafeInteger(profile.telegramId)
-          ? String(profile.telegramId)
-          : typeof profile?.telegramId === "string" &&
-              /^[1-9][0-9]{0,19}$/.test(profile.telegramId)
-            ? profile.telegramId
-            : null;
-      if (telegramId !== userId) throw new Error("game_account_mismatch");
-      await write(
-        id,
-        {
-          revision: revision(),
-          revoked: false,
-          expiresAt: Math.min(payload.exp * 1000, now() + 86400000),
-          accessToken: token,
-          ...(Number.isSafeInteger(data.playerLevel) && data.playerLevel > 0
-            ? { playerLevel: data.playerLevel }
-            : {}),
-          ...(Number.isSafeInteger(data.currentExp) &&
-          data.currentExp >= 0 &&
-          Number.isSafeInteger(data.expToNextLevel) &&
-          data.expToNextLevel > 0
-            ? {
-                currentExp: data.currentExp,
-                expToNextLevel: data.expToNextLevel,
-              }
-            : {}),
-        },
-        found.etag,
-      );
-      return reply({ status: "saved" });
+      const telegramId = normalizeTelegramId(profile?.telegramId);
+      if (telegramId !== userId || !validPlayerId(profile?.playerId))
+        throw new Error("game_account_mismatch");
+      const savedRecord = {
+        revision: revision(),
+        revoked: false,
+        expiresAt: Math.min(payload.exp * 1000, now() + 86400000),
+        accessToken: token,
+        telegramUserId: userId,
+        playerId: profile.playerId,
+        ...(Number.isSafeInteger(data.playerLevel) && data.playerLevel > 0
+          ? { playerLevel: data.playerLevel }
+          : {}),
+        ...(Number.isSafeInteger(data.currentExp) &&
+        data.currentExp >= 0 &&
+        Number.isSafeInteger(data.expToNextLevel) &&
+        data.expToNextLevel > 0
+          ? {
+              currentExp: data.currentExp,
+              expToNextLevel: data.expToNextLevel,
+            }
+          : {}),
+      };
+      await write(id, savedRecord, found.etag);
+      return reply({
+        status: "saved",
+        ...(wikiSessions
+          ? {
+              wikiSession: await wikiSessions.mint(id, savedRecord, userId),
+              wikiSessionExpiresAt: now() + 86400000,
+              playerId: savedRecord.playerId,
+            }
+          : {}),
+      });
     }
     const record = found.record;
+    const wikiSession =
+      wikiSessions &&
+      ((validPlayerId(record.playerId) && record.telegramUserId === userId) ||
+        (!Object.hasOwn(record, "playerId") &&
+          typeof record.accessToken === "string")) &&
+      record.revoked !== true
+        ? await wikiSessions.mint(id, record, userId)
+        : null;
+    const wikiSessionReply = wikiSession
+      ? { wikiSession, wikiSessionExpiresAt: now() + 86400000 }
+      : {};
     if (record.accessToken && record.expiresAt > now()) {
       const hasExperience =
         Number.isSafeInteger(record.currentExp) &&
@@ -371,6 +407,8 @@ export function createAccountSessions({
         Number.isSafeInteger(record.playerLevel) && record.playerLevel > 0;
       return reply({
         status: "connected",
+        gameConnection: "connected",
+        ...wikiSessionReply,
         accessToken: record.accessToken,
         ...(hasLevel ? { playerLevel: record.playerLevel } : {}),
         ...(hasExperience
@@ -386,6 +424,8 @@ export function createAccountSessions({
     }
     return reply({
       status: "login-required",
+      gameConnection: "login-required",
+      ...wikiSessionReply,
       revoked: record.revoked === true,
       ticket: await ticket(id, record.revision),
     });

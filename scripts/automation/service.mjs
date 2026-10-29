@@ -745,8 +745,8 @@ export function createAutomationService({
     void entry.controller.refresh();
   }
   function snapshot(entry) {
-    updateGoal(entry);
-    reconcileFinishedBattle(entry);
+    // State reads are a projection of the last durable actor state. Recovery
+    // and reconciliation belong to the owner heartbeat/explicit jobs.
     const state = entry.controller.getSnapshot();
     const queueReadyAt = queueNotBefore(entry);
     return {
@@ -2455,16 +2455,37 @@ export function createAutomationService({
     }
     actors.set(playerId, entry);
     if (migration.changed) save(entry);
-    if (
-      entry.credential &&
-      (entry.characterBatch.running() || entry.characterBatch.recovering())
-    )
-      entry.characterBatch.resume();
     return entry;
   }
   async function actor(playerId) {
     if (actors.has(playerId)) return actors.get(playerId);
     return createActor(playerId, store.read(playerId));
+  }
+  async function readStored(authorization) {
+    if (closed) throw failure(503, "automation_unavailable");
+    if (
+      typeof authorization !== "string" ||
+      authorization.length > 16384 ||
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
+    )
+      throw failure(401, "game_session_required");
+    let credential;
+    try {
+      credential = canonicalCredential(authorization);
+    } catch {
+      throw failure(401, "game_session_required");
+    }
+    // The encrypted actor record is the local verified binding. Never infer
+    // identity from a caller supplied player ID or an unverified token claim.
+    const records = store.list();
+    const match = records.find(({ value }) => value?.credential === credential);
+    if (!match) throw failure(404, "automation_state_unknown");
+    const entry = await actor(match.playerId);
+    if (entry.credential !== credential)
+      throw failure(401, "game_session_required");
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    return entry;
   }
   async function refreshPvp(entry) {
     entry.pvp = { ...entry.pvp, pending: true, error: false };
@@ -5000,6 +5021,23 @@ export function createAutomationService({
   }
   return {
     identify,
+    readStored,
+    async readStoredPlayer(playerId) {
+      if (closed) throw failure(503, "automation_unavailable");
+      if (!Number.isSafeInteger(playerId) || playerId <= 0)
+        throw failure(401, "game_session_required");
+      const id = String(playerId);
+      if (!store.read(id)) throw failure(404, "automation_state_unknown");
+      const entry = await actor(id);
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
+      return entry;
+    },
+    reconcileStored(entry) {
+      ensureLease();
+      updateGoal(entry);
+      reconcileFinishedBattle(entry);
+    },
     launch,
     snapshot,
     command,
@@ -5267,7 +5305,14 @@ export function createAutomationService({
       // Restore enabled workers without waiting for a browser to reconnect.
       for (const { playerId, value } of store.list()) {
         // Discovery is server-owned and continues even when no browser is open.
-        if (value?.credential) await actor(playerId);
+        if (value?.credential) {
+          const entry = await actor(playerId);
+          if (
+            entry.characterBatch.running() ||
+            entry.characterBatch.recovering()
+          )
+            entry.characterBatch.resume();
+        }
         if (
           value?.credential &&
           value?.floorRunner?.status === "running" &&

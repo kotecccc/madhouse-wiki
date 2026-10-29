@@ -57,8 +57,8 @@ function sendResult(response, result) {
   return result.arrayBuffer().then((body) => response.end(Buffer.from(body)));
 }
 
-export function createProxy(fetcher = fetch) {
-  const transport = createProductionApi(operations, fetcher);
+export function createProxy(fetcher = fetch, options = {}) {
+  const transport = createProductionApi(operations, fetcher, options);
   return async (request, response) => {
     const raw = request.url || "";
     const url =
@@ -111,6 +111,7 @@ export function createProxy(fetcher = fetch) {
       "content-type",
       "x-madhouse-allow-mutations",
       "x-madhouse-snapshot-only",
+      "x-madhouse-stored-only",
       "x-madhouse-snapshot-refresh",
       "x-cargohustle-dev-key",
     ]) {

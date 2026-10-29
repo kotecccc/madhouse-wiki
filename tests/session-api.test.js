@@ -71,6 +71,32 @@ test("session GET cache deduplicates, spaces requests, expires and clears betwee
   api.clear();
 });
 
+test("unmounting the first consumer does not cancel a shared snapshot read", async () => {
+  const first = new AbortController();
+  let release;
+  let calls = 0;
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, { signal }) => {
+      calls++;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      return Response.json({ floor: "J" });
+    },
+  });
+  const one = api.get("/api/floors/J/info", { signal: first.signal });
+  const two = api.get("/api/floors/J/info");
+  await new Promise((resolve) => setImmediate(resolve));
+  first.abort();
+  release();
+  assert.deepEqual(await one, { floor: "J" });
+  assert.deepEqual(await two, { floor: "J" });
+  assert.equal(calls, 1);
+});
+
 test("failed session requests are retryable and external URLs are rejected", async () => {
   let calls = 0;
   const api = createSessionApi({
@@ -84,6 +110,154 @@ test("failed session requests are retryable and external URLs are rejected", asy
   await assert.rejects(api.get("/api/floors"));
   assert.deepEqual(await api.get("/api/floors"), []);
   await assert.rejects(api.get("https://other.example/api/me"));
+});
+
+test("strict stored reads preserve empty and stale snapshots and report missing without retry", async () => {
+  let calls = 0;
+  const headers = [];
+  const api = createSessionApi({
+    now: () => 100_000,
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake-session" },
+    }),
+    fetcher: async (_url, options) => {
+      calls++;
+      headers.push(options.headers["X-Madhouse-Stored-Only"] ?? null);
+      if (calls === 1)
+        return Response.json(
+          { error: "snapshot_unavailable" },
+          { status: 404 },
+        );
+      return Response.json([], {
+        headers: {
+          "X-Madhouse-Snapshot": "stale",
+          "X-Madhouse-Section-Updated": "12345",
+          "X-Madhouse-Snapshot-TTL": "1",
+        },
+      });
+    },
+  });
+
+  assert.deepEqual(await api.readStored("/api/me/bag"), {
+    presence: "unknown",
+    data: null,
+    updatedAt: null,
+    snapshotStatus: "missing",
+    source: "stored",
+  });
+  assert.deepEqual(await api.readStored("/api/me/bag"), {
+    presence: "present",
+    data: [],
+    updatedAt: 12345,
+    snapshotStatus: "stale",
+    source: "stored",
+    gameStatus: "unknown",
+  });
+  api.refreshExpired();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 2);
+  assert.deepEqual(headers, ["1", "1"]);
+});
+
+test("a late stored read cannot publish after the session is cleared", async () => {
+  let finish;
+  let started;
+  const ready = new Promise((resolve) => {
+    started = resolve;
+  });
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake-session" },
+    }),
+    fetcher: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+        started();
+      }),
+  });
+  const events = [];
+  api.subscribe((event) => events.push(event));
+  const pending = api.readStored("/api/me");
+  await ready;
+  api.clear();
+  finish(Response.json({ playerId: 42 }));
+  await assert.rejects(pending);
+  assert.equal(
+    events.some((event) => event.path === "/api/me"),
+    false,
+  );
+});
+
+test("strict stored reads reject paths outside the account snapshot contract", async () => {
+  let calls = 0;
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake-session" },
+    }),
+    fetcher: async () => {
+      calls++;
+      return Response.json({});
+    },
+  });
+  await assert.rejects(api.readStored("/api/automation/bosses"));
+  assert.equal(calls, 0);
+});
+
+test("strict stored read does not retry transient Wiki responses", async () => {
+  let calls = 0;
+  const api = createSessionApi({
+    interval: 0,
+    pause: async () => {},
+    authorize: (request) => ({
+      ...request,
+      headers: { Authorization: "fake-session" },
+    }),
+    fetcher: async () => {
+      calls++;
+      return Response.json(
+        { error: "temporarily_unavailable" },
+        {
+          status: 503,
+        },
+      );
+    },
+  });
+  await assert.rejects(api.readStored("/api/me"));
+  assert.equal(calls, 1);
+});
+
+test("strict stored API calls use their own credential without game authorization", async () => {
+  const headers = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: () => {
+      throw new Error("game token expired");
+    },
+    authorizeStored: (request) => ({
+      ...request,
+      headers: { Authorization: "Bearer wiki-session" },
+    }),
+    fetcher: async (_url, options) => {
+      headers.push(options.headers.Authorization);
+      return Response.json({ profile: true });
+    },
+  });
+  assert.deepEqual(await api.readStored("/api/me"), {
+    presence: "present",
+    data: { profile: true },
+    updatedAt: null,
+    snapshotStatus: "current",
+    source: "stored",
+    gameStatus: "unknown",
+  });
+  await assert.rejects(api.get("/api/me"), /game token expired/);
+  assert.deepEqual(headers, ["Bearer wiki-session"]);
 });
 
 test("a switched session cannot receive a prior pending response or a cached response after expiry", async () => {

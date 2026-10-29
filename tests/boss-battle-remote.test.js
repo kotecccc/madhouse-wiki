@@ -152,55 +152,110 @@ test("a character upgrade is sent directly without creating a queued intention",
   h.disconnect();
 });
 
-test("app launch passes the auth battle reference once per connection; polls stay local", async () => {
+test("connect and polling read stored state only; reconnect does not launch", async () => {
   const ref = { battleId: "manual-fight", bossId: 7 };
-  const h = harness({ launchBattle: () => ref });
+  const h = harness({ state: initialState(), launchBattle: () => ref });
   await h.connect();
   assert.deepEqual(h.calls[0], ["GET", "/api/automation/state"]);
-  assert.deepEqual(h.calls[1], [
-    "POST",
-    "/api/automation/launch",
-    { activeBossBattle: ref },
-  ]);
   h.runTimer();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(h.calls[2], ["GET", "/api/automation/state"]);
+  assert.deepEqual(
+    h.calls.map(([method, path]) => [method, path]),
+    [
+      ["GET", "/api/automation/state"],
+      ["GET", "/api/automation/state"],
+    ],
+  );
   h.disconnect();
   await h.connect();
-  assert.equal(h.calls.at(-1)[1], "/api/automation/launch");
+  assert.deepEqual(h.calls.at(-1), ["GET", "/api/automation/state"]);
   h.disconnect();
 });
 
-test("a failed launch retries its read-only reconciliation rather than losing the reference", async () => {
+test("unknown stored state is quiet until a user command explicitly initializes it", async () => {
+  const bootstrapped = initialState();
+  const h = harness({
+    launchBattle: () => null,
+    request: async (method, path) => {
+      if (method === "GET")
+        throw Object.assign(new Error("unknown local state"), {
+          status: 404,
+          code: "automation_state_unknown",
+        });
+      if (path.endsWith("/launch")) return bootstrapped;
+      return bootstrapped;
+    },
+  });
+  await h.connect();
+  assert.equal(h.bossBattle.getSnapshot().error, null);
+  assert.deepEqual(
+    h.calls.map(([method, path]) => [method, path]),
+    [["GET", "/api/automation/state"]],
+  );
+  assert.equal(h.tasks.size, 0);
+  await h.bossBattle.open({ numericId: 7, name: "Boss" });
+  assert.deepEqual(
+    h.calls.map(([method, path, body]) => [method, path, body?.command]),
+    [
+      ["GET", "/api/automation/state", undefined],
+      ["POST", "/api/automation/launch", undefined],
+      ["POST", "/api/automation/commands", "open"],
+    ],
+  );
+  h.disconnect();
+
+  const denied = harness({
+    request: async () => {
+      throw Object.assign(new Error("revoked"), {
+        status: 401,
+        code: "game_session_required",
+      });
+    },
+  });
+  await denied.connect();
+  assert.deepEqual(
+    denied.calls.map(([method, path]) => [method, path]),
+    [["GET", "/api/automation/state"]],
+  );
+  denied.disconnect();
+});
+
+test("a failed explicit launch is not retried by state polling", async () => {
   let attempts = 0;
   const h = harness({
     launchBattle: () => ({ battleId: "manual-fight", bossId: 7 }),
     request: async (method, path) => {
+      if (method === "GET")
+        throw Object.assign(new Error("unknown local state"), {
+          status: 404,
+          code: "automation_state_unknown",
+        });
       if (path.endsWith("/launch") && ++attempts === 1)
         throw new Error("offline");
       return initialState();
     },
   });
   await h.connect();
-  h.runTimer();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(
-    h.calls.map((call) => call[1]),
-    [
-      "/api/automation/state",
-      "/api/automation/launch",
-      "/api/automation/launch",
-    ],
+  await h.bossBattle.open({ numericId: 7, name: "Boss" });
+  assert.equal(attempts, 1);
+  assert.equal(
+    h.calls.filter((call) => call[1] === "/api/automation/launch").length,
+    1,
   );
-  assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
+  assert.equal(h.tasks.size, 0, "missing state does not schedule retries");
   h.disconnect();
 });
 
-test("a busy launch preserves server state and retries without showing an error", async () => {
+test("a busy explicit launch adopts its state without replaying the command", async () => {
   let attempts = 0;
   const h = harness({
     launchBattle: () => ({ battleId: "manual-fight", bossId: 7 }),
     request: async (method, path) => {
+      if (method === "GET")
+        throw Object.assign(new Error("unknown local state"), {
+          status: 404,
+          code: "automation_state_unknown",
+        });
       if (path.endsWith("/launch") && ++attempts === 1) {
         const error = new Error("busy");
         error.status = 409;
@@ -212,13 +267,17 @@ test("a busy launch preserves server state and retries without showing an error"
   });
   await h.connect();
   assert.equal(h.bossBattle.getSnapshot().error, null);
+  assert.equal(await h.bossBattle.open({ numericId: 7, name: "Boss" }), false);
   assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
-  assert.equal([...h.tasks.values()][0].delay, 5000);
-  h.runTimer();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(attempts, 2);
+  assert.equal(attempts, 1);
+  assert.equal(
+    h.calls.filter((call) => call[1] === "/api/automation/commands").length,
+    0,
+  );
+  await h.bossBattle.open({ numericId: 7, name: "Boss" });
+  assert.equal(attempts, 1);
+  assert.equal(h.calls.at(-1)[1], "/api/automation/commands");
   assert.equal(h.bossBattle.getSnapshot().error, null);
-  assert.equal([...h.tasks.values()][0].delay, 180000);
   h.disconnect();
 });
 
@@ -1368,18 +1427,13 @@ test("raid intent comes from server state and start/stop send commands without l
   assert.equal(h.tasks.size, 0);
 });
 
-test("a failed live launch still exposes the saved work goal and its stop command", async () => {
+test("saved work state stays available for stop without a live launch", async () => {
   const state = {
     ...initialState(),
     workFarm: { run: { status: "running", workId: 28, phase: "retrying" } },
   };
   const h = harness({
-    launchBattle: () => null,
-    request: async (method, path) => {
-      if (path.endsWith("/launch"))
-        throw Object.assign(new Error("game offline"), { status: 503 });
-      return state;
-    },
+    request: async () => state,
   });
   await h.connect();
   assert.equal(h.workFarm.getSnapshot().run.status, "running");

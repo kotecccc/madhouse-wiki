@@ -3,6 +3,7 @@ import { LockIndicator } from "../../floors/LockIndicator/LockIndicator.jsx";
 import { useContext, useEffect, useState, useSyncExternalStore } from "react";
 import {
   getSessionJson,
+  readStoredSessionJson,
   postSessionJson,
   peekSessionJson,
   subscribeSessionData,
@@ -95,14 +96,15 @@ export function WorkCard({
       setBagData(peekSessionJson("/api/me/bag", { allowStale: true }));
       if (
         !work?.stashSet?.ingredients?.length ||
-        readSession().status !== "ready"
+        (readSession().status !== "ready" && !readSession().wikiSessionReady)
       )
         return;
       const cached = peekSessionJson("/api/stash/sets", { allowStale: true });
       if (cached) setStashData(cached);
-      void getSessionJson("/api/stash/sets")
-        .then((data) => {
-          if (active && current === generation) setStashData(data);
+      void readStoredSessionJson("/api/stash/sets")
+        .then((result) => {
+          if (active && current === generation && result.presence === "present")
+            setStashData(result.data);
         })
         .catch(() => {});
     };

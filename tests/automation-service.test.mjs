@@ -56,6 +56,28 @@ test("queue move is durable and repeating its receipt does not move twice", asyn
   });
 });
 
+test("stored state reads survive a game credential outage without refreshing the game", async () => {
+  await withContext(
+    async ({ service, game }) => {
+      await service.identify(tokenA);
+      game.calls.length = 0;
+
+      const entry = await service.readStored(tokenA);
+      const saved = service.snapshot(entry);
+      assert.ok(saved.preferences);
+      assert.equal(game.calls.length, 0);
+
+      await assert.rejects(
+        service.readStored(tokenB),
+        (error) =>
+          error.status === 404 && error.message === "automation_state_unknown",
+      );
+      assert.equal(game.calls.length, 0);
+    },
+    { accountHealth: () => ({ status: "credentials_invalid" }) },
+  );
+});
+
 test("queue.cancel reports unavailable storage instead of acknowledging a failed write", async () => {
   await withContext(async ({ service, store }) => {
     const entry = await service.identify(tokenA);
@@ -192,6 +214,7 @@ async function withContext(run, options = {}) {
     store,
     getBoss: (id) => ({ numericId: id, name: "Boss" }),
     fetcher: game.fetcher,
+    ...(options.accountHealth ? { accountHealth: options.accountHealth } : {}),
     now: () => now,
     random: () => 0,
     schedule: (callback, delay) => {
@@ -380,8 +403,10 @@ test("queued intentions and receipts stay isolated through token rotation and se
   });
 });
 
-test("cached identity state reads do not make additional game calls", async () => {
+test("state reads use the stored identity without additional game calls", async () => {
   await withContext(async ({ service, game }) => {
+    await service.identify(tokenA);
+    const countAfterIdentity = game.calls.length;
     const http = createAutomationHttp({ service, enabled: true });
     const request = () =>
       http(
@@ -390,9 +415,8 @@ test("cached identity state reads do not make additional game calls", async () =
         }),
       );
     assert.equal((await request()).status, 200);
-    const countAfterFirst = game.calls.length;
     assert.equal((await request()).status, 200);
-    assert.equal(game.calls.length, countAfterFirst);
+    assert.equal(game.calls.length, countAfterIdentity);
     assert.equal(game.calls.filter(({ path }) => path === "/api/me").length, 1);
   });
 });
@@ -877,7 +901,7 @@ test("terminal victory without reward is reconciled by GET and records the retur
         entry,
         command("reward-attack", "attack", service.snapshot(entry).version),
       );
-      service.snapshot(entry);
+      service.reconcileStored(entry);
       await new Promise((resolve) => setImmediate(resolve));
       const result = service.snapshot(entry).battle.battle;
       assert.equal(result.rewardKnown, true);

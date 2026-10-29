@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   getSessionJson,
+  readStoredSessionJson,
   postSessionJson,
   subscribeSessionData,
 } from "../../../shared/session-api.js";
@@ -168,10 +169,9 @@ export function useActionQueue(
     });
     const poll = async () => {
       try {
-        const next = await getSessionJson("/api/automation/state", {
-          fresh: true,
-          revalidate: false,
-        });
+        const saved = await readStoredSessionJson("/api/automation/state");
+        if (saved.presence !== "present") return;
+        const next = saved.data;
         update(next);
         if (!cancelled)
           timer = setTimeout(
@@ -180,8 +180,9 @@ export function useActionQueue(
               ? 3000
               : 15000,
           );
-      } catch {
-        if (!cancelled) timer = setTimeout(poll, 15000);
+      } catch (error) {
+        if (!cancelled && error?.status !== 404)
+          timer = setTimeout(poll, 15000);
       }
     };
     void poll();

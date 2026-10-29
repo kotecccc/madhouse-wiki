@@ -253,6 +253,20 @@ export function createBridgeAwareAccountFetch({
   return Object.freeze({
     fetch: (url, init) => dispatch(url, init, false),
     liveFetch: (url, init) => dispatch(url, init, true),
+    async readStored(url, init = {}) {
+      const headers = new Headers(init.headers);
+      const authorization = headers.get("authorization");
+      await verifyLocal(authorization);
+      const canonical = canonicalCredential(authorization);
+      headers.set("authorization", canonical);
+      return snapshots.readStored(
+        url,
+        { ...init, headers },
+        {
+          verifiedWiki: canonical !== authorization,
+        },
+      );
+    },
     verifyLocal,
   });
 }

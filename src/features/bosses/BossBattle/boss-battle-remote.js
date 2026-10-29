@@ -82,7 +82,7 @@ export function createRemoteBattleSession({
   const invitationListeners = new Set();
   const subscriptionListeners = new Set();
   let connected = false;
-  let launchPending = Boolean(launchBattle);
+  let stateMissing = false;
   let transportError = null;
   let workCommandError = null;
   let businessCommandError = null;
@@ -343,6 +343,7 @@ export function createRemoteBattleSession({
   }
 
   function setServerState(value) {
+    stateMissing = false;
     transportError = null;
     battleCommandError = null;
     workCommandError = null;
@@ -408,7 +409,7 @@ export function createRemoteBattleSession({
     );
   }
   const pollInterval = () =>
-    transportError || workCommandError || businessCommandError || launchPending
+    transportError || workCommandError || businessCommandError
       ? ERROR_RETRY_INTERVAL
       : activelyWatching()
         ? POLL_INTERVAL
@@ -420,7 +421,12 @@ export function createRemoteBattleSession({
 
   function schedulePoll(delay = pollInterval(), run = epoch) {
     clearTimer();
-    if (!connected || run !== epoch || visibility?.visibilityState === "hidden")
+    if (
+      !connected ||
+      run !== epoch ||
+      stateMissing ||
+      visibility?.visibilityState === "hidden"
+    )
       return;
     timer = schedule(() => {
       timer = null;
@@ -432,34 +438,27 @@ export function createRemoteBattleSession({
     if (stateRead?.run === run) return stateRead.promise;
     const entry = { run, promise: null };
     entry.promise = (async () => {
-      // Restore the local server view before optional live game discovery.
-      // A slow/failed launch must not hide durable jobs or their stop controls.
-      if (launchPending && !server) {
-        const saved = await request("GET", "/api/automation/state");
-        if (!connected || run !== epoch) return false;
-        setServerState(saved);
-      }
-      let result;
       try {
-        result = launchPending
-          ? await request("POST", "/api/automation/launch", {
-              activeBossBattle: launchBattle(),
-            })
-          : await request("GET", "/api/automation/state");
+        const result = await request("GET", "/api/automation/state");
+        if (!connected || run !== epoch) return false;
+        setServerState(result);
+        return true;
       } catch (error) {
-        // A 409 is returned before launch reconciliation starts. Keep the
-        // durable server view visible and retry this read-only reconciliation.
-        if (launchPending && error?.status === 409 && error.snapshot) {
-          if (!connected || run !== epoch) return false;
-          setServerState(error.snapshot);
+        if (
+          connected &&
+          run === epoch &&
+          error?.status === 404 &&
+          error?.code === "automation_state_unknown"
+        ) {
+          stateMissing = true;
+          transportError = null;
+          server = null;
+          serverReady = true;
+          publish();
           return false;
         }
         throw error;
       }
-      if (!connected || run !== epoch) return false;
-      launchPending = false;
-      setServerState(result);
-      return true;
     })();
     stateRead = entry;
     try {
@@ -525,7 +524,7 @@ export function createRemoteBattleSession({
 
   function disconnect() {
     connected = false;
-    launchPending = Boolean(launchBattle);
+    stateMissing = false;
     visibility?.removeEventListener("visibilitychange", onVisibilityChange);
     transportError = null;
     workCommandError = null;
@@ -593,6 +592,22 @@ export function createRemoteBattleSession({
       : null;
     try {
       let value;
+      if (stateMissing) {
+        try {
+          value = await request("POST", "/api/automation/launch", {
+            activeBossBattle: launchBattle?.() ?? null,
+          });
+        } catch (error) {
+          if (!connected || run !== epoch) return false;
+          if (error?.status === 409 && error.snapshot) {
+            setServerState(error.snapshot);
+            return false;
+          }
+          throw error;
+        }
+        if (!connected || run !== epoch) return false;
+        setServerState(value);
+      }
       for (let attempt = 0; ; attempt++) {
         try {
           value = await request("POST", "/api/automation/commands", {

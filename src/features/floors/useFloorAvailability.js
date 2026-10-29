@@ -1,5 +1,5 @@
 import {
-  getSessionJson,
+  readStoredSessionJson,
   postSessionJson,
   peekSessionJson,
   subscribeSessionData,
@@ -11,6 +11,7 @@ import {
   AUTH_RESTORE_SETTLED_EVENT,
   hasAuthRestoreSettled,
   readSession,
+  storedSessionIdentity,
   subscribeSession,
 } from "../../../shared/auth-session.js";
 import { mergeKnowledgeBaseOverlay } from "../../model/knowledge-base.js";
@@ -96,7 +97,9 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
   const [status, setStatus] = useState(() =>
     peekSessionJson("/api/floors", { allowStale: true })
       ? "ready"
-      : readSession().status === "ready" || isTelegramRestorePending()
+      : readSession().status === "ready" ||
+          readSession().wikiSessionReady ||
+          isTelegramRestorePending()
         ? "loading"
         : "idle",
   );
@@ -136,7 +139,7 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
   useEffect(() => {
     let controller;
     let previousStatus = readSession().status;
-    let identity = readSession().token;
+    let identity = storedSessionIdentity();
     const applyFloors = (floors) => {
       if (!Array.isArray(floors)) return;
       const next = floorState(floors);
@@ -150,21 +153,23 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
       const signal = controller.signal;
       const session = readSession();
       previousStatus = session.status;
-      const changed = identity !== session.token;
-      identity = session.token;
+      const changed = identity !== storedSessionIdentity();
+      identity = storedSessionIdentity();
       const cached = peekSessionJson("/api/floors", { allowStale: true });
       if (cached) applyFloors(cached);
       else if (changed || session.status !== "ready") {
         setAvailability({});
         setFloorDetails({});
         setStatus(
-          session.status === "ready" || isTelegramRestorePending()
+          session.status === "ready" ||
+            session.wikiSessionReady ||
+            isTelegramRestorePending()
             ? "loading"
             : "idle",
         );
       }
       if (signal.aborted) return;
-      if (session.status !== "ready") {
+      if (session.status !== "ready" && !session.wikiSessionReady) {
         setStatus(isTelegramRestorePending() ? "loading" : "idle");
         return;
       }
@@ -173,7 +178,10 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
         return;
       }
       try {
-        const floors = await getSessionJson("/api/floors", { signal });
+        const saved = await readStoredSessionJson("/api/floors", { signal });
+        if (saved.presence !== "present")
+          throw new Error("snapshot_unavailable");
+        const floors = saved.data;
         if (signal.aborted) return;
         if (!Array.isArray(floors)) throw new Error("Invalid floors response");
         const { availability: next, floorDetails: details } =
@@ -223,11 +231,16 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
         departmentAccess.current.clear();
         setAvailability({});
         setFloorDetails({});
-        setStatus(readSession().status === "ready" ? "loading" : "idle");
+        setStatus(
+          readSession().status === "ready" || readSession().wikiSessionReady
+            ? "loading"
+            : "idle",
+        );
       }
     });
     const restoreSettled = () => {
-      if (readSession().status !== "ready") load();
+      if (readSession().status !== "ready" && !readSession().wikiSessionReady)
+        load();
     };
     window.addEventListener(AUTH_RESTORE_SETTLED_EVENT, restoreSettled);
     const timer = setInterval(() => {
@@ -249,12 +262,17 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
     .join(",");
   useEffect(() => {
     const session = readSession();
-    if (syncIdentity.current !== session.token) {
-      syncIdentity.current = session.token;
+    if (syncIdentity.current !== storedSessionIdentity()) {
+      syncIdentity.current = storedSessionIdentity();
       attempted.current.clear();
       departmentAccess.current.clear();
     }
-    if (session.status !== "ready" || status !== "ready" || !cataloguePending)
+    if (
+      requestId === 0 ||
+      session.status !== "ready" ||
+      status !== "ready" ||
+      !cataloguePending
+    )
       return;
     const available = new Set(availableCodes.split(","));
     const tasks = [
@@ -301,7 +319,7 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
     };
     void run();
     return () => controller.abort();
-  }, [availableCodes, status, cataloguePending, accessRevision]);
+  }, [availableCodes, status, cataloguePending, accessRevision, requestId]);
   return {
     availability,
     floorDetails,

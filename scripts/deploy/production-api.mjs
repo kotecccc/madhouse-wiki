@@ -60,7 +60,11 @@ async function readLimitedBody(request) {
   return body;
 }
 
-export function createProductionApi(operations, fetcher = fetch) {
+export function createProductionApi(
+  operations,
+  fetcher = fetch,
+  { storedFetch, denyGameCredential } = {},
+) {
   const routes = normalizeOperations(operations);
   return async (request) => {
     const headers = {
@@ -118,6 +122,24 @@ export function createProductionApi(operations, fetcher = fetch) {
       !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)
     )
       return fail(401, "Invalid game session");
+
+    if (request.headers.get("x-madhouse-stored-only") === "1") {
+      if (method !== "GET" || url.search)
+        return fail(400, "Invalid stored read");
+      if (typeof storedFetch !== "function")
+        return fail(503, "Stored reads unavailable");
+      try {
+        return await storedFetch("https://cargohustle.online" + url.pathname, {
+          headers: { Authorization: authorization },
+        });
+      } catch (error) {
+        return error?.status === 503
+          ? fail(503, "Stored read unavailable")
+          : fail(401, "Stored read unauthorized");
+      }
+    }
+    if (denyGameCredential?.(authorization))
+      return fail(401, "Game connection required");
 
     let body = null;
     if (method !== "GET" && method !== "HEAD") {

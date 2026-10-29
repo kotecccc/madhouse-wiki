@@ -161,6 +161,7 @@ test("character action is account scoped, checkpointed, and never replayed after
     assert.equal(posts, 1);
     service.close();
     service = createAutomationService(options);
+    await service.boot();
     entry = await service.identify("Bearer a.b.c");
     assert.ok(service.snapshot(entry).characterUpgrade.pending);
     await assert.rejects(
@@ -555,6 +556,7 @@ test("queued character intent survives restart without releasing a busy account 
     assert.equal(store.read("101").characterUpgrade.run.status, "running");
     service.close();
     service = createAutomationService(options);
+    await service.boot();
     entry = await service.identify("Bearer priority-restart.payload.sig");
     for (
       let i = 0;
