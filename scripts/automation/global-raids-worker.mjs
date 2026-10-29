@@ -6,6 +6,9 @@ const TEN_MINUTES = 600000;
 const PUBLISH_INTERVAL = 60000;
 const HALF_HOUR = 1800000;
 const FRESH = 90000;
+// Conservative bounds below Telegram's rich-message text and block limits.
+const MAX_MESSAGE_LENGTH = 30000;
+const MAX_TABLE_ROWS = 450;
 // Animated single-dot emoji from the iconemoji1 set.
 const STATUS_EMOJI = {
   waiting: ["5819143265412189249", "⚪"],
@@ -306,18 +309,27 @@ export function refreshGlobalRaidRows(state, now) {
   return state;
 }
 
-export function formatGlobalRaidSummary(
+export function formatGlobalRaidPages(
   state,
   now,
   getBoss,
-  { customEmoji = false } = {},
+  {
+    customEmoji = false,
+    continuationUrl = "",
+    maxMessageLength = MAX_MESSAGE_LENGTH,
+  } = {},
 ) {
   const marker = (kind) => {
     const [id, fallback] = STATUS_EMOJI[kind];
     return customEmoji ? `<tg-emoji emoji-id="${id}">⏺</tg-emoji>` : fallback;
   };
   const date = state.day.split("-").reverse().join(".");
-  const updated = `<p><b>Активные рейды</b> • ${date} • ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`;
+  const time = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Europe/Moscow",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+  const updated = `<h3>🔥 Активные рейды • ${date} • ${time} МСК</h3>`;
   const knownNames = new Map();
   for (const observation of Object.values(state.observations || {})) {
     if (
@@ -402,6 +414,7 @@ export function formatGlobalRaidSummary(
       department,
       index,
       kind,
+      named: Boolean(leader),
       line: `<tr><td>${status} ${escape(zone)}</td><td>${bossIcon}${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`,
     };
   });
@@ -417,29 +430,64 @@ export function formatGlobalRaidSummary(
     return [
       updated,
       table,
-      ...(hidden ? [`<p>Ещё рейдов: ${hidden}</p>`] : []),
+      ...(hidden
+        ? [
+            `<p>${continuationUrl ? `<a href="${escapeAttribute(continuationUrl)}">Ещё рейдов: ${hidden}</a>` : `Ещё рейдов: ${hidden}`}</p>`,
+          ]
+        : []),
     ].join("\n");
   };
-  if (compose(rendered).length <= 3500) return compose(rendered);
+  if (
+    rendered.length <= MAX_TABLE_ROWS &&
+    compose(rendered).length <= maxMessageLength
+  )
+    return [compose(rendered)];
   const priority = { active: 2, unknown: 2, waiting: 1, paused: 0 };
-  const candidates = rendered
-    .slice()
-    .sort(
+  const selected = [];
+  const remaining = rendered.slice();
+  while (remaining.length) {
+    const bosses = new Set(selected.map((item) => item.row.bossId));
+    remaining.sort(
       (a, b) =>
+        (Number.isFinite(b.floor) ? b.floor : -1) -
+          (Number.isFinite(a.floor) ? a.floor : -1) ||
         priority[b.kind] - priority[a.kind] ||
-        (priority[a.kind] < 2
-          ? b.row.lastBattleAt - a.row.lastBattleAt
-          : (Number.isFinite(b.floor) ? b.floor : -1) -
-              (Number.isFinite(a.floor) ? a.floor : -1) ||
-            b.row.count - a.row.count ||
-            b.row.lastBattleAt - a.row.lastBattleAt) ||
+        Number(bosses.has(a.row.bossId)) - Number(bosses.has(b.row.bossId)) ||
+        Number(b.named) - Number(a.named) ||
+        b.row.count - a.row.count ||
+        b.row.lastBattleAt - a.row.lastBattleAt ||
         a.index - b.index,
     );
-  const selected = [];
-  for (const item of candidates) {
-    if (compose([...selected, item]).length <= 3500) selected.push(item);
+    const item = remaining.shift();
+    if (
+      selected.length < MAX_TABLE_ROWS &&
+      compose([...selected, item]).length <= maxMessageLength
+    )
+      selected.push(item);
   }
-  return compose(selected);
+  const pages = [compose(selected)];
+  const chosen = new Set(selected);
+  const overflow = rendered.filter((item) => !chosen.has(item));
+  const makeContinuation = (items) =>
+    `<h3>Остальные рейды • ${date} • ${time} МСК</h3>\n${tableHeader}${items.map((item) => item.line).join("")}</table>`;
+  let page = [];
+  for (const item of overflow) {
+    if (
+      page.length &&
+      (page.length >= MAX_TABLE_ROWS ||
+        makeContinuation([...page, item]).length > maxMessageLength)
+    ) {
+      pages.push(makeContinuation(page));
+      page = [];
+    }
+    page.push(item);
+  }
+  if (page.length) pages.push(makeContinuation(page));
+  return pages;
+}
+
+export function formatGlobalRaidSummary(state, now, getBoss, options) {
+  return formatGlobalRaidPages(state, now, getBoss, options)[0];
 }
 
 export function createGlobalRaidsWorker({
@@ -452,6 +500,7 @@ export function createGlobalRaidsWorker({
   isClosed,
   customEmoji = false,
   getLeaderProfile,
+  maxMessageLength = MAX_MESSAGE_LENGTH,
 }) {
   let running = false;
   let nextAttempt = 0;
@@ -537,9 +586,19 @@ export function createGlobalRaidsWorker({
         }
         if (isClosed() || now() < state.nextPublishAt || state.pendingSend)
           return;
-        const text = formatGlobalRaidSummary(state, now(), getBoss, {
+        const continuationId = state.continuations?.[0]?.messageId;
+        const channelName = /^@([A-Za-z0-9_]{5,})$/.exec(chatId)?.[1];
+        const channelId = /^-100(\d+)$/.exec(chatId)?.[1];
+        const continuationUrl =
+          continuationId && (channelName || channelId)
+            ? `https://t.me/${channelName || `c/${channelId}`}/${continuationId}`
+            : "";
+        const pages = formatGlobalRaidPages(state, now(), getBoss, {
           customEmoji,
+          continuationUrl,
+          maxMessageLength,
         });
+        const text = pages[0];
         const day = state.day;
         const messageId = state.messageId;
         if (!messageId) {
@@ -566,6 +625,66 @@ export function createGlobalRaidsWorker({
           state.nextPublishAt = now() + PUBLISH_INTERVAL;
           state.lastText = text;
           save(state);
+          const count = Math.max(
+            pages.length - 1,
+            state.continuations?.length || 0,
+          );
+          for (let i = 0; i < count; i++) {
+            if (isClosed()) return;
+            state = load();
+            if (state.day !== day) return;
+            state.continuations ||= [];
+            const current = state.continuations[i] || {};
+            if (current.pendingSend) break;
+            const pageText =
+              pages[i + 1] || `<p>Остальных рейдов сейчас нет.</p>`;
+            if (!current.messageId && !pages[i + 1]) continue;
+            if (!current.messageId) {
+              state.continuations[i] = { ...current, pendingSend: true };
+              save(state);
+            }
+            try {
+              const result = await telegram.request(
+                current.messageId ? "editMessageText" : "sendRichMessage",
+                {
+                  chat_id: chatId,
+                  ...(current.messageId
+                    ? { message_id: current.messageId }
+                    : {}),
+                  rich_message: { html: pageText },
+                },
+              );
+              const id = current.messageId || result?.message_id;
+              if (!Number.isSafeInteger(id) || id <= 0)
+                throw new Error("missing_message_id");
+              state = load();
+              if (state.day !== day) return;
+              state.continuations ||= [];
+              if (state.continuations[i]?.messageId !== current.messageId)
+                return;
+              state.continuations[i] = { messageId: id, pendingSend: false };
+              save(state);
+            } catch (error) {
+              state = load();
+              if (state.day !== day) return;
+              if (
+                !current.messageId &&
+                (error?.notDispatched ||
+                  error?.knownRejected ||
+                  (Number.isInteger(error?.status) &&
+                    error.status >= 400 &&
+                    error.status < 500 &&
+                    error.status !== 408))
+              ) {
+                state.continuations[i].pendingSend = false;
+              }
+              state.nextPublishAt =
+                now() +
+                Math.max(PUBLISH_INTERVAL, Number(error?.retryAfterMs) || 0);
+              save(state);
+              break;
+            }
+          }
         } catch (error) {
           state = load();
           if (state.day !== day || state.messageId !== messageId) return;
