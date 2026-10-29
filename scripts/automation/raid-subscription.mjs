@@ -1,5 +1,6 @@
 const QUIET_MS = 10 * 60 * 1000;
 const FRESH_MS = 45 * 1000;
+const RECONCILE_RETRY_MS = 15 * 1000;
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
 const identifier = (value) =>
   typeof value === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(value);
@@ -38,6 +39,15 @@ export function createRaidSubscription({
     value.offlineAt = value.lastReadAt;
   let running = false;
   let candidate = null;
+  let reconcileNextAt = 0;
+  async function reconcileWithBackoff() {
+    if (now() < reconcileNextAt) return "unknown";
+    // Only the read is retried. The uncertain invitation is never re-sent.
+    reconcileNextAt = now() + RECONCILE_RETRY_MS;
+    const result = await reconcile(value);
+    if (result !== "unknown") reconcileNextAt = 0;
+    return result;
+  }
   const commit = (patch) => {
     value = { ...value, ...patch };
     if (persist(value) === false)
@@ -353,7 +363,7 @@ export function createRaidSubscription({
         if (priorityActive()) {
           if (value.phase === "joining") commit({ phase: "confirming" });
           if (value.phase === "confirming") {
-            const result = await reconcile(value);
+            const result = await reconcileWithBackoff();
             if (result === "joined") commit({ phase: "fighting" });
             else if (result === "absent")
               commit({ phase: value.enabled ? "waiting" : "restoring" });
@@ -372,7 +382,7 @@ export function createRaidSubscription({
         }
         if (value.phase === "joining") commit({ phase: "confirming" });
         if (value.phase === "confirming") {
-          const result = await reconcile(value);
+          const result = await reconcileWithBackoff();
           if (result === "joined")
             commit({
               phase: "fighting",
