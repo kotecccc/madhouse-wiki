@@ -62,3 +62,9 @@
 | Старый и новый bridge                                         | `scripts/bridge/device-gateway.mjs`, Python `agent/bridge.py` из `9db18ce`                                                              | `tests/bridge/device-gateway.test.mjs`, `tests/bridge/tls-websocket-relay.integration.test.mjs`, Python `test_bridge_stop_ack`                                                  | Старый relay не даёт stop-ack; исход мутации остаётся unresolved. Упакованный клиент и установка не проверены.                                              |
 
 Приёмочный код: Wiki `8c94c54fba480d01372e37ceb3fb6230bf2806b0`, Python relay `9db18cede7ecc0a0ca1499d854fe5319a7a44bef`. Порядок воспроизведения и ручной fake-стенд: `game-data-fake-testing.md`. Стенд использует direct fake и не воспроизводит интерактивно pairing или Wiki session; эти пути проверяются отдельными интеграционными тестами.
+
+## Локальная пользовательская приёмка
+
+Кандидат кода `d701017a8b626077519721e0c6cb536284554d52` исправляет ручной вход без первоначально установленной identity, показывает известный тип неподтверждённого queued-действия и добавляет изолированные Wiki-сессию, два synthetic account и сценарий запуска подписки из UI. Подробности браузерной проверки, счётчики, измерения и её ограничения: `game-data-user-acceptance.md`. Скриншоты лежат локально в `artifacts/game-data-acceptance/` и не входят в Git.
+
+Состояние релизной подготовки: `launch/game-data-dependency-audit.md`, `launch/game-data-bridge-package.md`, `launch/game-data-release-acceptance.md`. Результат Fake приёмки не подтверждает production. Тестовый macOS пакет содержит relay из зафиксированного коммита, но сборочные исходники платформы взяты из незафиксированной рабочей копии; единый релизный bridge commit, версия и штатная подпись требуют отдельного решения владельца. Откат к образу без понимания нового durable-журнала небезопасен без отдельной проверки.

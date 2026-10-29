@@ -1,5 +1,12 @@
 # Wiki and connector VPS deployment
 
+**Game-data rollback gate:** the automatic old-image rollback described below
+must not be treated as safe for a release with an updated durable operation
+journal until that exact previous image has been tested against a synthetic
+copy containing unresolved attempts and the current witness. If compatibility
+is unknown, keep dispatch stopped and preserve current state; see
+`game-data-release-acceptance.md` before enabling the transition.
+
 ## Migration state
 
 The recorded migration plan originally served the production Wiki and Telegram
