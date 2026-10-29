@@ -50,6 +50,11 @@ test("only the supported durable queue command is admitted", async () => {
     "medicines.open",
     "healing.configure",
     "floor.stop",
+    "buddy.stop",
+    "favorites.set",
+    "character.upgrade",
+    "character.start",
+    "character.startAll",
   ])
     assert.equal(
       await isAllowedBridgeQueueCommand(
@@ -89,6 +94,13 @@ test("only the supported durable queue command is admitted", async () => {
     await isAllowedBridgeQueueCommand(request({ command: "work.stop" })),
     true,
   );
+  for (const kind of ["booster", "stash"])
+    assert.equal(
+      await isAllowedBridgeQueueCommand(
+        request({ command: "buddy.resolve", args: { kind } }),
+      ),
+      true,
+    );
   assert.equal(
     await isAllowedBridgeQueueCommand(
       request({ command: "work.plan", args: { workId: 7 } }),
@@ -118,6 +130,7 @@ test("only the supported durable queue command is admitted", async () => {
   );
   for (const input of [
     { command: "buddy.set", args: { playerId: 0, enabled: true } },
+    { command: "buddy.resolve", args: { kind: "other" } },
     { command: "buddy.order", args: { friendIds: [0] } },
     { command: "friends.favorite", args: { playerId: 42, enabled: "yes" } },
     { command: "friends.respond", args: { playerId: 42 } },
