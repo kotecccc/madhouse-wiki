@@ -66,7 +66,10 @@ test("counts six distinct invitation battles once across accounts and never uses
   );
   assert.equal(state.raids.length, 1);
   assert.equal(state.raids[0].count, 6);
-  assert.match(format(state, start + 5 * minute), /<td>—<\/td><td>10<\/td>/);
+  assert.match(
+    format(state, start + 5 * minute),
+    /text="Игрок №42">Игрок №42<\/tg-button>/,
+  );
   assert.doesNotMatch(format(state, start + 5 * minute), /Чужой/);
   state = await observe(
     state,
@@ -82,7 +85,10 @@ test("counts six distinct invitation battles once across accounts and never uses
     start + 6 * minute,
   );
   assert.equal(state.raids[0].count, 6);
-  assert.match(format(state, start + 6 * minute), /<code>@leadername<\/code>/);
+  assert.match(
+    format(state, start + 6 * minute),
+    /<tg-button type="copy_text" text="@leadername">@leadername<\/tg-button>/,
+  );
   assert.doesNotMatch(format(state, start + 6 * minute), /<td>Ведущий/);
 });
 
@@ -379,7 +385,7 @@ test("updates the same message after one minute without changing status threshol
 test("the message omits the removed informational lines", async () => {
   const text = format(await series(), start + 5 * minute);
   assert.doesNotMatch(text, /Время: МСК|Замечено боёв · по приглашениям/);
-  assert.match(text, /<td>—<\/td><td>10<\/td>/);
+  assert.match(text, /text="Игрок №42">Игрок №42<\/tg-button>/);
   assert.match(text, /<table bordered striped>/);
 });
 
@@ -419,7 +425,10 @@ test("existing TMA history makes the active raid visible and deduplicates overla
   state = observeGlobalInvitations(state, "2", raw, projected, start, history);
   assert.equal(state.raids.filter((row) => row.active).length, 1);
   assert.equal(state.raids.find((row) => row.active).count, 3);
-  assert.match(format(state, start), /🔵 Идёт.*<td>—<\/td><td>10/);
+  assert.match(
+    format(state, start),
+    /🔵 Идёт.*text="Лидер">Лидер<\/tg-button>/,
+  );
 });
 
 test("a stored history without a currently available invitation does not assert an active raid", () => {
@@ -535,7 +544,7 @@ test("existing text message is edited with a native rich table preserving raid c
   );
   assert.match(
     request.payload.rich_message.html,
-    /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td><code>@leadername<\/code><\/td><td>10<\/td>/,
+    /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td><td>10<\/td>/,
   );
   assert.equal(data.messageId, 5);
 });
@@ -685,14 +694,43 @@ test("summary hides raids below ten and finished raids, sorts floors ascending, 
     now,
     (id) => boss[id],
   );
-  assert.doesNotMatch(
+  assert.doesNotMatch(text, /too_few|finished_user|Not displayed/);
+  assert.match(text, /text="@lower_user">@lower_user<\/tg-button>/);
+  assert.match(
     text,
-    /too_few|finished_user|Not displayed|No verified username/,
+    /<td>Без имени<\/td><td><tg-button type="copy_text" text="No verified username">No verified username<\/tg-button><\/td>/,
   );
-  assert.match(text, /<code>@lower_user<\/code>/);
-  assert.match(text, /<td>Без имени<\/td><td>—<\/td>/);
   assert.ok(text.indexOf("Без имени") < text.indexOf("Босс A"));
   assert.ok(text.indexOf("Босс A") < text.indexOf("Босс J"));
   assert.ok(text.indexOf("Босс J") < text.indexOf("Доллар"));
   assert.match(text, /<td>\$1<\/td>/);
+});
+
+test("nickname fallback uses verified leader identity and escapes text and copy attributes", () => {
+  const now = start + 10 * minute;
+  const state = {
+    day: "2026-10-29",
+    observations: {
+      another: {
+        leaderPlayerId: 42,
+        leaderName: 'Игрок "<A&B>"',
+        lastSeen: now,
+      },
+    },
+    raids: [
+      {
+        bossId: 7,
+        leaderPlayerId: 42,
+        count: 12,
+        active: true,
+        lastBattleAt: now,
+      },
+    ],
+  };
+  const html = formatGlobalRaidSummary(state, now, () => ({ name: "Босс" }));
+  assert.match(
+    html,
+    /<tg-button type="copy_text" text="Игрок &quot;&lt;A&amp;B&gt;&quot;">Игрок "&lt;A&amp;B&gt;"<\/tg-button>/,
+  );
+  assert.doesNotMatch(html, /<A&B>/);
 });

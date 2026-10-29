@@ -17,6 +17,7 @@ const escape = (value) =>
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+const escapeAttribute = (value) => escape(value).replaceAll('"', "&quot;");
 const positive = (v) => Number.isSafeInteger(v) && v > 0;
 const identifier = (v) =>
   typeof v === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(v);
@@ -316,6 +317,22 @@ export function formatGlobalRaidSummary(
   const lines = [
     `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`,
   ];
+  const knownNames = new Map();
+  for (const observation of Object.values(state.observations || {})) {
+    if (
+      !positive(observation.leaderPlayerId) ||
+      typeof observation.leaderName !== "string" ||
+      !observation.leaderName.trim() ||
+      !Number.isFinite(observation.lastSeen)
+    )
+      continue;
+    const previous = knownNames.get(observation.leaderPlayerId);
+    if (!previous || observation.lastSeen > previous.at)
+      knownNames.set(observation.leaderPlayerId, {
+        name: observation.leaderName.trim(),
+        at: observation.lastSeen,
+      });
+  }
   const floorOrder = "ABCDEFGHIJKLMNO$";
   const rows = state.raids
     .filter(
@@ -355,10 +372,16 @@ export function formatGlobalRaidSummary(
             : age < HALF_HOUR
               ? `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`
               : `${marker("finished")} Завершён`;
-    const username = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "")
-      ? `<code>@${row.leaderUsername}</code>`
-      : "—";
-    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${username}</td><td>${row.count}</td></tr>`;
+    const nickname =
+      knownNames.get(row.leaderPlayerId)?.name ||
+      (typeof row.leaderName === "string" ? row.leaderName.trim() : "");
+    const leader = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "")
+      ? `@${row.leaderUsername}`
+      : nickname
+        ? nickname.slice(0, 80)
+        : `Игрок №${row.leaderPlayerId}`;
+    const copyButton = `<tg-button type="copy_text" text="${escapeAttribute(leader)}">${escape(leader)}</tg-button>`;
+    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${copyButton}</td><td>${row.count}</td></tr>`;
     if (table.join("").length + line.length > 3500) {
       break;
     }
