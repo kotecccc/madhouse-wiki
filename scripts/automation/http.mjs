@@ -92,6 +92,19 @@ export function createAutomationHttp({
           : error instanceof RangeError || error instanceof TypeError
             ? 400
             : 503;
+      if (status === 503) {
+        const reasons = new Set([
+          "automation_unavailable",
+          "automation_worker_unavailable",
+          "automation_storage_unavailable",
+          "game_identity_unavailable",
+          "bridge_unavailable",
+        ]);
+        console.warn(
+          "madhouse-automation-diagnostic",
+          reasons.has(error?.message) ? error.message : "other",
+        );
+      }
       return json(
         {
           error:
