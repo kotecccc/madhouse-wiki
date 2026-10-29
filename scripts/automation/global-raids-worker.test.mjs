@@ -826,7 +826,7 @@ test("the summary shows the Moscow update time above the table", () => {
   );
   assert.match(
     html,
-    /<h3>🔥 РЕЙДЫ — 29\.10\.2026<\/h3>\n<p>Активные рейды • 29\.10\.2026 • 22:42 МСК<\/p>\n<table/,
+    /^<p><b>Активные рейды<\/b> • 29\.10\.2026 • 22:42 МСК<\/p>\n<table/,
   );
   assert.doesNotMatch(html, /Обновлено:/);
 });
