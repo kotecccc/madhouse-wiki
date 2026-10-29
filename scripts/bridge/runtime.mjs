@@ -124,6 +124,9 @@ export function createBridgeRuntime({
       },
       wrapSnapshots(snapshots) {
         if (closed) throw new Error("bridge_unavailable");
+        accountService.setProfileObserver((authorization, profile) =>
+          snapshots.saveBridgeProfile(authorization, profile),
+        );
         return createBridgeAwareAccountFetch({
           snapshots,
           accounts: {
@@ -157,6 +160,8 @@ export function createBridgeRuntime({
           directCredentials: storage.directCredentials,
           directRoutes: storage.directRoutes,
           accountService,
+          canonicalCredential: (authorization) =>
+            this.canonicalCredential(authorization),
         });
       },
       close() {

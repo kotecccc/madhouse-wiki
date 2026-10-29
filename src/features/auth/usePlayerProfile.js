@@ -88,9 +88,7 @@ export function usePlayerProfile() {
       profileRefreshRunning = true;
       try {
         await getSessionJson("/api/me", {
-          fresh: true,
-          serverRefresh: "live",
-          afterPending: true,
+          revalidate: false,
         });
       } catch {
         // Keep the last confirmed profile when the game is unavailable.
@@ -233,8 +231,7 @@ export function usePlayerProfile() {
         // current profile in state if the live refresh fails.
         const data = await getSessionJson("/api/me", {
           signal,
-          fresh: true,
-          serverRefresh: "live",
+          revalidate: false,
         });
         if (signal.aborted) return;
         setState((current) => ({

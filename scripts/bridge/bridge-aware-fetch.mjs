@@ -14,6 +14,7 @@ export function createBridgeAwareAccountFetch({
   directRoutes,
   directCredentials = null,
   accountService,
+  canonicalCredential = (value) => value,
 } = {}) {
   if (
     !snapshots ||
@@ -29,6 +30,51 @@ export function createBridgeAwareAccountFetch({
     typeof accountService?.profile !== "function"
   )
     throw new TypeError("bridge_fetch_dependencies_required");
+
+  // Concurrent login consumers share one bridge read. Cancellation belongs to
+  // each consumer; the device request stops only when nobody is waiting.
+  const pendingProfiles = new Map();
+  function readProfile(owner, authorization, signal) {
+    if (signal?.aborted)
+      return Promise.reject(new DOMException("Aborted", "AbortError"));
+    const key = `${owner}:${authorization}`;
+    let pending = pendingProfiles.get(key);
+    if (!pending) {
+      const controller = new AbortController();
+      pending = { controller, waiters: 0 };
+      const current = pending;
+      current.promise = Promise.resolve()
+        .then(() =>
+          accountService.profile(owner, { signal: controller.signal }),
+        )
+        .finally(() => {
+          if (pendingProfiles.get(key) === current) pendingProfiles.delete(key);
+        });
+      pendingProfiles.set(key, current);
+    }
+    pending.waiters += 1;
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = (callback, value) => {
+        if (finished) return;
+        finished = true;
+        signal?.removeEventListener("abort", abort);
+        pending.waiters -= 1;
+        if (!pending.waiters && pendingProfiles.get(key) === pending) {
+          pendingProfiles.delete(key);
+          pending.controller.abort();
+        }
+        callback(value);
+      };
+      const abort = () =>
+        finish(reject, new DOMException("Aborted", "AbortError"));
+      signal?.addEventListener("abort", abort, { once: true });
+      pending.promise.then(
+        (result) => finish(resolve, result),
+        (error) => finish(reject, error),
+      );
+    });
+  }
 
   // Snapshot identity is server-owned and was established by a prior verified
   // game response. Enrollment is atomic with the bridge tombstone check; an
@@ -91,7 +137,16 @@ export function createBridgeAwareAccountFetch({
           : snapshots.fetch(target, options),
       withDirectLease: directRoutes.withDirectLease,
       bridgeProfile: async (owner, options) => {
-        const result = await accountService.profile(owner, options);
+        const credential = canonicalCredential(authorization);
+        const refresh = new Headers(init.headers).get(
+          "X-Madhouse-Snapshot-Refresh",
+        );
+        if (!live && !refresh && snapshots.bridgeProfile) {
+          const saved = snapshots.bridgeProfile(credential);
+          if (saved) return saved;
+        }
+        const result = await readProfile(owner, authorization, options.signal);
+        snapshots.saveBridgeProfile?.(credential, result.profile);
         return new Response(JSON.stringify(result.profile), {
           status: 200,
           headers: {

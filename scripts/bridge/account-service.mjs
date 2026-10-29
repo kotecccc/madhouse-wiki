@@ -61,6 +61,7 @@ export function createBridgeAccountService({
   )
     throw new TypeError("account_service_dependencies_required");
 
+  let onVerifiedProfile = () => {};
   async function fetchProfile(verifiedOwner, authorization, signal) {
     const device = devices.listDevice(verifiedOwner);
     if (!device) throw failure("device_unavailable");
@@ -130,6 +131,7 @@ export function createBridgeAccountService({
       deviceId: device.deviceId,
       generation: device.generation,
     });
+    onVerifiedProfile(authorization, sanitize(profile));
     return { status: "connected" };
   }
 
@@ -241,5 +243,14 @@ export function createBridgeAccountService({
   function status(verifiedOwner) {
     return accounts.getRevision(verifiedOwner) > 0 ? "saved" : "not_configured";
   }
-  return Object.freeze({ bind, profile, read, send, status });
+  return Object.freeze({
+    bind,
+    profile,
+    read,
+    send,
+    status,
+    setProfileObserver(observer) {
+      onVerifiedProfile = observer;
+    },
+  });
 }

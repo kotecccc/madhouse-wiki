@@ -313,3 +313,128 @@ test("catalogue sync uses the same boundary and cannot bypass an offline bridge"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("concurrent login profile reads share one bridge request and cancellation is independent", async () => {
+  let calls = 0;
+  let release;
+  const waiting = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fixture = setup({
+    lookup: () => ({
+      policy: "bridge_required",
+      owner: "101",
+      epoch: 1,
+      credentialCurrent: true,
+    }),
+    profile: async (_owner, { signal }) => {
+      calls += 1;
+      await waiting;
+      assert.equal(signal.aborted, false);
+      return { profile: { playerId: 42 } };
+    },
+  });
+  const controller = new AbortController();
+  const first = fixture.boundary.fetch(url, {
+    ...options(),
+    signal: controller.signal,
+  });
+  const second = fixture.boundary.liveFetch(url, options());
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(first, { name: "AbortError" });
+  release();
+  assert.deepEqual(await (await second).json(), { playerId: 42 });
+  assert.equal(calls, 1);
+  await fixture.boundary.fetch(url, options());
+  assert.equal(calls, 2);
+});
+
+test("shared profile reads do not cross credentials", async () => {
+  let calls = 0;
+  const fixture = setup({
+    lookup: () => ({
+      policy: "bridge_required",
+      owner: "101",
+      epoch: 1,
+      credentialCurrent: true,
+    }),
+    profile: async () => {
+      calls += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      return { profile: { playerId: 42 } };
+    },
+  });
+  await Promise.all([
+    fixture.boundary.fetch(url, options("one")),
+    fixture.boundary.fetch(url, options("two")),
+  ]);
+  assert.equal(calls, 2);
+});
+
+test("login reuses a persisted bridge profile until an explicit refresh", async () => {
+  const { createAccountSnapshots } =
+    await import("../../scripts/account/snapshots.mjs");
+  let clock = 1000;
+  const records = new Map();
+  const store = {
+    readSnapshots: () =>
+      [...records.values()].map((value) => structuredClone(value)),
+    writeSnapshot: (id, value) => records.set(id, structuredClone(value)),
+    list: () => [],
+  };
+  let calls = 0;
+  const make = () => {
+    const snapshots = createAccountSnapshots({
+      store,
+      now: () => clock,
+      ttl: 100,
+    });
+    return createBridgeAwareAccountFetch({
+      snapshots,
+      accounts: {
+        resolveCredential: () => ({
+          policy: "bridge_required",
+          owner: "101",
+          epoch: 1,
+          credentialCurrent: true,
+        }),
+      },
+      directRoutes: {
+        resolve: () => null,
+        registerVerifiedDirect() {},
+        withDirectLease() {},
+      },
+      accountService: {
+        profile: async () => ({
+          profile: { playerId: 42, nickname: `read-${++calls}` },
+        }),
+      },
+    });
+  };
+  const boundary = make();
+  const snapshotOnly = {
+    headers: { Authorization: "Bearer valid", "X-Madhouse-Snapshot-Only": "1" },
+  };
+  assert.equal(
+    (await (await boundary.fetch(url, snapshotOnly)).json()).nickname,
+    "read-1",
+  );
+  clock += 200;
+  const restarted = make();
+  const stale = await restarted.fetch(url, options());
+  assert.equal((await stale.json()).nickname, "read-1");
+  assert.equal(stale.headers.get("X-Madhouse-Section-Updated"), "1000");
+  assert.equal(calls, 1);
+  const refresh = {
+    headers: {
+      Authorization: "Bearer valid",
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  };
+  assert.equal(
+    (await (await restarted.fetch(url, refresh)).json()).nickname,
+    "read-2",
+  );
+  assert.equal(calls, 2);
+});

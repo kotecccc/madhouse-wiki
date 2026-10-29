@@ -502,3 +502,63 @@ test("signed Telegram owner must match the game profile", async () => {
     f.close();
   }
 });
+
+test("binding and subsequent login reads use one game profile request", async () => {
+  const { createAccountSnapshots } =
+    await import("../../scripts/account/snapshots.mjs");
+  const { createBridgeAwareAccountFetch } =
+    await import("../../scripts/bridge/bridge-aware-fetch.mjs");
+  let calls = 0;
+  const f = fixture(async (args) => {
+    calls++;
+    return goodProfile(args);
+  });
+  const records = new Map();
+  const snapshots = createAccountSnapshots({
+    store: {
+      readSnapshots: () => [...records.values()],
+      writeSnapshot: (id, value) => records.set(id, structuredClone(value)),
+      list: () => [],
+    },
+  });
+  f.service.setProfileObserver((authorization, profile) =>
+    snapshots.saveBridgeProfile(authorization, profile),
+  );
+  const transport = createBridgeAwareAccountFetch({
+    snapshots,
+    accounts: f.storage.accounts,
+    directRoutes: {
+      resolve: () => null,
+      registerVerifiedDirect() {},
+      withDirectLease() {},
+    },
+    accountService: f.service,
+  });
+  try {
+    f.pair("101");
+    const authorization = "Bearer private-test-token";
+    await f.service.bind("101", authorization);
+    for (let i = 0; i < 3; i++) {
+      const response = await transport.fetch(
+        "https://cargohustle.online/api/me",
+        { headers: { Authorization: authorization } },
+      );
+      assert.equal((await response.json()).playerId, 42);
+    }
+    assert.equal(calls, 1);
+    const refreshed = await transport.fetch(
+      "https://cargohustle.online/api/me",
+      {
+        headers: {
+          Authorization: authorization,
+          "X-Madhouse-Snapshot-Refresh": "live",
+        },
+      },
+    );
+    assert.equal((await refreshed.json()).playerId, 42);
+    assert.equal(calls, 2);
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});

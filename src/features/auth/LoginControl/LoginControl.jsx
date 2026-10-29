@@ -273,8 +273,7 @@ export function LoginControl() {
           .Authorization;
         const data = await getSessionJson("/api/me", {
           signal,
-          fresh: true,
-          serverRefresh: "live",
+          revalidate: false,
         });
         if (!signal.aborted) {
           setProfile(normalizePlayerProfile(data));

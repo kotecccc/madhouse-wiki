@@ -774,6 +774,56 @@ export function createAccountSnapshots({
     return response;
   }
   return {
+    bridgeProfile(authorization) {
+      const digest = hash(authorization);
+      const playerId = credentials.get(digest);
+      const record = accounts.get(playerId);
+      const section = record?.sections?.["/api/me"];
+      if (!section || record.revokedHashes?.includes(digest)) return null;
+      return withMetadata(
+        json(section.data),
+        record,
+        section,
+        now() - section.updatedAt >= ttl,
+      );
+    },
+    saveBridgeProfile(authorization, profile) {
+      const data = sanitize(profile);
+      if (!Number.isSafeInteger(data?.playerId) || data.playerId <= 0)
+        throw new Error("invalid_game_identity");
+      const digest = hash(authorization);
+      const playerId = String(data.playerId);
+      const previousPlayer = credentials.get(digest);
+      if (previousPlayer && previousPlayer !== playerId)
+        throw new Error("game_identity_changed");
+      const record = accounts.get(playerId) || {
+        schemaVersion: 1,
+        playerId,
+        sections: {},
+        credentialHashes: [],
+      };
+      const updated = {
+        ...record,
+        sections: { ...record.sections, "/api/me": { data, updatedAt: now() } },
+        credentialHashes: [
+          ...new Set([...(record.credentialHashes || []), digest]),
+        ].slice(-8),
+        revokedHashes: (record.revokedHashes || []).filter(
+          (value) => value !== digest,
+        ),
+        lastSuccessAt: now(),
+        health: {
+          ...(record.health || {}),
+          status: "available",
+          checkedAt: now(),
+          failedSections: (record.health?.failedSections || []).filter(
+            (path) => path !== "/api/me" && path !== "*",
+          ),
+        },
+      };
+      persist(updated);
+      credentials.set(digest, playerId);
+    },
     routingIdentity(authorization) {
       const identity = this.identity(authorization);
       if (!identity) return null;
