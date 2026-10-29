@@ -316,12 +316,34 @@ export function formatGlobalRaidSummary(
   const lines = [
     `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`,
   ];
-  const rows = [...state.raids].sort((a, b) => b.lastBattleAt - a.lastBattleAt);
+  const floorOrder = "ABCDEFGHIJKLMNO$";
+  const rows = state.raids
+    .filter(
+      (row) =>
+        row.count >= 10 && (row.active || now - row.lastBattleAt < HALF_HOUR),
+    )
+    .map((row) => {
+      const boss = getBoss(row.bossId);
+      const match = /^dept-([A-O]|\$)(\d+)$/.exec(boss?.departmentId || "");
+      return {
+        row,
+        boss,
+        zone: match ? `${match[1]}${match[2]}` : "—",
+        floor: match ? floorOrder.indexOf(match[1]) : Infinity,
+        department: match ? Number(match[2]) : Infinity,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.floor - b.floor ||
+        a.department - b.department ||
+        b.row.lastBattleAt - a.row.lastBattleAt,
+    );
   const table = [
     "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Ведущий</th><th>Бои</th></tr>",
   ];
   let shown = 0;
-  for (const row of rows) {
+  for (const { row, boss, zone } of rows) {
     const age = now - row.lastBattleAt;
     const status =
       row.active || age < THREE_MINUTES
@@ -333,15 +355,10 @@ export function formatGlobalRaidSummary(
             : age < HALF_HOUR
               ? `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`
               : `${marker("finished")} Завершён`;
-    const boss = getBoss(row.bossId);
-    const zone = /^dept-[A-Za-z0-9]+$/.test(boss?.departmentId || "")
-      ? boss.departmentId.slice(5)
-      : "—";
-    const name = row.leaderName || `Игрок №${row.leaderPlayerId}`;
     const username = /^[A-Za-z0-9_]{5,32}$/.test(row.leaderUsername || "")
-      ? ` (@${row.leaderUsername})`
-      : "";
-    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${escape(name)}${username}</td><td>${row.count}</td></tr>`;
+      ? `<code>@${row.leaderUsername}</code>`
+      : "—";
+    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${username}</td><td>${row.count}</td></tr>`;
     if (table.join("").length + line.length > 3500) {
       break;
     }
