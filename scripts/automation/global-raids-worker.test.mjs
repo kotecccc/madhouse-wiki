@@ -540,11 +540,11 @@ test("existing text message is edited with a native rich table preserving raid c
   assert.match(request.payload.rich_message.html, /<table bordered striped>/);
   assert.match(
     request.payload.rich_message.html,
-    /<th>Статус<\/th><th>Зона<\/th><th>Босс<\/th><th>Ведущий<\/th><th>Бои<\/th>/,
+    /<th>Статус<\/th><th>Зона<\/th><th>Босс<\/th><th>Кол-во боев<\/th><th>Ведущий<\/th>/,
   );
   assert.match(
     request.payload.rich_message.html,
-    /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td><td>10<\/td>/,
+    /<td>🔵 Идёт<\/td><td>J3<\/td><td>Босс &lt;опасно&gt;<\/td><td>10<\/td><td><tg-button type="copy_text" text="@leadername">@leadername<\/tg-button><\/td>/,
   );
   assert.equal(data.messageId, 5);
 });
@@ -698,7 +698,7 @@ test("summary hides raids below ten and finished raids, sorts floors ascending, 
   assert.match(text, /text="@lower_user">@lower_user<\/tg-button>/);
   assert.match(
     text,
-    /<td>Без имени<\/td><td><tg-button type="copy_text" text="No verified username">No verified username<\/tg-button><\/td>/,
+    /<td>Без имени<\/td><td>10<\/td><td><tg-button type="copy_text" text="No verified username">No verified username<\/tg-button><\/td>/,
   );
   assert.ok(text.indexOf("Без имени") < text.indexOf("Босс A"));
   assert.ok(text.indexOf("Босс A") < text.indexOf("Босс J"));

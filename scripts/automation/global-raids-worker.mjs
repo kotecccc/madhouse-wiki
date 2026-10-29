@@ -357,7 +357,7 @@ export function formatGlobalRaidSummary(
         b.row.lastBattleAt - a.row.lastBattleAt,
     );
   const table = [
-    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Ведущий</th><th>Бои</th></tr>",
+    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Кол-во боев</th><th>Ведущий</th></tr>",
   ];
   let shown = 0;
   for (const { row, boss, zone } of rows) {
@@ -381,7 +381,7 @@ export function formatGlobalRaidSummary(
         ? nickname.slice(0, 80)
         : `Игрок №${row.leaderPlayerId}`;
     const copyButton = `<tg-button type="copy_text" text="${escapeAttribute(leader)}">${escape(leader)}</tg-button>`;
-    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${copyButton}</td><td>${row.count}</td></tr>`;
+    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`;
     if (table.join("").length + line.length > 3500) {
       break;
     }
