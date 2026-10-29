@@ -104,12 +104,18 @@ done
 case "$url" in
   https://api.github.com/*/compare/*)
     [ '${compareMode}' = 'network-error' ] && exit 22
-    pair=\${url##*/}; base=\${pair%%...*}; head=\${pair#*...}
-    status='${compareMode}'; merge="$base"; ahead=1; behind=0
+    pair=\${url##*/}; base=\${pair%%...*}; head=\${pair#*...}; head=\${head%%\\?*}
+    status='${compareMode}'; merge="$base"; ahead=2; behind=0
+    [ "$status" = 'long-history' ] && { status=ahead; ahead=300; }
+    [ "$status" = 'single' ] && { status=ahead; ahead=1; }
     [ "$status" = 'behind' ] && { ahead=0; behind=1; }
     [ "$status" = 'diverged' ] && { merge='${"f".repeat(40)}'; behind=1; }
-    total=1; [ "$status" = 'truncated' ] && { status=ahead; total=2; }
+    total="$ahead"; [ "$status" = 'truncated' ] && { status=ahead; total=3; }
     printf '{"base_commit":{"sha":"%s"},"commits":[{"sha":"%s"}],"total_commits":%s,"merge_base_commit":{"sha":"%s"},"status":"%s","ahead_by":%s,"behind_by":%s}\n' "$base" "$head" "$total" "$merge" "$status" "$ahead" "$behind" >"$out"
+    ;;
+  https://api.github.com/*/git/commits/*)
+    head=\${url##*/}
+    printf '{"sha":"%s","parents":[{"sha":"%s"}]}\n' "$head" '${floorSha || ""}' >"$out"
     ;;
   https://api.github.com/*)
     cat >"$out" <<'JSON'
@@ -659,6 +665,28 @@ test("rollback floor rejects older, diverged, and unverifiable candidates before
     } finally {
       f.cleanup();
     }
+  }
+});
+
+test("rollback floor verifies long histories without downloading file patches", () => {
+  const f = fixture({ floorSha: previous, compareMode: "long-history" });
+  try {
+    assert.equal(f.run.status, 0, f.run.stderr);
+    const calls = f.calls.filter((call) => call.includes("/compare/"));
+    assert.ok(calls.some((call) => call.includes("per_page=1&page=2")));
+    assert.ok(calls.some((call) => call.includes("per_page=1&page=300")));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("a single descendant is verified through its immutable parent", () => {
+  const f = fixture({ floorSha: previous, compareMode: "single" });
+  try {
+    assert.equal(f.run.status, 0, f.run.stderr);
+    assert.ok(f.calls.some((call) => call.includes("/git/commits/")));
+  } finally {
+    f.cleanup();
   }
 });
 

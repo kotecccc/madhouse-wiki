@@ -82,13 +82,15 @@ candidate_sha=""
 # Once route-aware state exists, never install or automatically roll back to a
 # revision that can ignore it. Failure to establish ancestry is a hard stop.
 at_or_above_rollback_floor() {
-  local sha="$1" comparison_file="${work}/rollback-floor-comparison.json"
+  local sha="$1" comparison_file="${work}/rollback-floor-comparison.json" ahead
   if [[ -z "${minimum_safe_sha}" || "${sha}" == "${minimum_safe_sha}" ]]; then return 0; fi
+  # Page two omits GitHub's potentially very large changed-file patches. The
+  # comparison metadata still establishes the merge base and commit count.
   curl --fail --silent --show-error --location --max-time 30 --max-filesize 1000000 \
     --header 'Accept: application/vnd.github+json' \
     --header 'X-GitHub-Api-Version: 2022-11-28' \
-    "${COMPARE_API}/${minimum_safe_sha}...${sha}" --output "${comparison_file}" || return 1
-  python3 - "${comparison_file}" "${minimum_safe_sha}" "${sha}" <<'PYCODE'
+    "${COMPARE_API}/${minimum_safe_sha}...${sha}?per_page=1&page=2" --output "${comparison_file}" || return 1
+  ahead="$(python3 - "${comparison_file}" "${minimum_safe_sha}" "${sha}" <<'PYCODE'
 import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as source:
@@ -103,12 +105,47 @@ if (not isinstance(base, dict) or base.get("sha") != sys.argv[2]
     or not isinstance(merge_base, dict) or merge_base.get("sha") != sys.argv[2]
     or comparison.get("status") != "ahead" or type(comparison.get("ahead_by")) is not int
     or comparison["ahead_by"] < 1 or type(total) is not int
-    or not isinstance(commits, list) or total != len(commits) or total < 1
-    or not isinstance(commits[-1], dict) or commits[-1].get("sha") != sys.argv[3]
+    or total != comparison["ahead_by"] or not isinstance(commits, list) or len(commits) > 1
     or type(comparison.get("behind_by")) is not int
     or comparison["behind_by"] != 0):
     raise SystemExit("release is below or unrelated to the rollback floor")
+print(total)
 PYCODE
+  )" || return 1
+  if [[ "${ahead}" -eq 1 ]]; then
+    # Avoid page one (which includes patches) even for a single commit.
+    curl --fail --silent --show-error --location --max-time 30 --max-filesize 1000000 \
+      --header 'Accept: application/vnd.github+json' \
+      --header 'X-GitHub-Api-Version: 2022-11-28' \
+      "https://api.github.com/repos/${REPOSITORY}/git/commits/${sha}" --output "${comparison_file}" || return 1
+    python3 - "${comparison_file}" "${minimum_safe_sha}" "${sha}" <<'PYCODE'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source: commit = json.load(source)
+if (not isinstance(commit, dict) or commit.get("sha") != sys.argv[3]
+    or not isinstance(commit.get("parents"), list)
+    or not any(isinstance(parent, dict) and parent.get("sha") == sys.argv[2] for parent in commit["parents"])):
+    raise SystemExit("release ancestry could not be verified")
+PYCODE
+  else
+    curl --fail --silent --show-error --location --max-time 30 --max-filesize 1000000 \
+      --header 'Accept: application/vnd.github+json' \
+      --header 'X-GitHub-Api-Version: 2022-11-28' \
+      "${COMPARE_API}/${minimum_safe_sha}...${sha}?per_page=1&page=${ahead}" --output "${comparison_file}" || return 1
+    python3 - "${comparison_file}" "${minimum_safe_sha}" "${sha}" "${ahead}" <<'PYCODE'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source: comparison = json.load(source)
+commits = comparison.get("commits") if isinstance(comparison, dict) else None
+if (not isinstance(comparison, dict) or comparison.get("base_commit", {}).get("sha") != sys.argv[2]
+    or comparison.get("merge_base_commit", {}).get("sha") != sys.argv[2]
+    or comparison.get("status") != "ahead" or type(comparison.get("ahead_by")) is not int
+    or comparison.get("ahead_by") != int(sys.argv[4]) or type(comparison.get("total_commits")) is not int
+    or comparison.get("total_commits") != int(sys.argv[4]) or type(comparison.get("behind_by")) is not int
+    or comparison.get("behind_by") != 0
+    or not isinstance(commits, list) or len(commits) != 1 or not isinstance(commits[0], dict)
+    or commits[0].get("sha") != sys.argv[3]):
+    raise SystemExit("release ancestry could not be verified")
+PYCODE
+  fi
 }
 
 cleanup_old_images() {
