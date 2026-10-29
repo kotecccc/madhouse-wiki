@@ -52,7 +52,7 @@ export async function createAutomationRuntime({
       : null);
   const readPlayerProgress = bridge
     ? createPlayerProgressReader({ fetcher: transport.fetch })
-    : createPlayerProgressReader();
+    : createPlayerProgressReader({ fetcher: gameFetcher || fetch });
   const profileLevel = createProfileLevelHandler({
     identity: bridge
       ? async (authorization) => {

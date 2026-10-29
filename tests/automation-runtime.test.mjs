@@ -57,3 +57,39 @@ test("normal automation runtime is enabled; only explicit 0 returns the operator
     }
   }
 });
+
+test("direct profile level reads use the injected game transport", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "automation-runtime-"));
+  const calls = [];
+  let runtime;
+  try {
+    runtime = await createAutomationRuntime({
+      env: {
+        MADHOUSE_AUTOMATION_STATE_DIR: directory,
+        MADHOUSE_AUTOMATION_GAME_ENABLED: "0",
+      },
+      gameFetcher: async (url) => {
+        calls.push(new URL(url).pathname);
+        if (new URL(url).pathname === "/api/me")
+          return Response.json({ playerId: 41 });
+        if (new URL(url).pathname === "/api/players/41")
+          return Response.json({ playerId: 41, level: 136 });
+        throw new Error("unexpected game request");
+      },
+    });
+    await runtime.gameFetch("https://cargohustle.online/api/me", {
+      headers: { Authorization: "Bearer test" },
+    });
+    const response = await runtime.handle(
+      new Request("http://localhost/api/automation/profile-level", {
+        headers: { Authorization: "Bearer test" },
+      }),
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { playerId: 41, level: 136 });
+    assert.deepEqual(calls, ["/api/me", "/api/players/41"]);
+  } finally {
+    runtime?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
