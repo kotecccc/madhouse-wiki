@@ -21,6 +21,42 @@ const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
 
+test("bridge response diagnostics include the status without query parameters", async () => {
+  const server = createServer({ cert, key }, (_req, res) => {
+    res.writeHead(404);
+    res.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const messages = [];
+  const attemptState = {
+    tunnel: {
+      socket: {
+        bridgeRequestLog: true,
+        readyState: 1,
+        send: (data) => messages.push(JSON.parse(data)),
+      },
+    },
+  };
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+  });
+  try {
+    await readGameOverBridge({
+      authorization: "Bearer fake",
+      path: "/api/bosses/7?secret=value",
+      method: "GET",
+      connector,
+      attemptState,
+    });
+    assert.deepEqual(messages, [
+      { type: "response", method: "GET", path: "/api/bosses/7", status: 404 },
+    ]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("a stopped work checkpoint sends no request after TLS connects", async () => {
   let received = 0;
   const server = createServer({ cert, key }, (_req, res) => {
