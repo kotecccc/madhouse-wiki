@@ -546,6 +546,13 @@ export function createAutomationService({
           telegram: globalRaidsTelegram,
           chatId: globalRaidsChatId,
           getBoss,
+          getLeaderProfile: async (playerId) => {
+            const entry = [...actors.values()].find(
+              (actor) => actor.credential && !actor.storageFailed,
+            );
+            if (!entry) return null;
+            return gameJson(entry.credential, `/api/players/${playerId}`);
+          },
           customEmoji: globalRaidsCustomEmoji,
           isClosed: () => closed,
         })

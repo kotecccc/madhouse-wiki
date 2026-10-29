@@ -66,10 +66,7 @@ test("counts six distinct invitation battles once across accounts and never uses
   );
   assert.equal(state.raids.length, 1);
   assert.equal(state.raids[0].count, 6);
-  assert.match(
-    format(state, start + 5 * minute),
-    /text="Игрок №42">Игрок №42<\/tg-button>/,
-  );
+  assert.match(format(state, start + 5 * minute), /<td>Ник не найден<\/td>/);
   assert.doesNotMatch(format(state, start + 5 * minute), /Чужой/);
   state = await observe(
     state,
@@ -385,7 +382,7 @@ test("updates the same message after one minute without changing status threshol
 test("the message omits the removed informational lines", async () => {
   const text = format(await series(), start + 5 * minute);
   assert.doesNotMatch(text, /Время: МСК|Замечено боёв · по приглашениям/);
-  assert.match(text, /text="Игрок №42">Игрок №42<\/tg-button>/);
+  assert.match(text, /<td>Ник не найден<\/td>/);
   assert.match(text, /<table bordered striped>/);
 });
 
@@ -580,6 +577,37 @@ test("custom status emoji are opt-in and preserve the four status meanings", () 
   assert.doesNotMatch(custom, /Завершён/);
 });
 
+test("boss emoji match the boss and are only included for custom emoji publishing", () => {
+  const now = start + 40 * minute;
+  const state = {
+    day: "2026-10-29",
+    raids: [
+      {
+        bossId: 1,
+        leaderPlayerId: 1,
+        count: 10,
+        active: true,
+        lastBattleAt: now,
+      },
+    ],
+  };
+  const boss = () => ({ name: "Освальд «Исповедник»" });
+  const custom = formatGlobalRaidSummary(state, now, boss, {
+    customEmoji: true,
+  });
+  assert.match(
+    custom,
+    /<tg-emoji emoji-id="5413444820750348416">👹<\/tg-emoji> Освальд «Исповедник»/,
+  );
+  assert.doesNotMatch(formatGlobalRaidSummary(state, now, boss), /<tg-emoji/);
+  assert.doesNotMatch(
+    formatGlobalRaidSummary(state, now, () => ({ name: "Незнакомый" }), {
+      customEmoji: true,
+    }),
+    /👹/,
+  );
+});
+
 test("a preflight failure clears the send checkpoint without publishing", async () => {
   let time = start;
   let data;
@@ -706,6 +734,79 @@ test("summary hides raids below ten and finished raids, sorts floors ascending, 
   assert.match(text, /<td>\$1<\/td>/);
 });
 
+test("overflow keeps active raids first, then newer waits and pauses", () => {
+  const now = start + 60 * minute;
+  const raids = Array.from({ length: 60 }, (_, i) => ({
+    bossId: i + 1,
+    leaderPlayerId: i + 1,
+    count: 10,
+    fresh: true,
+    active: i < 4,
+    lastBattleAt:
+      now -
+      (i < 4
+        ? 0
+        : i < 12
+          ? (3 + (i - 4) / 2) * minute
+          : (10 + (i - 12) / 3) * minute),
+    leaderName: `Лидер${i}`,
+  }));
+  const html = formatGlobalRaidSummary(
+    { day: "2026-10-29", raids },
+    now,
+    (id) => ({ name: `Босс-${id}` }),
+  );
+  assert.ok(html.length <= 3500);
+  for (let i = 1; i <= 4; i++) assert.ok(html.includes(`Босс-${i}<`));
+  assert.ok(html.includes("Босс-5<"));
+  assert.ok(!html.includes("Босс-60<"));
+  const shown = (html.match(/<tr><td>/g) || []).length;
+  assert.match(html, new RegExp(`Ещё рейдов: ${60 - shown}`));
+});
+
+test("overflow chooses higher floors then more battles, but displays floors ascending", () => {
+  const now = start + minute;
+  const raids = Array.from({ length: 80 }, (_, i) => ({
+    bossId: i + 1,
+    leaderPlayerId: i + 1,
+    count: 10 + i,
+    active: true,
+    lastBattleAt: now,
+    leaderName: `Лидер${i}`,
+  }));
+  const boss = (id) => ({
+    name: `Босс-${id}`,
+    departmentId: id <= 24 ? "dept-A1" : "dept-J1",
+  });
+  const html = formatGlobalRaidSummary({ day: "2026-10-29", raids }, now, boss);
+  assert.ok(html.length <= 3500);
+  assert.ok(html.includes("Босс-80<"));
+  assert.ok(!html.includes("Босс-1<"));
+  assert.ok(!html.includes("Босс-25<"));
+  assert.ok(html.indexOf("Босс-79<") < html.indexOf("Босс-80<"));
+});
+
+test("all statuses remain visible when the whole summary fits", () => {
+  const now = start + 30 * minute;
+  const raids = [0, 5, 20].map((age, i) => ({
+    bossId: i + 1,
+    leaderPlayerId: i + 1,
+    count: 10,
+    active: age === 0,
+    fresh: true,
+    lastBattleAt: now - age * minute,
+  }));
+  const html = formatGlobalRaidSummary(
+    { day: "2026-10-29", raids },
+    now,
+    () => ({ name: "Босс" }),
+  );
+  assert.match(html, /Идёт/);
+  assert.match(html, /Ждёт/);
+  assert.match(html, /Пауза/);
+  assert.doesNotMatch(html, /Ещё рейдов/);
+});
+
 test("nickname fallback uses verified leader identity and escapes text and copy attributes", () => {
   const now = start + 10 * minute;
   const state = {
@@ -733,4 +834,77 @@ test("nickname fallback uses verified leader identity and escapes text and copy 
     /<tg-button type="copy_text" text="Игрок &quot;&lt;A&amp;B&gt;&quot;">Игрок "&lt;A&amp;B&gt;"<\/tg-button>/,
   );
   assert.doesNotMatch(html, /<A&B>/);
+});
+
+test("resolves an unknown leader by verified profile ID and publishes a copyable nickname", async () => {
+  let time = start + 10 * minute;
+  let data = await series();
+  data.raids[0].count = 12;
+  data.raids[0].base = {
+    ...data.raids[0],
+    count: 12,
+    lastBattleAt: time,
+    activeIds: [],
+  };
+  data.raids[0].carried = true;
+  let sent;
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (v) => {
+        data = structuredClone(v);
+      },
+    },
+    owner: "test",
+    now: () => time,
+    isClosed: () => false,
+    chatId: "@channel",
+    getBoss: () => ({ name: "Босс" }),
+    getLeaderProfile: async (id) => ({ playerId: id, nickname: "ИгровойНик" }),
+    telegram: {
+      request: async (_method, payload) => {
+        sent = payload.rich_message.html;
+        return { message_id: 1 };
+      },
+    },
+  });
+  await worker.tick();
+  assert.match(sent, /text="ИгровойНик">ИгровойНик<\/tg-button>/);
+  assert.doesNotMatch(sent, /Игрок №42/);
+});
+
+test("an unrelated profile cannot supply a leader nickname", async () => {
+  const time = start + 10 * minute;
+  let data = await series();
+  data.raids[0].base = {
+    ...data.raids[0],
+    count: 12,
+    lastBattleAt: time,
+    activeIds: [],
+  };
+  data.raids[0].carried = true;
+  let sent;
+  const worker = createGlobalRaidsWorker({
+    store: {
+      readGlobalRaids: () => structuredClone(data),
+      writeGlobalRaids: (v) => {
+        data = structuredClone(v);
+      },
+    },
+    owner: "test",
+    now: () => time,
+    isClosed: () => false,
+    chatId: "@channel",
+    getBoss: () => ({ name: "Босс" }),
+    getLeaderProfile: async () => ({ playerId: 99, nickname: "Чужой" }),
+    telegram: {
+      request: async (_method, payload) => {
+        sent = payload.rich_message.html;
+        return { message_id: 1 };
+      },
+    },
+  });
+  await worker.tick();
+  assert.match(sent, /Ник не найден/);
+  assert.doesNotMatch(sent, /Чужой|Игрок №42/);
 });

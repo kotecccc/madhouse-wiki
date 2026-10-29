@@ -1,3 +1,5 @@
+import bossEmoji from "./global-raids-boss-emoji.json" with { type: "json" };
+
 const DAY = 86400000;
 const THREE_MINUTES = 180000;
 const TEN_MINUTES = 600000;
@@ -314,9 +316,8 @@ export function formatGlobalRaidSummary(
     const [id, fallback] = STATUS_EMOJI[kind];
     return customEmoji ? `<tg-emoji emoji-id="${id}">⏺</tg-emoji>` : fallback;
   };
-  const lines = [
-    `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`,
-  ];
+  const heading = `<h3>🔥 РЕЙДЫ — ${state.day.split("-").reverse().join(".")}</h3>`;
+  const updated = `<p>Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`;
   const knownNames = new Map();
   for (const observation of Object.values(state.observations || {})) {
     if (
@@ -356,22 +357,26 @@ export function formatGlobalRaidSummary(
         a.department - b.department ||
         b.row.lastBattleAt - a.row.lastBattleAt,
     );
-  const table = [
-    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Кол-во боев</th><th>Ведущий</th></tr>",
-  ];
-  let shown = 0;
-  for (const { row, boss, zone } of rows) {
+  const tableHeader =
+    "<table bordered striped><tr><th>Статус</th><th>Зона</th><th>Босс</th><th>Кол-во боев</th><th>Ведущий</th></tr>";
+  const rendered = rows.map(({ row, boss, zone, floor, department }, index) => {
     const age = now - row.lastBattleAt;
-    const status =
+    const kind =
       row.active || age < THREE_MINUTES
-        ? `${marker("active")} Идёт`
+        ? "active"
         : !row.fresh
-          ? `${marker("waiting")} Нет данных`
+          ? "unknown"
           : age < TEN_MINUTES
+            ? "waiting"
+            : "paused";
+    const status =
+      kind === "active"
+        ? `${marker("active")} Идёт`
+        : kind === "unknown"
+          ? `${marker("waiting")} Нет данных`
+          : kind === "waiting"
             ? `${marker("waiting")} Ждёт`
-            : age < HALF_HOUR
-              ? `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`
-              : `${marker("finished")} Завершён`;
+            : `${marker("paused")} Пауза · ${Math.floor(age / 60000)} мин`;
     const nickname =
       knownNames.get(row.leaderPlayerId)?.name ||
       (typeof row.leaderName === "string" ? row.leaderName.trim() : "");
@@ -379,25 +384,60 @@ export function formatGlobalRaidSummary(
       ? `@${row.leaderUsername}`
       : nickname
         ? nickname.slice(0, 80)
-        : `Игрок №${row.leaderPlayerId}`;
-    const copyButton = `<tg-button type="copy_text" text="${escapeAttribute(leader)}">${escape(leader)}</tg-button>`;
-    const line = `<tr><td>${status}</td><td>${escape(zone)}</td><td>${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`;
-    if (table.join("").length + line.length > 3500) {
-      break;
-    }
-    table.push(line);
-    shown++;
+        : "";
+    const copyButton = leader
+      ? `<tg-button type="copy_text" text="${escapeAttribute(leader)}">${escape(leader)}</tg-button>`
+      : "Ник не найден";
+    const emojiId = customEmoji && boss?.name && bossEmoji[boss.name];
+    const bossIcon = emojiId
+      ? `<tg-emoji emoji-id="${emojiId}">👹</tg-emoji> `
+      : "";
+    return {
+      row,
+      floor,
+      department,
+      index,
+      kind,
+      line: `<tr><td>${status}</td><td>${escape(zone)}</td><td>${bossIcon}${escape(boss?.name || `Босс №${row.bossId}`)}</td><td>${row.count}</td><td>${copyButton}</td></tr>`,
+    };
+  });
+  const compose = (selected) => {
+    const hidden = rows.length - selected.length;
+    const table = rows.length
+      ? `${tableHeader}${selected
+          .slice()
+          .sort((a, b) => a.index - b.index)
+          .map((item) => item.line)
+          .join("")}</table>`
+      : "<p>Активных рейдов пока нет.</p>";
+    return [
+      heading,
+      table,
+      ...(hidden ? [`<p>Ещё рейдов: ${hidden}</p>`] : []),
+      "",
+      updated,
+    ].join("\n");
+  };
+  if (compose(rendered).length <= 3500) return compose(rendered);
+  const priority = { active: 2, unknown: 2, waiting: 1, paused: 0 };
+  const candidates = rendered
+    .slice()
+    .sort(
+      (a, b) =>
+        priority[b.kind] - priority[a.kind] ||
+        (priority[a.kind] < 2
+          ? b.row.lastBattleAt - a.row.lastBattleAt
+          : (Number.isFinite(b.floor) ? b.floor : -1) -
+              (Number.isFinite(a.floor) ? a.floor : -1) ||
+            b.row.count - a.row.count ||
+            b.row.lastBattleAt - a.row.lastBattleAt) ||
+        a.index - b.index,
+    );
+  const selected = [];
+  for (const item of candidates) {
+    if (compose([...selected, item]).length <= 3500) selected.push(item);
   }
-  if (rows.length) {
-    lines.push(`${table.join("")}</table>`);
-    if (shown < rows.length)
-      lines.push(`<p>Ещё рейдов: ${rows.length - shown}</p>`);
-  } else lines.push("<p>Активных рейдов пока нет.</p>");
-  lines.push(
-    "",
-    `<p>Обновлено: ${new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" }).format(now)} МСК</p>`,
-  );
-  return lines.join("\n");
+  return compose(selected);
 }
 
 export function createGlobalRaidsWorker({
@@ -409,9 +449,12 @@ export function createGlobalRaidsWorker({
   getBoss,
   isClosed,
   customEmoji = false,
+  getLeaderProfile,
 }) {
   let running = false;
   let nextAttempt = 0;
+  let nextProfileAttempt = 0;
+  const profileAttempts = new Map();
   const save = (state) => store.writeGlobalRaids(state, owner, now());
   const load = () => {
     let state = store.readGlobalRaids() || {};
@@ -454,6 +497,44 @@ export function createGlobalRaidsWorker({
         let state = refreshGlobalRaidRows(load(), now());
         save(state);
         if (now() < state.nextPublishAt || state.pendingSend) return;
+        const unresolved = state.raids.find(
+          (row) =>
+            row.count >= 10 &&
+            (row.active || now() - row.lastBattleAt < HALF_HOUR) &&
+            !row.leaderName &&
+            !row.leaderUsername &&
+            now() >= (profileAttempts.get(row.leaderPlayerId) || 0),
+        );
+        if (unresolved && getLeaderProfile && now() >= nextProfileAttempt) {
+          const id = unresolved.leaderPlayerId;
+          profileAttempts.set(id, now() + 5 * 60000);
+          nextProfileAttempt = now() + 60000;
+          try {
+            const profile = await getLeaderProfile(id);
+            if (
+              profile?.playerId === id &&
+              typeof profile.nickname === "string" &&
+              profile.nickname.trim()
+            ) {
+              state = load();
+              for (const row of state.raids)
+                if (row.leaderPlayerId === id)
+                  row.leaderName = profile.nickname.trim().slice(0, 80);
+              for (const obs of Object.values(state.observations))
+                if (obs.leaderPlayerId === id)
+                  obs.leaderName = profile.nickname.trim().slice(0, 80);
+              save(state);
+            }
+          } catch (error) {
+            nextProfileAttempt = Math.max(
+              nextProfileAttempt,
+              now() + (Number(error?.retryAfterMs) || 0),
+            );
+          }
+          state = refreshGlobalRaidRows(load(), now());
+        }
+        if (isClosed() || now() < state.nextPublishAt || state.pendingSend)
+          return;
         const text = formatGlobalRaidSummary(state, now(), getBoss, {
           customEmoji,
         });
