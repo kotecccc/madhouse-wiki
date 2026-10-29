@@ -229,6 +229,70 @@ test("worker lease prevents overlap and rejects stale owner release or renewal",
   });
 });
 
+test("owned account writes are fenced atomically by the live worker lease", async () => {
+  await withDirectory(async (directory) => {
+    const first = createAutomationStateStore({ directory });
+    const second = createAutomationStateStore({ directory });
+    try {
+      let now = 1_000;
+      assert.equal(first.acquireLease("worker-a", now, 100), true);
+      first.writeOwned(101, { checkpoint: "a-current" }, "worker-a", () => now);
+      assert.deepEqual(first.read(101), { checkpoint: "a-current" });
+
+      now = 1_100;
+      assert.throws(
+        () =>
+          first.writeOwned(
+            101,
+            { checkpoint: "a-expired" },
+            "worker-a",
+            () => now,
+          ),
+        /automation_worker_unavailable/u,
+      );
+      assert.equal(first.renewOwnedLease("worker-a", now, 100), true);
+      first.writeOwned(101, { checkpoint: "a-renewed" }, "worker-a", () => now);
+
+      now = 1_201;
+      assert.equal(second.acquireLease("worker-b", now, 100), true);
+      second.writeOwned(
+        101,
+        { checkpoint: "b-current" },
+        "worker-b",
+        () => now,
+      );
+      assert.throws(
+        () =>
+          first.writeOwned(
+            101,
+            { checkpoint: "a-late" },
+            "worker-a",
+            () => now,
+          ),
+        /automation_worker_unavailable/u,
+      );
+      assert.deepEqual(first.read(101), { checkpoint: "b-current" });
+
+      now = 1_301;
+      assert.equal(first.renewOwnedLease("worker-a", now, 100), false);
+      assert.throws(
+        () =>
+          first.writeOwned(
+            101,
+            { checkpoint: "a-after-b-expired" },
+            "worker-a",
+            () => now,
+          ),
+        /automation_worker_unavailable/u,
+      );
+      assert.deepEqual(first.read(101), { checkpoint: "b-current" });
+    } finally {
+      first.close();
+      second.close();
+    }
+  });
+});
+
 test("long-running series history remains durable above the old single-battle record bound", () => {
   withDirectory((directory) => {
     const store = createAutomationStateStore({ directory });

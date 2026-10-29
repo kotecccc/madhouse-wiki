@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createAutomationService } from "../../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../../scripts/automation/state-store.mjs";
+import { currentWorkerLease } from "../../scripts/automation/worker-lease-context.mjs";
 import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
 import { createBridgeAwareAccountFetch } from "../../scripts/bridge/bridge-aware-fetch.mjs";
 import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
@@ -127,7 +128,14 @@ function makeBridge({
     devices,
     registry,
     queueActionGate: gate,
-    coordinate: (attempt) => boundary.bridge(attempt),
+    coordinate: (attempt) => {
+      if (attempt.kind === "mutation") {
+        const lease = currentWorkerLease();
+        assert.equal(typeof lease?.owner, "string");
+        assert.equal(typeof lease?.now, "function");
+      }
+      return boundary.bridge(attempt);
+    },
     readProfile: async () => ({
       status: 200,
       body: Buffer.from(JSON.stringify({ playerId: 101, telegramId: owner })),

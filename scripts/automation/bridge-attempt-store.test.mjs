@@ -19,6 +19,56 @@ const attempt = (overrides = {}) => ({
   ...overrides,
 });
 
+test("actor journal writes require a current worker lease in the same transaction", () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-lease-fence-"));
+  const store = createAutomationStateStore({ directory });
+  let time = 1000;
+  const context = { owner: "worker-a", now: () => time };
+  try {
+    assert.equal(store.acquireLease("worker-a", time, 100), true);
+    const created = store.createBridgeAttempt(attempt(), context);
+    const dispatched = store.compareAndSetBridgeAttempt(
+      created.id,
+      created.revision,
+      { phase: "dispatched", updatedAt: 1001 },
+      context,
+    );
+    time = 1100;
+    assert.throws(
+      () =>
+        store.createBridgeAttempt(
+          attempt({ id: "123e4567-e89b-42d3-a456-426614174003" }),
+          context,
+        ),
+      /automation_worker_unavailable/,
+    );
+    assert.throws(
+      () =>
+        store.confirmBridgeTransportStop(
+          dispatched.id,
+          dispatched.revision,
+          1100,
+          context,
+        ),
+      /automation_worker_unavailable/,
+    );
+    assert.throws(
+      () =>
+        store.compareAndSetBridgeAttempt(
+          dispatched.id,
+          dispatched.revision,
+          { phase: "completed", updatedAt: 1100 },
+          context,
+        ),
+      /automation_worker_unavailable/,
+    );
+    assert.deepEqual(store.readActiveBridgeAttempts(), [dispatched]);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("bridge attempt journal survives restart, uses CAS, and refuses overwrite", () => {
   const directory = mkdtempSync(join(tmpdir(), "bridge-attempt-store-"));
   let store = createAutomationStateStore({ directory });

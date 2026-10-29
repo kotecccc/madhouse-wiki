@@ -1,4 +1,5 @@
 import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
+import { withWorkerLease } from "./worker-lease-context.mjs";
 import { observeTelegramBattle } from "./telegram-battle-report.mjs";
 import { createTelegramBattleNotifier } from "./telegram-battle-notifier.mjs";
 import { createGlobalRaidsWorker } from "./global-raids-worker.mjs";
@@ -255,9 +256,18 @@ export function createAutomationService({
   let actionQueueFailures = savedQueueCooldown.failures;
   let currentReservation = null;
   const owner = randomUUID();
+  const actorFetcher = fetcher;
+  fetcher = (url, init) =>
+    withWorkerLease(owner, now, () => actorFetcher(url, init));
+  let leaseAcquired = false;
   function ensureLease() {
-    if (closed || !store.acquireLease(owner, now(), 15000))
-      throw failure(503, "automation_worker_unavailable");
+    if (closed) throw failure(503, "automation_worker_unavailable");
+    const timestamp = now();
+    const acquired = leaseAcquired
+      ? store.renewOwnedLease(owner, timestamp, 15000)
+      : store.acquireLease(owner, timestamp, 15000);
+    if (!acquired) throw failure(503, "automation_worker_unavailable");
+    leaseAcquired = true;
   }
   let temporaryOutage = emptyGameOutage();
   const currentGameOutage = () => store.getGameOutage?.() ?? temporaryOutage;
@@ -516,13 +526,13 @@ export function createAutomationService({
       }
       entry.version++;
       try {
-        store.write(entry.playerId, persisted(entry));
+        store.writeOwned(entry.playerId, persisted(entry), owner, () => now());
       } catch (error) {
         if (!(error instanceof RangeError) || !entry.telegramReport?.enabled)
           throw error;
         // Drop oversized reporting data before deciding game storage failed.
         entry.telegramReport = { enabled: false };
-        store.write(entry.playerId, persisted(entry));
+        store.writeOwned(entry.playerId, persisted(entry), owner, () => now());
       }
     } catch {
       // No game call is allowed after a durability failure.

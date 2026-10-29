@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createDirectExecutor } from "./direct-executor.mjs";
 import { isTrustedBattleRecoveryPermit } from "../bridge/queue-action-gate.mjs";
+import { currentWorkerLease } from "../automation/worker-lease-context.mjs";
 
 function setting(env, name, fallback, maximum) {
   if (env[name] == null || env[name] === "") return fallback;
@@ -112,6 +113,7 @@ export function createDirectBoundary({
     recoveryPermit,
     path,
   }) {
+    const workerLease = currentWorkerLease();
     if (!recoveryReady)
       return Promise.reject(
         Object.assign(new Error("bridge_recovery_not_ready"), {
@@ -188,23 +190,27 @@ export function createDirectBoundary({
       const attemptId = randomUUID();
       try {
         const timestamp = Date.now();
-        attempt = bridgeStore.createBridgeAttempt({
-          id: attemptId,
-          playerId,
-          operationId,
-          ...(checkpointOperationId ? { checkpointOperationId } : {}),
-          deviceId,
-          bindingRevision,
-          deviceGeneration,
-          action: "mutation",
-          phase: "prepared",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        });
+        attempt = bridgeStore.createBridgeAttempt(
+          {
+            id: attemptId,
+            playerId,
+            operationId,
+            ...(checkpointOperationId ? { checkpointOperationId } : {}),
+            deviceId,
+            bindingRevision,
+            deviceGeneration,
+            action: "mutation",
+            phase: "prepared",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          workerLease,
+        );
         const dispatched = bridgeStore.compareAndSetBridgeAttempt(
           attempt.id,
           attempt.revision,
           { phase: "dispatched", updatedAt: timestamp },
+          workerLease,
         );
         if (!dispatched) throw new Error("bridge_attempt_stale");
         attempt = dispatched;
@@ -219,6 +225,7 @@ export function createDirectBoundary({
           .find((item) => item.id === attempt.id);
         if (
           !current ||
+          current.revision !== attempt.revision ||
           current.playerId !== String(playerId) ||
           current.deviceId !== deviceId ||
           current.bindingRevision !== bindingRevision ||
@@ -234,6 +241,7 @@ export function createDirectBoundary({
           current.id,
           current.revision,
           Math.max(current.updatedAt, Date.now()),
+          workerLease,
         );
         if (!updated) throw new Error("bridge_attempt_stale");
         attempt = updated;
@@ -248,6 +256,7 @@ export function createDirectBoundary({
               attempt.id,
               attempt.revision,
               { phase, updatedAt: Math.max(attempt.updatedAt, Date.now()) },
+              workerLease,
             )
           )
             throw new Error("bridge_attempt_stale", { cause: error });
@@ -270,6 +279,7 @@ export function createDirectBoundary({
               phase: "completed",
               updatedAt: Math.max(attempt.updatedAt, Date.now()),
             },
+            workerLease,
           )
         )
           throw new Error("bridge_attempt_stale");

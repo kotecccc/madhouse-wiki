@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createAutomationStateStore } from "../automation/state-store.mjs";
+import { withWorkerLease } from "../automation/worker-lease-context.mjs";
 import { createDirectBoundary } from "./direct-boundary.mjs";
 
 const deviceId = "00000000-0000-4000-8000-000000000001";
@@ -167,5 +168,102 @@ test("storage write failure cannot dispatch and blocks that scope", async () => 
     assert.equal(boundary.diagnostics().durableBlocks, 1);
   } finally {
     boundary.close();
+  }
+});
+
+test("late transport callbacks cannot clear a journal fence after lease takeover and restart", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-late-callback-"));
+  const firstStore = createAutomationStateStore({ directory: dir });
+  const secondStore = createAutomationStateStore({ directory: dir });
+  const oldBoundary = createDirectBoundary({
+    env,
+    requireBridgeJournal: true,
+    fetcher: async () => new Response("{}"),
+    resolvePlayer: () => 42,
+  });
+  let markDispatched;
+  let resolveTransport;
+  let onTransportStopped;
+  let leaseNow;
+  const dispatched = new Promise((resolve) => {
+    markDispatched = resolve;
+  });
+  const transportResponse = new Promise((resolve) => {
+    resolveTransport = resolve;
+  });
+  let restartedBoundary;
+  try {
+    const leaseStart = Date.now();
+    leaseNow = leaseStart;
+    assert.equal(firstStore.acquireLease("owner-a", leaseStart, 10), true);
+    oldBoundary.installBridgeStore(firstStore);
+    const oldRequest = withWorkerLease(
+      "owner-a",
+      () => leaseNow,
+      () =>
+        oldBoundary.bridge({
+          ...options,
+          execute: (stopTransport) => {
+            onTransportStopped = stopTransport;
+            markDispatched();
+            return transportResponse;
+          },
+        }),
+    );
+    await dispatched;
+    const beforeRestart = secondStore.readActiveBridgeAttempts();
+    assert.equal(beforeRestart.length, 1);
+    assert.equal(beforeRestart[0].phase, "dispatched");
+
+    // Fake-clock lease takeover invalidates callbacks from worker A.
+    leaseNow = leaseStart + 11;
+    assert.equal(
+      secondStore.acquireLease("owner-b", leaseStart + 11, 10),
+      true,
+    );
+    const afterTakeover = secondStore.readActiveBridgeAttempts();
+    assert.equal(afterTakeover.length, 1);
+    assert.equal(afterTakeover[0].revision, beforeRestart[0].revision + 1);
+    restartedBoundary = createDirectBoundary({
+      env,
+      requireBridgeJournal: true,
+      fetcher: async () => new Response("{}"),
+      resolvePlayer: () => 42,
+    });
+    restartedBoundary.installBridgeStore(secondStore);
+    assert.equal(restartedBoundary.diagnostics().durableBlocks, 1);
+
+    // The old transport reports stop and then returns its late HTTP response.
+    // Neither callback may make the restored durable attempt appear resolved.
+    assert.throws(onTransportStopped, /bridge_attempt_stale/u);
+    const afterLateStop = secondStore.readActiveBridgeAttempts();
+    resolveTransport({ status: 200 });
+    await oldRequest.catch(() => {});
+    const afterLateResponse = secondStore.readActiveBridgeAttempts();
+
+    assert.deepEqual(afterLateStop, afterTakeover);
+    assert.deepEqual(afterLateResponse, afterTakeover);
+
+    const finalStore = createAutomationStateStore({ directory: dir });
+    const finalBoundary = createDirectBoundary({
+      env,
+      requireBridgeJournal: true,
+      fetcher: async () => new Response("{}"),
+      resolvePlayer: () => 42,
+    });
+    try {
+      finalBoundary.installBridgeStore(finalStore);
+      assert.equal(finalBoundary.diagnostics().durableBlocks, 1);
+      assert.deepEqual(finalStore.readActiveBridgeAttempts(), afterTakeover);
+    } finally {
+      finalBoundary.close();
+      finalStore.close();
+    }
+  } finally {
+    oldBoundary.close();
+    restartedBoundary?.close();
+    firstStore.close();
+    secondStore.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

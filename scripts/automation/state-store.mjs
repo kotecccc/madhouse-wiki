@@ -346,6 +346,9 @@ export function createAutomationStateStore({ directory }) {
     SET owner = excluded.owner, expires_at = excluded.expires_at
     WHERE worker_lease.owner = excluded.owner OR worker_lease.expires_at <= ?
   `);
+  const renewOwnedLeaseStatement = db.prepare(
+    "UPDATE worker_lease SET expires_at = ? WHERE singleton = 1 AND owner = ?",
+  );
   const releaseLeaseStatement = db.prepare(
     "DELETE FROM worker_lease WHERE singleton = 1 AND owner = ?",
   );
@@ -395,6 +398,37 @@ export function createAutomationStateStore({ directory }) {
     }
   }
 
+  function assertWorkerLease(context) {
+    if (context == null) return;
+    if (typeof context.owner !== "string" || typeof context.now !== "function")
+      throw new TypeError("invalid_automation_lease_owner");
+    const time = context.now();
+    if (!Number.isSafeInteger(time))
+      throw new TypeError("invalid_automation_lease_time");
+    const lease = selectLease.get();
+    if (!lease || lease.owner !== context.owner || lease.expires_at <= time)
+      throw new Error("automation_worker_unavailable");
+  }
+
+  function writeAccount(playerId, value) {
+    const normalized = normalizePlayerId(playerId);
+    let record;
+    try {
+      record = JSON.stringify({ playerId: normalized, value });
+    } catch {
+      throw new TypeError("automation_record_invalid");
+    }
+    if (Buffer.byteLength(record) > MAX_RECORD_BYTES)
+      throw new RangeError("automation_record_too_large");
+    const id = opaqueId(key, normalized);
+    const encrypted = encrypt(key, id, {
+      playerId: normalized,
+      value: JSON.parse(record).value,
+    });
+    return { id, encrypted };
+  }
+  const ownedWriteToken = Symbol("owned-account-write");
+
   return {
     readGlobalRaids() {
       const row = selectGlobalRaids.get();
@@ -439,27 +473,39 @@ export function createAutomationStateStore({ directory }) {
         throw new Error("automation_state_corrupt");
       return record.value;
     },
-    write(playerId, value) {
-      const normalized = normalizePlayerId(playerId);
-      let record;
-      try {
-        record = JSON.stringify({ playerId: normalized, value });
-      } catch {
-        throw new TypeError("automation_record_invalid");
+    write(playerId, value, transactionToken) {
+      const { id, encrypted } = writeAccount(playerId, value);
+      if (transactionToken === ownedWriteToken) {
+        upsert.run(id, encrypted);
+      } else {
+        transaction(() => upsert.run(id, encrypted));
+        for (const suffix of ["-wal", "-shm"])
+          if (existsSync(databasePath + suffix))
+            chmodSync(databasePath + suffix, 0o600);
       }
-      if (Buffer.byteLength(record) > MAX_RECORD_BYTES)
-        throw new RangeError("automation_record_too_large");
-      const id = opaqueId(key, normalized);
-      const encrypted = encrypt(key, id, {
-        playerId: normalized,
-        value: JSON.parse(record).value,
+    },
+    writeOwned(playerId, value, owner, nowFn) {
+      if (
+        typeof owner !== "string" ||
+        owner.length < 1 ||
+        owner.length > 256 ||
+        typeof nowFn !== "function"
+      )
+        throw new TypeError("invalid_automation_lease_owner");
+      transaction(() => {
+        const nowMs = nowFn();
+        if (!Number.isSafeInteger(nowMs))
+          throw new TypeError("invalid_automation_lease_time");
+        const lease = selectLease.get();
+        if (!lease || lease.owner !== owner || lease.expires_at <= nowMs)
+          throw new Error("automation_worker_unavailable");
+        this.write(playerId, value, ownedWriteToken);
       });
-      transaction(() => upsert.run(id, encrypted));
       for (const suffix of ["-wal", "-shm"])
         if (existsSync(databasePath + suffix))
           chmodSync(databasePath + suffix, 0o600);
     },
-    createBridgeAttempt(attempt) {
+    createBridgeAttempt(attempt, workerLease = null) {
       if (Object.hasOwn(attempt || {}, "transportStoppedAt"))
         throw new TypeError("invalid_bridge_attempt");
       const value = validateBridgeAttempt(attempt);
@@ -469,7 +515,10 @@ export function createAutomationStateStore({ directory }) {
         .digest("hex");
       const record = { ...value, revision: 1 };
       const encrypted = encrypt(key, attemptKey, record);
-      transaction(() => insertBridgeAttempt.run(attemptKey, encrypted));
+      transaction(() => {
+        assertWorkerLease(workerLease);
+        insertBridgeAttempt.run(attemptKey, encrypted);
+      });
       for (const suffix of ["-wal", "-shm"])
         if (existsSync(databasePath + suffix))
           chmodSync(databasePath + suffix, 0o600);
@@ -512,7 +561,12 @@ export function createAutomationStateStore({ directory }) {
         })
         .filter((record) => BRIDGE_ATTEMPT_ACTIVE.has(record.phase));
     },
-    compareAndSetBridgeAttempt(id, expectedRevision, updates) {
+    compareAndSetBridgeAttempt(
+      id,
+      expectedRevision,
+      updates,
+      workerLease = null,
+    ) {
       if (
         !BRIDGE_ATTEMPT_ID.test(id || "") ||
         !Number.isSafeInteger(expectedRevision) ||
@@ -531,6 +585,7 @@ export function createAutomationStateStore({ directory }) {
         .update(id)
         .digest("hex");
       return transaction(() => {
+        assertWorkerLease(workerLease);
         const current = selectBridgeAttempt.get(attemptKey);
         if (!current || current.revision !== expectedRevision) return null;
         const record = decrypt(key, attemptKey, current.record);
@@ -575,7 +630,12 @@ export function createAutomationStateStore({ directory }) {
         return result.changes === 1 ? next : null;
       });
     },
-    confirmBridgeTransportStop(id, expectedRevision, nowMs) {
+    confirmBridgeTransportStop(
+      id,
+      expectedRevision,
+      nowMs,
+      workerLease = null,
+    ) {
       if (
         !BRIDGE_ATTEMPT_ID.test(id || "") ||
         !Number.isSafeInteger(expectedRevision) ||
@@ -589,6 +649,7 @@ export function createAutomationStateStore({ directory }) {
         .update(id)
         .digest("hex");
       return transaction(() => {
+        assertWorkerLease(workerLease);
         const row = selectBridgeAttempt.get(attemptKey);
         if (!row || row.revision !== expectedRevision) return null;
         const record = decrypt(key, attemptKey, row.record);
@@ -695,8 +756,48 @@ export function createAutomationStateStore({ directory }) {
         !Number.isSafeInteger(nowMs + ttlMs)
       )
         throw new TypeError("invalid_automation_lease");
+      const result = transaction(() => {
+        const previous = selectLease.get();
+        const acquired = acquireLeaseStatement.run(owner, nowMs + ttlMs, nowMs);
+        if (acquired.changes === 1 && previous?.owner !== owner) {
+          // Invalidate callbacks belonging to a previous worker before the new
+          // owner can observe and restore its durable restrictions.
+          for (const row of selectBridgeAttempts.all()) {
+            const record = decrypt(key, row.attempt_key, row.record);
+            if (!record || record.revision !== row.revision)
+              throw new Error("bridge_attempt_corrupt");
+            if (!BRIDGE_ATTEMPT_ACTIVE.has(record.phase)) continue;
+            const { revision, ...value } = record;
+            validateBridgeAttempt(value);
+            const next = { ...record, revision: revision + 1 };
+            if (!Number.isSafeInteger(next.revision))
+              throw new Error("bridge_attempt_corrupt");
+            const updated = updateBridgeAttempt.run(
+              next.revision,
+              encrypt(key, row.attempt_key, next),
+              row.attempt_key,
+              revision,
+            );
+            if (updated.changes !== 1) throw new Error("bridge_attempt_stale");
+          }
+        }
+        return acquired;
+      });
+      return result.changes === 1;
+    },
+    renewOwnedLease(owner, nowMs, ttlMs) {
+      if (
+        typeof owner !== "string" ||
+        owner.length < 1 ||
+        owner.length > 256 ||
+        !Number.isSafeInteger(nowMs) ||
+        !Number.isSafeInteger(ttlMs) ||
+        ttlMs <= 0 ||
+        !Number.isSafeInteger(nowMs + ttlMs)
+      )
+        throw new TypeError("invalid_automation_lease");
       const result = transaction(() =>
-        acquireLeaseStatement.run(owner, nowMs + ttlMs, nowMs),
+        renewOwnedLeaseStatement.run(nowMs + ttlMs, owner),
       );
       return result.changes === 1;
     },
