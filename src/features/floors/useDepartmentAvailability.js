@@ -104,6 +104,7 @@ export function useDepartmentAvailability(
   floorStatus,
   floorAvailable,
   isLastAvailableFloor,
+  active = true,
 ) {
   const [state, setState] = useState({});
   const [revision, setRevision] = useState(0);
@@ -126,9 +127,9 @@ export function useDepartmentAvailability(
             setState(departmentResult(code, event.data));
           }
         },
-        { resources: shouldLoad && path ? [path] : [] },
+        { resources: shouldLoad && path ? [path] : [], revalidate: active },
       ),
-    [path, code, shouldLoad],
+    [path, code, shouldLoad, active],
   );
   const cachedBody =
     shouldLoad && path ? peekSessionJson(path, { allowStale: true }) : null;

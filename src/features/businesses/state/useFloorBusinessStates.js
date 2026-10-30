@@ -10,7 +10,11 @@ import {
 } from "../../../../shared/session-api.js";
 import { businessStatesFromFloorInfo } from "../../floors/useDepartmentAvailability.js";
 
-export function useFloorBusinessStates(floorCode, enabled = true) {
+export function useFloorBusinessStates(
+  floorCode,
+  enabled = true,
+  active = true,
+) {
   const path = floorCode
     ? `/api/floors/${encodeURIComponent(floorCode)}/info`
     : null;
@@ -34,9 +38,9 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
           } else if (event.path === path)
             setState({ path, data: businessStatesFromFloorInfo(event.data) });
         },
-        { resources: enabled && path ? [path] : [] },
+        { resources: enabled && path ? [path] : [], revalidate: active },
       ),
-    [path, enabled],
+    [path, enabled, active],
   );
   useEffect(() => {
     if (

@@ -46,6 +46,7 @@ export function FloorsSection({
   onQueueFocusHandled,
   onVisibleFloorChange,
   isAuthenticated = false,
+  active = true,
   playerLevel,
 }) {
   const battleState = useSyncExternalStore(
@@ -128,6 +129,7 @@ export function FloorsSection({
     status,
     availability[lastAvailableFloorCode],
     true,
+    active,
   );
   const businessStates = useFloorBusinessStates(
     selectedFloor?.code,
@@ -135,6 +137,7 @@ export function FloorsSection({
       category === "businesses" &&
       status === "ready" &&
       availability[selectedFloor?.code] === true,
+    active,
   );
   useEffect(() => {
     if (departmentState.status === "ready")

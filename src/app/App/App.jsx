@@ -508,6 +508,7 @@ export function App() {
                   )}
                   <FloorsSection
                     {...floorAvailability}
+                    active={visibleScreen === "overview"}
                     isAuthenticated={authenticated}
                     playerLevel={
                       authenticated && profileState.status === "ready"
