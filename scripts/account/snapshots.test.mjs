@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { createPlayerProgressReader } from "./player-progress.mjs";
 import { createAccountSnapshots, isSnapshotPath } from "./snapshots.mjs";
+import { createAccountDataService } from "./data-service.mjs";
 import { createAutomationStateStore } from "../automation/state-store.mjs";
 
 const origin = "https://cargohustle.online";
@@ -1223,6 +1224,41 @@ test("TTL cache and concurrent demand deduplicate upstream section reads", async
   assert.deepEqual(await payload(expired), { bag: [1] });
   assert.equal(expired.headers.get("X-Madhouse-Snapshot"), "stale");
   assert.equal(queue.calls.length, 3);
+});
+
+test("direct consumers with independent signals share one physical snapshot read", async () => {
+  let release;
+  let calls = 0;
+  const authorization = "Bearer shared-direct";
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async () => {
+      calls++;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return reply({ revision: 1 });
+    },
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 9 });
+  const data = createAccountDataService({ transport: snapshots, snapshots });
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const headers = { Authorization: authorization };
+  const first = data.fetch(`${origin}/api/me/bag`, {
+    headers,
+    signal: firstController.signal,
+  });
+  const second = data.fetch(`${origin}/api/me/bag`, {
+    headers,
+    signal: secondController.signal,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  firstController.abort();
+  await assert.rejects(first, { name: "AbortError" });
+  release();
+  assert.deepEqual(await payload(await second), { revision: 1 });
+  assert.equal(calls, 1);
 });
 
 test("a post-mutation read cannot join an earlier in-flight read", async () => {

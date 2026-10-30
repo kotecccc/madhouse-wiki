@@ -2,6 +2,7 @@ import { createBossCardsHttp } from "../account/boss-cards.mjs";
 import { createPlayerProgressReader } from "../account/player-progress.mjs";
 import { createProfileLevelHandler } from "../account/profile-level.mjs";
 import { createAccountSnapshots } from "../account/snapshots.mjs";
+import { createAccountDataService } from "../account/data-service.mjs";
 import { createProxy, isGameApiPath } from "../../api/[...path].js";
 import { resolve } from "node:path";
 import { createAutomationStateStore } from "./state-store.mjs";
@@ -51,7 +52,11 @@ export async function createAutomationRuntime({
     ...(gameFetcher ? { fetcher: gameFetcher } : {}),
   });
   // Bridge admission is injected only after the host has satisfied all gates.
-  const transport = bridge ? bridge.wrapSnapshots(snapshots) : snapshots;
+  const boundary = bridge ? bridge.wrapSnapshots(snapshots) : snapshots;
+  const transport = createAccountDataService({
+    transport: boundary,
+    snapshots,
+  });
   const wikiAuthority =
     wikiSessionAuthority ||
     (env.WIKI_SESSION_KEY && env.ACCOUNT_SESSION_KEY

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createBridgeAwareAccountFetch } from "../../scripts/bridge/bridge-aware-fetch.mjs";
 import { createAccountSnapshots } from "../../scripts/account/snapshots.mjs";
+import { createAccountDataService } from "../../scripts/account/data-service.mjs";
 import { createProxy } from "../../api/[...path].js";
 import {
   createBridgeBrowserSessions,
@@ -337,6 +338,11 @@ test("real snapshot identities cannot send an old bridge token directly", async 
     assert.deepEqual(await boundary.verifyLocal("Bearer other"), {
       policy: "direct",
     });
+    const data = createAccountDataService({ transport: boundary, snapshots });
+    assert.equal(
+      (await (await data.fetch(url, options("other"))).json()).playerId,
+      43,
+    );
     assert.deepEqual(
       bridge.directRoutes.resolve({ playerId: "43", owner: "102" }),
       {

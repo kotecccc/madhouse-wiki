@@ -1909,7 +1909,7 @@ export function createAccountSnapshots({
         : null;
     },
     read,
-    observationVersion(authorization, { verifiedPlayerId } = {}) {
+    observationVersion(authorization, { verifiedPlayerId, path } = {}) {
       const indexed = credentials.get(hash(authorization || ""));
       const verified =
         Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
@@ -1922,7 +1922,7 @@ export function createAccountSnapshots({
       return `${playerId}:${Math.max(
         profileRevisions.get(playerId) ?? 0,
         record?.profileRevision ?? 0,
-      )}`;
+      )}:${record?.sections?.[path]?.revision ?? 0}`;
     },
     readDisplayCache(url, init = {}, { verifiedPlayerId } = {}) {
       const parsed = new URL(url);

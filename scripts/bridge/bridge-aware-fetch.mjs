@@ -188,6 +188,7 @@ export function createBridgeAwareAccountFetch({
         const boundPlayer = Number(accounts.read?.(owner)?.playerId);
         const observationVersion = snapshots.observationVersion?.(credential, {
           verifiedPlayerId: boundPlayer,
+          path: "/api/me",
         });
         const refresh = new Headers(init.headers).get(
           "X-Madhouse-Snapshot-Refresh",
@@ -500,5 +501,55 @@ export function createBridgeAwareAccountFetch({
       );
     },
     verifyLocal,
+    async shareScope(authorization, path) {
+      const verified = await verifyLocal(authorization);
+      const known = accounts.resolveCredential(authorization);
+      if (verified.policy === "bridge_required") {
+        const account = accounts.read?.(known.owner);
+        const playerId = Number(account?.playerId);
+        const credential = canonicalCredential(authorization);
+        const version = snapshots.observationVersion?.(credential, {
+          verifiedPlayerId: playerId,
+          path,
+        });
+        if (!version) return null;
+        return {
+          route: JSON.stringify([
+            known.policy,
+            known.owner,
+            known.epoch,
+            account?.playerId,
+            account?.revision,
+            account?.deviceId,
+            account?.generation,
+          ]),
+          version,
+        };
+      }
+      const registered = directCredentials?.resolve(authorization);
+      const identity =
+        registered ||
+        (snapshots.routingIdentity || snapshots.identity).call(
+          snapshots,
+          authorization,
+        );
+      if (!identity) return null;
+      const normalizedIdentity = {
+        ...identity,
+        playerId: String(identity.playerId),
+      };
+      const route = directRoutes.resolve(normalizedIdentity);
+      const version = snapshots.observationVersion?.(authorization, { path });
+      if (!route || !version) return null;
+      return {
+        route: JSON.stringify([
+          route.policy,
+          route.epoch,
+          route.owner,
+          identity.playerId,
+        ]),
+        version,
+      };
+    },
   });
 }

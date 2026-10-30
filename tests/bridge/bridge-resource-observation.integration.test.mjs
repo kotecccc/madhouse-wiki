@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAccountSnapshots } from "../../scripts/account/snapshots.mjs";
+import { createAccountDataService } from "../../scripts/account/data-service.mjs";
 import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
 import { createBridgeAwareAccountFetch } from "../../scripts/bridge/bridge-aware-fetch.mjs";
 
@@ -255,6 +256,92 @@ test("bridge display reads reuse a suitable resource until its TTL expires", asy
     revision: 2,
   });
   assert.equal(calls, 2);
+});
+
+test("bridge consumers with separate cancellation share one physical resource read", async () => {
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    now: () => 200,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  const started = deferred();
+  const release = deferred();
+  let reads = 0;
+  const { transport } = makeBridge({
+    snapshots: routeSnapshots(snapshots),
+    readGame: async ({ openTunnel, validateTunnel }) => {
+      await openTunnel();
+      assert.equal(await validateTunnel(), true);
+      reads++;
+      started.resolve();
+      await release.promise;
+      return { status: 200, body: Buffer.from('{"revision":1}') };
+    },
+  });
+  const data = createAccountDataService({ transport, snapshots });
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const headers = { Authorization: authorization };
+  const first = data.fetch(bagUrl, { headers, signal: firstController.signal });
+  const second = data.fetch(bagUrl, {
+    headers,
+    signal: secondController.signal,
+  });
+  await started.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  firstController.abort();
+  await assert.rejects(first, { name: "AbortError" });
+  release.resolve();
+  assert.deepEqual(await (await second).json(), { revision: 1 });
+  assert.equal(reads, 1);
+});
+
+test("joined bridge readers reject the result after a route change", async () => {
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    now: () => 200,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  const started = deferred();
+  const release = deferred();
+  const fixture = makeBridge({
+    snapshots: routeSnapshots(snapshots),
+    readGame: async () => {
+      started.resolve();
+      await release.promise;
+      return { status: 200, body: Buffer.from('{"revision":1}') };
+    },
+  });
+  const data = createAccountDataService({
+    transport: fixture.transport,
+    snapshots,
+  });
+  const headers = { Authorization: authorization };
+  const first = data.fetch(bagUrl, { headers });
+  const second = data.fetch(bagUrl, { headers });
+  await started.promise;
+  fixture.accounts.resolveCredential = () => ({
+    policy: "bridge_required",
+    owner,
+    epoch: 2,
+    credentialCurrent: true,
+  });
+  release.resolve();
+  const results = await Promise.allSettled([first, second]);
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["rejected", "rejected"],
+  );
+  assert.deepEqual(
+    results.map((result) => result.reason.code),
+    ["game_route_changed", "game_route_changed"],
+  );
 });
 
 test("late bridge resource observation is rejected after a mutation barrier", async () => {
