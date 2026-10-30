@@ -123,7 +123,8 @@ import {
   subscribeSession,
 } from "./auth-session.js";
 
-// One in-memory session cache and one paced GET queue for all account UI data.
+// One in-memory session cache for account UI data. Physical game pacing is
+// enforced by the server coordinator; independent Wiki reads use bounded slots.
 // No JWT or personal response is written to the catalogue or local storage.
 export function createSessionApi({
   authorize,
@@ -132,7 +133,7 @@ export function createSessionApi({
   fetcher = fetch,
   now = Date.now,
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  interval = 1100,
+  interval = 0,
   ttl = 180000,
   shouldRefresh = () => true,
   failureCooldown = ttl,
@@ -147,6 +148,9 @@ export function createSessionApi({
   let generation = 0;
   let identity = null;
   let tail = Promise.resolve();
+  let automationCommandTail = Promise.resolve();
+  let readLane = { active: 0, waiting: [] };
+  const readLimit = interval > 0 ? 1 : 4;
   // Wiki-owned stop commands remain usable when game requests are stalled.
   // They are ordered with each other, but stored reads do not occupy this lane.
   let localCommandTail = Promise.resolve();
@@ -186,11 +190,30 @@ export function createSessionApi({
     pendingModes.clear();
     snapshotOnlyPending.clear();
     tail = Promise.resolve();
+    automationCommandTail = Promise.resolve();
+    readLane = { active: 0, waiting: [] };
     localCommandTail = Promise.resolve();
     for (const controller of controllers) controller.abort();
     controllers.clear();
     refreshing = 0;
     publish({ cleared: true, refreshing: false });
+  }
+  function scheduleRead(task) {
+    const lane = readLane;
+    return new Promise((resolve, reject) => {
+      const start = () => {
+        lane.active++;
+        Promise.resolve()
+          .then(task)
+          .then(resolve, reject)
+          .finally(() => {
+            lane.active--;
+            lane.waiting.shift()?.();
+          });
+      };
+      if (lane.active < readLimit) start();
+      else lane.waiting.push(start);
+    });
   }
   function request(
     method,
@@ -214,6 +237,8 @@ export function createSessionApi({
       { url: path, method },
       body?.command,
     );
+    const queuedCommand =
+      method === "POST" && path === "/api/automation/commands";
     try {
       const current = (
         storedOnly
@@ -305,7 +330,9 @@ export function createSessionApi({
     };
     const task = async () => {
       const wait =
-        storedOnly || localCommand ? 0 : interval - (now() - lastStarted);
+        storedOnly || localCommand || queuedCommand
+          ? 0
+          : interval - (now() - lastStarted);
       if (wait > 0) await pause(wait);
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (generation !== requestGeneration)
@@ -329,7 +356,7 @@ export function createSessionApi({
       signal?.addEventListener("abort", forwardAbort, { once: true });
       controllers.add(controller);
       const timeout = setTimeout(() => controller.abort(), 20000);
-      if (!storedOnly && !localCommand) lastStarted = now();
+      if (!storedOnly && !localCommand && !queuedCommand) lastStarted = now();
       try {
         const options = {
           method,
@@ -361,7 +388,8 @@ export function createSessionApi({
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (generation !== requestGeneration || controller.signal.aborted)
             throw new Error("Сессия изменилась");
-          if (!storedOnly && !localCommand) lastStarted = now();
+          if (!storedOnly && !localCommand && !queuedCommand)
+            lastStarted = now();
           response = await fetcher(request.url, options);
           if (generation === requestGeneration && !controller.signal.aborted)
             observeGameResponse(response);
@@ -530,9 +558,16 @@ export function createSessionApi({
     };
     const promise = storedOnly
       ? Promise.resolve().then(task)
-      : (localCommand ? localCommandTail : tail).then(task);
+      : localCommand
+        ? localCommandTail.then(task)
+        : queuedCommand
+          ? automationCommandTail.then(task)
+          : method === "GET"
+            ? scheduleRead(task)
+            : tail.then(task);
     if (localCommand) localCommandTail = promise.catch(() => {});
-    else if (!storedOnly) tail = promise.catch(() => {});
+    else if (queuedCommand) automationCommandTail = promise.catch(() => {});
+    else if (!storedOnly && method !== "GET") tail = promise.catch(() => {});
     if (method === "GET" && !storedOnly) {
       if (!cached) entries.set(path, entry);
       pending.set(path, promise);

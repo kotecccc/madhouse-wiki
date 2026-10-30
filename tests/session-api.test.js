@@ -66,6 +66,7 @@ test("session GET cache deduplicates, spaces requests, expires and clears betwee
   const starts = [];
   const api = createSessionApi({
     now: () => clock,
+    interval: 1100,
     pause: async (ms) => {
       clock += ms;
     },
@@ -606,7 +607,7 @@ test("Wiki-authenticated stop preserves the active game credential identity", as
   assert.deepEqual(api.peek("/api/me"), { playerId: 42 });
 });
 
-test("game actions remain behind stalled game fetches", async () => {
+test("queued commands and independent Wiki reads bypass a stalled game read", async () => {
   let releaseGameFetch;
   const started = [];
   const api = createSessionApi({
@@ -638,18 +639,77 @@ test("game actions remain behind stalled game fetches", async () => {
       commandSettled = true;
     });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(commandSettled, false);
+  assert.equal(commandSettled, true);
+  await api.get("/api/floors", { fresh: true });
   assert.deepEqual(
     started.map(({ url }) => url),
-    ["/api/me"],
+    ["/api/me", "/api/automation/commands", "/api/floors"],
   );
 
   releaseGameFetch(Response.json({ playerId: 42 }));
   await Promise.all([gameRead, gameAction]);
   assert.deepEqual(
     started.map(({ url }) => url),
-    ["/api/me", "/api/automation/commands"],
+    ["/api/me", "/api/automation/commands", "/api/floors"],
   );
+});
+
+test("queued commands stay ordered while stop bypasses a stalled command", async () => {
+  let release;
+  const started = [];
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      const command = JSON.parse(options.body).command;
+      started.push(command);
+      if (command === "queue.enqueue" && started.length === 1)
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      return Response.json({ ok: true });
+    },
+  });
+  const first = api.post("/api/automation/commands", {
+    command: "queue.enqueue",
+    id: "1",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = api.post("/api/automation/commands", {
+    command: "queue.enqueue",
+    id: "2",
+  });
+  await api.post("/api/automation/commands", { command: "work.stop", id: "3" });
+  assert.deepEqual(started, ["queue.enqueue", "work.stop"]);
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(started, ["queue.enqueue", "work.stop", "queue.enqueue"]);
+});
+
+test("independent client reads have bounded concurrency", async () => {
+  const releases = [];
+  let started = 0;
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async () => {
+      started++;
+      await new Promise((resolve) => releases.push(resolve));
+      return Response.json({ ok: true });
+    },
+  });
+  const reads = [
+    "/api/me",
+    "/api/me/bag",
+    "/api/floors",
+    "/api/rooms",
+    "/api/clothing",
+  ].map((path) => api.get(path, { fresh: true }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started, 4);
+  releases.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started, 5);
+  for (const release of releases) release();
+  await Promise.all(reads);
 });
 
 test("strict stored reads reject paths outside the account snapshot contract", async () => {
