@@ -11,6 +11,107 @@ import { createSessionApi } from "../shared/session-api.js";
 import { inventoryGame } from "./helpers/inventory-game.mjs";
 import { createDirectBoundary } from "../scripts/game/direct-boundary.mjs";
 
+test("work barriers coalesce display refreshes and reconcile dirty snapshots when the run ends", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "resource-work-refresh-"));
+  const store = createAutomationStateStore({ directory });
+  const credential = "Bearer resource-work";
+  const origin = "https://cargohustle.online";
+  const paths = ["/api/me", "/api/me/bag", "/api/stash/sets"];
+  let clock = 1000;
+  const reads = Object.fromEntries(paths.map((path) => [path, 0]));
+  const snapshots = createAccountSnapshots({
+    store,
+    now: () => clock,
+    fetcher: async (url) => {
+      const path = new URL(url).pathname;
+      if (path in reads) reads[path]++;
+      return Response.json(
+        path === "/api/me" ? { playerId: 42 } : { items: [] },
+      );
+    },
+  });
+  const init = { headers: { Authorization: credential } };
+  const api = createSessionApi({
+    now: () => clock,
+    authorize: (request) => ({ ...request, ...init }),
+    fetcher: (path, options) =>
+      options.headers["X-Madhouse-Stored-Only"]
+        ? snapshots.readStored(`${origin}${path}`, options)
+        : snapshots.read(`${origin}${path}`, options),
+  });
+  const flush = async () => {
+    for (let i = 0; i < 20; i++) await new Promise(setImmediate);
+  };
+  let version = 0;
+  const publish = (status) =>
+    api.publishResponse("/api/automation/state", {
+      version: ++version,
+      queuedActions: [],
+      workFarm: { run: { status } },
+      resourceVersions: snapshots.resourceVersions(credential),
+    });
+  try {
+    for (const path of paths) await snapshots.read(`${origin}${path}`, init);
+    const unsubscribe = api.subscribe(() => {}, { resources: paths });
+    for (const path of paths) await api.get(path);
+    publish("running");
+    const barrier = () => {
+      const ticket = snapshots.beginMutation(
+        credential,
+        "POST",
+        "/api/works/tasks/perform",
+      );
+      assert.equal(snapshots.commitMutationBarrier(ticket), true);
+    };
+    barrier();
+    publish("running");
+    await flush();
+    assert.deepEqual(reads, {
+      "/api/me": 2,
+      "/api/me/bag": 2,
+      "/api/stash/sets": 2,
+    });
+    clock += 3000;
+    barrier();
+    publish("running");
+    await flush();
+    assert.deepEqual(reads, {
+      "/api/me": 2,
+      "/api/me/bag": 2,
+      "/api/stash/sets": 2,
+    });
+    clock += 30000;
+    api.refreshExpired();
+    await flush();
+    assert.deepEqual(reads, {
+      "/api/me": 3,
+      "/api/me/bag": 3,
+      "/api/stash/sets": 3,
+    });
+    clock += 3000;
+    barrier();
+    publish("running");
+    await flush();
+    publish("completed");
+    await flush();
+    assert.deepEqual(reads, {
+      "/api/me": 4,
+      "/api/me/bag": 4,
+      "/api/stash/sets": 4,
+    });
+    assert.ok(
+      paths.every(
+        (path) => !snapshots.resourceVersions(credential).sections[path].dirty,
+      ),
+    );
+    unsubscribe();
+    api.clear();
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("stored actor state drives only subscribed resource refreshes after a server mutation", async () => {
   const directory = mkdtempSync(join(tmpdir(), "resource-versions-"));
   const store = createAutomationStateStore({ directory });

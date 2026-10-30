@@ -65,6 +65,32 @@ export async function loadFriendPage(get, cursor = null, signal) {
   };
 }
 
+export async function loadInitialFriends(get, signal) {
+  try {
+    return await loadFriendPage(get, null, signal);
+  } catch (error) {
+    signal?.throwIfAborted();
+    try {
+      const saved = await get("/api/automation/friends", {
+        fresh: true,
+        revalidate: false,
+        signal,
+      });
+      signal?.throwIfAborted();
+      if (
+        !Array.isArray(saved?.items) ||
+        !Number.isFinite(saved.updatedAt) ||
+        !saved.items.every((friend) => positiveId(friend?.playerId))
+      )
+        throw error;
+      return { items: saved.items, nextCursor: null };
+    } catch {
+      signal?.throwIfAborted();
+      throw error;
+    }
+  }
+}
+
 export async function loadFriends(get, signal) {
   const friends = new Map();
   const seen = new Set();

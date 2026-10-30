@@ -25,6 +25,50 @@ const env = {
   MADHOUSE_GAME_DEVICE_INTERVAL_MS: "1",
 };
 
+test("an interrupted bridge read does not fence later work on the same account", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-read-recovery-"));
+  const store = createAutomationStateStore({ directory: dir });
+  const boundary = createDirectBoundary({ env, requireBridgeJournal: true });
+  try {
+    boundary.installBridgeStore(store);
+    for (const read of [
+      { method: "GET", path: "/api/floors/J/info" },
+      { method: "POST", path: "/api/works/open" },
+    ]) {
+      await assert.rejects(
+        boundary.bridge({
+          ...options,
+          ...read,
+          kind: "read",
+          execute: () => {
+            throw new Error("lost read response");
+          },
+        }),
+        /lost read response/,
+      );
+      const result = await boundary.bridge({
+        ...options,
+        method: "GET",
+        path: "/api/me",
+        kind: "read",
+        execute: () => ({ status: 200 }),
+      });
+      assert.equal(result.status, 200);
+      assert.equal(boundary.diagnostics().volatileBlocks, 0);
+    }
+    const result = await boundary.bridge({
+      ...options,
+      execute: () => ({ status: 200 }),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(store.readActiveBridgeAttempts().length, 0);
+  } finally {
+    boundary.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("journal precedes possible send and restores account/device restriction after restart", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-journal-"));
   let store = createAutomationStateStore({ directory: dir });

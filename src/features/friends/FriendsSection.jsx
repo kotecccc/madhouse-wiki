@@ -19,7 +19,11 @@ import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { authorizeRequest } from "../../../shared/auth-session.js";
 import { sendFriendCommand } from "./friend-commands.js";
-import { loadFriendPage, selectFriends } from "./friends.js";
+import {
+  loadFriendPage,
+  loadInitialFriends,
+  selectFriends,
+} from "./friends.js";
 import { FriendsRequests } from "./FriendsRequests.jsx";
 import "../../components/ui/StatusList/StatusList.css";
 import "./FriendsSection.css";
@@ -104,7 +108,7 @@ export function FriendsSection({
         if (!controller.signal.aborted) setAutomation(value);
       })
       .catch(() => {});
-    void loadFriendPage(getSessionJson, null, controller.signal)
+    void loadInitialFriends(getSessionJson, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted)
           setState({ status: "ready", ...result });
@@ -390,7 +394,7 @@ export function FriendsSection({
     <section className="friends-section" aria-label="Друзья">
       {state.status === "error" && (
         <>
-          <ErrorToast message="Не удалось загрузить друзей. Проверьте подключение к игре." />
+          <ErrorToast message="Не удалось загрузить друзей. Попробуйте ещё раз." />
           <Button onClick={() => setReload((value) => value + 1)}>
             Повторить
           </Button>

@@ -302,6 +302,10 @@ export function createDirectBoundary({
         accountId,
         deviceId,
         signal,
+        readOnly:
+          kind !== "mutation" &&
+          ((method || "GET") === "GET" ||
+            (method === "POST" && path === "/api/works/open")),
         source: method && method !== "GET" ? "automation" : "wiki",
         cooldownScope: authorization ? "account" : "global",
         ...(recoveryAttempt

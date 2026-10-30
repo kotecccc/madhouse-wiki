@@ -160,6 +160,9 @@ export function createSessionApi({
   let publicationClock = 0;
   let resourceVersions = null;
   let automationVersion = -1;
+  let workRunning = false;
+  const workRefreshAt = new Map();
+  const deferredWorkRefreshes = new Set();
   const isSnapshotPath = (path) =>
     /^\/api\/(?:automation\/bosses|me|me\/bag|stash\/sets|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
@@ -199,6 +202,9 @@ export function createSessionApi({
     failedAt.clear();
     resourceVersions = null;
     automationVersion = -1;
+    workRunning = false;
+    workRefreshAt.clear();
+    deferredWorkRefreshes.clear();
     tail = Promise.resolve();
     automationCommandTail = Promise.resolve();
     readLane = { active: 0, waiting: [] };
@@ -663,6 +669,8 @@ export function createSessionApi({
     )
       return;
     automationVersion = Math.max(automationVersion, version);
+    const wasWorkRunning = workRunning;
+    workRunning = data.workFarm?.run?.status === "running";
     const previous = resourceVersions;
     const sections = {};
     for (const [path, value] of Object.entries(next.sections)) {
@@ -739,15 +747,14 @@ export function createSessionApi({
             !after ||
             (saved.snapshotStatus === "stale" && now() >= (entry?.until ?? 0))
           ) {
-            if (entries.get(path)?.value !== undefined) refreshPath(path);
-            else if (!pending.has(path) && shouldRefresh())
-              request("GET", path, undefined, {
-                fresh: true,
-                background: true,
-              }).catch(() => {});
+            refreshPath(path);
           }
         })
         .catch(() => {});
+    }
+    if (wasWorkRunning && !workRunning) {
+      workRefreshAt.clear();
+      for (const path of deferredWorkRefreshes) refreshPath(path);
     }
   }
   function refreshPath(path) {
@@ -761,6 +768,20 @@ export function createSessionApi({
       return;
     if (failedAt.has(path) && now() - failedAt.get(path) < failureCooldown)
       return;
+    // A work run dirties snapshots at every mutation barrier. Keep those
+    // barriers intact, but coalesce display-only revalidation during a run.
+    const coalesceWorkRefresh =
+      workRunning &&
+      ["/api/me", "/api/me/bag", "/api/stash/sets"].includes(path);
+    if (
+      coalesceWorkRefresh &&
+      now() - (workRefreshAt.get(path) ?? -Infinity) < 30000
+    ) {
+      deferredWorkRefreshes.add(path);
+      return;
+    }
+    deferredWorkRefreshes.delete(path);
+    if (coalesceWorkRefresh) workRefreshAt.set(path, now());
     request("GET", path, undefined, { background: true }).catch(() => {});
   }
   function refreshExpired() {

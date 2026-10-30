@@ -49,8 +49,8 @@ export function createDirectExecutor({
   // another account/device restriction.
   const durableBlocks = new Map();
   // An ambiguous transport remains fenced, but it is not an executing request.
-  // Mutation attempts normally have a durable block; safe reads can still need
-  // an in-memory transport fence until their relay is known to have stopped.
+  // Mutation attempts normally have a durable block; other unclassified
+  // transports keep an in-memory fence if their outcome is uncertain.
   const volatileBlocks = new Map();
   let globalReadyAt = 0,
     timer = null,
@@ -277,7 +277,9 @@ export function createDirectExecutor({
               },
               (error) => {
                 candidate.quarantined =
-                  candidate.transport === "bridge" && !error?.notDispatched;
+                  candidate.transport === "bridge" &&
+                  !candidate.readOnly &&
+                  !error?.notDispatched;
                 record(
                   candidate,
                   error?.notDispatched ? "not_dispatched" : "uncertain",
@@ -287,7 +289,9 @@ export function createDirectExecutor({
             )
             .catch((error) => {
               candidate.quarantined =
-                candidate.transport === "bridge" && !error?.notDispatched;
+                candidate.transport === "bridge" &&
+                !candidate.readOnly &&
+                !error?.notDispatched;
               record(candidate, "uncertain");
               candidate.reject(error);
             })
@@ -373,6 +377,7 @@ export function createDirectExecutor({
         readDiagnostic: currentReadDiagnostic(),
         execute,
         transport,
+        readOnly: context.readOnly === true,
         deviceId: context.deviceId,
         recoveryAttemptId:
           transport === "bridge" ? context.recoveryAttemptId : undefined,

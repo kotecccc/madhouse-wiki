@@ -1,6 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadFriendPage, loadFriends } from "./friends.js";
+import { loadFriendPage, loadFriends, loadInitialFriends } from "./friends.js";
+
+test("uses the saved friend list when the live page cannot be loaded", async () => {
+  const calls = [];
+  const saved = [{ playerId: 2, nickname: "Bob", madness: 3 }];
+  const result = await loadInitialFriends(async (path) => {
+    calls.push(path);
+    if (path.startsWith("/api/friends?")) throw new Error("not dispatched");
+    return { items: saved, updatedAt: 1000 };
+  });
+  assert.deepEqual(result, { items: saved, nextCursor: null });
+  assert.deepEqual(calls, ["/api/friends?limit=20", "/api/automation/friends"]);
+});
+
+test("does not turn a missing saved snapshot into an empty friends list", async () => {
+  const original = new Error("page failed");
+  await assert.rejects(
+    loadInitialFriends(async (path) => {
+      if (path.startsWith("/api/friends?")) throw original;
+      return { items: null, updatedAt: null };
+    }),
+    (error) => error === original,
+  );
+});
+
+test("does not read the saved list after cancellation", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(
+    loadInitialFriends(async () => {
+      calls++;
+      controller.abort();
+      throw new Error("cancelled");
+    }, controller.signal),
+    { name: "AbortError" },
+  );
+  assert.equal(calls, 1);
+});
 
 test("loads one friend page at a time and passes the cursor", async () => {
   const calls = [];
