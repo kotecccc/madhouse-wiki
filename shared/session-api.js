@@ -140,6 +140,7 @@ export function createSessionApi({
   const entries = new Map();
   const eventDrivenPaths = new Set();
   const pending = new Map();
+  const pendingModes = new Map();
   const snapshotOnlyPending = new Set();
   const controllers = new Set();
   const listeners = new Set();
@@ -182,6 +183,7 @@ export function createSessionApi({
     entries.clear();
     eventDrivenPaths.clear();
     pending.clear();
+    pendingModes.clear();
     snapshotOnlyPending.clear();
     tail = Promise.resolve();
     localCommandTail = Promise.resolve();
@@ -235,7 +237,13 @@ export function createSessionApi({
     const cached = method === "GET" ? entries.get(path) : null;
     if (!storedOnly && method === "GET" && pending.has(path)) {
       const active = pending.get(path);
-      if ((fresh && snapshotOnlyPending.has(path)) || afterPending) {
+      const activeMode = pendingModes.get(path);
+      if (
+        (fresh && snapshotOnlyPending.has(path)) ||
+        (serverRefresh && activeMode?.serverRefresh !== serverRefresh) ||
+        activeMode?.refreshBoss !== refreshBoss ||
+        afterPending
+      ) {
         const waitingGeneration = generation;
         return active
           .catch(() => {})
@@ -244,6 +252,7 @@ export function createSessionApi({
               throw new Error("Сессия изменилась");
             if (pending.get(path) === active) {
               pending.delete(path);
+              pendingModes.delete(path);
               snapshotOnlyPending.delete(path);
             }
             return request(method, path, body, {
@@ -460,6 +469,7 @@ export function createSessionApi({
     if (method === "GET" && !storedOnly) {
       if (!cached) entries.set(path, entry);
       pending.set(path, promise);
+      pendingModes.set(path, { serverRefresh, refreshBoss });
       if (snapshotOnly) snapshotOnlyPending.add(path);
       if (background) setRefreshing(1);
       promise
@@ -476,6 +486,7 @@ export function createSessionApi({
         .finally(() => {
           if (pending.get(path) === promise) {
             pending.delete(path);
+            pendingModes.delete(path);
             snapshotOnlyPending.delete(path);
           }
           if (background && generation === requestGeneration) setRefreshing(-1);
@@ -542,12 +553,10 @@ export function createSessionApi({
       }
       const promise = request("GET", path, undefined, {
         ...options,
-        // Ordinary snapshot reads are shared by components. A component may
-        // unmount while another is still waiting, so its signal must not cancel
-        // the shared transport. getSessionJson cancels that caller's wait.
-        ...(!options.fresh && isSnapshotPath(path)
-          ? { signal: undefined }
-          : {}),
+        // Snapshot reads can be shared even when freshness is requested. A
+        // caller's cancellation must not abort the other consumers' transport.
+        // getSessionJson cancels that caller's wait independently.
+        ...(isSnapshotPath(path) ? { signal: undefined } : {}),
         snapshotOnly: !options.fresh && isSnapshotPath(path) && !cached,
       });
       return promise;

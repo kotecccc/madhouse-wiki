@@ -2,6 +2,35 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createSessionApi } from "../shared/session-api.js";
 
+test("a strict live read does not join an earlier non-live read", async () => {
+  let release;
+  const calls = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      calls.push(options.headers["X-Madhouse-Snapshot-Refresh"] || null);
+      if (calls.length === 1)
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      return Response.json(
+        { revision: calls.length },
+        {
+          headers: { "X-Madhouse-Snapshot": "current" },
+        },
+      );
+    },
+  });
+  const ordinary = api.get("/api/me", { fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  const strict = api.get("/api/me", { fresh: true, serverRefresh: "live" });
+  release();
+  assert.deepEqual(await ordinary, { revision: 1 });
+  assert.deepEqual(await strict, { revision: 2 });
+  assert.deepEqual(calls, [null, "live"]);
+});
+
 test("a stale live profile response never replaces confirmed profile data", async () => {
   let stale = false;
   const events = [];
@@ -94,6 +123,36 @@ test("unmounting the first consumer does not cancel a shared snapshot read", asy
   release();
   assert.deepEqual(await one, { floor: "J" });
   assert.deepEqual(await two, { floor: "J" });
+  assert.equal(calls, 1);
+});
+
+test("cancelling one strict snapshot consumer does not abort a joined read", async () => {
+  const first = new AbortController();
+  let release;
+  let calls = 0;
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, { signal }) => {
+      calls++;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      return Response.json({ revision: 1 });
+    },
+  });
+  const one = api.get("/api/me", {
+    fresh: true,
+    serverRefresh: "live",
+    signal: first.signal,
+  });
+  const two = api.get("/api/me", { fresh: true, serverRefresh: "live" });
+  await new Promise((resolve) => setImmediate(resolve));
+  first.abort();
+  release();
+  assert.deepEqual(await one, { revision: 1 });
+  assert.deepEqual(await two, { revision: 1 });
   assert.equal(calls, 1);
 });
 
