@@ -165,20 +165,26 @@ export function InventorySection({
   }, [active, dirtyPaths, pathKey]);
   useEffect(
     () =>
-      subscribeSessionData((event) => {
-        if (event.cleared) {
-          loadController.current?.abort();
-          setRevision((value) => value + 1);
-          setUpdatedAt({});
-          setRequestState({});
-        } else if (inventoryRequestPaths.has(event.path) && event.data) {
-          setUpdatedAt((current) => ({
-            ...current,
-            [event.path]: event.updatedAt ?? null,
-          }));
-        }
-      }),
-    [],
+      subscribeSessionData(
+        (event) => {
+          if (event.cleared) {
+            loadController.current?.abort();
+            setRevision((value) => value + 1);
+            setUpdatedAt({});
+            setRequestState({});
+          } else if (inventoryRequestPaths.has(event.path) && event.data) {
+            setUpdatedAt((current) => ({
+              ...current,
+              [event.path]: event.updatedAt ?? null,
+            }));
+          }
+        },
+        {
+          resources: active ? pathKey.split("|").filter(Boolean) : [],
+          revalidate: false,
+        },
+      ),
+    [active, pathKey],
   );
   useEffect(() => {
     if (!active) return;

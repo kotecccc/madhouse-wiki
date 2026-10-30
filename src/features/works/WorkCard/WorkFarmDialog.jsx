@@ -70,16 +70,19 @@ export function WorkFarmDialog({
   const [profileFailed, setProfileFailed] = useState(false);
   useEffect(() => {
     let active = true;
-    const unsubscribe = subscribeSessionData((event) => {
-      if (event.cleared) {
-        setProfile(null);
-        setProfileUpdatedAt(0);
-      } else if (event.path === "/api/me") {
-        setProfile(event.data);
-        setProfileUpdatedAt(event.updatedAt ?? 0);
-        setProfileFailed(!validEnergy(event.data?.energy));
-      }
-    });
+    const unsubscribe = subscribeSessionData(
+      (event) => {
+        if (event.cleared) {
+          setProfile(null);
+          setProfileUpdatedAt(0);
+        } else if (event.path === "/api/me") {
+          setProfile(event.data);
+          setProfileUpdatedAt(event.updatedAt ?? 0);
+          setProfileFailed(!validEnergy(event.data?.energy));
+        }
+      },
+      { resources: ["/api/me"] },
+    );
     void getSessionJson("/api/me", { fresh: true, serverRefresh: "live" })
       .then((data) => {
         if (active) {

@@ -138,7 +138,7 @@ export function createSessionApi({
   failureCooldown = ttl,
 }) {
   const entries = new Map();
-  const eventDrivenPaths = new Set();
+  const resourceSubscriptions = new Map();
   const pending = new Map();
   const pendingModes = new Map();
   const snapshotOnlyPending = new Set();
@@ -152,6 +152,7 @@ export function createSessionApi({
   let localCommandTail = Promise.resolve();
   let lastStarted = -Infinity;
   let refreshing = 0;
+  let publicationClock = 0;
   const isSnapshotPath = (path) =>
     /^\/api\/(?:automation\/bosses|me|me\/bag|stash\/sets|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
@@ -181,7 +182,6 @@ export function createSessionApi({
     generation++;
     identity = null;
     entries.clear();
-    eventDrivenPaths.clear();
     pending.clear();
     pendingModes.clear();
     snapshotOnlyPending.clear();
@@ -277,7 +277,32 @@ export function createSessionApi({
     )
       return Promise.resolve(cached.value);
     const requestGeneration = generation;
+    const startedAtPublication = publicationClock;
     const entry = storedOnly ? {} : cached || {};
+    const newerPublished = (observedAt) => {
+      const current = entries.get(path);
+      if (
+        current?.value === undefined ||
+        !(
+          current.publication > startedAtPublication ||
+          (observedAt !== undefined &&
+            current.updatedAt != null &&
+            (observedAt == null || current.updatedAt > observedAt))
+        )
+      )
+        return null;
+      return {
+        presence: "present",
+        data: current.value,
+        updatedAt: current.updatedAt ?? null,
+        snapshotStatus: current.snapshotStatus || "current",
+        ...(current.snapshotCompleteness
+          ? { snapshotCompleteness: current.snapshotCompleteness }
+          : {}),
+        source: "memory",
+        gameStatus: current.gameStatus || "unknown",
+      };
+    };
     const task = async () => {
       const wait =
         storedOnly || localCommand ? 0 : interval - (now() - lastStarted);
@@ -286,7 +311,8 @@ export function createSessionApi({
       if (generation !== requestGeneration)
         throw new Error("Сессия изменилась");
       // A queued refresh may reach its turn after the app was backgrounded.
-      if (background && !shouldRefresh()) return entry.value;
+      if (background && (!shouldRefresh() || !hasRefreshDemand(path)))
+        return entry.value;
       const request = (
         storedOnly
           ? authorizeStored
@@ -358,6 +384,10 @@ export function createSessionApi({
               ? await response.json().catch(() => null)
               : null;
           if (storedFailure?.error === "snapshot_unavailable") {
+            if (generation !== requestGeneration || controller.signal.aborted)
+              throw new Error("Сессия изменилась");
+            const newer = newerPublished();
+            if (newer) return newer;
             return {
               presence: "unknown",
               data: null,
@@ -398,10 +428,40 @@ export function createSessionApi({
           const updated = Number(
             response.headers?.get?.("X-Madhouse-Section-Updated"),
           );
+          const updatedAt =
+            Number.isFinite(updated) && updated > 0 ? updated : null;
+          const newer = newerPublished(updatedAt);
+          if (newer) return newer;
+          const current = entries.get(path);
+          if (isSnapshotPath(path)) {
+            const ttlHeader = response.headers?.get?.(
+              "X-Madhouse-Snapshot-TTL",
+            );
+            const serverTtl = ttlHeader == null ? NaN : Number(ttlHeader);
+            const effectiveTtl =
+              Number.isFinite(serverTtl) && serverTtl >= 0 ? serverTtl : ttl;
+            const saved = current || {};
+            Object.assign(saved, {
+              value: data,
+              updatedAt,
+              until:
+                snapshotStatus === "stale"
+                  ? now()
+                  : updatedAt
+                    ? updatedAt + effectiveTtl
+                    : now() + effectiveTtl,
+              snapshotStatus,
+              snapshotCompleteness,
+              gameStatus:
+                response.headers?.get?.("X-Madhouse-Game-Status") || "unknown",
+              publication: ++publicationClock,
+            });
+            entries.set(path, saved);
+          }
           publish({
             path,
             data,
-            updatedAt: Number.isFinite(updated) && updated > 0 ? updated : null,
+            updatedAt,
             snapshotStatus,
             ...(snapshotCompleteness ? { snapshotCompleteness } : {}),
             storedOnly: true,
@@ -409,7 +469,7 @@ export function createSessionApi({
           return {
             presence: "present",
             data,
-            updatedAt: Number.isFinite(updated) && updated > 0 ? updated : null,
+            updatedAt,
             snapshotStatus: snapshotStatus || "current",
             ...(snapshotCompleteness ? { snapshotCompleteness } : {}),
             source: "stored",
@@ -431,14 +491,21 @@ export function createSessionApi({
         const effectiveTtl =
           Number.isFinite(serverTtl) && serverTtl >= 0 ? serverTtl : ttl;
         entry.until =
-          Number.isFinite(sectionUpdated) && sectionUpdated > 0
-            ? sectionUpdated + effectiveTtl
-            : now() + effectiveTtl;
+          snapshotStatus === "stale"
+            ? now()
+            : Number.isFinite(sectionUpdated) && sectionUpdated > 0
+              ? sectionUpdated + effectiveTtl
+              : now() + effectiveTtl;
         entry.value = data;
         entry.updatedAt =
           Number.isFinite(sectionUpdated) && sectionUpdated > 0
             ? sectionUpdated
             : null;
+        entry.snapshotStatus = snapshotStatus;
+        entry.snapshotCompleteness = snapshotCompleteness;
+        entry.gameStatus =
+          response.headers?.get?.("X-Madhouse-Game-Status") || "unknown";
+        entry.publication = ++publicationClock;
         entry.lastFailureAt =
           response.headers?.get?.("X-Madhouse-Game-Status") === "unavailable"
             ? now()
@@ -501,11 +568,16 @@ export function createSessionApi({
     }
     return promise;
   }
+  function hasRefreshDemand(path) {
+    return [...(resourceSubscriptions.get(path) || [])].some(
+      (subscription) => subscription.revalidate,
+    );
+  }
   function refreshPath(path) {
     const entry = entries.get(path);
     if (
-      eventDrivenPaths.has(path) ||
-      !entry?.value ||
+      !hasRefreshDemand(path) ||
+      entry?.value === undefined ||
       pending.has(path) ||
       !shouldRefresh()
     )
@@ -540,15 +612,14 @@ export function createSessionApi({
         clear();
         return Promise.reject(error);
       }
-      if (options.revalidate === false) eventDrivenPaths.add(path);
-      else eventDrivenPaths.delete(path);
       const cached = entries.get(path);
       if (
         !options.fresh &&
         isSnapshotPath(path) &&
         cached?.value !== undefined
       ) {
-        if (now() >= cached.until) refreshPath(path);
+        if (options.revalidate !== false && now() >= cached.until)
+          refreshPath(path);
         return Promise.resolve(cached.value);
       }
       const promise = request("GET", path, undefined, {
@@ -594,9 +665,24 @@ export function createSessionApi({
         ? (entries.get(path)?.updatedAt ?? null)
         : null;
     },
-    subscribe(listener) {
+    subscribe(listener, { resources = [], revalidate = true } = {}) {
       listeners.add(listener);
-      return () => listeners.delete(listener);
+      const subscription = { revalidate: revalidate !== false };
+      const paths = [...new Set(resources)].filter(isSnapshotPath);
+      for (const path of paths) {
+        let subscriptions = resourceSubscriptions.get(path);
+        if (!subscriptions)
+          resourceSubscriptions.set(path, (subscriptions = new Set()));
+        subscriptions.add(subscription);
+      }
+      return () => {
+        listeners.delete(listener);
+        for (const path of paths) {
+          const subscriptions = resourceSubscriptions.get(path);
+          subscriptions?.delete(subscription);
+          if (!subscriptions?.size) resourceSubscriptions.delete(path);
+        }
+      };
     },
     publishResponse(path, data) {
       publish({ path, data, updatedAt: null });
@@ -629,6 +715,7 @@ function ensureSessionApi() {
     };
     window.setInterval(refresh, 15000);
     window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
     if (typeof document !== "undefined")
       document.addEventListener("visibilitychange", refresh);
   }
@@ -720,8 +807,8 @@ export function postSessionJson(path, body, { signal } = {}) {
 // Subscribers receive {path, data} after successful session API responses,
 // {refreshing} when background revalidation activity changes, and {cleared:true}
 // when the authenticated account changes or the session is cleared.
-export function subscribeSessionData(listener) {
-  return ensureSessionApi().subscribe(listener);
+export function subscribeSessionData(listener, options) {
+  return ensureSessionApi().subscribe(listener, options);
 }
 export function publishSessionData(path, data, expectedAuthorization) {
   if (typeof path !== "string" || !path.startsWith("/api/")) return;

@@ -108,24 +108,27 @@ export function useDepartmentAvailability(
   const [state, setState] = useState({});
   const [revision, setRevision] = useState(0);
   const path = code ? `/api/floors/${encodeURIComponent(code)}/info` : null;
-  useEffect(
-    () =>
-      subscribeSessionData((event) => {
-        if (event.cleared) {
-          setState({});
-          setRevision((value) => value + 1);
-        } else if (event.path === path && path) {
-          setState(departmentResult(code, event.data));
-        }
-      }),
-    [path, code],
-  );
   const shouldLoad = Boolean(
     code &&
     floorStatus === "ready" &&
     floorAvailable === true &&
     isLastAvailableFloor === true &&
     (readSession().status === "ready" || readSession().wikiSessionReady),
+  );
+  useEffect(
+    () =>
+      subscribeSessionData(
+        (event) => {
+          if (event.cleared) {
+            setState({});
+            setRevision((value) => value + 1);
+          } else if (event.path === path && path) {
+            setState(departmentResult(code, event.data));
+          }
+        },
+        { resources: shouldLoad && path ? [path] : [] },
+      ),
+    [path, code, shouldLoad],
   );
   const cachedBody =
     shouldLoad && path ? peekSessionJson(path, { allowStale: true }) : null;

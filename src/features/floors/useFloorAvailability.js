@@ -197,47 +197,52 @@ export function useFloorAvailability({ profileSettled = true } = {}) {
     };
     load();
     const unsubscribe = subscribeSession(load);
-    const unsubscribeData = subscribeSessionData((event) => {
-      if (event.path === "/api/floors") applyFloors(event.data);
-      const floorMatch = /^\/api\/floors\/([A-O$]|%24)\/info$/i.exec(
-        event.path || "",
-      );
-      if (floorMatch && Array.isArray(event.data?.departments)) {
-        const floorCode = decodeURIComponent(floorMatch[1]);
-        let changed = false;
-        for (const department of event.data.departments) {
-          if (!department?.blockCode || department.unlocked !== true) continue;
-          const key = `${floorCode}:${department.blockCode}`;
-          if (!departmentAccess.current.has(key)) {
-            departmentAccess.current.set(key, true);
-            changed = true;
+    const unsubscribeData = subscribeSessionData(
+      (event) => {
+        if (event.path === "/api/floors") applyFloors(event.data);
+        const floorMatch = /^\/api\/floors\/([A-O$]|%24)\/info$/i.exec(
+          event.path || "",
+        );
+        if (floorMatch && Array.isArray(event.data?.departments)) {
+          const floorCode = decodeURIComponent(floorMatch[1]);
+          let changed = false;
+          for (const department of event.data.departments) {
+            if (!department?.blockCode || department.unlocked !== true)
+              continue;
+            const key = `${floorCode}:${department.blockCode}`;
+            if (!departmentAccess.current.has(key)) {
+              departmentAccess.current.set(key, true);
+              changed = true;
+            }
+          }
+          if (changed) {
+            for (const key of attempted.current)
+              if (key.startsWith(`${floorCode}:`))
+                attempted.current.delete(key);
+            setCataloguePending((current) =>
+              current
+                ? {
+                    ...current,
+                    floors: [...new Set([...current.floors, floorCode])],
+                  }
+                : current,
+            );
+            setAccessRevision((value) => value + 1);
           }
         }
-        if (changed) {
-          for (const key of attempted.current)
-            if (key.startsWith(`${floorCode}:`)) attempted.current.delete(key);
-          setCataloguePending((current) =>
-            current
-              ? {
-                  ...current,
-                  floors: [...new Set([...current.floors, floorCode])],
-                }
-              : current,
+        if (event.cleared) {
+          departmentAccess.current.clear();
+          setAvailability({});
+          setFloorDetails({});
+          setStatus(
+            readSession().status === "ready" || readSession().wikiSessionReady
+              ? "loading"
+              : "idle",
           );
-          setAccessRevision((value) => value + 1);
         }
-      }
-      if (event.cleared) {
-        departmentAccess.current.clear();
-        setAvailability({});
-        setFloorDetails({});
-        setStatus(
-          readSession().status === "ready" || readSession().wikiSessionReady
-            ? "loading"
-            : "idle",
-        );
-      }
-    });
+      },
+      { resources: ["/api/floors"] },
+    );
     const restoreSettled = () => {
       if (readSession().status !== "ready" && !readSession().wikiSessionReady)
         load();

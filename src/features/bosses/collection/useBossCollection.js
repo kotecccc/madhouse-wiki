@@ -27,16 +27,19 @@ export function useBossCollection(_bosses, enabled) {
   const [state, setState] = useState({ status: "idle" });
   useEffect(
     () =>
-      subscribeSessionData((event) => {
-        if (event.cleared) {
-          setState({ status: "idle" });
-          setSessionRevision((value) => value + 1);
-        } else if (event.path === path && Array.isArray(event.data?.bosses)) {
-          if (event.data.gameHealth) reportGameHealth(event.data.gameHealth);
-          setState(result(event.data));
-        }
-      }),
-    [],
+      subscribeSessionData(
+        (event) => {
+          if (event.cleared) {
+            setState({ status: "idle" });
+            setSessionRevision((value) => value + 1);
+          } else if (event.path === path && Array.isArray(event.data?.bosses)) {
+            if (event.data.gameHealth) reportGameHealth(event.data.gameHealth);
+            setState(result(event.data));
+          }
+        },
+        { resources: enabled ? [path] : [], revalidate: false },
+      ),
+    [enabled],
   );
   useEffect(() => {
     if (!enabled || readSession().status !== "ready") return;

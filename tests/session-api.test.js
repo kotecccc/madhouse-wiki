@@ -79,6 +79,7 @@ test("session GET cache deduplicates, spaces requests, expires and clears betwee
       return { ok: true, json: async () => ({ account, url }) };
     },
   });
+  api.subscribe(() => {}, { resources: ["/api/me"] });
   const [one, duplicate, two] = await Promise.all([
     api.get("/api/me"),
     api.get("/api/me"),
@@ -251,6 +252,84 @@ test("a late stored read cannot publish after the session is cleared", async () 
     events.some((event) => event.path === "/api/me"),
     false,
   );
+});
+
+test("a late stored read returns the newer published snapshot without replacing it", async () => {
+  let finishStored;
+  const events = [];
+  const api = createSessionApi({
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      if (options.headers["X-Madhouse-Stored-Only"])
+        return new Promise((resolve) => {
+          finishStored = resolve;
+        });
+      return Response.json(
+        { revision: 2 },
+        {
+          headers: { "X-Madhouse-Section-Updated": "200" },
+        },
+      );
+    },
+  });
+  api.subscribe((event) => events.push(event));
+  await api.get("/api/me", { fresh: true });
+  const stored = api.readStored("/api/me");
+  await new Promise((resolve) => setImmediate(resolve));
+  await api.get("/api/me", { fresh: true, serverRefresh: "live" });
+  finishStored(
+    Response.json(
+      { revision: 1 },
+      {
+        headers: { "X-Madhouse-Section-Updated": "100" },
+      },
+    ),
+  );
+  const result = await stored;
+  assert.deepEqual(result.data, { revision: 2 });
+  assert.equal(result.source, "memory");
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), { revision: 2 });
+  assert.equal(events.filter((event) => event.data?.revision === 1).length, 0);
+});
+
+test("stored snapshots feed demand-driven revalidation without starting it themselves", async () => {
+  let calls = 0;
+  const api = createSessionApi({
+    now: () => 2000,
+    interval: 0,
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      calls++;
+      return Response.json(
+        { revision: calls },
+        {
+          headers: {
+            "X-Madhouse-Section-Updated": options.headers[
+              "X-Madhouse-Stored-Only"
+            ]
+              ? "1000"
+              : "2000",
+            "X-Madhouse-Snapshot-TTL": "100",
+            "X-Madhouse-Snapshot": options.headers["X-Madhouse-Stored-Only"]
+              ? "stale"
+              : "current",
+          },
+        },
+      );
+    },
+  });
+  await api.get("/api/me", { fresh: true });
+  const unsubscribe = api.subscribe(() => {}, { resources: ["/api/me/bag"] });
+  const saved = await api.readStored("/api/me/bag");
+  assert.equal(saved.snapshotStatus, "stale");
+  const afterStored = calls;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, afterStored);
+  api.refreshExpired();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, afterStored + 1);
+  unsubscribe();
 });
 
 test("stored reads proceed while a game-backed fetch is stalled", async () => {
@@ -827,7 +906,7 @@ test("snapshot reads use server timestamps for expiry and revalidate stale data 
       });
     },
   });
-  api.subscribe((event) => events.push(event));
+  api.subscribe((event) => events.push(event), { resources: ["/api/me"] });
   assert.deepEqual(await api.get("/api/me"), { revision: 1 });
   assert.deepEqual(requests, ["1"]);
   // The deadline is sectionUpdated + server TTL, not response time + TTL.
@@ -866,6 +945,7 @@ test("failed background refresh retains stale data and cooldown prevents a reque
             headers: { "X-Madhouse-Game-Status": "unavailable" },
           }),
   });
+  api.subscribe(() => {}, { resources: ["/api/me"] });
   assert.deepEqual(await api.get("/api/me"), { saved: true });
   clock += 101;
   assert.deepEqual(await api.get("/api/me"), { saved: true });
@@ -924,6 +1004,7 @@ test("a queued refresh waits for the app to become visible again", async () => {
     authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
     fetcher: async () => Response.json({ revision: ++calls }),
   });
+  api.subscribe(() => {}, { resources: ["/api/me"] });
   await api.get("/api/me");
   await new Promise((resolve) => setTimeout(resolve, 0));
   clock += 11;
@@ -987,6 +1068,7 @@ test("event-driven wardrobe lists never poll on TTL, reopening, or background sw
   );
   assert.deepEqual(headers, ["1", null]);
   await new Promise((resolve) => setImmediate(resolve));
+  api.subscribe(() => {}, { resources: [path] });
   assert.equal((await api.get(path)).revision, 2);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 3);
@@ -995,7 +1077,7 @@ test("event-driven wardrobe lists never poll on TTL, reopening, or background sw
   assert.equal((await api.get(path, { revalidate: false })).revision, 4);
 });
 
-test("a normal request restores snapshot revalidation after one event-driven read", async () => {
+test("subscriber refresh policy is independent and stops when demand ends", async () => {
   let clock = 1000;
   let calls = 0;
   const api = createSessionApi({
@@ -1006,16 +1088,56 @@ test("a normal request restores snapshot revalidation after one event-driven rea
     fetcher: async () => Response.json({ revision: ++calls }),
   });
   const path = "/api/me";
+  const unsubscribePassive = api.subscribe(() => {}, {
+    resources: [path],
+    revalidate: false,
+  });
   await api.get(path, { revalidate: false });
   clock += 11;
   api.refreshExpired();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 1);
 
-  assert.deepEqual(await api.get(path), { revision: 1 });
+  const unsubscribeActive = api.subscribe(() => {}, { resources: [path] });
+  await api.get(path, { revalidate: false });
+  api.refreshExpired();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 2);
   assert.deepEqual(api.peek(path, { allowStale: true }), { revision: 2 });
+  unsubscribeActive();
+  clock += 11;
+  api.refreshExpired();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 2);
+  unsubscribePassive();
+});
+
+test("a refresh queued before the last unsubscribe does not start", async () => {
+  let clock = 1000;
+  let release;
+  let calls = 0;
+  const api = createSessionApi({
+    now: () => clock,
+    interval: 100,
+    ttl: 10,
+    pause: () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async () => Response.json({ revision: ++calls }),
+  });
+  const unsubscribe = api.subscribe(() => {}, { resources: ["/api/me"] });
+  await api.get("/api/me");
+  await new Promise((resolve) => setImmediate(resolve));
+  clock += 11;
+  api.refreshExpired();
+  await new Promise((resolve) => setImmediate(resolve));
+  unsubscribe();
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.equal(api.isRefreshing(), false);
 });
 
 test("observed game errors accept only safe function names and clear on recovery", async () => {

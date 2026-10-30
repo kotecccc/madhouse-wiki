@@ -46,14 +46,17 @@ export function useFloorBusinessStates(floorCode, enabled = true) {
   );
   useEffect(
     () =>
-      subscribeSessionData((event) => {
-        if (event.cleared) {
-          setState(null);
-          setRevision((value) => value + 1);
-        } else if (event.path === path)
-          setState({ path, data: businessStatesFromFloorInfo(event.data) });
-      }),
-    [path],
+      subscribeSessionData(
+        (event) => {
+          if (event.cleared) {
+            setState(null);
+            setRevision((value) => value + 1);
+          } else if (event.path === path)
+            setState({ path, data: businessStatesFromFloorInfo(event.data) });
+        },
+        { resources: enabled && path ? [path] : [] },
+      ),
+    [path, enabled],
   );
   useEffect(() => {
     if (

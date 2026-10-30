@@ -109,13 +109,20 @@ export function WorkCard({
         .catch(() => {});
     };
     const unsubscribe = subscribeSession(load);
-    const unsubscribeData = subscribeSessionData((event) => {
-      if (event.cleared) {
-        setStashData(null);
-        setBagData(null);
-      } else if (event.path === "/api/stash/sets") setStashData(event.data);
-      else if (event.path === "/api/me/bag") setBagData(event.data);
-    });
+    const unsubscribeData = subscribeSessionData(
+      (event) => {
+        if (event.cleared) {
+          setStashData(null);
+          setBagData(null);
+        } else if (event.path === "/api/stash/sets") setStashData(event.data);
+        else if (event.path === "/api/me/bag") setBagData(event.data);
+      },
+      {
+        resources: work?.stashSet?.ingredients?.length
+          ? ["/api/stash/sets", "/api/me/bag"]
+          : [],
+      },
+    );
     load();
     return () => {
       active = false;

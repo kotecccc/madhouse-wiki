@@ -212,40 +212,43 @@ export function usePlayerProfile() {
           );
       }
     };
-    const unsubscribeData = subscribeSessionData((event) => {
-      if (event.cleared) {
-        setState(cachedState());
-      } else if (event.path === "/api/me") {
-        if (event.liveRefresh && event.snapshotStatus !== "stale") {
+    const unsubscribeData = subscribeSessionData(
+      (event) => {
+        if (event.cleared) {
+          setState(cachedState());
+        } else if (event.path === "/api/me") {
+          if (event.liveRefresh && event.snapshotStatus !== "stale") {
+            setState((current) => ({
+              ...current,
+              status: "ready",
+              profile: livePlayerProfile(
+                event.data,
+                current.profile ?? current.identity,
+              ),
+              updatedAt: event.updatedAt ?? current.updatedAt,
+              snapshotStatus: event.snapshotStatus ?? current.snapshotStatus,
+              snapshotCompleteness:
+                event.snapshotCompleteness ?? current.snapshotCompleteness,
+            }));
+          } else {
+            setState((current) => ({
+              ...current,
+              identity: profileIdentity(event.data),
+            }));
+          }
+        } else if (event.path === "/api/me/bag") {
           setState((current) => ({
             ...current,
-            status: "ready",
-            profile: livePlayerProfile(
-              event.data,
-              current.profile ?? current.identity,
-            ),
-            updatedAt: event.updatedAt ?? current.updatedAt,
-            snapshotStatus: event.snapshotStatus ?? current.snapshotStatus,
-            snapshotCompleteness:
-              event.snapshotCompleteness ?? current.snapshotCompleteness,
-          }));
-        } else {
-          setState((current) => ({
-            ...current,
-            identity: profileIdentity(event.data),
+            profile: current.profile && {
+              ...current.profile,
+              stashBuffs: normalizeActiveStashBuffs(event.data),
+              stashBuffsStatus: "ready",
+            },
           }));
         }
-      } else if (event.path === "/api/me/bag") {
-        setState((current) => ({
-          ...current,
-          profile: current.profile && {
-            ...current.profile,
-            stashBuffs: normalizeActiveStashBuffs(event.data),
-            stashBuffsStatus: "ready",
-          },
-        }));
-      }
-    });
+      },
+      { resources: ["/api/me", "/api/me/bag"] },
+    );
     const unsubscribeWork = workFarm.subscribe(() => {
       if (sessionIdentity() !== identity) return;
       const view = workFarm.getSnapshot().view;
