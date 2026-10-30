@@ -6,8 +6,33 @@ import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { createBridgeStorage } from "../../scripts/bridge/device-storage.mjs";
 import { createBridgeDeviceService } from "../../scripts/bridge/device-service.mjs";
-import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
+import {
+  bridgeFailureCategory,
+  createBridgeAccountService,
+} from "../../scripts/bridge/account-service.mjs";
 import { createQueueActionGate } from "../../scripts/bridge/queue-action-gate.mjs";
+
+test("transport diagnostics classify safe failure codes without leaking error details", () => {
+  for (const code of [
+    "profile_incomplete",
+    "profile_timeout",
+    "profile_too_large",
+    "data_channel_closed",
+    "data_frame_too_large",
+    "backpressure_limit",
+    "DIRECT_REQUEST_DEADLINE",
+    "ECONNRESET",
+    "ERR_STREAM_PREMATURE_CLOSE",
+  ]) {
+    assert.equal(bridgeFailureCategory({ code }), code);
+    assert.equal(bridgeFailureCategory({ message: code }), code);
+    assert.equal(bridgeFailureCategory({ cause: { code } }), code);
+  }
+  assert.equal(
+    bridgeFailureCategory({ code: "secret-token", message: "Bearer private" }),
+    "other",
+  );
+});
 
 function fixture(readProfile, readGame, extra = {}) {
   const dir = mkdtempSync(join(tmpdir(), "bridge-account-"));

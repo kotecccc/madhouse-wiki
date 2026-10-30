@@ -20,7 +20,7 @@ function validateDispatch(current, canDispatch, claim = () => true) {
     .then(canDispatch)
     .then((allowed) => allowed === true && current() && claim());
 }
-function logBridgeFailure(error) {
+export function bridgeFailureCategory(error) {
   const allowed = new Set([
     "bridge_offline",
     "bridge_timeout",
@@ -28,11 +28,32 @@ function logBridgeFailure(error) {
     "tls_timeout",
     "tls_closed_before_ready",
     "invalid_tunnel",
+    "data_channel_closed",
+    "invalid_data_channel_frame",
+    "data_frame_too_large",
+    "backpressure_limit",
+    "bridge_cancelled",
+    "DIRECT_REQUEST_DEADLINE",
+    "DIRECT_REQUEST_CANCELLED",
+    "DIRECT_REQUEST_QUEUE_FULL",
+    "unresolved_bridge_attempt",
+    "unresolved_bridge_transport",
+    "profile_incomplete",
+    "profile_timeout",
+    "profile_too_large",
+    "ECONNRESET",
+    "EPIPE",
+    "ETIMEDOUT",
+    "ABORT_ERR",
+    "ERR_STREAM_PREMATURE_CLOSE",
+    "ERR_HTTP_CONTENT_LENGTH_MISMATCH",
   ]);
-  console.warn(
-    "madhouse-bridge-transport",
-    allowed.has(error?.code) ? error.code : "other",
-  );
+  for (const candidate of [error?.code, error?.message, error?.cause?.code])
+    if (allowed.has(candidate)) return candidate;
+  return "other";
+}
+function logBridgeFailure(error) {
+  console.warn("madhouse-bridge-transport", bridgeFailureCategory(error));
 }
 const secret =
   /token|jwt|authorization|password|session|credential|initdata|secret/i;
