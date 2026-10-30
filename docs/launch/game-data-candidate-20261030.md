@@ -12,8 +12,8 @@ Connector use the same source revision and image.
 
 ## Local packages and trust
 
-All signatures below use a disposable **test** Ed25519 key, not the production
-trust anchor. These files must not be installed on a user's device or published.
+The earlier artifacts in this table use a disposable **test** Ed25519 key, not the production
+trust anchor. The separately prepared channel-signed artifacts and verification are recorded in [the signing handoff](game-data-channel-signing.md). These files must not be installed on a user's device or published.
 There is no available macOS code-signing identity (`security find-identity -v
 -p codesigning` returned zero); Developer ID/notarization and trusted package
 signing remain unperformed. Test-key artifacts cannot update an installation
@@ -136,5 +136,4 @@ actual routing, secrets, persistent account/automation/bridge/witness volumes,
 exclusive workers and the exact previous image against synthetic state with an
 unresolved journal. Do not start an older image on state it can ignore or erase,
 overwrite a newer journal with an older backup, or replay an uncertain mutation.
-A separately authorized production build/sign, real platform installation,
-real deployment and real-game acceptance remain outstanding.
+A target-device installation check, separately authorized real deployment and real-game acceptance remain outstanding. Channel signatures have now been prepared locally as described in the signing handoff; platform code signing is a separate mechanism.

@@ -1,5 +1,7 @@
 # Bridge package handoff
 
+> Channel signing update: see [the 0.1.9 signing handoff](game-data-channel-signing.md) for the actual signed artifacts, trust verification and fake installation check.
+
 > Local candidate update (2026-10-30): see [candidate manifest](game-data-candidate-20261030.md) for the committed bridge source, test-key packages, image and remaining release gates. The older historical notes below do not describe its current source status.
 
 The pinned compatible relay is `9db18cede7ecc0a0ca1499d854fe5319a7a44bef`: it advertises connection-bound stop acknowledgement and sends it only after the associated relay worker has stopped. Old clients remain usable for ordinary transport but cannot provide this proof. Neither proof nor stopping a device establishes whether the game processed bytes already received; an uncertain mutation remains fenced.
