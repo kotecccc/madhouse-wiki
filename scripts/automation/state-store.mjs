@@ -315,6 +315,10 @@ export function createAutomationStateStore({ directory }) {
       revision INTEGER NOT NULL CHECK (revision >= 1),
       record TEXT NOT NULL
     ) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS work_operator_resolutions (
+      resolution_key TEXT PRIMARY KEY NOT NULL,
+      record TEXT NOT NULL
+    ) WITHOUT ROWID;
   `);
   for (const suffix of ["-wal", "-shm"]) {
     const sidecar = databasePath + suffix;
@@ -381,6 +385,12 @@ export function createAutomationStateStore({ directory }) {
   );
   const updateBridgeAttempt = db.prepare(
     "UPDATE bridge_attempts SET revision = ?, record = ? WHERE attempt_key = ? AND revision = ?",
+  );
+  const insertWorkResolution = db.prepare(
+    "INSERT INTO work_operator_resolutions (resolution_key, record) VALUES (?, ?)",
+  );
+  const selectWorkResolution = db.prepare(
+    "SELECT record FROM work_operator_resolutions WHERE resolution_key = ?",
   );
   const saveCooldown =
     db.prepare(`INSERT INTO queue_cooldown (singleton, ready_at, failures) VALUES (1, ?, ?)
@@ -504,6 +514,71 @@ export function createAutomationStateStore({ directory }) {
       for (const suffix of ["-wal", "-shm"])
         if (existsSync(databasePath + suffix))
           chmodSync(databasePath + suffix, 0o600);
+    },
+    resolveStoppedWorkByOperator(playerId, operationId, owner, nowFn) {
+      const normalized = normalizePlayerId(playerId);
+      if (
+        !/^[A-Za-z0-9_-]{1,120}$/.test(operationId) ||
+        typeof nowFn !== "function"
+      )
+        throw new TypeError("invalid_work_resolution");
+      const resolutionKey = createHmac("sha256", key)
+        .update("work-operator-resolution:")
+        .update(normalized)
+        .update(":")
+        .update(operationId)
+        .digest("hex");
+      return transaction(() => {
+        const time = nowFn();
+        assertWorkerLease({ owner, now: () => time });
+        const value = this.read(normalized);
+        const run = value?.workFarm?.run;
+        if (
+          !run ||
+          run.status !== "stopped" ||
+          run.pending?.operationId !== operationId ||
+          run.pending.kind !== "performing" ||
+          (run.reconcileFailures ?? 0) < 5 ||
+          value.workFarm.manualPending ||
+          (value.queuedActions ?? []).some((item) =>
+            ["running", "reconciling"].includes(item.status),
+          ) ||
+          this.readActiveBridgeAttempts().some(
+            (item) => String(item.playerId) === normalized,
+          )
+        )
+          throw new Error("work_resolution_preconditions_failed");
+        if (selectWorkResolution.get(resolutionKey))
+          throw new Error("work_resolution_already_recorded");
+        const resolution = {
+          playerId: normalized,
+          operationId,
+          resolvedAt: time,
+          decision: "operator_accepts_unknown_outcome",
+          checkpoint: structuredClone(run),
+        };
+        insertWorkResolution.run(
+          resolutionKey,
+          encrypt(key, resolutionKey, resolution),
+        );
+        run.pending = null;
+        run.phase = "stopped";
+        run.reason =
+          "Неизвестный результат сохранён в журнале по решению владельца.";
+        run.nextReconcileAt = null;
+        this.write(normalized, value, ownedWriteToken);
+        return { operationId, resolvedAt: time };
+      });
+    },
+    readWorkOperatorResolution(playerId, operationId) {
+      const resolutionKey = createHmac("sha256", key)
+        .update("work-operator-resolution:")
+        .update(normalizePlayerId(playerId))
+        .update(":")
+        .update(operationId)
+        .digest("hex");
+      const row = selectWorkResolution.get(resolutionKey);
+      return row ? decrypt(key, resolutionKey, row.record) : null;
     },
     createBridgeAttempt(attempt, workerLease = null) {
       if (Object.hasOwn(attempt || {}, "transportStoppedAt"))

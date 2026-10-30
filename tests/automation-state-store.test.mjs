@@ -25,6 +25,88 @@ async function withDirectory(run) {
   }
 }
 
+test("operator resolution atomically archives only the specified stopped work under the worker lease", async () => {
+  await withDirectory(async (directory) => {
+    const store = createAutomationStateStore({ directory });
+    const pending = {
+      kind: "performing",
+      operationId: "work-old-123",
+      taskId: 2,
+      before: { tasks: [{ progress: 5 }] },
+    };
+    const original = {
+      workFarm: { run: { status: "stopped", pending, reconcileFailures: 300 } },
+      queuedActions: [],
+    };
+    store.write(123, original);
+    assert.throws(
+      () =>
+        store.resolveStoppedWorkByOperator(
+          123,
+          pending.operationId,
+          "operator",
+          () => 10,
+        ),
+      /automation_worker_unavailable/,
+    );
+    assert.equal(store.acquireLease("operator", 10, 1000), true);
+    assert.throws(
+      () =>
+        store.resolveStoppedWorkByOperator(
+          123,
+          "wrong-id",
+          "operator",
+          () => 11,
+        ),
+      /work_resolution_preconditions_failed/,
+    );
+    assert.deepEqual(store.read(123), original);
+    store.write(123, { ...original, queuedActions: [{ status: "running" }] });
+    assert.throws(
+      () =>
+        store.resolveStoppedWorkByOperator(
+          123,
+          pending.operationId,
+          "operator",
+          () => 11,
+        ),
+      /work_resolution_preconditions_failed/,
+    );
+    assert.equal(
+      store.readWorkOperatorResolution(123, pending.operationId),
+      null,
+    );
+    store.write(123, original);
+    store.resolveStoppedWorkByOperator(
+      123,
+      pending.operationId,
+      "operator",
+      () => 12,
+    );
+    assert.equal(store.read(123).workFarm.run.pending, null);
+    assert.equal(store.read(123).workFarm.run.reconcileFailures, 300);
+    assert.deepEqual(
+      store.readWorkOperatorResolution(123, pending.operationId).checkpoint
+        .pending,
+      pending,
+    );
+    store.releaseLease("operator");
+    store.close();
+    const reopened = createAutomationStateStore({ directory });
+    assert.equal(reopened.read(123).workFarm.run.pending, null);
+    assert.deepEqual(
+      reopened.readWorkOperatorResolution(123, pending.operationId).checkpoint
+        .pending,
+      pending,
+    );
+    assert.equal(
+      reopened.readWorkOperatorResolution(123, pending.operationId).decision,
+      "operator_accepts_unknown_outcome",
+    );
+    reopened.close();
+  });
+});
+
 test("global raid state is encrypted, durable, and guarded by the worker lease", async () => {
   await withDirectory(async (directory) => {
     const store = createAutomationStateStore({ directory });
