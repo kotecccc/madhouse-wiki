@@ -207,6 +207,17 @@ function requestGameOverBridge({
         }
         let size = 0;
         const chunks = [];
+        const incomplete = () => {
+          const error = Object.assign(new Error("profile_incomplete"), {
+            receivedBytes: size,
+          });
+          const length = response.headers["content-length"];
+          if (typeof length === "string" && /^\d{1,10}$/.test(length)) {
+            const expected = Number(length);
+            if (Number.isSafeInteger(expected)) error.expectedBytes = expected;
+          }
+          return error;
+        };
         response.on("data", (chunk) => {
           size += chunk.length;
           if (size > MAX_PROFILE_BYTES) {
@@ -223,13 +234,13 @@ function requestGameOverBridge({
           chunks.push(chunk);
         });
         response.once("error", reject);
-        response.once("aborted", () => reject(new Error("profile_incomplete")));
+        response.once("aborted", () => reject(incomplete()));
         response.once("end", () => {
           // Once cancellation starts, a racing response cannot authorize the
           // boundary to treat this operation as an ordinary completed attempt.
           if (stopping) return;
           if (!response.complete) {
-            reject(new Error("profile_incomplete"));
+            reject(incomplete());
             return;
           }
           const responseBody = Buffer.concat(chunks);

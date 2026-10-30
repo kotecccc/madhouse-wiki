@@ -71,7 +71,7 @@ test("logical cache, join and stored results correlate safely with physical atte
     assert.ok(events.every((event) => event.resource === "/api/weapons/:id"));
     assert.doesNotMatch(
       JSON.stringify({ events, attempts }),
-      /very-secret-token|123|owned/,
+      /very-secret-token|\/api\/weapons\/123(?:["?]|$)|"owned"/,
     );
   } finally {
     boundary.close();

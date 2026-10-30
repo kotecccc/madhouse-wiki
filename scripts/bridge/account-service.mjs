@@ -53,7 +53,27 @@ export function bridgeFailureCategory(error) {
   return "other";
 }
 function logBridgeFailure(error) {
-  console.warn("madhouse-bridge-transport", bridgeFailureCategory(error));
+  const category = bridgeFailureCategory(error);
+  if (
+    category === "profile_incomplete" &&
+    Number.isSafeInteger(error?.receivedBytes) &&
+    error.receivedBytes >= 0 &&
+    error.receivedBytes <= 4 * 1024 * 1024
+  ) {
+    const expectedBytes =
+      Number.isSafeInteger(error.expectedBytes) &&
+      error.expectedBytes >= 0 &&
+      error.expectedBytes <= 10_000_000_000
+        ? error.expectedBytes
+        : null;
+    console.warn(
+      "madhouse-bridge-transport",
+      category,
+      JSON.stringify({ receivedBytes: error.receivedBytes, expectedBytes }),
+    );
+    return;
+  }
+  console.warn("madhouse-bridge-transport", category);
 }
 const secret =
   /token|jwt|authorization|password|session|credential|initdata|secret/i;

@@ -21,6 +21,34 @@ const key = await readFile(
   new URL("./fixtures/cargo-key.pem", import.meta.url),
 );
 
+test("incomplete TLS response reports byte counts without exposing body data", async () => {
+  const server = createServer({ cert, key }, (_req, res) => {
+    res.writeHead(200, { "Content-Length": "1000" });
+    res.write("partial-data");
+    setTimeout(() => res.destroy(), 20);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const connector = createGameTlsDuplexConnector({
+    openTunnel: () => createConnection(server.address().port, "127.0.0.1"),
+    tlsConnect: (options) => connectTls({ ...options, ca: cert }),
+  });
+  try {
+    await assert.rejects(
+      readGameOverBridge({
+        authorization: "Bearer fake",
+        path: "/api/clothing",
+        connector,
+      }),
+      (error) =>
+        error.message === "profile_incomplete" &&
+        error.receivedBytes === 12 &&
+        error.expectedBytes === 1000,
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("bridge response diagnostics include the status without query parameters", async () => {
   const server = createServer({ cert, key }, (_req, res) => {
     res.writeHead(404);
