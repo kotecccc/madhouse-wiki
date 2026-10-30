@@ -141,3 +141,62 @@ not launch the actual paired device agent, check macOS Gatekeeper, or prove a
 real game outcome. Check the bootstrap key against the trusted fingerprint
 before running this procedure. A separate native Windows installation test is
 still needed for Windows.
+
+## Installation acceptance, 2026-10-30
+
+| Platform    | Artifact and environment                                                                                                                                                | First launch                                                                                                                                                                                                                                                                                                                                                                                                                    | Fake smoke and update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Remaining action                                                                                                                          |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS       | Channel-signed `macos/MadhouseWikiBridge.command` on macOS 27.0 arm64                                                                                                   | A byte-identical file fetched over loopback by `curl` ran from a shell with network denied. `spctl --assess --type execute` returned `rejected; source=no usable signature`. After adding a synthetic quarantine attribute on the test copy, `spctl` gave the same result and shell `--check` still passed. Neither shell execution nor a synthetic attribute reproduces Finder's Gatekeeper decision for an ordinary download. | The launcher's actual bootstrap and signed agent were started with isolated `HOME`, a test-only Python hook redirecting the hardcoded release fetch to local signed files and replacing agent execution with `--help`; all network was sandbox-denied. The signed agent was installed to the temporary home. Its extracted relay passed the fake TLS/WebSocket suite 3/3. An isolated local update accepted the actual channel-signed 0.1.8 then 0.1.9 packages. The hook means this is not an unmodified end-to-end installation or paired-agent launch. | Observe a genuine quarantined Finder first-open on an isolated Mac without production access, then complete a fake-connected device test. |
+| Windows     | `windows/MadhouseWikiBridge-Windows.zip`, SHA-256 `c827d05306319105c895570dd7cb276fdb09bf67f704655e02e2c4badb10a007`                                                    | A genuine Windows host/VM was not found; no Windows first launch or SmartScreen observation.                                                                                                                                                                                                                                                                                                                                    | Prior Wine checks: Windows verifier accepted 0.1.9 and credential/update fixtures passed 2/2. Wine does not establish Windows acceptance.                                                                                                                                                                                                                                                                                                                                                                                                                 | Use Windows x64 or an x64 Windows VM and a disposable profile; see procedure below.                                                       |
+| Linux / iSH | `macos/bootstrap.pyz` is the common Python bootstrap; Wiki's existing install command explicitly targets iPhone/iSH or Android, not a standalone Linux desktop package. | No supported standalone Linux installer was found in this Python bridge delivery. Alpine suite is not an installation test.                                                                                                                                                                                                                                                                                                     | No standalone Linux first-run smoke claimed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Verify the iSH or Android flow on its actual target if it is included in the pilot; do not invent a Linux package.                        |
+
+The `curl` loopback transfer did not add quarantine; the later quarantine was
+synthetic and was never removed. The prior Mac may already have system trust
+history. No claim is made about a fresh user's Finder dialog. The actual
+bootstrap's fixed release URL and the paired agent's fixed game destination
+cannot be redirected to fake services through a supported user configuration.
+A normal uninstrumented launcher cannot therefore be run online in this test
+without risking a real request. The Python test hook was confined to a temporary
+folder; it did not change the signed artifact, system security settings, or the
+installed user bridge. No real game or production service was contacted.
+
+### Next human action: Finder first-open on an isolated Mac
+
+Use the signed launcher with SHA-256
+`b181266997b8c40b924372e15e3e69e3ae340b46de38f5a130441adb7210a796`
+and independently check the channel public-key fingerprint from this handoff.
+On a disposable Mac profile, disconnect external networking before opening the
+file. Acquire the exact file through the ordinary intended download mechanism
+only in a separately approved environment; the current local `curl` transfer
+is insufficient evidence of download quarantine. Confirm quarantine is present
+with `xattr -l`, then attempt the normal Finder open without clearing quarantine
+or changing system security settings. Record the exact macOS version, dialog
+text and whether it launches. If Finder permits it, keep external networking
+disconnected: the bootstrap's production URL will be unreachable, so an install
+failure is expected and does not establish fake installation. Return the dialog
+and outcome. Do not enter a real invitation or game credential. A real
+fake-connected first-run test requires a supported isolated delivery/transport
+setup or an explicitly accepted test hook; do not silently substitute either.
+
+### Native Windows handoff (after a Windows environment is available)
+
+Use Windows x64 or an x64 Windows VM with a disposable profile. Check SHA-256 of
+`windows/MadhouseWikiBridge-Windows.zip` against the table above before unpacking.
+Record download source, Windows version, Mark-of-the-Web and any SmartScreen
+warning; do not bypass platform protections automatically. The BAT launcher's
+bootstrap uses the fixed production URL, so do not run it with unrestricted
+networking during fake acceptance. To exercise the existing no-network Windows
+unit/update fixtures, copy the clean bridge source bundle and the separate
+`windows-test-fixtures/` directory from the local artifact root. Those fixtures
+use a **test key**, not the channel key. In PowerShell, from the extracted
+source, with the packaged Python runtime available:
+
+```powershell
+$env:MADHOUSE_WINDOWS_TEST_FIXTURES = 'C:\path\to\windows-test-fixtures'
+C:\path\to\MadhouseWikiBridge\runtime\python.exe agent\windows\test_runtime.py
+```
+
+Expected: 2 tests pass; return their output and the observed first-open warning.
+These fixture tests do not by themselves verify a complete normal first install
+of the signed 0.1.9 ZIP or authorize sending a game request. Perform that part
+only in an isolated fake delivery environment and report it separately.
