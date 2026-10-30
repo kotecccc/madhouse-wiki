@@ -221,6 +221,42 @@ test("bridge 429 preserves the raw response and the previously stored snapshot",
   assert.equal(calls, 2);
 });
 
+test("bridge display reads reuse a suitable resource until its TTL expires", async () => {
+  const store = memoryStore();
+  let clock = 200;
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store,
+    now: () => clock,
+    ttl: 100,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  const { transport } = makeBridge({
+    snapshots: routeSnapshots(snapshots),
+    readGame: async () => ({
+      status: 200,
+      body: Buffer.from(JSON.stringify({ revision: ++calls })),
+    }),
+  });
+  const headers = { Authorization: authorization };
+  assert.deepEqual(
+    await (await transport.liveFetch(bagUrl, { headers })).json(),
+    { revision: 1 },
+  );
+  const cached = await transport.fetch(bagUrl, { headers });
+  assert.deepEqual(await cached.json(), { revision: 1 });
+  assert.equal(cached.headers.get("X-Madhouse-Section-Updated"), "200");
+  assert.equal(calls, 1);
+  clock += 101;
+  assert.deepEqual(await (await transport.fetch(bagUrl, { headers })).json(), {
+    revision: 2,
+  });
+  assert.equal(calls, 2);
+});
+
 test("late bridge resource observation is rejected after a mutation barrier", async () => {
   const store = memoryStore();
   const initialBag = {

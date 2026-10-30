@@ -991,6 +991,18 @@ export function createAccountSnapshots({
       },
     });
   }
+  // The same eligibility rule is used for direct and bridge display reads.
+  // Completeness is reported separately: an incomplete observation can be
+  // served until its TTL expires, but is never represented as complete.
+  function reusableSection(record, path, section) {
+    return Boolean(
+      section &&
+      !section.dirty &&
+      !record?.health?.failedSections?.includes(path) &&
+      !(path === "/api/me" && record?.health?.failedSections?.includes("*")) &&
+      now() - section.updatedAt < ttl,
+    );
+  }
   async function execute(
     url,
     init,
@@ -1049,7 +1061,7 @@ export function createAccountSnapshots({
       savedSection
     )
       return withMetadata(json(savedSection.data), record, savedSection, true);
-    if (snapshotOnly && savedSection)
+    if (snapshotOnly && !liveProfile && savedSection)
       return withMetadata(
         json(savedSection.data),
         record,
@@ -1066,7 +1078,11 @@ export function createAccountSnapshots({
         ),
       );
     // Boss cards can use a saved tattoo zone, but must not fetch missing zones.
-    if (snapshotOnly && path.startsWith("/api/ornaments/zones/"))
+    if (
+      snapshotOnly &&
+      !liveProfile &&
+      path.startsWith("/api/ornaments/zones/")
+    )
       return json({ error: "snapshot_unavailable" }, 404);
     const forwardedHeaderFingerprint = hash(
       JSON.stringify(
@@ -1086,6 +1102,10 @@ export function createAccountSnapshots({
       forceFailedRefresh ? "force" : "ordinary",
       manualRefreshRequested ? "refresh" : "normal",
       liveProfile ? "strict" : "regular",
+      Math.max(
+        profileRevisions.get(playerId) ?? 0,
+        record?.profileRevision ?? 0,
+      ),
     ].join(":");
     // A shared request uses the first caller's Authorization, AbortSignal and
     // dispatch gate. Keep such per-caller control contexts out of dedup, and
@@ -1140,11 +1160,7 @@ export function createAccountSnapshots({
         cache &&
         !mayManualRefresh &&
         !forceFailedRefresh &&
-        section &&
-        !section.dirty &&
-        !record.health?.failedSections?.includes(path) &&
-        !(path === "/api/me" && record.health?.failedSections?.includes("*")) &&
-        now() - section.updatedAt < ttl
+        reusableSection(record, path, section)
       )
         return withMetadata(
           json(section.data),
@@ -1538,10 +1554,11 @@ export function createAccountSnapshots({
   async function read(url, init = {}) {
     const requestUrl = new URL(url);
     const headers = new Headers(init.headers);
+    const refreshMode = headers.get("X-Madhouse-Snapshot-Refresh");
     const requested =
       requestUrl.pathname === "/api/me" &&
       (init.method || "GET").toUpperCase() === "GET" &&
-      ["1", "live"].includes(headers.get("X-Madhouse-Snapshot-Refresh"));
+      ["1", "live"].includes(refreshMode);
     const authorization = headers.get("authorization");
     if (
       !authorization ||
@@ -1551,12 +1568,25 @@ export function createAccountSnapshots({
       return execute(url, init);
     const playerId = authorization && credentials.get(hash(authorization));
     let record = accounts.get(playerId);
-    if (requested && headers.get("X-Madhouse-Snapshot-Refresh") === "live")
+    if (
+      (init.method || "GET").toUpperCase() === "GET" &&
+      isSnapshotPath(requestUrl.pathname) &&
+      !requestUrl.search &&
+      refreshMode === "live"
+    )
       return execute(url, init, {
-        fallback: !record?.revokedHashes?.includes(hash(authorization)),
+        fallback: false,
         cache: false,
         forceFailedRefresh: true,
       });
+    if (
+      !requested &&
+      (init.method || "GET").toUpperCase() === "GET" &&
+      isSnapshotPath(requestUrl.pathname) &&
+      !requestUrl.search &&
+      refreshMode === "1"
+    )
+      return execute(url, init, { cache: false, forceFailedRefresh: true });
     if (!requested || !record) return execute(url, init);
     const revoked = record.revokedHashes?.includes(hash(authorization));
 
@@ -1845,6 +1875,52 @@ export function createAccountSnapshots({
         : null;
     },
     read,
+    observationVersion(authorization, { verifiedPlayerId } = {}) {
+      const indexed = credentials.get(hash(authorization || ""));
+      const verified =
+        Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+          ? String(verifiedPlayerId)
+          : null;
+      if (indexed && verified && indexed !== verified) return null;
+      const playerId = indexed || verified;
+      if (!playerId) return null;
+      const record = accounts.get(playerId);
+      return `${playerId}:${Math.max(
+        profileRevisions.get(playerId) ?? 0,
+        record?.profileRevision ?? 0,
+      )}`;
+    },
+    readDisplayCache(url, init = {}, { verifiedPlayerId } = {}) {
+      const parsed = new URL(url);
+      if (
+        (init.method || "GET").toUpperCase() !== "GET" ||
+        parsed.search ||
+        !isSnapshotPath(parsed.pathname)
+      )
+        return null;
+      const headers = new Headers(init.headers);
+      if (headers.has("X-Madhouse-Snapshot-Refresh")) return null;
+      const authorization = headers.get("authorization");
+      const playerId =
+        Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+          ? String(verifiedPlayerId)
+          : credentials.get(hash(authorization || ""));
+      const record = accounts.get(playerId);
+      const section = record?.sections?.[parsed.pathname];
+      if (!section) return null;
+      const saved = this.readStored(url, init, {
+        verifiedWiki:
+          Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0,
+        verifiedPlayerId,
+      });
+      if (!saved.ok) return saved;
+      if (
+        headers.get("X-Madhouse-Snapshot-Only") === "1" ||
+        reusableSection(record, parsed.pathname, section)
+      )
+        return saved;
+      return null;
+    },
     readStored(
       url,
       init = {},

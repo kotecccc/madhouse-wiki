@@ -43,12 +43,20 @@ export function createBridgeAwareAccountFetch({
     signal,
     canDispatch,
     shareable,
+    observationVersion,
+    freshness,
     createSnapshotRead,
   ) {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Aborted", "AbortError"));
     const key = shareable
-      ? JSON.stringify([owner, authorization, profileCredential])
+      ? JSON.stringify([
+          owner,
+          authorization,
+          profileCredential,
+          observationVersion,
+          freshness,
+        ])
       : Symbol("profile-read");
     let pending = pendingProfiles.get(key);
     if (!pending) {
@@ -177,10 +185,23 @@ export function createBridgeAwareAccountFetch({
       withDirectLease: directRoutes.withDirectLease,
       bridgeProfile: async (owner, options) => {
         const credential = canonicalCredential(authorization);
+        const boundPlayer = Number(accounts.read?.(owner)?.playerId);
+        const observationVersion = snapshots.observationVersion?.(credential, {
+          verifiedPlayerId: boundPlayer,
+        });
         const refresh = new Headers(init.headers).get(
           "X-Madhouse-Snapshot-Refresh",
         );
-        if (!live && !refresh && snapshots.bridgeProfile) {
+        if (!live && typeof snapshots.readDisplayCache === "function") {
+          const headers = new Headers(init.headers);
+          headers.set("Authorization", credential);
+          const saved = snapshots.readDisplayCache(
+            url,
+            { ...init, headers },
+            { verifiedPlayerId: boundPlayer },
+          );
+          if (saved) return saved;
+        } else if (!live && !refresh && snapshots.bridgeProfile) {
           const saved = snapshots.bridgeProfile(credential);
           if (saved) return saved;
         }
@@ -190,7 +211,18 @@ export function createBridgeAwareAccountFetch({
           credential,
           options.signal,
           options.canDispatch,
-          !init.signal && !init.canDispatch,
+          !init.signal &&
+            !init.canDispatch &&
+            (typeof snapshots.observationVersion !== "function" ||
+              observationVersion !== null),
+          observationVersion,
+          live
+            ? "live"
+            : refresh ||
+                (new Headers(init.headers).get("X-Madhouse-Snapshot-Only") ===
+                "1"
+                  ? "stored"
+                  : "display"),
           () => {
             const hasBridgeProfileReadApi =
               typeof snapshots.beginBridgeProfileRead === "function" &&
@@ -228,7 +260,19 @@ export function createBridgeAwareAccountFetch({
         ? {
             bridgeRead: async (owner, path, options) => {
               const boundPlayer = Number(accounts.read?.(owner)?.playerId);
-              if (
+              if (!live && typeof snapshots.readDisplayCache === "function") {
+                const headers = new Headers(init.headers);
+                headers.set(
+                  "Authorization",
+                  canonicalCredential(authorization),
+                );
+                const saved = snapshots.readDisplayCache(
+                  new URL(path, url),
+                  { ...init, method: options.method || "GET", headers },
+                  { verifiedPlayerId: boundPlayer },
+                );
+                if (saved) return saved;
+              } else if (
                 !live &&
                 (options.method || "GET") === "GET" &&
                 new Headers(init.headers).get("X-Madhouse-Snapshot-Only") ===

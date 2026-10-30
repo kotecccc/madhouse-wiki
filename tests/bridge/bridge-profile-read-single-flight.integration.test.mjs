@@ -115,6 +115,7 @@ function setup(readProfile) {
   });
   return {
     accounts,
+    snapshots,
     transport,
     profileReadCount: () => profileReads,
     ticketCount: () => ticketsStarted,
@@ -187,6 +188,38 @@ test("compatible bridge profile consumers share one read and one snapshot ticket
     assert.equal(fixture.commitCount(), 3);
   } finally {
     release.resolve();
+  }
+});
+
+test("a bridge profile read after a mutation does not join the earlier flight", async () => {
+  const firstStarted = deferred();
+  const releaseFirst = deferred();
+  const fixture = setup(async ({ readNumber }) => {
+    if (readNumber === 1) {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+    }
+    return profileResponse(`Profile ${readNumber}`);
+  });
+  const options = { headers: { Authorization: authorization } };
+  const first = fixture.transport.liveFetch(`${origin}/api/me`, options);
+  await firstStarted.promise;
+  const ticket = fixture.snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/shop/buy",
+  );
+  assert.equal(fixture.snapshots.commitMutationBarrier(ticket), true);
+  const second = fixture.transport.liveFetch(`${origin}/api/me`, options);
+  try {
+    const response = await second;
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).nickname, "Profile 2");
+    releaseFirst.resolve();
+    assert.equal((await first).status, 409);
+    assert.equal(fixture.profileReadCount(), 2);
+  } finally {
+    releaseFirst.resolve();
   }
 });
 

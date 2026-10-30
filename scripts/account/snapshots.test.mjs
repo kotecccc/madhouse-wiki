@@ -1225,6 +1225,70 @@ test("TTL cache and concurrent demand deduplicate upstream section reads", async
   assert.equal(queue.calls.length, 3);
 });
 
+test("a post-mutation read cannot join an earlier in-flight read", async () => {
+  let release;
+  let calls = 0;
+  const authorization = "Bearer mutation-fence";
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async () => {
+      calls++;
+      if (calls === 1)
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      return reply({ revision: calls });
+    },
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 9 });
+  const before = snapshots.read(`${origin}/api/me/bag`, {
+    headers: { Authorization: authorization },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const ticket = snapshots.beginMutation(
+    authorization,
+    "POST",
+    "/api/shop/buy",
+  );
+  assert.equal(snapshots.commitMutationBarrier(ticket), true);
+  const after = snapshots.read(`${origin}/api/me/bag`, {
+    headers: { Authorization: authorization },
+  });
+  release();
+  assert.equal((await before).status, 409);
+  assert.deepEqual(await payload(await after), { revision: 2 });
+  assert.equal(calls, 2);
+});
+
+test("strict resource refresh bypasses a fresh cache and never returns stale fallback", async () => {
+  const queue = queueFetcher([
+    reply({ playerId: 9 }),
+    reply({ revision: 1 }),
+    reply({ revision: 2 }),
+    reply({ error: "unavailable" }, 503),
+  ]);
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: queue.fetcher,
+  });
+  await snapshots.read(`${origin}/api/me`, auth("strict-resource"));
+  const path = `${origin}/api/me/bag`;
+  await snapshots.read(path, auth("strict-resource"));
+  const strict = {
+    headers: {
+      ...auth("strict-resource").headers,
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  };
+  assert.deepEqual(await payload(await snapshots.read(path, strict)), {
+    revision: 2,
+  });
+  const failure = await snapshots.read(path, strict);
+  assert.equal(failure.status, 503);
+  assert.notDeepEqual(await payload(failure), { revision: 2 });
+  assert.equal(queue.calls.length, 4);
+});
+
 test("snapshot read dedup requires matching credential, query, and refresh options", async () => {
   const store = memoryStore();
   const credentialA = "Bearer dedup-a";

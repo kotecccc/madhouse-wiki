@@ -331,6 +331,7 @@ test("real snapshot identities cannot send an old bridge token directly", async 
     });
     assert.deepEqual(await (await boundary.fetch(url, options("new"))).json(), {
       playerId: 42,
+      telegramId: 101,
     });
     assert.equal(calls, 2);
     assert.deepEqual(await boundary.verifyLocal("Bearer other"), {
@@ -468,7 +469,7 @@ test("shared profile reads do not cross credentials", async () => {
   assert.equal(calls, 2);
 });
 
-test("login reuses a persisted bridge profile until an explicit refresh", async () => {
+test("bridge profile display uses the saved snapshot only within its TTL", async () => {
   const { createAccountSnapshots } =
     await import("../../scripts/account/snapshots.mjs");
   let clock = 1000;
@@ -519,10 +520,9 @@ test("login reuses a persisted bridge profile until an explicit refresh", async 
   );
   clock += 200;
   const restarted = make();
-  const stale = await restarted.fetch(url, options());
-  assert.equal((await stale.json()).nickname, "read-1");
-  assert.equal(stale.headers.get("X-Madhouse-Section-Updated"), "1000");
-  assert.equal(calls, 1);
+  const refreshed = await restarted.fetch(url, options());
+  assert.equal((await refreshed.json()).nickname, "read-2");
+  assert.equal(calls, 2);
   const refresh = {
     headers: {
       Authorization: "Bearer valid",
@@ -531,7 +531,7 @@ test("login reuses a persisted bridge profile until an explicit refresh", async 
   };
   assert.equal(
     (await (await restarted.fetch(url, refresh)).json()).nickname,
-    "read-2",
+    "read-3",
   );
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
 });
