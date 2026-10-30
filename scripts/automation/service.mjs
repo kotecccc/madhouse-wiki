@@ -1393,7 +1393,12 @@ export function createAutomationService({
       canManualAttack: () =>
         !entry.auto.getSnapshot().enabled && !entry.collector?.running(),
       canStartBattle: () =>
-        entry.goal.canStart() && (entry.collector?.canStartBattle() ?? true),
+        (entry.goal.canStart() ||
+          (entry.queueBattleDispatch?.kind === "manual_start" &&
+            ["completed", "stopped", "expired", "exhausted"].includes(
+              entry.goal.getSnapshot()?.status,
+            ))) &&
+        (entry.collector?.canStartBattle() ?? true),
       canSendMutation: () =>
         (entry.queueBattleDispatch
           ? entry.queueBattleDispatch.canDispatch() && canAct(entry, true)

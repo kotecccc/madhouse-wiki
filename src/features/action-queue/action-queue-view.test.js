@@ -135,6 +135,27 @@ test("completed actions disappear while handoffs do not claim the goal finished"
   assert.equal(handoff.command, "queue.dismiss");
 });
 
+test("a newer work run does not revive an older completed handoff", () => {
+  const old = {
+    id: "old-work",
+    type: "work.start",
+    status: "completed",
+    priority: 20,
+    createdAt: 1,
+    finishedAt: 2,
+    args: { workId: 29 },
+  };
+  const state = {
+    queuedActions: [old],
+    workFarm: {
+      run: { queueId: "new-work", workId: 1, status: "stopped", startedAt: 3 },
+    },
+  };
+  assert.ok(!actionQueueCards(state).some((card) => card.id === old.id));
+  state.workFarm.run.startedAt = 1;
+  assert.ok(actionQueueCards(state).some((card) => card.id === old.id));
+});
+
 test("stopped battle handoffs are hidden while subscription handoffs remain visible", () => {
   for (const [type, actorName] of [
     ["auto.start", "auto"],

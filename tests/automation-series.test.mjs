@@ -1586,6 +1586,48 @@ test("queued manual boss start writes a checkpoint and starts one fight", async 
   });
 });
 
+test("a completed old goal does not block a new queued manual battle", async () => {
+  const initial = makeBattle("previous-battle", "won", 1_000_000);
+  await withSetup({ initial }, async (ctx) => {
+    const entry = await ctx.openAndConfigure("battles", 1);
+    entry.goal.restoreState({
+      settings: {
+        bossId: 7,
+        bossName: "Boss",
+        kind: "battles",
+        targetCount: 1,
+        maxAttempts: 1,
+        countWins: false,
+        items: [],
+        durationHours: null,
+      },
+      startedAt: 900_000,
+      attempts: ["previous-battle"],
+      results: [["previous-battle", "won"]],
+    });
+    assert.equal(entry.goal.getSnapshot().status, "completed");
+    await ctx.service.boot();
+    await ctx.service.command(entry, {
+      id: "manual-after-completed-goal",
+      command: "queue.enqueue",
+      expectedVersion: ctx.service.snapshot(entry).version,
+      args: { type: "battle.start", action: { bossId: 7 } },
+    });
+    const end = Date.now() + 4000;
+    while (
+      Date.now() < end &&
+      ctx.service.snapshot(entry).queuedActions[0].status !== "completed"
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      ctx.service.snapshot(entry).queuedActions[0].status,
+      "completed",
+    );
+    assert.equal(ctx.starts, 1);
+    assert.equal(entry.goal.getSnapshot().status, "completed");
+  });
+});
+
 test("queued manual start with a lost reply reconciles after server restart", async () => {
   const ctx = setup({ startReplyLost: true });
   let restored;

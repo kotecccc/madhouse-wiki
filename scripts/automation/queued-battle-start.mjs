@@ -126,6 +126,7 @@ export function queuedBattleStartAdapter({ entry, getBoss, save }) {
         const beforeBattleId = current.battle?.id ?? null;
         entry.queueBattleDispatch = {
           id: job.id,
+          kind: "manual_start",
           canDispatch,
           operationId: null,
         };

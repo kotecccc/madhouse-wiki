@@ -400,6 +400,14 @@ export function actionQueueCards(state, catalogue = {}) {
       (job) =>
         visible.has(job.status) &&
         !job.dismissed &&
+        !(
+          job.type === "work.start" &&
+          job.status === "completed" &&
+          work?.queueId !== job.id &&
+          Number.isFinite(work?.startedAt) &&
+          Number.isFinite(job.finishedAt) &&
+          work.startedAt >= job.finishedAt
+        ) &&
         (job.status !== "completed" ||
           (!["auto.start", "raid.start"].includes(job.type) &&
             (terminalActor(job)
