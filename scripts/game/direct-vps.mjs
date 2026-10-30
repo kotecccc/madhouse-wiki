@@ -12,10 +12,12 @@ export function createDirectVpsOwner({
   resolvePlayer = () => null,
   requireBridgeJournal = false,
   bootstrapPolicy = null,
+  onPhysicalResponse = () => {},
 } = {}) {
   const trustedBootstraps = new WeakSet();
   const boundary = createDirectBoundary({
     env,
+    onPhysicalResponse,
     resolvePlayer,
     requireBridgeJournal,
     isTrustedBootstrap: (permit) => trustedBootstraps.has(permit),

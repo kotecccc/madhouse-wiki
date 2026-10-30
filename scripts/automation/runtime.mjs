@@ -473,6 +473,7 @@ export async function createAutomationRuntime({
     handle,
     proxy,
     gameFetch: transport.fetch,
+    observeGameResponse: service.observeGameResponse,
     gameCredentialCurrent: snapshots.credentialCurrent,
     gamePlayerId: snapshots.credentialPlayerId,
     bridgeActive: Boolean(bridge),
