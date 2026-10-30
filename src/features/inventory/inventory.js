@@ -29,7 +29,12 @@ export function inventoryPaths(type, references) {
 const nonnegative = (value) =>
   Number.isFinite(value) && value >= 0 ? value : null;
 const list = (value) => (Array.isArray(value) ? value : []);
-export function inventoryItems(type, responses, references) {
+export function inventoryItems(
+  type,
+  responses,
+  references,
+  categorySnapshots = {},
+) {
   const known = new Map(
     references
       .filter((item) => item.type === type)
@@ -38,7 +43,7 @@ export function inventoryItems(type, responses, references) {
   const result = new Map();
   for (const path of inventoryPaths(type, references)) {
     const body = responses[path];
-    const items =
+    let items =
       type === "room"
         ? list(body?.catalog?.rooms)
         : type === "clothing_item"
@@ -50,6 +55,39 @@ export function inventoryItems(type, responses, references) {
               })),
             )
           : list(body?.items);
+    if (type === "clothing_item") {
+      for (const [category, snapshot] of Object.entries(categorySnapshots)) {
+        const categoryId = Number(category);
+        const live = snapshot?.items;
+        if (
+          !Number.isInteger(categoryId) ||
+          categoryId < 2 ||
+          categoryId > 8 ||
+          snapshot?.categoryId !== categoryId ||
+          !Array.isArray(live) ||
+          live.some(
+            (item) =>
+              item?.categoryId !== categoryId ||
+              !Number.isSafeInteger(Number(item.id)) ||
+              Number(item.id) <= 0 ||
+              typeof item.owned !== "boolean" ||
+              typeof item.equipped !== "boolean",
+          ) ||
+          new Set(live.map((item) => String(item.id))).size !== live.length
+        )
+          continue;
+        const oldById = new Map(items.map((item) => [String(item.id), item]));
+        items = items.filter(
+          (item) =>
+            Number(
+              item.categoryId ?? known.get(String(item.id))?.categoryId,
+            ) !== categoryId,
+        );
+        items.push(
+          ...live.map((item) => ({ ...oldById.get(String(item.id)), ...item })),
+        );
+      }
+    }
     for (const item of items) {
       if (!item || typeof item !== "object") continue;
       if (item.kind && ["weapon", "pet"].includes(type) && item.kind !== type)

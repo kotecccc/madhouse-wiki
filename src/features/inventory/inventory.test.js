@@ -436,3 +436,49 @@ test("installed mutagens preserve explicit type and name without leaking install
   assert.equal(items[1].installedMutagen, null);
   assert.equal(items[2].installedMutagen, null);
 });
+test("confirmed category snapshots replace clothing state while preserving other categories", () => {
+  const responses = {
+    "/api/clothing": {
+      catalog: {
+        sets: [
+          {
+            id: 7,
+            name: "Набор",
+            items: [
+              { id: 1, categoryId: 3, owned: true, equipped: true },
+              { id: 10, categoryId: 3, owned: true, equipped: false },
+              { id: 11, categoryId: 5, owned: true, equipped: true },
+            ],
+          },
+        ],
+      },
+    },
+  };
+  const live = {
+    categoryId: 3,
+    items: [
+      { id: 1, categoryId: 3, owned: true, equipped: false },
+      { id: 10, categoryId: 3, owned: true, equipped: true },
+    ],
+  };
+  const items = inventoryItems("clothing_item", responses, references, {
+    3: live,
+  });
+  assert.equal(items.find((item) => item.id === "1").equipped, false);
+  assert.equal(items.find((item) => item.id === "10").equipped, true);
+  assert.equal(items.find((item) => item.id === "10").setName, "Набор");
+  assert.equal(items.find((item) => item.id === "11").equipped, true);
+  const invalid = {
+    ...live,
+    items: [
+      ...live.items,
+      { id: 12, categoryId: 5, owned: true, equipped: true },
+    ],
+  };
+  assert.equal(
+    inventoryItems("clothing_item", responses, references, { 3: invalid }).find(
+      (item) => item.id === "1",
+    ).equipped,
+    true,
+  );
+});

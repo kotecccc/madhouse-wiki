@@ -15,6 +15,7 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
         entry,
         type: job.args.type,
         zoneId: job.args.zoneId,
+        categoryId: job.args.categoryId,
         fetcher,
       });
       const item = items.find(
@@ -51,7 +52,11 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
     }
   }
   return {
-    dedupeKey: (args) => JSON.stringify(args),
+    dedupeKey: ({ categoryId: _categoryId, ...args }) => JSON.stringify(args),
+    dedupeConflict: (args, existing) =>
+      args.categoryId != null &&
+      existing.categoryId != null &&
+      args.categoryId !== existing.categoryId,
     validate(args) {
       if (
         !args ||
@@ -65,7 +70,9 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
         (args.action === "unequip" && !INVENTORY_ACTION_TYPES[args.type].remove)
       )
         throw new Error("invalid_inventory_action");
-      inventoryReadPath(args.type, args.zoneId);
+      if (args.categoryId != null && args.type !== "clothing_item")
+        throw new Error("invalid_inventory_category");
+      inventoryReadPath(args.type, args.zoneId, args.categoryId);
       const price = ["buy", "repair"].includes(args.action)
         ? inventoryPrice(args.price)
         : null;
@@ -76,6 +83,7 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
         id: args.id,
         action: args.action,
         ...(args.zoneId != null ? { zoneId: args.zoneId } : {}),
+        ...(args.categoryId != null ? { categoryId: args.categoryId } : {}),
         ...(price ? { price } : {}),
       };
     },
@@ -88,6 +96,7 @@ export function queuedInventoryAdapter({ entry, fetcher, save }) {
               id: previous.entityId,
               action: previous.action,
               zoneId: previous.zoneId,
+              categoryId: previous.categoryId,
             }
           : {
               type: "weapon",

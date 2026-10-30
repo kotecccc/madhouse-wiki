@@ -39,6 +39,55 @@ function harness(fetcher, initial = {}) {
   };
 }
 
+test("clothing categories preserve deduplication across old and new clients", () => {
+  const h = harness(inventoryGame({ owned: true }).fetcher);
+  const args = { type: "clothing_item", id: 4, action: "equip" };
+  const first = h.queue.add({ id: "legacy-clothing", type: "inventory", args });
+  const second = h.queue.add({
+    id: "category-clothing",
+    type: "inventory",
+    args: { ...args, categoryId: 3 },
+  });
+  assert.equal(second.id, first.id);
+  assert.equal(h.queue.snapshot().length, 1);
+});
+
+test("lost clothing mutation is reconciled using its saved category without replay", async () => {
+  const game = inventoryGame({ owned: true });
+  let lost = true;
+  const fetcher = async (...args) => {
+    const response = await game.fetcher(...args);
+    if (args[1]?.method === "POST" && lost) {
+      lost = false;
+      throw new Error("lost reply");
+    }
+    return response;
+  };
+  const first = harness(fetcher);
+  first.queue.add({
+    id: "clothing-action",
+    type: "inventory",
+    args: { type: "clothing_item", id: 4, categoryId: 3, action: "equip" },
+  });
+  await first.queue.tick();
+  assert.equal(first.state()[0].status, "reconciling");
+  assert.equal(first.entry.equipment.pending.categoryId, 3);
+  const second = harness(fetcher, {
+    queue: first.state(),
+    equipment: first.entry.equipment,
+  });
+  second.advance(10000);
+  await second.queue.tick();
+  assert.equal(second.state()[0].status, "completed");
+  assert.equal(second.entry.equipment.pending, null);
+  assert.equal(game.mutations().length, 1);
+  assert.ok(
+    game.calls
+      .filter(({ method }) => method === "GET")
+      .every(({ path }) => path === "/api/clothing/by-category/3"),
+  );
+});
+
 test("inventory intent survives preflight outage and is executed once after recovery", async () => {
   const game = inventoryGame();
   let online = false;

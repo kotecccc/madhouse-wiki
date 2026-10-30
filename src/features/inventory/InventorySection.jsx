@@ -11,7 +11,13 @@ import { Skeleton } from "../../components/ui/Skeleton/Skeleton.jsx";
 import { Modal } from "../../components/ui/Modal/Modal.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   automationState,
   syncBattleSession,
@@ -86,6 +92,7 @@ export function InventorySection({
   const snapshotAfterSessionChange = useRef(null);
   const [sessionQueueReady, setSessionQueueReady] = useState(true);
   const [trackedJobs, setTrackedJobs] = useState({});
+  const [categorySnapshots, setCategorySnapshots] = useState({});
   const [commandQueueState, setCommandQueueState] = useState(null);
   const queueSnapshot = useSyncExternalStore(
     automationState.subscribe,
@@ -123,6 +130,7 @@ export function InventorySection({
         setSessionQueueReady(false);
         equipmentPending.current = false;
         setTrackedJobs({});
+        setCategorySnapshots({});
         setCommandQueueState(null);
         setEquipmentState({ busy: false, needsCheck: false, notice: null });
       }),
@@ -402,7 +410,79 @@ export function InventorySection({
       if (loadController.current === controller) loadController.current = null;
     };
   }, [active, pathKey, revision]);
-  const items = inventoryItems(category, responses, references);
+  const completedClothingJobs = useMemo(
+    () =>
+      (serverQueueState?.queuedActions ?? [])
+        .filter(
+          (job) =>
+            job.type === "inventory" &&
+            job.status === "completed" &&
+            job.args?.type === "clothing_item" &&
+            Number.isInteger(job.args.categoryId) &&
+            job.args.categoryId >= 2 &&
+            job.args.categoryId <= 8,
+        )
+        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
+    [serverQueueState],
+  );
+  const completedClothingKey = completedClothingJobs
+    .map((job) => job.id)
+    .join("|");
+  useEffect(() => {
+    if (!active || !completedClothingKey) return;
+    const epoch = sessionEpoch.current;
+    let cancelled = false;
+    const seen = new Set();
+    for (const job of completedClothingJobs) {
+      const { categoryId, id, action } = job.args;
+      if (seen.has(categoryId)) continue;
+      seen.add(categoryId);
+      void readStoredSessionJson(`/api/clothing/by-category/${categoryId}`)
+        .then((result) => {
+          if (
+            cancelled ||
+            epoch !== sessionEpoch.current ||
+            result.presence !== "present" ||
+            !Number.isFinite(result.updatedAt) ||
+            result.updatedAt < job.createdAt ||
+            result.updatedAt < (peekSessionUpdatedAt("/api/clothing") ?? 0)
+          )
+            return;
+          const item = result.data?.items?.find(
+            (entry) => String(entry.id) === String(id),
+          );
+          if (
+            !item ||
+            (action === "equip" && item.equipped !== true) ||
+            (action === "unequip" && item.equipped !== false) ||
+            (action === "buy" && item.owned !== true)
+          )
+            return;
+          setCategorySnapshots((current) => ({
+            ...current,
+            [categoryId]: { data: result.data, updatedAt: result.updatedAt },
+          }));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [active, completedClothingKey, completedClothingJobs]);
+  const currentCategorySnapshots = Object.fromEntries(
+    Object.entries(categorySnapshots)
+      .filter(
+        ([, snapshot]) =>
+          snapshot.updatedAt >= (updatedAt["/api/clothing"] ?? 0),
+      )
+      .map(([id, snapshot]) => [id, snapshot.data]),
+  );
+  const items = inventoryItems(
+    category,
+    responses,
+    references,
+    currentCategorySnapshots,
+  );
   const filtered = filterInventory(items, filters).filter(
     (item) => targetId === null || String(item.id) === targetId,
   );

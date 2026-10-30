@@ -37,7 +37,10 @@ test("read-only clothing category inspection validates the returned category", a
   const calls = [];
   const fetcher = async (url, init) => {
     calls.push({ path: new URL(url).pathname, method: init.method ?? "GET" });
-    return Response.json({ categoryId: 5, items: [{ id: 364, owned: true }] });
+    return Response.json({
+      categoryId: 5,
+      items: [{ id: 364, categoryId: 5, owned: true }],
+    });
   };
   await inventoryAction({
     entry,
@@ -91,6 +94,26 @@ test("category inspection cannot bypass an uncertain clothing checkpoint", async
   assert.deepEqual(calls, ["/api/clothing"]);
   assert.equal(result.pending, true);
   assert.deepEqual(entry.equipment.pending, pending);
+});
+test("clothing equips and confirms using only its verified category", async () => {
+  const ctx = context({ owned: true });
+  await ctx.run({
+    type: "clothing_item",
+    id: 4,
+    categoryId: 3,
+    action: "equip",
+  });
+  assert.deepEqual(
+    ctx.game.calls.map(({ method, path }) => ({ method, path })),
+    [
+      { method: "GET", path: "/api/clothing/by-category/3" },
+      { method: "POST", path: "/api/clothing/equip" },
+      { method: "GET", path: "/api/clothing/by-category/3" },
+    ],
+  );
+  assert.deepEqual(ctx.game.mutations()[0].body, { itemId: 4 });
+  assert.equal(ctx.entry.equipment.pending, null);
+  assert.equal(ctx.game.items.clothing_item.equipped, true);
 });
 for (const [type, id, idKey, prefix, equipMethod] of definitions) {
   test(`${type}: purchase uses fresh quote, exact body and confirmed ownership`, async () => {

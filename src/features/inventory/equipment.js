@@ -28,6 +28,9 @@ export async function sendInventoryCommand({
     id: Number(item.id),
     action,
     ...(zoneId != null ? { zoneId: Number(zoneId) } : {}),
+    ...(type === "clothing_item" && item?.categoryId != null
+      ? { categoryId: Number(item.categoryId) }
+      : {}),
     ...(["buy", "repair"].includes(action) ? { price } : {}),
   };
   const commandId = suppliedCommandId ?? makeId();

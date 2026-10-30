@@ -2,9 +2,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   sendEquipmentCommand,
+  sendInventoryCommand,
   reconcileInventoryCommand,
   verifyInventoryAction,
 } from "./equipment.js";
+test("clothing commands include the item's category for targeted verification", async () => {
+  let command;
+  await sendInventoryCommand({
+    post: async (_path, body) => {
+      command = body;
+      return {};
+    },
+    item: { id: "364", type: "clothing_item", categoryId: 5 },
+    action: "equip",
+    makeId: () => "clothing-command",
+  });
+  assert.deepEqual(command.args.action, {
+    type: "clothing_item",
+    id: 364,
+    categoryId: 5,
+    action: "equip",
+  });
+});
 test("equipment client enqueues without a preflight state read", async () => {
   const calls = [];
   const accepted = [];

@@ -63,6 +63,13 @@ export function inventoryGame({
           catalog: { sets: [{ id: 1, items: [items.clothing_item] }] },
           player: { wallet },
         };
+      else if (path === "/api/clothing/by-category/3")
+        value = {
+          success: true,
+          categoryId: 3,
+          items: [items.clothing_item],
+          player: { wallet },
+        };
       else if (path.startsWith("/api/ornaments/zones/"))
         value = { success: true, items: [items.ornament] };
       else if (path === "/api/clothing/by-category/1")

@@ -88,6 +88,12 @@ export function inventoryResponseItems(type, body, categoryId) {
         ? body.catalog?.rooms
         : body.items;
   if (!Array.isArray(items)) throw fail(503, "inventory_unavailable");
+  if (
+    type === "clothing_item" &&
+    categoryId != null &&
+    items.some((item) => item?.categoryId !== categoryId)
+  )
+    throw fail(503, "inventory_unavailable");
   return items.filter(
     (item) =>
       item &&
@@ -206,11 +212,11 @@ export async function inventoryAction({
       (args.action === "unequip" && !definition.remove))
   )
     throw fail(400, "invalid_inventory_action");
-  // A category read is an optional read-only inspection. Never use it to
-  // clear a pre-existing uncertain mutation without its original checkpoint.
   const categoryId =
-    refreshOnly && !pending && type === "clothing_item"
-      ? args.categoryId
+    type === "clothing_item"
+      ? refreshOnly && pending
+        ? pending.categoryId
+        : args.categoryId
       : undefined;
   const current = await inventoryRead({
     entry,
@@ -322,6 +328,7 @@ export async function inventoryAction({
       id: commandId,
       type,
       zoneId: zoneId ?? null,
+      ...(categoryId != null ? { categoryId } : {}),
       entityId: args.id,
       action: args.action,
       operationId,
@@ -365,7 +372,13 @@ export async function inventoryAction({
       throw readFailure(response, "inventory_action_failed");
     }
     await response.body?.cancel();
-    const confirmed = await inventoryRead({ entry, type, zoneId, fetcher });
+    const confirmed = await inventoryRead({
+      entry,
+      type,
+      zoneId,
+      categoryId,
+      fetcher,
+    });
     const after = confirmed.items.find(
       (item) => inventoryEntityId(type, item) === args.id,
     );
