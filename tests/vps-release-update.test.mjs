@@ -40,6 +40,7 @@ function fixture({
   floorChangeOnUp = null,
   bridgeEnabled = false,
   bridgeConfigured = true,
+  journalCutoverSha = null,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "vps-release-update-test-"));
   const root = join(directory, "root");
@@ -73,6 +74,11 @@ function fixture({
     writeFileSync(
       join(root, "rollback-floor.env"),
       `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${floorSha}\n`,
+    );
+  if (journalCutoverSha)
+    writeFileSync(
+      join(root, "journal-cutover.env"),
+      `MADHOUSE_JOURNAL_CUTOVER_SHA=${journalCutoverSha}\n`,
     );
   if (bridgeEnabled) {
     writeFileSync(join(root, "bridge-enabled"), "enabled\n");
@@ -242,11 +248,73 @@ exit 0`,
     previousMarker: existsSync(join(root, "previous-release.env"))
       ? readFileSync(join(root, "previous-release.env"), "utf8")
       : null,
+    floorMarker: existsSync(join(root, "rollback-floor.env"))
+      ? readFileSync(join(root, "rollback-floor.env"), "utf8")
+      : null,
+    cutoverMarker: existsSync(join(root, "journal-cutover.env")),
     directory,
     run,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };
 }
+
+test("journal cutover advances rollback floor before startup and prevents unsafe rollback", () => {
+  const f = fixture({
+    floorSha: previous,
+    journalCutoverSha: candidate,
+    upFailures: [0],
+  });
+  try {
+    assert.notEqual(f.run.status, 0);
+    assert.deepEqual(lifecycle(f.calls), [
+      "stop",
+      "sleep 16",
+      "up",
+      "stop",
+      "sleep 16",
+    ]);
+    assert.equal(
+      f.floorMarker,
+      `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${candidate}\n`,
+    );
+    assert.equal(f.marker, `MADHOUSE_RELEASE_SHA=${candidate}\n`);
+    assert.equal(f.cutoverMarker, true);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("successful journal cutover retains new floor and clears the one-time marker", () => {
+  const f = fixture({ floorSha: previous, journalCutoverSha: candidate });
+  try {
+    assert.equal(f.run.status, 0, f.run.stderr);
+    assert.equal(
+      f.floorMarker,
+      `MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=${candidate}\n`,
+    );
+    assert.equal(f.cutoverMarker, false);
+    assert.ok(
+      !f.calls.some((call) => call.includes("release-notification.mjs")),
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("journal cutover refuses a different candidate and interrupted same-SHA restart", () => {
+  for (const options of [
+    { journalCutoverSha: previous },
+    { priorSha: candidate, journalCutoverSha: candidate },
+  ]) {
+    const f = fixture(options);
+    try {
+      assert.notEqual(f.run.status, 0);
+      assert.deepEqual(lifecycle(f.calls), []);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
 
 function lifecycle(calls) {
   return calls.flatMap((call) => {

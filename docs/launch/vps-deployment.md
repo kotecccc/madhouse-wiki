@@ -9,6 +9,16 @@ copy containing unresolved attempts and the current witness. If compatibility
 is unknown, keep dispatch stopped and preserve current state; see
 `game-data-release-acceptance.md` before enabling the transition.
 
+For a reviewed one-time journal cutover, install the tested updater first and
+create `journal-cutover.env` containing `MADHOUSE_JOURNAL_CUTOVER_SHA=<exact candidate SHA>`.
+The updater refuses other candidates, stops both services and waits for their
+lease, then atomically advances the rollback floor to that candidate before it
+can start. If startup fails it stops the candidate and keeps the marker and new
+floor: it never restarts the old image automatically. A crash or incomplete
+cutover requires operator investigation with state and witness preserved. The
+marker is removed only after successful health checks. The candidate must be
+published and be a verified descendant of the current floor before cutover.
+
 ## Migration state
 
 The recorded migration plan originally served the production Wiki and Telegram

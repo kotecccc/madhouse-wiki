@@ -13,6 +13,7 @@ readonly BRIDGE_ENABLED_MARKER="${ROOT}/bridge-enabled"
 readonly RELEASE_ENV="${ROOT}/release.env"
 readonly PREVIOUS_RELEASE_ENV="${ROOT}/previous-release.env"
 readonly ROLLBACK_FLOOR_ENV="${ROOT}/rollback-floor.env"
+readonly JOURNAL_CUTOVER_ENV="${ROOT}/journal-cutover.env"
 readonly BEFORE_DOWNLOAD_KB=$((6 * 1024 * 1024))
 readonly BEFORE_LOAD_KB=$((4 * 1024 * 1024))
 readonly RESERVE_KB=$((1024 * 1024))
@@ -278,9 +279,18 @@ archive_url="${release_info[0]}"
 checksum_url="${release_info[1]}"
 candidate_sha="${release_info[2]}"
 image_tag="madhouse-wiki:vps-${candidate_sha}"
+journal_cutover_sha="$(read_marker "${JOURNAL_CUTOVER_ENV}" MADHOUSE_JOURNAL_CUTOVER_SHA)" || { echo "Invalid journal cutover marker" >&2; exit 1; }
+if [[ -n "${journal_cutover_sha}" && "${journal_cutover_sha}" != "${candidate_sha}" ]]; then
+  echo "Journal cutover marker does not match candidate; refusing update" >&2
+  exit 1
+fi
 
 # No transition is needed; avoid repeated ancestry API calls on every poll.
 if [[ "${candidate_sha}" == "${previous_sha}" ]]; then
+  if [[ -n "${journal_cutover_sha}" ]]; then
+    echo "Incomplete journal cutover requires operator attention" >&2
+    exit 1
+  fi
   exit 0
 fi
 
@@ -393,14 +403,23 @@ if [[ "${current_floor}" != "${minimum_safe_sha}" ]]; then
 fi
 verify_bridge_configuration || { echo "Bridge configuration changed during update; refusing to stop services" >&2; exit 1; }
 stop_wiki_and_wait_for_lease
+if [[ -n "${journal_cutover_sha}" ]]; then
+  temporary="${ROLLBACK_FLOOR_ENV}.new"
+  printf 'MADHOUSE_MINIMUM_SAFE_RELEASE_SHA=%s\n' "${candidate_sha}" > "${temporary}"
+  chmod 0640 "${temporary}"
+  mv -f -- "${temporary}" "${ROLLBACK_FLOOR_ENV}"
+fi
 # Persist the rollback pointer before publishing the candidate marker, so a
 # process interruption cannot leave the prior current image unprotected.
 write_previous_release_env "${previous_sha}"
 write_release_env "${candidate_sha}"
 if compose up --detach --wait --wait-timeout 120; then
+  if [[ -n "${journal_cutover_sha}" ]]; then rm -f -- "${JOURNAL_CUTOVER_ENV}"; fi
   echo "madhouse-wiki release activated: ${candidate_sha}"
-  if ! compose exec --no-TTY wiki node scripts/deploy/release-notification.mjs; then
-    echo "Release is healthy; administrator notification requires attention" >&2
+  if [[ -z "${journal_cutover_sha}" ]]; then
+    if ! compose exec --no-TTY wiki node scripts/deploy/release-notification.mjs; then
+      echo "Release is healthy; administrator notification requires attention" >&2
+    fi
   fi
   protected_release_sha="${candidate_sha}"
   protected_previous_sha="${previous_sha}"
@@ -413,6 +432,11 @@ if compose up --detach --wait --wait-timeout 120; then
 fi
 
 echo "madhouse-wiki release failed health checks: ${candidate_sha}" >&2
+if [[ -n "${journal_cutover_sha}" ]]; then
+  stop_wiki_and_wait_for_lease
+  echo "Journal cutover failed; old release cannot safely resume. Operator attention required" >&2
+  exit 1
+fi
 if [[ -n "${previous_sha}" ]]; then
   current_floor="$(read_marker "${ROLLBACK_FLOOR_ENV}" MADHOUSE_MINIMUM_SAFE_RELEASE_SHA)" || { echo "Invalid rollback floor; refusing rollback" >&2; exit 1; }
   if [[ "${current_floor}" != "${minimum_safe_sha}" ]] || ! at_or_above_rollback_floor "${previous_sha}"; then
