@@ -1,5 +1,6 @@
 import { workFarmProgress } from "../works/WorkFarm/work-farm-presentation.js";
 import { actionQueuePriority } from "../../lib/action-queue-priority.js";
+import { STOPPED_WORK_RECONCILE_LIMIT } from "../../../shared/work-recovery.js";
 
 const visible = new Set([
   "queued",
@@ -31,6 +32,7 @@ const handoffTypes = new Set([
 const failureMessages = {
   game_request_rejected: "Игра отклонила запрос",
   dependency_failed: "Предыдущее действие не выполнено",
+  work_result_unresolved: "Результат прежней работёнки не подтверждён",
   game_session_required: "Требуется вход",
   inventory_price_changed: "Цена изменилась",
   inventory_balance_insufficient: "Недостаточно средств",
@@ -311,7 +313,10 @@ export function actionQueueCards(state, catalogue = {}) {
         card.progressLabel = "Расход энергии";
       card.work = ref;
       if (work.status === "stopped") {
-        card.status = "Проверяем результат";
+        card.status =
+          (work.reconcileFailures ?? 0) >= STOPPED_WORK_RECONCILE_LIMIT
+            ? "Результат не подтверждён"
+            : "Проверяем результат";
         card.command = null;
       } else if (subscription?.hasSuspendedGoal || buddy?.hasSuspendedGoal) {
         card.status = "Ожидает рейд";

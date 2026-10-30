@@ -35,6 +35,7 @@ export function createActionQueue({
   canSettle = () => true,
   eligible = () => true,
   blockedBy = () => null,
+  terminalBlock = () => null,
   onAttempt = () => {},
   onResult = () => {},
   runInContext = (_entry, _reconcile, run) => run(),
@@ -244,7 +245,10 @@ export function createActionQueue({
   function hasDue() {
     return (
       !working &&
-      ((canSettle() && entries.some(hasFailedDependency)) ||
+      ((canSettle() &&
+        entries.some(
+          (item) => hasFailedDependency(item) || terminalReason(item),
+        )) ||
         (entries.some(
           (item) =>
             runnable.has(item.status) &&
@@ -256,6 +260,12 @@ export function createActionQueue({
         ) &&
           ready()))
     );
+  }
+  function terminalReason(item) {
+    // Only an unsubmitted intention can be rejected this way. A running or
+    // uncertain operation must keep its checkpoint and reconciliation fence.
+    if (!["queued", "waiting"].includes(item.status)) return null;
+    return terminalBlock(item);
   }
   function hasFailedDependency(item) {
     return (
@@ -285,6 +295,16 @@ export function createActionQueue({
       failed.reason = "dependency_failed";
       failed.nextAt = null;
       failed.finishedAt = now();
+      commit();
+      return;
+    }
+    const blocked = canSettle() && entries.find(terminalReason);
+    if (blocked) {
+      const reason = terminalReason(blocked);
+      blocked.status = "failed";
+      blocked.reason = reason;
+      blocked.nextAt = null;
+      blocked.finishedAt = now();
       commit();
       return;
     }

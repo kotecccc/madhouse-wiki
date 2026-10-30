@@ -2,6 +2,43 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { actionQueueCards } from "./action-queue-view.js";
 
+test("explains an unresolved stopped work action and the rejected unsent job", () => {
+  const cards = actionQueueCards({
+    serverTime: 100,
+    workFarm: {
+      run: {
+        status: "stopped",
+        phase: "reconciling",
+        pending: { kind: "performing" },
+        reconcileFailures: 5,
+        workId: 7,
+      },
+    },
+    queuedActions: [
+      {
+        id: "equip-job",
+        type: "inventory",
+        status: "failed",
+        reason: "work_result_unresolved",
+        args: { type: "pet", id: 55, action: "equip" },
+        createdAt: 1,
+      },
+    ],
+  });
+  assert.equal(
+    cards.find((card) => card.id === "work").status,
+    "Результат не подтверждён",
+  );
+  assert.equal(
+    cards.find((card) => card.id === "equip-job").status,
+    "Результат прежней работёнки не подтверждён",
+  );
+  assert.equal(
+    cards.find((card) => card.id === "equip-job").command,
+    "queue.dismiss",
+  );
+});
+
 test("projects server actors and prioritized queued intentions without duplicate battle card", () => {
   const state = {
     serverTime: 100000,

@@ -443,6 +443,51 @@ test("service persists the schema migration and preserves legacy checkpoints", a
   });
 });
 
+test("an exhausted stopped work checkpoint rejects an unsent inventory job without clearing the checkpoint", async () => {
+  await withContext(async ({ store, service, game }) => {
+    const pending = {
+      kind: "performing",
+      operationId: "legacy-work-op",
+      taskId: 1,
+      before: { tasks: [] },
+    };
+    store.write(101, {
+      version: 1,
+      credential: tokenA,
+      player: { playerId: 101, nickname: "Alice" },
+      workFarm: {
+        run: {
+          workId: 7,
+          status: "stopped",
+          phase: "reconciling",
+          config: { mode: "energy" },
+          pending,
+          reconcileFailures: 298,
+        },
+      },
+      queuedActions: [
+        {
+          id: "inventory-old",
+          type: "inventory",
+          args: { type: "pet", id: 55, action: "equip" },
+          status: "queued",
+          attempts: 0,
+          priority: 30,
+          createdAt: 1,
+          nextAt: 1,
+        },
+      ],
+    });
+    await service.boot();
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+    const saved = store.read(101);
+    assert.equal(saved.queuedActions[0].status, "failed");
+    assert.equal(saved.queuedActions[0].reason, "work_result_unresolved");
+    assert.deepEqual(saved.workFarm.run.pending, pending);
+    assert.equal(game.calls.length, 0);
+  });
+});
+
 const command = (id, commandName, expectedVersion, args = {}) => ({
   id,
   command: commandName,

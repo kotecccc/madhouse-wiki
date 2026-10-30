@@ -4,6 +4,7 @@ import {
   workStashPartsProgress,
 } from "../../shared/work-stash.js";
 import { randomUUID } from "node:crypto";
+import { STOPPED_WORK_RECONCILE_LIMIT } from "../../shared/work-recovery.js";
 import { retryDelay } from "./action-queue.mjs";
 import {
   normalizeWorkState,
@@ -302,9 +303,19 @@ export function createWorkFarm({
         publish();
         return;
       }
-      if (run.pending && !(await reconcilePending(run, valid))) {
-        delay = 30000;
-        return;
+      if (run.pending) {
+        run.reconcileFailures = (run.reconcileFailures ?? 0) + 1;
+        publish();
+        if (!(await reconcilePending(run, valid))) {
+          if (run.reconcileFailures >= STOPPED_WORK_RECONCILE_LIMIT)
+            finish(
+              "stopped",
+              "Результат действия не подтверждён. Повтор заблокирован.",
+            );
+          else delay = 30000;
+          return;
+        }
+        run.reconcileFailures = 0;
       }
       if (
         run.phase === "preparing" ||
@@ -727,6 +738,16 @@ export function createWorkFarm({
     } catch (error) {
       if (id === generation && running()) {
         const run = record.run;
+        if (
+          run.pending &&
+          (run.reconcileFailures ?? 0) >= STOPPED_WORK_RECONCILE_LIMIT
+        ) {
+          finish(
+            "stopped",
+            "Результат действия не подтверждён. Повтор заблокирован.",
+          );
+          return;
+        }
         run.failures = (run.failures ?? 0) + 1;
         run.phase = run.pending ? "reconciling" : "retrying";
         run.reason = run.pending
@@ -752,6 +773,7 @@ export function createWorkFarm({
       working ||
       running() ||
       manualReconcileManaged() ||
+      record.manualFailures >= STOPPED_WORK_RECONCILE_LIMIT ||
       !available("wait") ||
       now() < (record.manualRetryAt ?? 0)
     )
@@ -791,6 +813,7 @@ export function createWorkFarm({
       working ||
       !run?.pending ||
       !["paused", "stopped", "limited", "completed"].includes(run.status) ||
+      (run.reconcileFailures ?? 0) >= STOPPED_WORK_RECONCILE_LIMIT ||
       now() < (run.nextReconcileAt ?? 0) ||
       !available(run.config.mode)
     )

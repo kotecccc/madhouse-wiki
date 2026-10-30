@@ -1086,6 +1086,82 @@ test("a stopped in-flight work action is reconciled by reads without resuming th
   assert.equal(h.timers.filter((timer) => !timer.canceled).length, 0);
 });
 
+test("stopped uncertain work stops automatic reads after the limit and retains its checkpoint across restart", async () => {
+  const pending = {
+    kind: "performing",
+    operationId: "work-uncertain",
+    taskId: 1,
+    before: { tasks: [] },
+  };
+  let calls = 0;
+  const saved = {
+    run: {
+      workId: 7,
+      status: "stopped",
+      phase: "reconciling",
+      config: { mode: "energy" },
+      pending,
+      reconcileFailures: 4,
+    },
+  };
+  const restored = createWorkFarm({
+    saved,
+    getWork: () => ({ workId: 7 }),
+    request: async () => {
+      calls++;
+      throw new Error("offline");
+    },
+    now: () => 1_000_000,
+  });
+  restored.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(restored.getSnapshot().run.reconcileFailures, 5);
+  assert.deepEqual(restored.getSnapshot().run.pending, pending);
+  const count = calls;
+  restored.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, count);
+  const afterRestart = createWorkFarm({
+    saved: structuredClone(restored.exportState()),
+    getWork: () => ({ workId: 7 }),
+    request: async () => {
+      calls++;
+    },
+    now: () => 2_000_000,
+  });
+  afterRestart.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, count);
+  assert.deepEqual(afterRestart.getSnapshot().run.pending, pending);
+  assert.equal(afterRestart.canSuspend(), false);
+  restored.dispose();
+  afterRestart.dispose();
+});
+
+test("running work stops after bounded failed reconciliation without replaying the action", async () => {
+  let block = false;
+  const h = makeHarness({
+    required: [2],
+    losePerformReply: true,
+    blockConfirmation: () => block,
+  });
+  await refresh(h);
+  start(h.farm);
+  await h.fireNext();
+  block = true;
+  for (let i = 0; i < 5; i++) await h.fireNext();
+  const run = h.farm.getSnapshot().run;
+  assert.equal(run.status, "stopped");
+  assert.equal(run.reconcileFailures, 5);
+  assert.ok(run.pending);
+  assert.equal(
+    h.calls.filter((call) => call.path === "/api/works/tasks/perform").length,
+    1,
+  );
+  assert.equal(h.timers.filter((timer) => !timer.canceled).length, 0);
+  h.farm.dispose();
+});
+
 test("an expired farm reconciles its in-flight action without resuming", async () => {
   const h = makeHarness({ required: [2], holdPerform: true });
   await refresh(h);

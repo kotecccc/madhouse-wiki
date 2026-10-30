@@ -90,6 +90,61 @@ function setup(saved = []) {
   };
 }
 
+test("a permanent external fence rejects only unsent jobs without dispatching them", async () => {
+  let stored;
+  let calls = 0;
+  const queue = createActionQueue({
+    saved: [
+      {
+        id: "uncertain-job",
+        type: "buy",
+        args: {},
+        status: "reconciling",
+        createdAt: 1,
+        nextAt: 0,
+      },
+      {
+        id: "waiting-job",
+        type: "buy",
+        args: {},
+        status: "waiting",
+        createdAt: 2,
+        nextAt: 99999,
+      },
+    ],
+    adapters: {
+      buy: {
+        validate: (args) => args,
+        execute: async () => {
+          calls++;
+        },
+      },
+    },
+    persist: (entries) => {
+      stored = entries;
+    },
+    now: () => 10,
+    ready: () => false,
+    allowed: () => false,
+    terminalBlock: () => "work_result_unresolved",
+  });
+  assert.equal(queue.hasDue(), true);
+  await queue.tick();
+  assert.equal(
+    stored.find((item) => item.id === "waiting-job").status,
+    "failed",
+  );
+  assert.equal(
+    stored.find((item) => item.id === "waiting-job").reason,
+    "work_result_unresolved",
+  );
+  assert.equal(
+    stored.find((item) => item.id === "uncertain-job").status,
+    "reconciling",
+  );
+  assert.equal(calls, 0);
+});
+
 test("history pruning retains a current actor handoff without keeping unrelated old entries", () => {
   const saved = Array.from({ length: 130 }, (_, i) => ({
     id: `old-${String(i).padStart(5, "0")}`,

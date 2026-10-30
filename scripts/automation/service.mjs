@@ -61,6 +61,7 @@ import { raidDropOutcome } from "./raid-drop-outcome.mjs";
 import { createBossBattleGoal } from "../../src/features/bosses/BossBattle/boss-battle-goal.js";
 import { isTerminalBossBattle } from "../../src/features/bosses/BossBattle/boss-battle-status.js";
 import { createWorkFarm } from "./work-farm.mjs";
+import { STOPPED_WORK_RECONCILE_LIMIT } from "../../shared/work-recovery.js";
 import { createFloorRunner } from "./floor-runner.mjs";
 import { createFloorActions } from "./floor-actions.mjs";
 import { createBusinessCollector } from "./business-collector.mjs";
@@ -2274,6 +2275,17 @@ export function createAutomationService({
       now,
       random,
       blockedBy: queueBlockedBy,
+      terminalBlock: () => {
+        const work = entry.workFarm.getSnapshot();
+        const run = work.run;
+        return (work.manualPending &&
+          (work.manualFailures ?? 0) >= STOPPED_WORK_RECONCILE_LIMIT) ||
+          (run?.pending &&
+            ["stopped", "limited", "completed"].includes(run.status) &&
+            (run.reconcileFailures ?? 0) >= STOPPED_WORK_RECONCILE_LIMIT)
+          ? "work_result_unresolved"
+          : null;
+      },
       retainIds: () =>
         [
           entry.workFarm.getSnapshot().run?.queueId,
