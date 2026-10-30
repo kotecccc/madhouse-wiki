@@ -200,3 +200,44 @@ Expected: 2 tests pass; return their output and the observed first-open warning.
 These fixture tests do not by themselves verify a complete normal first install
 of the signed 0.1.9 ZIP or authorize sending a game request. Perform that part
 only in an isolated fake delivery environment and report it separately.
+
+### Chrome ZIP delivery follow-up
+
+The Wiki macOS download route supplies `MadhouseWikiBridge-macOS.zip`, not a
+raw `.command`. A local ZIP was prepared using the existing signed launcher:
+
+```sh
+cd /Users/mac/projects/madhouse-wiki/artifacts/bridge-channel-0.1.9/macos
+zip -X MadhouseWikiBridge-macOS.zip MadhouseWikiBridge.command
+```
+
+The resulting local ZIP has SHA-256
+`78579c07362c4b6b305e6ab47adeee1ea82e0a63c3fa5ee6470656834987af48`;
+its contained launcher retains SHA-256
+`b181266997b8c40b924372e15e3e69e3ae340b46de38f5a130441adb7210a796`.
+The ZIP is a local delivery artifact, not an independently signed publisher
+signature, and has not been published. The channel signature on the agent and
+independently verified channel-key fingerprint remain the trust checks.
+
+Chrome downloaded both variants over local HTTP. The direct `.command` got a
+real Chrome quarantine attribute but lost its executable bit (`-rw-r--r--`).
+The ZIP download received Chrome quarantine; extracting with `ditto -x -k`
+propagated quarantine and restored the launcher's executable bit
+(`-rwxr-xr-x`). `spctl --assess --type execute` on the extracted launcher still
+reported `rejected; source=no usable signature`. This is a local Chrome and
+`ditto` observation, not proof of Finder's first-open UI or a fresh user's
+trust history. No quarantine was removed and no security settings were changed.
+No launcher was opened via Finder: it would immediately attempt the fixed
+production release URL, which is outside this fake-only task.
+
+For the next Finder observation, serve this local ZIP on loopback from the
+artifact directory with `python3 -m http.server 43798 --bind 127.0.0.1`,
+then download `http://127.0.0.1:43798/MadhouseWikiBridge-macOS.zip` in the
+browser of a disposable Mac profile. Check the ZIP hash and quarantine,
+extract using the normal macOS UI, and check the launcher's hash, quarantine
+and executable bit. Disconnect external networking before opening the launcher
+in Finder; localhost delivery does not require an external network. Record the
+exact Gatekeeper or Terminal message and whether first-open proceeds. If it
+proceeds, failure to fetch the production release while offline is expected;
+it is not a successful fake installation. Do not override a system warning or
+enter credentials. Stop the temporary local server after the observation.
