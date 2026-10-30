@@ -1,5 +1,5 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
@@ -14,7 +14,6 @@ import {
   allCharacterUpgradesComplete,
   characterUpgradeQuote,
 } from "../../../lib/character-stat-upgrades.js";
-import { getSessionJson } from "../../../../shared/session-api.js";
 import { fmt } from "../../../lib/format.js";
 
 const stats = [
@@ -37,23 +36,9 @@ export function CharacterUpgrade({
   const [armed, setArmed] = useState(null);
   const [approvedSingles, setApprovedSingles] = useState({});
   const [submittedSingle, setSubmittedSingle] = useState(null);
-  const previousRunStatus = useRef(state.run?.status);
   useEffect(() => {
     void characterUpgrade.refresh({ ifComplete: true });
   }, []);
-  useEffect(() => {
-    const finished =
-      previousRunStatus.current === "running" &&
-      state.run?.status !== "running";
-    previousRunStatus.current = state.run?.status;
-    if (finished) {
-      void characterUpgrade.refresh();
-      void getSessionJson("/api/me", {
-        fresh: true,
-        serverRefresh: "live",
-      }).catch(() => {});
-    }
-  }, [state.run?.status]);
   useEffect(() => {
     if (
       !submittedSingle ||
@@ -131,11 +116,6 @@ export function CharacterUpgrade({
       runId !== previousRunId
     )
       setSubmittedSingle({ key, id: runId });
-    if (ok)
-      void getSessionJson("/api/me", {
-        fresh: true,
-        serverRefresh: "live",
-      }).catch(() => {});
   };
   const isArmed = (key, selection) =>
     Boolean(

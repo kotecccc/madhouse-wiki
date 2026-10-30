@@ -228,6 +228,7 @@ export function createAutomationService({
   }),
   fetcher = fetch,
   identifyPlayer,
+  verifyQueuedCredential = async () => null,
   canonicalCredential = (authorization) => authorization,
   accountHealth = () => null,
   accountResourceVersions = () => null,
@@ -3362,6 +3363,35 @@ export function createAutomationService({
       loading.delete(hash);
     }
   }
+  async function identifyForQueue(authorization) {
+    if (closed) throw failure(503, "automation_unavailable");
+    ensureLease();
+    const verified = await verifyQueuedCredential(authorization);
+    if (!positive(verified?.playerId)) return identify(authorization);
+    const credential = canonicalCredential(authorization);
+    const entry = await actor(String(verified.playerId));
+    if (entry.storageFailed)
+      throw failure(503, "automation_storage_unavailable");
+    // A replacement credential must still pass the existing live identity path.
+    if (entry.credential && entry.credential !== credential)
+      return identify(authorization);
+    if (accountHealth(credential)?.status === "credentials_invalid")
+      throw failure(401, "game_session_required");
+    if (!entry.credential) {
+      entry.credential = credential;
+      entry.player = {
+        playerId: verified.playerId,
+        nickname:
+          typeof verified.nickname === "string"
+            ? verified.nickname.slice(0, 80)
+            : "Игрок",
+      };
+      save(entry);
+      if (entry.storageFailed)
+        throw failure(503, "automation_storage_unavailable");
+    }
+    return entry;
+  }
   function resolvedAutoGoal(settingsInput, state) {
     if (!state.boss || settingsInput.bossId !== state.boss.id)
       throw failure(400, "goal_boss_mismatch");
@@ -5224,6 +5254,7 @@ export function createAutomationService({
   }
   return {
     identify,
+    identifyForQueue,
     readStored,
     async readStoredPlayer(playerId) {
       if (closed) throw failure(503, "automation_unavailable");

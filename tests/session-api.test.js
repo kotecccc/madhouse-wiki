@@ -31,6 +31,30 @@ test("a strict live read does not join an earlier non-live read", async () => {
   assert.deepEqual(calls, [null, "live"]);
 });
 
+test("display can read a saved snapshot while a strict refresh is stalled", async () => {
+  let release;
+  const headers = [];
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      const display = options.headers["X-Madhouse-Snapshot-Only"] === "1";
+      headers.push(display ? "display" : "live");
+      if (!display)
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      return Response.json({ revision: display ? 1 : 2 });
+    },
+  });
+  const live = api.get("/api/me", { fresh: true, serverRefresh: "live" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(await api.get("/api/me"), { revision: 1 });
+  assert.deepEqual(headers, ["live", "display"]);
+  release();
+  assert.deepEqual(await live, { revision: 2 });
+  api.clear();
+});
+
 test("a stale live profile response never replaces confirmed profile data", async () => {
   let stale = false;
   const events = [];
@@ -128,9 +152,9 @@ test("unmounting the first consumer does not cancel a shared snapshot read", asy
   assert.equal(calls, 1);
 });
 
-test("cancelling one strict snapshot consumer does not abort a joined read", async () => {
+test("strict snapshot consumers wait independently while the server may coalesce them", async () => {
   const first = new AbortController();
-  let release;
+  const releases = [];
   let calls = 0;
   const api = createSessionApi({
     interval: 0,
@@ -138,7 +162,7 @@ test("cancelling one strict snapshot consumer does not abort a joined read", asy
     fetcher: async (_url, { signal }) => {
       calls++;
       await new Promise((resolve) => {
-        release = resolve;
+        releases.push(resolve);
       });
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       return Response.json({ revision: 1 });
@@ -152,10 +176,10 @@ test("cancelling one strict snapshot consumer does not abort a joined read", asy
   const two = api.get("/api/me", { fresh: true, serverRefresh: "live" });
   await new Promise((resolve) => setImmediate(resolve));
   first.abort();
-  release();
+  for (const release of releases) release();
   assert.deepEqual(await one, { revision: 1 });
   assert.deepEqual(await two, { revision: 1 });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test("failed session requests are retryable and external URLs are rejected", async () => {
@@ -330,6 +354,55 @@ test("stored snapshots feed demand-driven revalidation without starting it thems
   api.refreshExpired();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, afterStored + 1);
+  unsubscribe();
+});
+
+test("a missing display snapshot schedules a separate refresh only while subscribed", async () => {
+  const calls = [];
+  const events = [];
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      const stored = options.headers["X-Madhouse-Snapshot-Only"] === "1";
+      calls.push(stored ? "display" : "refresh");
+      return stored
+        ? Response.json({ error: "snapshot_unavailable" }, { status: 404 })
+        : Response.json({ revision: 1 });
+    },
+  });
+  const unsubscribe = api.subscribe((event) => events.push(event), {
+    resources: ["/api/me/bag"],
+  });
+  await assert.rejects(api.get("/api/me/bag"), (error) => error.status === 404);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["display", "refresh"]);
+  assert.ok(
+    events.some(
+      (event) => event.path === "/api/me/bag" && event.data?.revision === 1,
+    ),
+  );
+  unsubscribe();
+});
+
+test("a missing stored read stays local until a separate demand sweep", async () => {
+  const calls = [];
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async (_url, options) => {
+      const stored = options.headers["X-Madhouse-Stored-Only"] === "1";
+      calls.push(stored ? "stored" : "refresh");
+      return stored
+        ? Response.json({ error: "snapshot_unavailable" }, { status: 404 })
+        : Response.json({ revision: 1 });
+    },
+  });
+  const unsubscribe = api.subscribe(() => {}, { resources: ["/api/me/bag"] });
+  assert.equal((await api.readStored("/api/me/bag")).presence, "unknown");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["stored"]);
+  api.refreshExpired();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["stored", "refresh"]);
   unsubscribe();
 });
 
@@ -1362,6 +1435,30 @@ test("remote automation responses can publish account-scoped session updates", (
       updatedAt: null,
     },
   ]);
+});
+
+test("snapshot publications enter the cache only with a non-regressing observation time", async () => {
+  const events = [];
+  const api = createSessionApi({
+    authorize: (request) => ({ ...request, headers: { Authorization: "a" } }),
+    fetcher: async () =>
+      Response.json(
+        { revision: 1 },
+        { headers: { "X-Madhouse-Section-Updated": "1000" } },
+      ),
+  });
+  api.subscribe((event) => events.push(event));
+  await api.get("/api/me", { fresh: true });
+  api.publishResponse("/api/me", { revision: 2 }, { updatedAt: 2000 });
+  api.publishResponse("/api/me", { revision: 3 }, { updatedAt: 999 });
+  api.publishResponse("/api/me", { revision: 4 });
+  assert.deepEqual(api.peek("/api/me", { allowStale: true }), { revision: 2 });
+  assert.deepEqual(
+    events
+      .filter((event) => event.path === "/api/me")
+      .map((event) => event.data.revision),
+    [1, 2],
+  );
 });
 
 test("explicit retry refresh headers apply to snapshot GETs without leaking to mutations", async () => {

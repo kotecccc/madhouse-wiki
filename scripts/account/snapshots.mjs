@@ -1040,12 +1040,18 @@ export function createAccountSnapshots({
         json({ error: "game_credentials_invalid" }, 401),
         record,
       );
-    const snapshotOnly = requestHeaders.get("X-Madhouse-Snapshot-Only") === "1";
+    const snapshotOnly =
+      requestHeaders.get("X-Madhouse-Snapshot-Only") === "1" &&
+      !["1", "live"].includes(
+        requestHeaders.get("X-Madhouse-Snapshot-Refresh"),
+      );
     const liveProfile =
       requestHeaders.get("X-Madhouse-Snapshot-Refresh") === "live";
     requestHeaders.delete("X-Madhouse-Snapshot-Only");
     requestHeaders.delete("X-Madhouse-Snapshot-Refresh");
     const upstreamInit = { ...init, headers: requestHeaders };
+    if (snapshotOnly && !liveProfile && !playerId)
+      return json({ error: "snapshot_unavailable" }, 404);
     if (!playerId && path !== "/api/me") {
       const identity = await read("https://cargohustle.online/api/me", {
         headers: { Authorization: authorization },
@@ -1085,12 +1091,8 @@ export function createAccountSnapshots({
             record.health.retryAt > now()),
         ),
       );
-    // Boss cards can use a saved tattoo zone, but must not fetch missing zones.
-    if (
-      snapshotOnly &&
-      !liveProfile &&
-      path.startsWith("/api/ornaments/zones/")
-    )
+    // Snapshot-only is a local display read for every supported resource.
+    if (snapshotOnly && !liveProfile)
       return json({ error: "snapshot_unavailable" }, 404);
     const forwardedHeaderFingerprint = hash(
       JSON.stringify(
@@ -1581,7 +1583,7 @@ export function createAccountSnapshots({
     )
       return execute(url, init);
     const playerId = authorization && credentials.get(hash(authorization));
-    let record = accounts.get(playerId);
+    const record = accounts.get(playerId);
     if (
       (init.method || "GET").toUpperCase() === "GET" &&
       isSnapshotPath(requestUrl.pathname) &&
@@ -1603,69 +1605,14 @@ export function createAccountSnapshots({
       return execute(url, init, { cache: false, forceFailedRefresh: true });
     if (!requested || !record) return execute(url, init);
     const revoked = record.revokedHashes?.includes(hash(authorization));
-
-    const failed = record.health?.failedSections || [];
-    const paths = [
-      ...new Set(
-        failed.flatMap((path) =>
-          path === "*" ? ["/api/me"] : isSnapshotPath(path) ? [path] : [],
-        ),
-      ),
-    ];
-    const savedProfile = record.sections?.["/api/me"];
-    const needsProfile = paths.includes("/api/me") || !savedProfile;
-    if (
-      !revoked &&
-      !needsProfile &&
-      Number.isFinite(record.manualHealthRefreshAt) &&
-      now() - record.manualHealthRefreshAt < 60_000
-    )
-      return withMetadata(json(savedProfile.data), record, savedProfile, true);
-
-    // Explicit profile refresh always validates /api/me first. Sibling section
-    // failures are retried only after that identity response is confirmed.
-    const response = await execute(
+    // A profile refresh does not create demand for unrelated failed sections.
+    return execute(
       url,
       init,
       revoked
         ? { fallback: false, cache: false, forceFailedRefresh: true }
         : {},
     );
-    if (
-      !response.ok ||
-      (response.headers.get("X-Madhouse-Snapshot") !== "current" &&
-        !response.headers.has("X-Madhouse-Observed-At"))
-    )
-      return response;
-    // /api/me was itself failed (or no profile snapshot exists). Recheck its
-    // siblings after the profile request has left the per-account queue.
-    record = accounts.get(playerId);
-    const remaining = record?.health?.failedSections || [];
-    const retryPaths = [
-      ...new Set(
-        remaining.filter(
-          (path) =>
-            path !== "/api/me" &&
-            !path.startsWith("/api/ornaments/zones/") &&
-            isSnapshotPath(path),
-        ),
-      ),
-    ];
-    for (const path of retryPaths) {
-      const result = await execute(
-        new URL(path, url),
-        {
-          method: "GET",
-          headers: { Authorization: authorization },
-          signal: init.signal,
-          canDispatch: init.canDispatch,
-        },
-        { fallback: false, cache: false, forceFailedRefresh: true },
-      );
-      if (result.status === 401) return result;
-    }
-    const current = accounts.get(playerId);
-    return withMetadata(response, current, current?.sections?.["/api/me"]);
   }
   async function liveFetch(url, init = {}) {
     const method = (init.method || "GET").toUpperCase();
@@ -1738,6 +1685,40 @@ export function createAccountSnapshots({
       if (accounts.get(playerId)?.revokedHashes?.includes(digest)) return null;
       const value = Number(playerId);
       return Number.isSafeInteger(value) && value > 0 ? value : null;
+    },
+    bindVerifiedCredential(authorization, verifiedPlayerId) {
+      if (
+        typeof authorization !== "string" ||
+        !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization) ||
+        !Number.isSafeInteger(verifiedPlayerId) ||
+        verifiedPlayerId <= 0
+      )
+        return false;
+      const digest = hash(authorization);
+      const playerId = String(verifiedPlayerId);
+      const indexed = credentials.get(digest);
+      const record = accounts.get(playerId);
+      if (
+        (indexed && indexed !== playerId) ||
+        !record ||
+        record.revokedHashes?.includes(digest) ||
+        String(record.sections?.["/api/me"]?.data?.playerId) !== playerId
+      )
+        return false;
+      if (indexed === playerId) return true;
+      const hashes = [
+        ...new Set([...(record.credentialHashes || []), digest]),
+      ].slice(-8);
+      try {
+        persist({ ...record, credentialHashes: hashes });
+        for (const [known, account] of credentials)
+          if (account === playerId && !hashes.includes(known))
+            credentials.delete(known);
+        credentials.set(digest, playerId);
+        return true;
+      } catch {
+        return false;
+      }
     },
     credentialCurrent(authorization) {
       if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
@@ -1858,6 +1839,24 @@ export function createAccountSnapshots({
       const playerId = authorization && credentials.get(hash(authorization));
       return state(accounts.get(playerId));
     },
+    noteReadFailure(authorization, path, { verifiedPlayerId } = {}) {
+      const digest = authorization && hash(authorization);
+      const indexed = digest && credentials.get(digest);
+      const verified =
+        Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+          ? String(verifiedPlayerId)
+          : null;
+      if (indexed && verified && indexed !== verified) return false;
+      const record = accounts.get(indexed || verified);
+      if (
+        !record ||
+        record.revokedHashes?.includes(digest) ||
+        !isSnapshotPath(path)
+      )
+        return false;
+      mark(record, "unavailable", path);
+      return true;
+    },
     resourceVersions(authorization) {
       const digest = authorization && hash(authorization);
       const record = digest && accounts.get(credentials.get(digest));
@@ -1924,7 +1923,23 @@ export function createAccountSnapshots({
         record?.profileRevision ?? 0,
       )}:${record?.sections?.[path]?.revision ?? 0}`;
     },
-    readDisplayCache(url, init = {}, { verifiedPlayerId } = {}) {
+    observationTime(authorization, path, { verifiedPlayerId } = {}) {
+      const indexed = authorization && credentials.get(hash(authorization));
+      const verified =
+        Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
+          ? String(verifiedPlayerId)
+          : null;
+      if (indexed && verified && indexed !== verified) return null;
+      const section = accounts.get(indexed || verified)?.sections?.[path];
+      return Number.isFinite(section?.latestObservation?.observedAt)
+        ? section.latestObservation.observedAt
+        : null;
+    },
+    readDisplayCache(
+      url,
+      init = {},
+      { verifiedPlayerId, verifiedWiki = false } = {},
+    ) {
       const parsed = new URL(url);
       if (
         (init.method || "GET").toUpperCase() !== "GET" ||
@@ -1933,7 +1948,9 @@ export function createAccountSnapshots({
       )
         return null;
       const headers = new Headers(init.headers);
-      if (headers.has("X-Madhouse-Snapshot-Refresh")) return null;
+      const refresh = headers.get("X-Madhouse-Snapshot-Refresh");
+      if (refresh === "live" || (refresh && parsed.pathname !== "/api/me"))
+        return null;
       const authorization = headers.get("authorization");
       const playerId =
         Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
@@ -1943,11 +1960,34 @@ export function createAccountSnapshots({
       const section = record?.sections?.[parsed.pathname];
       if (!section) return null;
       const saved = this.readStored(url, init, {
-        verifiedWiki:
-          Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0,
+        verifiedWiki,
         verifiedPlayerId,
       });
       if (!saved.ok) return saved;
+      if (refresh === "1") {
+        if (
+          Number.isFinite(record.manualHealthRefreshAt) &&
+          now() - record.manualHealthRefreshAt < 60_000
+        ) {
+          const responseHeaders = new Headers(saved.headers);
+          responseHeaders.set("X-Madhouse-Snapshot", "stale");
+          return new Response(saved.body, {
+            status: saved.status,
+            headers: responseHeaders,
+          });
+        }
+        persist({ ...record, manualHealthRefreshAt: now() });
+        return null;
+      }
+      if (refresh) return null;
+      if (
+        (record.health?.status === "unavailable" &&
+          record.health.retryAt > now()) ||
+        (section.dirty &&
+          Number.isFinite(section.revalidateAfter) &&
+          section.revalidateAfter > now())
+      )
+        return saved;
       if (
         headers.get("X-Madhouse-Snapshot-Only") === "1" ||
         reusableSection(record, parsed.pathname, section)
@@ -1977,15 +2017,17 @@ export function createAccountSnapshots({
         }
       }
       const digest = hash(authorization);
-      const playerId =
-        verifiedWiki &&
-        Number.isSafeInteger(verifiedPlayerId) &&
-        verifiedPlayerId > 0
+      const indexedPlayerId = credentials.get(digest);
+      const verifiedId =
+        Number.isSafeInteger(verifiedPlayerId) && verifiedPlayerId > 0
           ? String(verifiedPlayerId)
-          : credentials.get(digest);
+          : null;
+      if (indexedPlayerId && verifiedId && indexedPlayerId !== verifiedId)
+        return json({ error: "game_identity_unverified" }, 401);
+      const playerId = verifiedId || indexedPlayerId;
       const record = accounts.get(playerId);
       if (!record)
-        return verifiedWiki && playerId
+        return (verifiedWiki || verifiedId) && playerId
           ? json({ error: "snapshot_unavailable" }, 404)
           : json({ error: "game_identity_unverified" }, 401);
       if (!verifiedWiki && record.revokedHashes?.includes(digest))

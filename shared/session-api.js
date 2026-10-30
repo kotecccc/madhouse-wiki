@@ -142,7 +142,8 @@ export function createSessionApi({
   const resourceSubscriptions = new Map();
   const pending = new Map();
   const pendingModes = new Map();
-  const snapshotOnlyPending = new Set();
+  const storedPending = new Map();
+  const failedAt = new Map();
   const controllers = new Set();
   const listeners = new Set();
   let generation = 0;
@@ -194,7 +195,8 @@ export function createSessionApi({
     entries.clear();
     pending.clear();
     pendingModes.clear();
-    snapshotOnlyPending.clear();
+    storedPending.clear();
+    failedAt.clear();
     resourceVersions = null;
     automationVersion = -1;
     tail = Promise.resolve();
@@ -269,37 +271,44 @@ export function createSessionApi({
     }
     const cached = method === "GET" ? entries.get(path) : null;
     if (!storedOnly && method === "GET" && pending.has(path)) {
-      const active = pending.get(path);
-      const activeMode = pendingModes.get(path);
+      const active = [...pending.get(path)];
+      const modes = active.map((promise) => pendingModes.get(promise));
+      const separateDisplay =
+        snapshotOnly &&
+        !afterPending &&
+        modes.every((mode) => !mode?.snapshotOnly);
       if (
-        (fresh && snapshotOnlyPending.has(path)) ||
-        (serverRefresh && activeMode?.serverRefresh !== serverRefresh) ||
-        activeMode?.refreshBoss !== refreshBoss ||
-        afterPending
+        !separateDisplay &&
+        ((fresh && modes.some((mode) => mode?.snapshotOnly)) ||
+          modes.some((mode) => mode?.serverRefresh !== serverRefresh) ||
+          modes.some((mode) => mode?.refreshBoss !== refreshBoss) ||
+          afterPending)
       ) {
         const waitingGeneration = generation;
-        return active
-          .catch(() => {})
-          .then(() => {
-            if (generation !== waitingGeneration)
-              throw new Error("Сессия изменилась");
-            if (pending.get(path) === active) {
-              pending.delete(path);
-              pendingModes.delete(path);
-              snapshotOnlyPending.delete(path);
-            }
-            return request(method, path, body, {
-              fresh: true,
-              signal,
-              background,
-              snapshotOnly: false,
-              serverRefresh,
-              afterPending: true,
-              refreshBoss,
-            });
+        return Promise.allSettled(active).then(() => {
+          if (generation !== waitingGeneration)
+            throw new Error("Сессия изменилась");
+          const current = pending.get(path);
+          for (const promise of active) {
+            current?.delete(promise);
+            pendingModes.delete(promise);
+          }
+          if (!current?.size) pending.delete(path);
+          return request(method, path, body, {
+            fresh: true,
+            signal,
+            background,
+            snapshotOnly: false,
+            serverRefresh,
+            afterPending: true,
+            refreshBoss,
           });
+        });
       }
-      return active;
+      // Strict reads go independently to the server, which can coalesce them
+      // using its mutation revision. The browser cannot know whether a worker
+      // mutated the account since an older read started.
+      if (!separateDisplay && serverRefresh !== "live") return active[0];
     }
     if (
       !storedOnly &&
@@ -586,34 +595,45 @@ export function createSessionApi({
     else if (!storedOnly && method !== "GET") tail = promise.catch(() => {});
     if (method === "GET" && !storedOnly) {
       if (!cached) entries.set(path, entry);
-      pending.set(path, promise);
-      pendingModes.set(path, { serverRefresh, refreshBoss });
-      if (snapshotOnly) snapshotOnlyPending.add(path);
+      let group = pending.get(path);
+      if (!group) pending.set(path, (group = new Set()));
+      group.add(promise);
+      pendingModes.set(promise, { serverRefresh, refreshBoss, snapshotOnly });
       if (background) setRefreshing(1);
       promise
         .then(
-          () => {},
           () => {
+            failedAt.delete(path);
+          },
+          (error) => {
+            if (!snapshotOnly || error?.status !== 404)
+              failedAt.set(path, now());
             if (entries.get(path) === entry) {
               if (cached?.value !== undefined) {
                 entry.lastFailureAt = now();
-              } else entries.delete(path);
+              } else if ((pending.get(path)?.size ?? 0) <= 1)
+                entries.delete(path);
             }
+            if (snapshotOnly && error?.status === 404)
+              entry.revalidateAfterRequest = true;
           },
         )
         .finally(() => {
-          if (pending.get(path) === promise) {
-            pending.delete(path);
-            pendingModes.delete(path);
-            snapshotOnlyPending.delete(path);
-          }
+          const group = pending.get(path);
+          group?.delete(promise);
+          pendingModes.delete(promise);
+          if (!group?.size) pending.delete(path);
           if (background && generation === requestGeneration) setRefreshing(-1);
           if (
             entry.revalidateAfterRequest &&
-            generation === requestGeneration
+            generation === requestGeneration &&
+            !pending.has(path)
           ) {
             entry.revalidateAfterRequest = false;
-            refreshPath(path);
+            const force = entry.forceRevalidateAfterRequest;
+            entry.forceRevalidateAfterRequest = false;
+            if (force || entry.value === undefined || now() >= entry.until)
+              refreshPath(path);
           }
         });
     }
@@ -647,7 +667,8 @@ export function createSessionApi({
     const sections = {};
     for (const [path, value] of Object.entries(next.sections)) {
       if (
-        !isStoredReadPath(path) ||
+        !isSnapshotPath(path) ||
+        path === "/api/automation/bosses" ||
         !value ||
         !Number.isSafeInteger(value.revision) ||
         value.revision < 0 ||
@@ -676,7 +697,12 @@ export function createSessionApi({
     resourceVersions = { revision: next.revision, sections };
     const requestGeneration = generation;
     for (const [path, subscriptions] of resourceSubscriptions) {
-      if (!subscriptions.size || !isStoredReadPath(path)) continue;
+      if (
+        !subscriptions.size ||
+        !isSnapshotPath(path) ||
+        path === "/api/automation/bosses"
+      )
+        continue;
       const before = previous?.sections[path];
       const after = sections[path];
       if (!previous && !after?.dirty) continue;
@@ -689,7 +715,10 @@ export function createSessionApi({
       if (after?.dirty || !after) {
         if (cached) {
           cached.until = 0;
-          if (pending.has(path)) cached.revalidateAfterRequest = true;
+          if (pending.has(path)) {
+            cached.revalidateAfterRequest = true;
+            cached.forceRevalidateAfterRequest = true;
+          }
         }
       }
       // The worker may have already saved the observation; read it locally
@@ -723,27 +752,24 @@ export function createSessionApi({
   }
   function refreshPath(path) {
     const entry = entries.get(path);
-    if (
-      !hasRefreshDemand(path) ||
-      entry?.value === undefined ||
-      pending.has(path) ||
-      !shouldRefresh()
-    )
+    if (!hasRefreshDemand(path) || pending.has(path) || !shouldRefresh())
       return;
     if (
-      entry.lastFailureAt != null &&
+      entry?.lastFailureAt != null &&
       now() - entry.lastFailureAt < failureCooldown
     )
+      return;
+    if (failedAt.has(path) && now() - failedAt.get(path) < failureCooldown)
       return;
     request("GET", path, undefined, { background: true }).catch(() => {});
   }
   function refreshExpired() {
     if (!shouldRefresh()) return;
-    for (const [path, entry] of entries) {
+    for (const path of resourceSubscriptions.keys()) {
+      const entry = entries.get(path);
       if (
         isSnapshotPath(path) &&
-        entry.value !== undefined &&
-        now() >= entry.until
+        (entry?.value === undefined || now() >= entry.until)
       )
         refreshPath(path);
     }
@@ -776,21 +802,42 @@ export function createSessionApi({
         // caller's cancellation must not abort the other consumers' transport.
         // getSessionJson cancels that caller's wait independently.
         ...(isSnapshotPath(path) ? { signal: undefined } : {}),
-        snapshotOnly: !options.fresh && isSnapshotPath(path) && !cached,
+        snapshotOnly:
+          !options.fresh && isSnapshotPath(path) && cached?.value === undefined,
       });
       return promise;
     },
     readStored(path, options = {}) {
       if (!/^\/api\/[\w/?.=&%+-]+$/.test(path) || !isStoredReadPath(path))
         return Promise.reject(new Error("Недопустимый сохранённый ресурс"));
-      return request("GET", path, undefined, {
+      let credential;
+      try {
+        credential = authorizeStored({
+          url: path,
+          method: "GET",
+          storedOnly: true,
+        }).headers.Authorization;
+      } catch (error) {
+        clear();
+        return Promise.reject(error);
+      }
+      const key = JSON.stringify([generation, path, credential]);
+      if (storedPending.has(key)) return storedPending.get(key);
+      const promise = request("GET", path, undefined, {
         ...options,
+        signal: undefined,
         fresh: true,
         storedOnly: true,
         snapshotOnly: false,
         serverRefresh: false,
         background: false,
       });
+      storedPending.set(key, promise);
+      const release = () => {
+        if (storedPending.get(key) === promise) storedPending.delete(key);
+      };
+      promise.then(release, release);
+      return promise;
     },
     post: (path, body, options) => request("POST", path, body, options),
     peek(path, { allowStale = false } = {}) {
@@ -832,8 +879,49 @@ export function createSessionApi({
         }
       };
     },
-    publishResponse(path, data) {
-      publish({ path, data, updatedAt: null });
+    publishResponse(
+      path,
+      data,
+      {
+        updatedAt = null,
+        snapshotStatus = null,
+        snapshotCompleteness = null,
+      } = {},
+    ) {
+      if (isSnapshotPath(path)) {
+        // A snapshot publication without its observation time cannot be
+        // ordered against in-flight reads and must not replace personal data.
+        if (!Number.isFinite(updatedAt) || updatedAt <= 0) return;
+        let current;
+        try {
+          current = authorize({ url: path }).headers.Authorization;
+        } catch {
+          clear();
+          return;
+        }
+        if (identity !== current) {
+          clear();
+          identity = current;
+        }
+        const entry = entries.get(path) || {};
+        if (entry.updatedAt != null && entry.updatedAt > updatedAt) return;
+        Object.assign(entry, {
+          value: data,
+          updatedAt,
+          until: snapshotStatus === "stale" ? now() : updatedAt + ttl,
+          snapshotStatus,
+          snapshotCompleteness,
+          publication: ++publicationClock,
+        });
+        entries.set(path, entry);
+      }
+      publish({
+        path,
+        data,
+        updatedAt,
+        ...(snapshotStatus ? { snapshotStatus } : {}),
+        ...(snapshotCompleteness ? { snapshotCompleteness } : {}),
+      });
     },
     isRefreshing: () => refreshing > 0,
     refreshExpired,
@@ -849,7 +937,9 @@ function ensureSessionApi() {
     authorizeStored: authorizeStoredRequest,
     authorizeLocalCommand: authorizeLocalAutomationCommand,
     shouldRefresh: () =>
-      typeof document === "undefined" || document.visibilityState === "visible",
+      readSession().status === "ready" &&
+      (typeof document === "undefined" ||
+        document.visibilityState === "visible"),
   });
   if (typeof window !== "undefined") subscribeSession(() => sessionApi.clear());
   if (!refreshLifecycleStarted && typeof window !== "undefined") {
@@ -958,7 +1048,12 @@ export function postSessionJson(path, body, { signal } = {}) {
 export function subscribeSessionData(listener, options) {
   return ensureSessionApi().subscribe(listener, options);
 }
-export function publishSessionData(path, data, expectedAuthorization) {
+export function publishSessionData(
+  path,
+  data,
+  expectedAuthorization,
+  metadata,
+) {
   if (typeof path !== "string" || !path.startsWith("/api/")) return;
   try {
     if (
@@ -972,7 +1067,7 @@ export function publishSessionData(path, data, expectedAuthorization) {
   } catch {
     return;
   }
-  ensureSessionApi().publishResponse(path, data);
+  ensureSessionApi().publishResponse(path, data, metadata);
 }
 export function readSessionRefreshState() {
   return sessionApi?.isRefreshing() ?? false;

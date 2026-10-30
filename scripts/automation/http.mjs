@@ -81,10 +81,13 @@ export function createAutomationHttp({
         }
       }
       const isStop = localStopCommands.has(input?.command);
+      const authorization = request.headers.get("authorization");
       entry =
         request.method === "GET" || isStop
-          ? await service.readStored(request.headers.get("authorization"))
-          : await service.identify(request.headers.get("authorization"));
+          ? await service.readStored(authorization)
+          : input?.command === "queue.enqueue" && service.identifyForQueue
+            ? await service.identifyForQueue(authorization)
+            : await service.identify(authorization);
       return json(
         request.method === "GET"
           ? url.pathname.endsWith("/friends")

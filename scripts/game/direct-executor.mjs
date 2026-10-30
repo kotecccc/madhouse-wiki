@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { currentReadDiagnostic } from "./read-diagnostics.mjs";
 
 const DEFAULT_ORIGINS = ["https://cargohustle.online"];
 function makeError(message, code = "DIRECT_REQUEST_NOT_DISPATCHED") {
@@ -65,6 +66,7 @@ export function createDirectExecutor({
   function record(item, outcome, status) {
     const event = {
       id: item.id,
+      ...(item.readDiagnostic ? { correlation: item.readDiagnostic.id } : {}),
       source: item.source,
       operation: item.operation,
       account: createHash("sha256")
@@ -229,6 +231,7 @@ export function createDirectExecutor({
             globalReadyAt = currentTime + minGlobalSpacingMs;
           } else activeDevices.add(candidate.deviceId);
           candidate.sentAt = currentTime;
+          if (candidate.readDiagnostic) candidate.readDiagnostic.physical++;
           dispatched++;
           record(candidate, "started");
           Promise.resolve()
@@ -367,6 +370,7 @@ export function createDirectExecutor({
         : "wiki";
       const item = {
         id: randomUUID(),
+        readDiagnostic: currentReadDiagnostic(),
         execute,
         transport,
         deviceId: context.deviceId,

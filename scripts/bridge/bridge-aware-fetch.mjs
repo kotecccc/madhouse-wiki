@@ -138,6 +138,7 @@ export function createBridgeAwareAccountFetch({
     // their own tickets after the router has revalidated the route.
     let bridgeProfileCommit = null;
     let bridgeObservationCommit = null;
+    let bridgeCredentialBinding = null;
     let releaseProfileRead = null;
     const resolveRoute = async () => {
       const known = accounts.resolveCredential(authorization);
@@ -199,13 +200,39 @@ export function createBridgeAwareAccountFetch({
           const saved = snapshots.readDisplayCache(
             url,
             { ...init, headers },
-            { verifiedPlayerId: boundPlayer },
+            {
+              verifiedPlayerId: boundPlayer,
+              verifiedWiki: credential !== authorization,
+            },
           );
-          if (saved) return saved;
+          if (saved) {
+            if (
+              saved.ok &&
+              Number.isSafeInteger(boundPlayer) &&
+              boundPlayer > 0
+            )
+              bridgeCredentialBinding = { credential, playerId: boundPlayer };
+            return saved;
+          }
         } else if (!live && !refresh && snapshots.bridgeProfile) {
           const saved = snapshots.bridgeProfile(credential);
           if (saved) return saved;
         }
+        if (
+          !live &&
+          !refresh &&
+          new Headers(init.headers).get("X-Madhouse-Snapshot-Only") === "1"
+        )
+          return new Response(
+            JSON.stringify({ error: "snapshot_unavailable" }),
+            {
+              status: 404,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "private, no-store",
+              },
+            },
+          );
         const profileRead = await readProfile(
           owner,
           authorization,
@@ -270,9 +297,24 @@ export function createBridgeAwareAccountFetch({
                 const saved = snapshots.readDisplayCache(
                   new URL(path, url),
                   { ...init, method: options.method || "GET", headers },
-                  { verifiedPlayerId: boundPlayer },
+                  {
+                    verifiedPlayerId: boundPlayer,
+                    verifiedWiki:
+                      canonicalCredential(authorization) !== authorization,
+                  },
                 );
-                if (saved) return saved;
+                if (saved) {
+                  if (
+                    saved.ok &&
+                    Number.isSafeInteger(boundPlayer) &&
+                    boundPlayer > 0
+                  )
+                    bridgeCredentialBinding = {
+                      credential: canonicalCredential(authorization),
+                      playerId: boundPlayer,
+                    };
+                  return saved;
+                }
               } else if (
                 !live &&
                 (options.method || "GET") === "GET" &&
@@ -294,6 +336,23 @@ export function createBridgeAwareAccountFetch({
                 if (stored.ok) return stored;
                 if (stored.status !== 404) return stored;
               }
+              if (
+                !live &&
+                (options.method || "GET") === "GET" &&
+                new Headers(init.headers).get("X-Madhouse-Snapshot-Only") ===
+                  "1" &&
+                !new Headers(init.headers).has("X-Madhouse-Snapshot-Refresh")
+              )
+                return new Response(
+                  JSON.stringify({ error: "snapshot_unavailable" }),
+                  {
+                    status: 404,
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Cache-Control": "private, no-store",
+                    },
+                  },
+                );
               const ticket = snapshots.beginBridgeObservation?.(
                 canonicalCredential(authorization),
                 path,
@@ -312,6 +371,8 @@ export function createBridgeAwareAccountFetch({
                 try {
                   bridgeObservationCommit = {
                     ticket,
+                    credential: canonicalCredential(authorization),
+                    path,
                     data: JSON.parse(
                       new TextDecoder("utf-8", { fatal: true }).decode(
                         result.body,
@@ -393,12 +454,27 @@ export function createBridgeAwareAccountFetch({
         : {}),
     });
     try {
-      const response = await router.fetchGame({
+      let response = await router.fetchGame({
         url,
         init,
         verifiedIdentity: identity,
       });
       if (init.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (
+        bridgeCredentialBinding &&
+        typeof snapshots.bindVerifiedCredential === "function" &&
+        !snapshots.bindVerifiedCredential(
+          bridgeCredentialBinding.credential,
+          bridgeCredentialBinding.playerId,
+        )
+      )
+        return new Response(JSON.stringify({ error: "snapshot_superseded" }), {
+          status: 409,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "private, no-store",
+          },
+        });
       if (bridgeProfileCommit) {
         const {
           credential,
@@ -421,9 +497,20 @@ export function createBridgeAwareAccountFetch({
               },
             );
         } else snapshots.saveBridgeProfile?.(credential, profile);
+        const observedAt = snapshots.observationTime?.(credential, "/api/me");
+        if (Number.isFinite(observedAt)) {
+          const headers = new Headers(response.headers);
+          headers.set("X-Madhouse-Section-Updated", String(observedAt));
+          headers.set("X-Madhouse-Observed-At", String(observedAt));
+          response = new Response(response.body, {
+            status: response.status,
+            headers,
+          });
+        }
       }
       if (bridgeObservationCommit) {
-        const { ticket, data, current } = bridgeObservationCommit;
+        const { ticket, data, current, credential, path } =
+          bridgeObservationCommit;
         if (current && current() !== true) throw fail("game_route_changed");
         if (snapshots.commitBridgeObservation(ticket, data) !== true)
           return new Response(
@@ -436,6 +523,16 @@ export function createBridgeAwareAccountFetch({
               },
             },
           );
+        const observedAt = snapshots.observationTime?.(credential, path);
+        if (Number.isFinite(observedAt)) {
+          const headers = new Headers(response.headers);
+          headers.set("X-Madhouse-Section-Updated", String(observedAt));
+          headers.set("X-Madhouse-Observed-At", String(observedAt));
+          response = new Response(response.body, {
+            status: response.status,
+            headers,
+          });
+        }
       }
       return response;
     } finally {
@@ -492,28 +589,55 @@ export function createBridgeAwareAccountFetch({
       await verifyLocal(authorization);
       const canonical = canonicalCredential(authorization);
       headers.set("authorization", canonical);
+      const route = accounts.resolveCredential(authorization);
+      const playerId =
+        route?.policy === "bridge_required"
+          ? Number(accounts.read?.(route.owner)?.playerId)
+          : null;
       return snapshots.readStored(
         url,
         { ...init, headers },
         {
           verifiedWiki: canonical !== authorization,
+          ...(Number.isSafeInteger(playerId) && playerId > 0
+            ? { verifiedPlayerId: playerId }
+            : {}),
         },
       );
     },
     verifyLocal,
+    async noteReadFailure(authorization, path) {
+      await verifyLocal(authorization);
+      const route = accounts.resolveCredential(authorization);
+      if (route?.policy !== "bridge_required") return false;
+      const playerId = Number(accounts.read?.(route.owner)?.playerId);
+      return snapshots.noteReadFailure?.(
+        canonicalCredential(authorization),
+        path,
+        {
+          verifiedPlayerId: playerId,
+        },
+      );
+    },
     async shareScope(authorization, path) {
       const verified = await verifyLocal(authorization);
+      const credential = canonicalCredential(authorization);
+      if (
+        typeof snapshots.credentialCurrent === "function" &&
+        !snapshots.credentialCurrent(credential)
+      )
+        throw fail("game_credentials_stale");
       const known = accounts.resolveCredential(authorization);
       if (verified.policy === "bridge_required") {
         const account = accounts.read?.(known.owner);
         const playerId = Number(account?.playerId);
-        const credential = canonicalCredential(authorization);
         const version = snapshots.observationVersion?.(credential, {
           verifiedPlayerId: playerId,
           path,
         });
         if (!version) return null;
         return {
+          kind: "bridge",
           route: JSON.stringify([
             known.policy,
             known.owner,
@@ -542,6 +666,7 @@ export function createBridgeAwareAccountFetch({
       const version = snapshots.observationVersion?.(authorization, { path });
       if (!route || !version) return null;
       return {
+        kind: "direct",
         route: JSON.stringify([
           route.policy,
           route.epoch,

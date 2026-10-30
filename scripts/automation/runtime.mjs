@@ -56,6 +56,12 @@ export async function createAutomationRuntime({
   const transport = createAccountDataService({
     transport: boundary,
     snapshots,
+    ...(env.MADHOUSE_GAME_DIAGNOSTICS === "1"
+      ? {
+          onDiagnostic: (event) =>
+            console.info("madhouse-account-read", JSON.stringify(event)),
+        }
+      : {}),
   });
   const wikiAuthority =
     wikiSessionAuthority ||
@@ -124,7 +130,7 @@ export async function createAutomationRuntime({
             });
         }
         if (verified)
-          return snapshots.readStored(url, init, {
+          return transport.readVerifiedStored(url, init, {
             verifiedWiki: true,
             verifiedPlayerId: verified.playerId,
           });
@@ -191,8 +197,19 @@ export async function createAutomationRuntime({
     ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     accountHealth: snapshots.health,
     accountResourceVersions: snapshots.resourceVersions,
+    verifyQueuedCredential: async (authorization) => {
+      if (bridge) await transport.verifyLocal(authorization);
+      const credential = bridge
+        ? bridge.canonicalCredential(authorization)
+        : authorization;
+      if (!snapshots.credentialCurrent(credential))
+        throw Object.assign(new Error("game_session_required"), {
+          status: 401,
+        });
+      return snapshots.identity(credential);
+    },
     identifyPlayer: async (authorization) => {
-      const response = await transport.fetch(
+      let response = await transport.fetch(
         "https://cargohustle.online/api/me",
         {
           gameSource: "identity",
@@ -202,6 +219,11 @@ export async function createAutomationRuntime({
           },
         },
       );
+      if (response.status === 404)
+        response = await transport.liveFetch(
+          "https://cargohustle.online/api/me",
+          { gameSource: "identity", headers: { Authorization: authorization } },
+        );
       if (!response.ok) {
         const error = new Error("game_identity_unavailable");
         error.status = response.status;

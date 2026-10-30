@@ -233,21 +233,20 @@ function ProfileSummary({ state }) {
       await postSessionJson("/api/automation/commands", {
         id: crypto.randomUUID(),
         expectedVersion: current.version,
-        command: "energy.booster.use",
+        command: "queue.enqueue",
         args: {
-          type: booster.type,
-          maxPrice: booster.count ? null : booster.costDollar,
+          type: "energy.booster",
+          action: {
+            type: booster.type,
+            maxPrice: booster.count ? null : booster.costDollar,
+          },
         },
       });
       setBoosterQueued(true);
       closeMenu();
-      void getSessionJson("/api/me", {
-        fresh: true,
-        serverRefresh: "live",
-      }).catch(() => {});
     } catch {
       setBoosterError(
-        "Не удалось применить дефибриллятор. Проверьте состояние и попробуйте снова.",
+        "Не удалось поставить дефибриллятор в очередь. Проверьте состояние и попробуйте снова.",
       );
     } finally {
       setBoosterPending(false);

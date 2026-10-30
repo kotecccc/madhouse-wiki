@@ -7,6 +7,7 @@ import {
   createAutomationRuntime,
   globalRaidsDestination,
 } from "../scripts/automation/runtime.mjs";
+import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 
 test("global raid destination accepts a public channel or numeric chat ID", () => {
   assert.equal(
@@ -89,6 +90,90 @@ test("direct profile level reads use the injected game transport", async () => {
     assert.deepEqual(await response.json(), { playerId: 41, level: 136 });
     assert.deepEqual(calls, ["/api/me", "/api/players/41"]);
   } finally {
+    runtime?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a verified queue intent is durably accepted while an unrelated game read is stalled", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "automation-queued-intent-"));
+  let release;
+  let runtime;
+  const calls = [];
+  try {
+    runtime = await createAutomationRuntime({
+      env: { MADHOUSE_AUTOMATION_STATE_DIR: directory },
+      gameFetcher: async (url, init = {}) => {
+        const path = new URL(url).pathname;
+        calls.push([path, init.method || "GET"]);
+        if (path === "/api/me")
+          return Response.json({ playerId: 41, nickname: "Fake" });
+        if (path === "/api/me/bag")
+          return new Promise((resolve) => {
+            release = () => resolve(Response.json({ items: [] }));
+          });
+        throw new Error("unexpected game request");
+      },
+    });
+    const headers = { Authorization: "Bearer test" };
+    await runtime.gameFetch("https://cargohustle.online/api/me", { headers });
+    const stuck = runtime.gameFetch("https://cargohustle.online/api/me/bag", {
+      headers,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const command = runtime.handle(
+      new Request("http://localhost/api/automation/commands", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "queue-intent-test",
+          command: "queue.enqueue",
+          expectedVersion: 0,
+          args: {
+            type: "auto.start",
+            action: {
+              settings: {
+                bossId: 7,
+                kind: "battles",
+                targetCount: 1,
+                durationHours: null,
+              },
+            },
+          },
+        }),
+      }),
+    );
+    const response = await Promise.race([
+      command,
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("command waited for game read")),
+          250,
+        ),
+      ),
+    ]);
+    assert.equal(response.status, 200);
+    const state = await response.json();
+    assert.equal(state.queuedActions[0].id, "queue-intent-test");
+    assert.equal(state.queuedActions[0].status, "queued");
+    const persisted = createAutomationStateStore({ directory });
+    try {
+      assert.equal(
+        persisted.read("41").queuedActions[0].id,
+        "queue-intent-test",
+      );
+      assert.ok(persisted.read("41").receipts.includes("queue-intent-test"));
+    } finally {
+      persisted.close();
+    }
+    assert.deepEqual(calls, [
+      ["/api/me", "GET"],
+      ["/api/me/bag", "GET"],
+    ]);
+    release();
+    await stuck;
+  } finally {
+    release?.();
     runtime?.close();
     rmSync(directory, { recursive: true, force: true });
   }

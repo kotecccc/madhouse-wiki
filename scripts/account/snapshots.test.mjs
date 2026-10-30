@@ -530,6 +530,27 @@ test("bridge profile is stale after a mutation barrier without fetching the game
   assert.equal(store.readSnapshots()[0].sections["/api/me"].dirty, true);
 });
 
+test("a verified player binding does not bypass game credential expiry", () => {
+  const authorization = `Bearer header.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.signature`;
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    now: () => 2000,
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 98 });
+  const init = { headers: { Authorization: authorization } };
+  assert.equal(
+    snapshots.readStored(`${origin}/api/me`, init, { verifiedPlayerId: 98 })
+      .status,
+    401,
+  );
+  assert.equal(
+    snapshots.readDisplayCache(`${origin}/api/me`, init, {
+      verifiedPlayerId: 98,
+    }).status,
+    401,
+  );
+});
+
 test("direct and bridge profile observations share exact replace and omission rules", async () => {
   const directStore = memoryStore();
   const bridgeStore = memoryStore();
@@ -1657,7 +1678,31 @@ test("snapshot-only tattoo reads never request a missing zone from the game", as
   );
 });
 
-test("manual profile refresh is performed before unrelated failed sections", async () => {
+test("snapshot-only display returns missing without identifying or contacting the game", async () => {
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async () => {
+      calls++;
+      return reply({ playerId: 9 });
+    },
+  });
+  const headers = {
+    Authorization: "Bearer missing",
+    "X-Madhouse-Snapshot-Only": "1",
+  };
+  assert.equal(
+    (await snapshots.read(`${origin}/api/me`, { headers })).status,
+    404,
+  );
+  assert.equal(
+    (await snapshots.read(`${origin}/api/me/bag`, { headers })).status,
+    404,
+  );
+  assert.equal(calls, 0);
+});
+
+test("manual profile refresh does not request unrelated failed sections", async () => {
   let now = 200_000;
   const store = memoryStore();
   const initial = createAccountSnapshots({
@@ -1757,12 +1802,15 @@ test("manual profile refresh is performed before unrelated failed sections", asy
   });
   assert.deepEqual(
     recovered.calls.map(({ url }) => new URL(url).pathname),
-    ["/api/me", "/api/weapons/7"],
+    ["/api/me"],
   );
-  assert.equal(healthy.headers.get("X-Madhouse-Failed-Features"), "ornaments");
+  assert.equal(
+    healthy.headers.get("X-Madhouse-Failed-Features"),
+    "weapons,ornaments",
+  );
 });
 
-test("manual health refresh stops when a failed endpoint invalidates credentials", async () => {
+test("a separately demanded failed section still verifies rejected credentials", async () => {
   let now = 300_000;
   const store = memoryStore();
   const initial = createAccountSnapshots({
@@ -1793,10 +1841,17 @@ test("manual health refresh stops when a failed endpoint invalidates credentials
     now: () => now + 30_001,
     fetcher: retry.fetcher,
   });
-  const response = await snapshots.read(`${origin}/api/me`, {
+  const profile = await snapshots.read(`${origin}/api/me`, {
     headers: {
       Authorization: "Bearer health-refresh-revoked-user",
       "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  });
+  assert.equal(profile.status, 200);
+  const response = await snapshots.read(`${origin}/api/weapons/8`, {
+    headers: {
+      Authorization: "Bearer health-refresh-revoked-user",
+      "X-Madhouse-Snapshot-Refresh": "live",
     },
   });
   assert.equal(response.status, 401);
@@ -1928,7 +1983,7 @@ test("snapshot-only reads immediately serve persisted data without disturbing re
   assert.equal(refreshQueue.calls.length, 1);
 });
 
-test("snapshot-only misses perform initial reads and internal header is never forwarded", async () => {
+test("snapshot-only misses remain local and an explicit refresh strips internal headers", async () => {
   const queue = queueFetcher([
     (url, init) => {
       assert.equal(
@@ -1948,7 +2003,16 @@ test("snapshot-only misses perform initial reads and internal header is never fo
       "X-Madhouse-Snapshot-Only": "1",
     },
   });
-  assert.deepEqual(await payload(response), { playerId: 91 });
+  assert.equal(response.status, 404);
+  assert.equal(queue.calls.length, 0);
+  const refreshed = await snapshots.read(`${origin}/api/me`, {
+    headers: {
+      Authorization: "Bearer first-read",
+      "X-Madhouse-Snapshot-Only": "1",
+      "X-Madhouse-Snapshot-Refresh": "live",
+    },
+  });
+  assert.deepEqual(await payload(refreshed), { playerId: 91 });
   assert.equal(queue.calls.length, 1);
 });
 

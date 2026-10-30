@@ -11,6 +11,43 @@ import {
 
 const url = "https://cargohustle.online/api/me";
 
+test("expired bridge credentials cannot join another account read", async () => {
+  const expired = `Bearer header.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.signature`;
+  const rows = new Map();
+  const store = {
+    readSnapshots: () => [...rows.values()],
+    writeSnapshot: (id, value) => rows.set(String(id), structuredClone(value)),
+    list: () => [],
+  };
+  const snapshots = createAccountSnapshots({ store, now: () => 2000 });
+  snapshots.saveBridgeProfile(expired, { playerId: 42 });
+  const boundary = createBridgeAwareAccountFetch({
+    snapshots,
+    accounts: {
+      resolveCredential: () => ({
+        policy: "bridge_required",
+        owner: "101",
+        epoch: 1,
+        credentialCurrent: true,
+      }),
+      read: () => ({ playerId: "42", revision: 1 }),
+    },
+    directRoutes: {
+      resolve: () => null,
+      registerVerifiedDirect() {},
+      withDirectLease() {},
+    },
+    accountService: {
+      profile: async () => {
+        throw new Error("unexpected game request");
+      },
+    },
+  });
+  await assert.rejects(boundary.shareScope(expired, "/api/me"), {
+    code: "game_credentials_stale",
+  });
+});
+
 test("strict proxy reads use the verified bridge session offline and never dispatch to a transport", async () => {
   const records = new Map();
   const store = {
@@ -334,6 +371,8 @@ test("real snapshot identities cannot send an old bridge token directly", async 
       playerId: 42,
       telegramId: 101,
     });
+    assert.equal(snapshots.credentialPlayerId("Bearer new"), 42);
+    assert.ok(snapshots.resourceVersions("Bearer new")?.sections["/api/me"]);
     assert.equal(calls, 2);
     assert.deepEqual(await boundary.verifyLocal("Bearer other"), {
       policy: "direct",
@@ -520,6 +559,9 @@ test("bridge profile display uses the saved snapshot only within its TTL", async
   const snapshotOnly = {
     headers: { Authorization: "Bearer valid", "X-Madhouse-Snapshot-Only": "1" },
   };
+  assert.equal((await boundary.fetch(url, snapshotOnly)).status, 404);
+  assert.equal(calls, 0);
+  await boundary.liveFetch(url, options());
   assert.equal(
     (await (await boundary.fetch(url, snapshotOnly)).json()).nickname,
     "read-1",
@@ -529,6 +571,20 @@ test("bridge profile display uses the saved snapshot only within its TTL", async
   const refreshed = await restarted.fetch(url, options());
   assert.equal((await refreshed.json()).nickname, "read-2");
   assert.equal(calls, 2);
+  const manual = {
+    headers: {
+      Authorization: "Bearer valid",
+      "X-Madhouse-Snapshot-Refresh": "1",
+    },
+  };
+  assert.equal(
+    (await (await restarted.fetch(url, manual)).json()).nickname,
+    "read-3",
+  );
+  const limited = await restarted.fetch(url, manual);
+  assert.equal((await limited.json()).nickname, "read-3");
+  assert.equal(limited.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(calls, 3);
   const refresh = {
     headers: {
       Authorization: "Bearer valid",
@@ -537,7 +593,7 @@ test("bridge profile display uses the saved snapshot only within its TTL", async
   };
   assert.equal(
     (await (await restarted.fetch(url, refresh)).json()).nickname,
-    "read-3",
+    "read-4",
   );
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
 });

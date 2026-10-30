@@ -248,6 +248,36 @@ test("a failed explicit launch is not retried by state polling", async () => {
   h.disconnect();
 });
 
+test("a queued intent initializes missing state without a separate launch", async () => {
+  const h = harness({
+    request: async (method, path) => {
+      if (method === "GET")
+        throw Object.assign(new Error("missing"), {
+          status: 404,
+          code: "automation_state_unknown",
+        });
+      assert.equal(path, "/api/automation/commands");
+      return {
+        ...initialState(),
+        queuedActions: [{ id: "job", type: "work.start", status: "queued" }],
+      };
+    },
+  });
+  await h.connect();
+  assert.equal(
+    await h.workFarm.start({
+      workId: 7,
+      targetCycles: 1,
+      mode: "energy",
+      maxActions: 1,
+    }),
+    true,
+  );
+  assert.equal(h.calls.filter((call) => call[1].endsWith("/launch")).length, 0);
+  assert.equal(h.calls.at(-1)[2].command, "queue.enqueue");
+  h.disconnect();
+});
+
 test("the shared automation source recovers missing state and retains valid data on malformed reads", async () => {
   let reads = 0;
   const h = harness({

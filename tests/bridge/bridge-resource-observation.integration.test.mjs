@@ -4,6 +4,7 @@ import { createAccountSnapshots } from "../../scripts/account/snapshots.mjs";
 import { createAccountDataService } from "../../scripts/account/data-service.mjs";
 import { createBridgeAccountService } from "../../scripts/bridge/account-service.mjs";
 import { createBridgeAwareAccountFetch } from "../../scripts/bridge/bridge-aware-fetch.mjs";
+import { createDirectBoundary } from "../../scripts/game/direct-boundary.mjs";
 
 const authorization = "Bearer bridge-observation.fake";
 const owner = "101";
@@ -32,7 +33,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function makeBridge({ snapshots, readGame }) {
+function makeBridge({ snapshots, readGame, coordinate }) {
   const accounts = {
     resolveCredential: (value) =>
       value === authorization
@@ -70,6 +71,7 @@ function makeBridge({ snapshots, readGame }) {
       throw new Error("resource observation must not fetch /api/me");
     },
     readGame,
+    ...(coordinate ? { coordinate } : {}),
   });
   const directRoutes = {
     resolve: () => null,
@@ -142,7 +144,8 @@ test("bridge GET observation is stored as incomplete and read after snapshot res
     response.headers.get("X-Madhouse-Snapshot-Completeness"),
     "unknown",
   );
-  assert.ok(Number(response.headers.get("X-Madhouse-Section-Updated")) > 0);
+  assert.equal(response.headers.get("X-Madhouse-Section-Updated"), "200");
+  assert.equal(response.headers.get("X-Madhouse-Observed-At"), "200");
   assert.deepEqual(await response.json(), observedBag);
   assert.equal(bridgeReads, 1);
   assert.equal(directFetcherCalls, 0);
@@ -222,6 +225,112 @@ test("bridge 429 preserves the raw response and the previously stored snapshot",
   assert.equal(calls, 2);
 });
 
+test("bridge display falls back after the raw 429 while strict reads keep it", async () => {
+  let clock = 200;
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    now: () => clock,
+    ttl: 100,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  const { transport } = makeBridge({
+    snapshots: routeSnapshots(snapshots),
+    readGame: async () =>
+      ++calls === 1
+        ? { status: 200, body: Buffer.from('[{"id":7}]') }
+        : {
+            status: 429,
+            body: Buffer.from('{"error":"rate_limit"}'),
+            retryAfter: "30",
+          },
+  });
+  const data = createAccountDataService({ transport, snapshots });
+  const headers = { Authorization: authorization };
+  await data.liveFetch(bagUrl, { headers });
+  clock += 101;
+  const fallback = await data.fetch(bagUrl, {
+    headers,
+    gameSource: "automation",
+  });
+  assert.equal(fallback.status, 200);
+  assert.equal(fallback.headers.get("X-Madhouse-Snapshot"), "stale");
+  assert.equal(fallback.headers.get("Retry-After"), "30");
+  assert.deepEqual(await fallback.json(), [{ id: 7 }]);
+  assert.equal(snapshots.health(authorization).status, "unavailable");
+  const cachedDuringCooldown = await data.fetch(bagUrl, { headers });
+  assert.equal(
+    cachedDuringCooldown.headers.get("X-Madhouse-Snapshot"),
+    "stale",
+  );
+  assert.equal(calls, 2);
+  const strict = await data.liveFetch(bagUrl, { headers });
+  assert.equal(strict.status, 429);
+  assert.equal(strict.headers.get("Retry-After"), "30");
+  assert.equal(calls, 3);
+});
+
+test("bridge stale fallback preserves the coordinator cooldown from the raw 429", async () => {
+  let clock = 1000;
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    now: () => clock,
+    ttl: 1,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  const ticket = snapshots.beginBridgeObservation(
+    authorization,
+    "/api/me/bag",
+    { verifiedPlayerId: Number(playerId) },
+  );
+  assert.equal(snapshots.commitBridgeObservation(ticket, [{ id: 7 }]), true);
+  clock += 2;
+  const boundary = createDirectBoundary({
+    env: {
+      MADHOUSE_GAME_DEVICE_INTERVAL_MS: "1",
+      MADHOUSE_GAME_ACCOUNT_INTERVAL_MS: "1",
+    },
+  });
+  try {
+    const { transport } = makeBridge({
+      snapshots: routeSnapshots(snapshots),
+      coordinate: boundary.bridge,
+      readGame: async ({ openTunnel, validateTunnel }) => {
+        await openTunnel();
+        assert.equal(await validateTunnel(), true);
+        return ++calls === 1
+          ? { status: 429, body: Buffer.from("{}"), retryAfter: "0.08" }
+          : { status: 200, body: Buffer.from('[{"id":8}]') };
+      },
+    });
+    const data = createAccountDataService({ transport, snapshots });
+    const headers = { Authorization: authorization };
+    const fallback = await data.fetch(bagUrl, { headers });
+    assert.equal(fallback.status, 200);
+    assert.equal(fallback.headers.get("X-Madhouse-Snapshot"), "stale");
+    const started = Date.now();
+    assert.equal((await data.liveFetch(bagUrl, { headers })).status, 200);
+    assert.ok(Date.now() - started >= 55);
+    assert.equal(calls, 2);
+    assert.ok(
+      boundary
+        .diagnostics()
+        .recent.some(
+          (event) => event.outcome === "cooldown" && event.status === 429,
+        ),
+    );
+  } finally {
+    boundary.close();
+  }
+});
+
 test("bridge display reads reuse a suitable resource until its TTL expires", async () => {
   const store = memoryStore();
   let clock = 200;
@@ -297,6 +406,58 @@ test("bridge consumers with separate cancellation share one physical resource re
   release.resolve();
   assert.deepEqual(await (await second).json(), { revision: 1 });
   assert.equal(reads, 1);
+});
+
+test("bridge logical reads share a correlation with coordinator attempts", async () => {
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    now: () => 200,
+  });
+  snapshots.saveBridgeProfile(authorization, {
+    playerId: Number(playerId),
+    telegramId: Number(owner),
+  });
+  const boundary = createDirectBoundary({
+    env: {
+      MADHOUSE_GAME_DEVICE_INTERVAL_MS: "1",
+      MADHOUSE_GAME_ACCOUNT_INTERVAL_MS: "1",
+    },
+  });
+  try {
+    const { transport } = makeBridge({
+      snapshots: routeSnapshots(snapshots),
+      coordinate: boundary.bridge,
+      readGame: async ({ openTunnel, validateTunnel }) => {
+        await openTunnel();
+        assert.equal(await validateTunnel(), true);
+        return { status: 200, body: Buffer.from('{"revision":1}') };
+      },
+    });
+    const events = [];
+    const data = createAccountDataService({
+      transport,
+      snapshots,
+      onDiagnostic: (event) => events.push(event),
+    });
+    assert.equal(
+      (await data.fetch(bagUrl, { headers: { Authorization: authorization } }))
+        .status,
+      200,
+    );
+    const attempt = boundary
+      .diagnostics()
+      .recent.find((event) => event.outcome === "response");
+    assert.equal(events[0].correlation, attempt.correlation);
+    assert.equal(events[0].route, "bridge");
+    assert.equal(events[0].cache, "network");
+    assert.equal(attempt.egress, "bridge-device");
+    assert.doesNotMatch(
+      JSON.stringify({ events, attempt }),
+      /bridge-observation|revision/,
+    );
+  } finally {
+    boundary.close();
+  }
 });
 
 test("joined bridge readers reject the result after a route change", async () => {

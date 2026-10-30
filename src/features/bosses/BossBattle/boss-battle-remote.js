@@ -604,7 +604,7 @@ export function createRemoteBattleSession({
       : null;
     try {
       let value;
-      if (stateMissing) {
+      if (stateMissing && !enqueue) {
         try {
           value = await request("POST", "/api/automation/launch", {
             activeBossBattle: launchBattle?.() ?? null,
