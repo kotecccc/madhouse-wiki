@@ -9,6 +9,34 @@ function transportError(code) {
   return Object.assign(new Error(code), { code });
 }
 
+const TLS_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "EPIPE",
+  "ETIMEDOUT",
+  "ERR_SSL_WRONG_VERSION_NUMBER",
+  "ERR_SSL_UNEXPECTED_EOF_WHILE_READING",
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "data_channel_closed",
+  "invalid_data_channel_frame",
+  "data_frame_too_large",
+  "backpressure_limit",
+]);
+
+function reportTlsFailure(error) {
+  // The OpenSSL message may contain peer data. Record only a known error code.
+  console.warn(
+    "madhouse-bridge-tls-handshake",
+    TLS_ERROR_CODES.has(error?.code) ? error.code : "other",
+  );
+}
+
 function isDuplex(value) {
   return (
     value &&
@@ -111,7 +139,8 @@ export function createGameTlsDuplexConnector({
           minVersion: "TLSv1.2",
           ALPNProtocols: ["http/1.1"],
         });
-      } catch {
+      } catch (error) {
+        reportTlsFailure(error);
         tunnel.destroy();
         finish(transportError("tls_failed"));
         return;
@@ -173,7 +202,10 @@ export function createGameTlsDuplexConnector({
             () => failHandshake("bridge_mutation_not_admitted"),
           );
       });
-      tlsSocket.once("error", () => finish(transportError("tls_failed")));
+      tlsSocket.once("error", (error) => {
+        if (!callbackCalled) reportTlsFailure(error);
+        finish(transportError("tls_failed"));
+      });
       tlsSocket.once("close", () => {
         if (!callbackCalled) finish(transportError("tls_closed_before_ready"));
       });

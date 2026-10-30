@@ -1138,6 +1138,46 @@ test("stopped uncertain work stops automatic reads after the limit and retains i
   afterRestart.dispose();
 });
 
+test("resuming a paused run with an exhausted checkpoint does not read or replay it", async () => {
+  const pending = {
+    kind: "performing",
+    operationId: "old-operation",
+    taskId: 1,
+    before: { tasks: [] },
+  };
+  let calls = 0;
+  const timers = [];
+  const farm = createWorkFarm({
+    saved: {
+      run: {
+        workId: 7,
+        status: "paused",
+        phase: "paused",
+        config: { mode: "energy" },
+        pending,
+        reconcileFailures: 5,
+      },
+    },
+    getWork: () => ({ workId: 7 }),
+    request: async () => {
+      calls++;
+    },
+    schedule: (fn) => {
+      timers.push(fn);
+      return timers.length;
+    },
+    cancel: () => {},
+  });
+  assert.equal(farm.resumePaused(), true);
+  await timers.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 0);
+  assert.equal(farm.getSnapshot().run.status, "stopped");
+  assert.equal(farm.getSnapshot().run.reconcileFailures, 5);
+  assert.deepEqual(farm.getSnapshot().run.pending, pending);
+  farm.dispose();
+});
+
 test("running work stops after bounded failed reconciliation without replaying the action", async () => {
   let block = false;
   const h = makeHarness({

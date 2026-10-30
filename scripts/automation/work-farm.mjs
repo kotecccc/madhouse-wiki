@@ -204,6 +204,7 @@ export function createWorkFarm({
       ...details,
       before: structuredClone(record.view),
     };
+    run.reconcileFailures = 0;
     run.phase = kind;
     run.actionsDone++;
     publish();
@@ -304,6 +305,13 @@ export function createWorkFarm({
         return;
       }
       if (run.pending) {
+        if ((run.reconcileFailures ?? 0) >= STOPPED_WORK_RECONCILE_LIMIT) {
+          finish(
+            "stopped",
+            "Результат действия не подтверждён. Повтор заблокирован.",
+          );
+          return;
+        }
         run.reconcileFailures = (run.reconcileFailures ?? 0) + 1;
         publish();
         if (!(await reconcilePending(run, valid))) {
