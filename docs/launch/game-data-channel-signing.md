@@ -241,3 +241,19 @@ exact Gatekeeper or Terminal message and whether first-open proceeds. If it
 proceeds, failure to fetch the production release while offline is expected;
 it is not a successful fake installation. Do not override a system warning or
 enter credentials. Stop the temporary local server after the observation.
+
+### User-observed Finder launch
+
+On macOS 27.0 Apple M5, the user opened a downloaded launcher whose SHA-256
+matched `b181266997b8c40b924372e15e3e69e3ae340b46de38f5a130441adb7210a796`;
+the file retained a quarantine attribute. The user-provided screenshot shows
+Terminal executing it and reporting that a bridge is already running, then
+stopping this second invocation. The screenshot does not establish whether an
+earlier system warning appeared or whether the release fetch used a fake source.
+The existing installation's state was subsequently observed at version `0.1.11`
+with modification time 2026-10-30 09:26:51 local; it is not evidence that the
+0.1.9 agent was installed. The provided instructions did not isolate HOME and
+therefore allowed the bootstrap to use the user's existing installation. This
+was an instruction error; no attempt was made to alter or roll back the installed
+state. The running instance and exact network activity were not established.
+A fresh isolated profile and fake delivery are still required for acceptance.
