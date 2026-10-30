@@ -117,6 +117,12 @@ export function createAccountDataService({
         const response = await withReadDiagnostic(trace, () =>
           dispatch.call(transport, url, init),
         );
+        if (init.signal?.aborted)
+          throw new DOMException("Aborted", "AbortError");
+        if (init.canDispatch && (await init.canDispatch()) !== true)
+          throw Object.assign(new Error("game_route_changed"), {
+            code: "game_route_changed",
+          });
         report(trace, false, response);
         return response;
       } catch (error) {
@@ -211,6 +217,17 @@ export function createAccountDataService({
         const response = await withReadDiagnostic(trace, () =>
           execute(init.signal),
         );
+        const latest = await scope(authorization, parsed.pathname);
+        if (
+          !latest ||
+          latest.route !== currentScope.route ||
+          (init.canDispatch && (await init.canDispatch()) !== true)
+        )
+          throw Object.assign(new Error("game_route_changed"), {
+            code: "game_route_changed",
+          });
+        if (init.signal?.aborted)
+          throw new DOMException("Aborted", "AbortError");
         report(trace, false, response, false, currentScope.kind);
         return response;
       } catch (error) {

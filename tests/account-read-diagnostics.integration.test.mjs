@@ -154,3 +154,41 @@ test("two verified credentials for the same account share a read", async () => {
   assert.equal((await second).status, 200);
   assert.equal(calls, 1);
 });
+
+test("unshared worker reads enforce their guard even on a saved snapshot", async () => {
+  const rows = new Map();
+  const store = {
+    readSnapshots: () => [...rows.values()],
+    writeSnapshot: (id, value) => rows.set(String(id), structuredClone(value)),
+    list: () => [],
+  };
+  let calls = 0;
+  const snapshots = createAccountSnapshots({
+    store,
+    fetcher: async () => {
+      calls++;
+      return Response.json({ owned: true });
+    },
+  });
+  const authorization = "Bearer worker-guard";
+  snapshots.saveBridgeProfile(authorization, { playerId: 42 });
+  const data = createAccountDataService({ transport: snapshots, snapshots });
+  const url = "https://cargohustle.online/api/weapons/123";
+  const headers = { Authorization: authorization };
+  await data.fetch(url, { headers });
+  await assert.rejects(
+    data.fetch(url, {
+      headers,
+      gameSource: "automation",
+      canDispatch: () => false,
+    }),
+    { code: "game_route_changed" },
+  );
+  const allowed = await data.fetch(url, {
+    headers,
+    gameSource: "automation",
+    canDispatch: () => true,
+  });
+  assert.deepEqual(await allowed.json(), { owned: true });
+  assert.equal(calls, 1);
+});
