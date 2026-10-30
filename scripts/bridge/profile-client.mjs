@@ -210,11 +210,14 @@ function requestGameOverBridge({
         response.on("data", (chunk) => {
           size += chunk.length;
           if (size > MAX_PROFILE_BYTES) {
-            response.destroy(
-              Object.assign(new Error("profile_too_large"), {
-                code: "profile_too_large",
-              }),
-            );
+            const error = Object.assign(new Error("profile_too_large"), {
+              code: "profile_too_large",
+            });
+            // IncomingMessage emits "aborted" while destroy() is running.
+            // Preserve the size-limit error instead of misclassifying it as
+            // a truncated upstream response.
+            reject(error);
+            response.destroy(error);
             return;
           }
           chunks.push(chunk);
