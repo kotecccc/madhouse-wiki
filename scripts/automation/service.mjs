@@ -1,3 +1,7 @@
+import {
+  createChannelGameStatusWorker,
+  createChannelPublicationTick,
+} from "./channel-game-status.mjs";
 import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
 import { withWorkerLease } from "./worker-lease-context.mjs";
 import { observeTelegramBattle } from "./telegram-battle-report.mjs";
@@ -597,6 +601,26 @@ export function createAutomationService({
           isClosed: () => closed,
         })
       : null;
+  const channelGameStatus =
+    globalRaidsChatId &&
+    globalRaidsTelegram &&
+    globalRaidsCustomEmoji &&
+    store.readChannelGameStatus &&
+    store.writeChannelGameStatus
+      ? createChannelGameStatusWorker({
+          store,
+          owner,
+          now,
+          telegram: globalRaidsTelegram,
+          chatId: globalRaidsChatId,
+          isClosed: () => closed,
+        })
+      : null;
+  const tickChannelPublications = createChannelPublicationTick({
+    raids: globalRaids,
+    status: channelGameStatus,
+    isClosed: () => closed,
+  });
   async function submitCharacterPoint(
     entry,
     expected,
@@ -5296,6 +5320,14 @@ export function createAutomationService({
       throw failure(401, "game_session_required");
   }
   return {
+    observeGameResponse(path, status) {
+      if (closed || !leaseAcquired || !channelGameStatus) return;
+      try {
+        channelGameStatus.observe(path, status);
+      } catch {
+        /* monitoring is independent of game traffic */
+      }
+    },
     identify,
     identifyForQueue,
     readStored,
@@ -5424,7 +5456,7 @@ export function createAutomationService({
           }
           return;
         }
-        if (!booting) void globalRaids?.tick().catch(() => {});
+        if (!booting) void tickChannelPublications();
         for (const entry of actors.values()) {
           void telegramNotifier.tick(entry);
           if (!booting) tryResumePausedAuto(entry);

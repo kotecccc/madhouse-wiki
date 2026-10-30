@@ -20,9 +20,11 @@ export function createDirectBoundary({
   resolvePlayer = () => null,
   requireBridgeJournal = false,
   isTrustedBootstrap = () => false,
+  onPhysicalResponse = () => {},
 } = {}) {
   const executor = createDirectExecutor({
     fetcher,
+    onPhysicalResponse,
     minGlobalSpacingMs: setting(
       env,
       "MADHOUSE_GAME_GLOBAL_INTERVAL_MS",
@@ -184,10 +186,19 @@ export function createDirectBoundary({
         return Promise.reject(Object.assign(error, { notDispatched: true }));
       }
     }
+    const observedExecute = async (...args) => {
+      const result = await execute(...args);
+      try {
+        onPhysicalResponse(path?.split("?", 1)[0], result?.status);
+      } catch {
+        // Passive monitoring must not affect the game operation.
+      }
+      return result;
+    };
     const guarded = async () => {
-      if (kind !== "mutation") return execute();
+      if (kind !== "mutation") return observedExecute();
       if (!bridgeStore) {
-        if (!requireBridgeJournal) return execute();
+        if (!requireBridgeJournal) return observedExecute();
         throw Object.assign(new Error("bridge_attempt_store_unavailable"), {
           notDispatched: true,
         });
@@ -253,7 +264,7 @@ export function createDirectBoundary({
         attempt = updated;
       };
       try {
-        result = await execute(onTransportStopped);
+        result = await observedExecute(onTransportStopped);
       } catch (error) {
         const phase = error?.notDispatched ? "rejected" : "uncertain";
         try {

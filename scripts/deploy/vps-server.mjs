@@ -130,6 +130,8 @@ if (role === "wiki") {
   const direct = createDirectVpsOwner({
     env: process.env,
     requireBridgeJournal: true,
+    onPhysicalResponse: (path, status) =>
+      automationRuntime?.observeGameResponse(path, status),
     bootstrapPolicy: bridgeLab?.runtime?.bootstrapPolicy,
     resolvePlayer: (authorization) =>
       automationRuntime?.gamePlayerId(authorization),

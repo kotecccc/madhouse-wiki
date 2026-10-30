@@ -29,6 +29,7 @@ export function createDirectExecutor({
   maxQueueWaitMs = 20_000,
   canDispatch: defaultCanDispatch = () => true,
   onDiagnostic = () => {},
+  onPhysicalResponse = () => {},
 } = {}) {
   if (
     typeof fetcher !== "function" ||
@@ -457,6 +458,11 @@ export function createDirectExecutor({
           }
         }
         const response = await fetcher(parsed.href, fetchInit);
+        try {
+          onPhysicalResponse(parsed.pathname, response.status);
+        } catch {
+          // Passive monitoring must never affect a game response.
+        }
         if (context.afterPhysical) context.afterPhysical(response);
         return response;
       },

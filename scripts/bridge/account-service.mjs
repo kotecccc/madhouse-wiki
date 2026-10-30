@@ -99,6 +99,7 @@ export function createBridgeAccountService({
         deviceId: device.deviceId,
         signal,
         method: "GET",
+        path: "/api/me",
         execute: () =>
           readProfile({
             authorization,
@@ -328,6 +329,7 @@ export function createBridgeAccountService({
         deviceId: device.deviceId,
         signal,
         method,
+        path,
         kind: "mutation",
         operationId,
         checkpointOperationId,
