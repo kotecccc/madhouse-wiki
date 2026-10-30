@@ -43,7 +43,7 @@ const EMPTY_WORK_FARM = Object.freeze({
   error: null,
 });
 const POLL_INTERVAL = 2000;
-const IDLE_POLL_INTERVAL = 180000;
+const IDLE_POLL_INTERVAL = 15000;
 const ERROR_RETRY_INTERVAL = 5000;
 
 function numericId(boss) {
@@ -71,6 +71,7 @@ export function createRemoteBattleSession({
   if (typeof request !== "function") throw new TypeError("request is required");
 
   const listeners = new Set();
+  const stateListeners = new Set();
   const autoListeners = new Set();
   const goalListeners = new Set();
   const pvpListeners = new Set();
@@ -131,11 +132,23 @@ export function createRemoteBattleSession({
     pending: false,
   });
   let preferencesSnapshot = Object.freeze({ favoriteBossIds: [] });
+  let automationSnapshot = Object.freeze({ presence: "unknown", data: null });
 
   const notify = (set, value) => {
     for (const listener of [...set]) listener(value);
   };
   function publish() {
+    automationSnapshot = Object.freeze({
+      presence: Array.isArray(server?.queuedActions)
+        ? "present"
+        : stateMissing
+          ? "missing"
+          : transportError
+            ? "unavailable"
+            : "unknown",
+      data: Array.isArray(server?.queuedActions) ? server : null,
+    });
+    notify(stateListeners, automationSnapshot);
     const savedBattle = server?.battle ?? {};
     const pendingBattleCommands = pendingCommands - pendingHealingCommands;
     // While switching targets, do not label the previous result as the selected
@@ -409,11 +422,13 @@ export function createRemoteBattleSession({
     );
   }
   const pollInterval = () =>
-    transportError || workCommandError || businessCommandError
-      ? ERROR_RETRY_INTERVAL
-      : activelyWatching()
-        ? POLL_INTERVAL
-        : IDLE_POLL_INTERVAL;
+    stateMissing
+      ? 15000
+      : transportError || workCommandError || businessCommandError
+        ? ERROR_RETRY_INTERVAL
+        : activelyWatching()
+          ? POLL_INTERVAL
+          : IDLE_POLL_INTERVAL;
   function onVisibilityChange() {
     clearTimer();
     if (connected && visibility?.visibilityState !== "hidden") schedulePoll(0);
@@ -421,12 +436,7 @@ export function createRemoteBattleSession({
 
   function schedulePoll(delay = pollInterval(), run = epoch) {
     clearTimer();
-    if (
-      !connected ||
-      run !== epoch ||
-      stateMissing ||
-      visibility?.visibilityState === "hidden"
-    )
+    if (!connected || run !== epoch || visibility?.visibilityState === "hidden")
       return;
     timer = schedule(() => {
       timer = null;
@@ -441,6 +451,8 @@ export function createRemoteBattleSession({
       try {
         const result = await request("GET", "/api/automation/state");
         if (!connected || run !== epoch) return false;
+        if (!Array.isArray(result?.queuedActions))
+          throw new Error("invalid_automation_state");
         setServerState(result);
         return true;
       } catch (error) {
@@ -1122,6 +1134,13 @@ export function createRemoteBattleSession({
     stop: () => send("floor.stop"),
   };
   return Object.freeze({
+    automationState: {
+      subscribe(listener) {
+        stateListeners.add(listener);
+        return () => stateListeners.delete(listener);
+      },
+      getSnapshot: () => automationSnapshot,
+    },
     floorAutomation,
     bossInvitations,
     raidSubscriptions,

@@ -48,6 +48,7 @@ function harness({ state, request: requestImpl, launchBattle } = {}) {
 function initialState() {
   return {
     version: 7,
+    queuedActions: [],
     battle: {
       boss: { id: 8, name: "Boss" },
       battle: { id: "b-1", status: "active" },
@@ -69,7 +70,7 @@ test("connect reads server state once, publishes stable snapshots, and polls loc
   );
   assert.equal(h.bossBattle.getSnapshot().battle.id, "b-1");
   assert.equal(h.tasks.size, 1);
-  assert.equal([...h.tasks.values()][0].delay, 180000);
+  assert.equal([...h.tasks.values()][0].delay, 15000);
   await h.connect();
   assert.equal(h.calls.length, 1);
 });
@@ -172,7 +173,7 @@ test("connect and polling read stored state only; reconnect does not launch", as
   h.disconnect();
 });
 
-test("unknown stored state is quiet until a user command explicitly initializes it", async () => {
+test("unknown stored state polls locally until a user command initializes it", async () => {
   const bootstrapped = initialState();
   const h = harness({
     launchBattle: () => null,
@@ -192,7 +193,8 @@ test("unknown stored state is quiet until a user command explicitly initializes 
     h.calls.map(([method, path]) => [method, path]),
     [["GET", "/api/automation/state"]],
   );
-  assert.equal(h.tasks.size, 0);
+  assert.equal(h.tasks.size, 1);
+  assert.equal([...h.tasks.values()][0].delay, 15000);
   await h.bossBattle.open({ numericId: 7, name: "Boss" });
   assert.deepEqual(
     h.calls.map(([method, path, body]) => [method, path, body?.command]),
@@ -242,8 +244,35 @@ test("a failed explicit launch is not retried by state polling", async () => {
     h.calls.filter((call) => call[1] === "/api/automation/launch").length,
     1,
   );
-  assert.equal(h.tasks.size, 0, "missing state does not schedule retries");
+  assert.equal(h.tasks.size, 1, "missing state only schedules a stored read");
   h.disconnect();
+});
+
+test("the shared automation source recovers missing state and retains valid data on malformed reads", async () => {
+  let reads = 0;
+  const h = harness({
+    request: async () => {
+      reads++;
+      if (reads === 1)
+        throw Object.assign(new Error("unknown local state"), {
+          status: 404,
+          code: "automation_state_unknown",
+        });
+      return reads === 2 ? initialState() : { version: 8 };
+    },
+  });
+  await h.connect();
+  assert.equal(h.automationState.getSnapshot().presence, "missing");
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.automationState.getSnapshot().presence, "present");
+  assert.equal(h.automationState.getSnapshot().data.version, 7);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.automationState.getSnapshot().presence, "present");
+  assert.equal(h.automationState.getSnapshot().data.version, 7);
+  h.disconnect();
+  assert.equal(h.automationState.getSnapshot().presence, "unknown");
 });
 
 test("a busy explicit launch adopts its state without replaying the command", async () => {
@@ -931,7 +960,7 @@ test("idle state polls slowly while active server automation keeps short updates
     state: { ...initialState(), battle: { battle: null } },
   });
   await idle.connect();
-  assert.equal([...idle.tasks.values()][0].delay, 180000);
+  assert.equal([...idle.tasks.values()][0].delay, 15000);
   const active = harness({
     state: { ...initialState(), auto: { enabled: true } },
   });
@@ -1016,7 +1045,7 @@ test("idle state connection errors retry promptly and clear after recovery", asy
   h.runTimer();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.workFarm.getSnapshot().error, null);
-  assert.equal([...h.tasks.values()][0].delay, 180000);
+  assert.equal([...h.tasks.values()][0].delay, 15000);
   h.disconnect();
 });
 

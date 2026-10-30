@@ -157,6 +157,8 @@ export function createSessionApi({
   let lastStarted = -Infinity;
   let refreshing = 0;
   let publicationClock = 0;
+  let resourceVersions = null;
+  let automationVersion = -1;
   const isSnapshotPath = (path) =>
     /^\/api\/(?:automation\/bosses|me|me\/bag|stash\/sets|floors|floors\/[^/?]+\/info|rooms|clothing(?:\/by-category\/[1-9])?|ornaments\/zones\/[^/?]+|(?:weapons|pets|businesses|bosses)\/[^/?]+)$/.test(
       path,
@@ -167,6 +169,10 @@ export function createSessionApi({
     path === "/api/automation/state" ||
     (isSnapshotPath(path) && path !== "/api/automation/bosses");
   function publish(event) {
+    if (
+      ["/api/automation/state", "/api/automation/commands"].includes(event.path)
+    )
+      observeResourceVersions(event.data);
     for (const listener of [...listeners]) {
       try {
         listener(event);
@@ -189,6 +195,8 @@ export function createSessionApi({
     pending.clear();
     pendingModes.clear();
     snapshotOnlyPending.clear();
+    resourceVersions = null;
+    automationVersion = -1;
     tail = Promise.resolve();
     automationCommandTail = Promise.resolve();
     readLane = { active: 0, waiting: [] };
@@ -473,7 +481,7 @@ export function createSessionApi({
               value: data,
               updatedAt,
               until:
-                snapshotStatus === "stale"
+                snapshotStatus === "stale" && snapshotCompleteness !== "unknown"
                   ? now()
                   : updatedAt
                     ? updatedAt + effectiveTtl
@@ -516,10 +524,18 @@ export function createSessionApi({
         const ttlHeader = response.headers?.get?.("X-Madhouse-Snapshot-TTL");
         const sectionUpdated = updatedHeader ? Number(updatedHeader) : NaN;
         const serverTtl = ttlHeader ? Number(ttlHeader) : NaN;
+        if (
+          entry.value !== undefined &&
+          entry.updatedAt != null &&
+          Number.isFinite(sectionUpdated) &&
+          sectionUpdated > 0 &&
+          sectionUpdated < entry.updatedAt
+        )
+          return entry.value;
         const effectiveTtl =
           Number.isFinite(serverTtl) && serverTtl >= 0 ? serverTtl : ttl;
         entry.until =
-          snapshotStatus === "stale"
+          snapshotStatus === "stale" && snapshotCompleteness !== "unknown"
             ? now()
             : Number.isFinite(sectionUpdated) && sectionUpdated > 0
               ? sectionUpdated + effectiveTtl
@@ -607,6 +623,103 @@ export function createSessionApi({
     return [...(resourceSubscriptions.get(path) || [])].some(
       (subscription) => subscription.revalidate,
     );
+  }
+  function observeResourceVersions(data) {
+    const next = data?.resourceVersions;
+    if (
+      !next ||
+      !Array.isArray(data.queuedActions) ||
+      !Number.isSafeInteger(next.revision) ||
+      next.revision < 0 ||
+      !next.sections ||
+      typeof next.sections !== "object" ||
+      Array.isArray(next.sections)
+    )
+      return;
+    const version = Number.isSafeInteger(data.version) ? data.version : -1;
+    if (
+      version < automationVersion ||
+      (resourceVersions && next.revision < resourceVersions.revision)
+    )
+      return;
+    automationVersion = Math.max(automationVersion, version);
+    const previous = resourceVersions;
+    const sections = {};
+    for (const [path, value] of Object.entries(next.sections)) {
+      if (
+        !isStoredReadPath(path) ||
+        !value ||
+        !Number.isSafeInteger(value.revision) ||
+        value.revision < 0 ||
+        typeof value.dirty !== "boolean" ||
+        !(
+          value.updatedAt === null ||
+          (Number.isFinite(value.updatedAt) && value.updatedAt > 0)
+        )
+      )
+        continue;
+      const old = previous?.sections[path];
+      if (old && (value.updatedAt ?? 0) < (old.updatedAt ?? 0)) {
+        sections[path] = old;
+        continue;
+      }
+      if (
+        old &&
+        value.updatedAt === old.updatedAt &&
+        value.revision < old.revision
+      ) {
+        sections[path] = old;
+        continue;
+      }
+      sections[path] = value;
+    }
+    resourceVersions = { revision: next.revision, sections };
+    const requestGeneration = generation;
+    for (const [path, subscriptions] of resourceSubscriptions) {
+      if (!subscriptions.size || !isStoredReadPath(path)) continue;
+      const before = previous?.sections[path];
+      const after = sections[path];
+      if (!previous && !after?.dirty) continue;
+      if (
+        JSON.stringify(before) === JSON.stringify(after) &&
+        (after || previous?.revision === next.revision)
+      )
+        continue;
+      const cached = entries.get(path);
+      if (after?.dirty || !after) {
+        if (cached) {
+          cached.until = 0;
+          if (pending.has(path)) cached.revalidateAfterRequest = true;
+        }
+      }
+      // The worker may have already saved the observation; read it locally
+      // before deciding whether any demanded refresh is still necessary.
+      request("GET", path, undefined, { storedOnly: true, fresh: true })
+        .then((saved) => {
+          if (generation !== requestGeneration || !hasRefreshDemand(path))
+            return;
+          if (
+            JSON.stringify(resourceVersions?.sections[path]) !==
+            JSON.stringify(after)
+          )
+            return;
+          const entry = entries.get(path);
+          if (after?.dirty && entry) entry.until = 0;
+          if (
+            after?.dirty ||
+            !after ||
+            (saved.snapshotStatus === "stale" && now() >= (entry?.until ?? 0))
+          ) {
+            if (entries.get(path)?.value !== undefined) refreshPath(path);
+            else if (!pending.has(path) && shouldRefresh())
+              request("GET", path, undefined, {
+                fresh: true,
+                background: true,
+              }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
   }
   function refreshPath(path) {
     const entry = entries.get(path);
@@ -850,8 +963,10 @@ export function publishSessionData(path, data, expectedAuthorization) {
   try {
     if (
       !expectedAuthorization ||
-      authorizeRequest({ url: path }).headers.Authorization !==
-        expectedAuthorization
+      (path === "/api/automation/state"
+        ? authorizeStoredRequest({ url: path, method: "GET" })
+        : authorizeRequest({ url: path })
+      ).headers.Authorization !== expectedAuthorization
     )
       return;
   } catch {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  getSessionJson,
   readStoredSessionJson,
   peekSessionJson,
   subscribeSessionData,
@@ -16,11 +15,7 @@ import {
   retainProfileProgress,
   applyWorkFarmEnergy,
 } from "./profile.js";
-import {
-  characterUpgrade,
-  workFarm,
-} from "../bosses/BossBattle/boss-battle-session.js";
-import { hasNewCharacterUpgradeProgress } from "./character-upgrade-progress.js";
+import { workFarm } from "../bosses/BossBattle/boss-battle-session.js";
 
 function playerProfile(data, previous) {
   const normalized = normalizePlayerProfile(data);
@@ -72,48 +67,6 @@ export function usePlayerProfile() {
       }
     };
     let identity = sessionIdentity();
-    let workStatus = workFarm.getSnapshot().run?.status;
-    let characterRun = characterUpgrade.getSnapshot().run;
-    let profileRevision = null;
-    let profileRefreshTimer = null;
-    let profileRefreshRunning = false;
-    let profileRefreshQueued = false;
-    const refreshChangedProfile = async () => {
-      clearTimeout(profileRefreshTimer);
-      profileRefreshTimer = null;
-      if (profileRefreshRunning) {
-        profileRefreshQueued = true;
-        return;
-      }
-      if (sessionIdentity() !== identity || !identity) return;
-      profileRefreshRunning = true;
-      try {
-        await getSessionJson("/api/me", {
-          revalidate: false,
-        });
-      } catch {
-        // Keep the last confirmed profile when the game is unavailable.
-      } finally {
-        profileRefreshRunning = false;
-        if (profileRefreshQueued) {
-          profileRefreshQueued = false;
-          scheduleProfileRefresh();
-        }
-      }
-    };
-    const scheduleProfileRefresh = () => {
-      if (!profileRefreshTimer)
-        profileRefreshTimer = setTimeout(refreshChangedProfile, 2000);
-    };
-    const onProfileRevision = (event) => {
-      if (sessionIdentity() !== identity || !identity) return;
-      const revision = event.detail;
-      if (!Number.isSafeInteger(revision) || revision < 0) return;
-      if (profileRevision !== null && revision > profileRevision)
-        scheduleProfileRefresh();
-      profileRevision = revision;
-    };
-    window.addEventListener("madhouse:profile-revision", onProfileRevision);
     const load = async () => {
       controller?.abort();
       controller = new AbortController();
@@ -128,11 +81,6 @@ export function usePlayerProfile() {
       }
       // Clear only for an account change; revalidation keeps the current view.
       if (changed) {
-        profileRevision = null;
-        characterRun = null;
-        clearTimeout(profileRefreshTimer);
-        profileRefreshTimer = null;
-        profileRefreshQueued = false;
         setState(cachedState());
       }
       try {
@@ -217,25 +165,19 @@ export function usePlayerProfile() {
         if (event.cleared) {
           setState(cachedState());
         } else if (event.path === "/api/me") {
-          if (event.liveRefresh && event.snapshotStatus !== "stale") {
-            setState((current) => ({
-              ...current,
-              status: "ready",
-              profile: livePlayerProfile(
-                event.data,
-                current.profile ?? current.identity,
-              ),
-              updatedAt: event.updatedAt ?? current.updatedAt,
-              snapshotStatus: event.snapshotStatus ?? current.snapshotStatus,
-              snapshotCompleteness:
-                event.snapshotCompleteness ?? current.snapshotCompleteness,
-            }));
-          } else {
-            setState((current) => ({
-              ...current,
-              identity: profileIdentity(event.data),
-            }));
-          }
+          setState((current) => ({
+            ...current,
+            status: "ready",
+            identity: profileIdentity(event.data),
+            profile: livePlayerProfile(
+              event.data,
+              current.profile ?? current.identity,
+            ),
+            updatedAt: event.updatedAt ?? current.updatedAt,
+            snapshotStatus: event.snapshotStatus ?? current.snapshotStatus,
+            snapshotCompleteness:
+              event.snapshotCompleteness ?? current.snapshotCompleteness,
+          }));
         } else if (event.path === "/api/me/bag") {
           setState((current) => ({
             ...current,
@@ -256,31 +198,14 @@ export function usePlayerProfile() {
         const profile = applyWorkFarmEnergy(current.profile, view);
         return profile === current.profile ? current : { ...current, profile };
       });
-      const status = workFarm.getSnapshot().run?.status;
-      const finished = workStatus === "running" && status !== "running";
-      workStatus = status;
-      if (finished) void load();
-    });
-    const unsubscribeCharacter = characterUpgrade.subscribe(() => {
-      if (!identity || sessionIdentity() !== identity) return;
-      const run = characterUpgrade.getSnapshot().run;
-      if (hasNewCharacterUpgradeProgress(characterRun, run))
-        void refreshChangedProfile();
-      characterRun = run ? { id: run.id, completed: run.completed } : null;
     });
     void load();
     const unsubscribe = subscribeSession(load);
     return () => {
       controller?.abort();
-      clearTimeout(profileRefreshTimer);
-      window.removeEventListener(
-        "madhouse:profile-revision",
-        onProfileRevision,
-      );
       unsubscribe();
       unsubscribeData();
       unsubscribeWork();
-      unsubscribeCharacter();
     };
   }, []);
 

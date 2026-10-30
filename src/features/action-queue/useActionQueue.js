@@ -1,33 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  getSessionJson,
-  readStoredSessionJson,
-  postSessionJson,
-  subscribeSessionData,
-} from "../../../shared/session-api.js";
+import { postSessionJson } from "../../../shared/session-api.js";
 import { workCollectionCompleted } from "./work-collection-completed.js";
-import { stashCraftCompleted } from "./stash-craft-refresh.js";
-import { syncBattleSession } from "../bosses/BossBattle/boss-battle-session.js";
 import {
-  startStoredStatePolling,
-  storedQueuePresence,
-} from "./stored-state-polling.js";
+  automationState,
+  syncBattleSession,
+} from "../bosses/BossBattle/boss-battle-session.js";
 
 const pendingStatus = new Set(["queued", "waiting", "running", "reconciling"]);
-const inventoryPath = (args) =>
-  ({
-    weapon: "/api/clothing/by-category/1",
-    pet: "/api/clothing/by-category/9",
-    room: "/api/rooms",
-    clothing_item: "/api/clothing",
-  })[args.type];
 
 export function useActionQueue(
   authenticated,
   sessionGeneration,
   onFriendCompleted,
   onWorkCollectionCompleted,
-  inventoryActive = false,
 ) {
   const [state, setState] = useState(null);
   const [presence, setPresence] = useState("unknown");
@@ -35,8 +20,6 @@ export function useActionQueue(
   const [error, setError] = useState(null);
   const prior = useRef(new Map());
   const hasPresentSnapshot = useRef(false);
-  const inventoryActiveRef = useRef(inventoryActive);
-  inventoryActiveRef.current = inventoryActive;
   useEffect(() => {
     prior.current = new Map();
     hasPresentSnapshot.current = false;
@@ -46,24 +29,11 @@ export function useActionQueue(
     if (!authenticated) return;
     let cancelled = false;
     let previousWork = null;
-    let polling;
     const observedCollectionJobs = new Set();
     const notifiedCollections = new Set();
-    let queueInitialized = false;
     const update = (next) => {
       if (cancelled || !next || !Array.isArray(next.queuedActions)) return;
       const work = next.workFarm?.run;
-      if (
-        previousWork?.status === "running" &&
-        previousWork.collectStash &&
-        previousWork.queueId === work?.queueId &&
-        ["completed", "limited", "stopped"].includes(work.status)
-      ) {
-        void getSessionJson("/api/stash/sets", {
-          fresh: true,
-          revalidate: false,
-        }).catch(() => {});
-      }
       const completedWorkKey =
         work?.queueId ||
         (Number.isFinite(work?.startedAt)
@@ -100,51 +70,6 @@ export function useActionQueue(
         )
           observedCollectionJobs.add(job.id);
         const before = prior.current.get(job.id);
-        if (stashCraftCompleted(job, before, queueInitialized)) {
-          void getSessionJson("/api/stash/sets", {
-            fresh: true,
-            revalidate: false,
-          }).catch(() => {});
-          for (const path of ["/api/me", "/api/me/bag"]) {
-            void getSessionJson(path, {
-              fresh: true,
-              serverRefresh: "live",
-              afterPending: true,
-              revalidate: false,
-            }).catch(() => {});
-          }
-        }
-        if (
-          job.type === "inventory" &&
-          before &&
-          before !== "completed" &&
-          job.status === "completed"
-        ) {
-          const path = inventoryPath(job.args);
-          if (path && inventoryActiveRef.current)
-            void getSessionJson(path, { fresh: true, revalidate: false }).catch(
-              () => {},
-            );
-          void getSessionJson("/api/me", {
-            fresh: true,
-            revalidate: false,
-          }).catch(() => {});
-        }
-        if (
-          ["work.booster", "energy.booster"].includes(job.type) &&
-          before &&
-          before !== "completed" &&
-          job.status === "completed"
-        ) {
-          void getSessionJson("/api/me", {
-            fresh: true,
-            revalidate: false,
-          }).catch(() => {});
-          void getSessionJson("/api/me/bag", {
-            fresh: true,
-            revalidate: false,
-          }).catch(() => {});
-        }
         if (
           job.type === "friend.remove" &&
           before &&
@@ -156,51 +81,30 @@ export function useActionQueue(
       prior.current = new Map(
         next.queuedActions.map((job) => [job.id, job.status]),
       );
-      queueInitialized = true;
       setState(next);
-      syncBattleSession(next);
     };
-    const unsubscribe = subscribeSessionData((event) => {
-      if (event.cleared) {
-        polling?.invalidate();
+    const sync = () => {
+      const current = automationState.getSnapshot();
+      if (current.presence === "unknown") {
         prior.current.clear();
         observedCollectionJobs.clear();
         notifiedCollections.clear();
         previousWork = null;
-        queueInitialized = false;
         hasPresentSnapshot.current = false;
         setState(null);
         setPresence("unknown");
-      } else if (
-        ["/api/automation/state", "/api/automation/commands"].includes(
-          event.path,
-        )
-      ) {
-        if (!Array.isArray(event.data?.queuedActions)) return;
-        polling?.invalidate();
+      } else if (current.presence === "present") {
         hasPresentSnapshot.current = true;
         setPresence("present");
-        update(event.data);
+        update(current.data);
+      } else if (!hasPresentSnapshot.current) {
+        setPresence(current.presence);
       }
-    });
-    polling = startStoredStatePolling({
-      readStored: () => readStoredSessionJson("/api/automation/state"),
-      onPresent: (next) => {
-        hasPresentSnapshot.current = true;
-        setPresence("present");
-        update(next);
-      },
-      onMissing: (saved) => {
-        if (!hasPresentSnapshot.current)
-          setPresence(storedQueuePresence(saved));
-      },
-      onUnavailable: () => {
-        if (!hasPresentSnapshot.current) setPresence("unavailable");
-      },
-    });
+    };
+    const unsubscribe = automationState.subscribe(sync);
+    sync();
     return () => {
       cancelled = true;
-      polling.stop();
       unsubscribe();
     };
   }, [

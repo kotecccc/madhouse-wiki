@@ -185,6 +185,7 @@ export async function createAutomationRuntime({
     ...(bridge ? { queueActionGate: bridge.queueActionGate } : {}),
     ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
     accountHealth: snapshots.health,
+    accountResourceVersions: snapshots.resourceVersions,
     identifyPlayer: async (authorization) => {
       const response = await transport.fetch(
         "https://cargohustle.online/api/me",

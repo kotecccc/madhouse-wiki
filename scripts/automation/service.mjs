@@ -230,6 +230,7 @@ export function createAutomationService({
   identifyPlayer,
   canonicalCredential = (authorization) => authorization,
   accountHealth = () => null,
+  accountResourceVersions = () => null,
   snapshotFetch = fetcher,
   queueActionGate = null,
   onLeaseAcquired = () => {},
@@ -958,6 +959,7 @@ export function createAutomationService({
       queuedActions,
       queueNotBefore: queueReadyAt,
       gameHealth: accountHealth(entry.credential),
+      resourceVersions: accountResourceVersions(entry.credential),
       version: entry.version,
       serverTime: now(),
       invitations: {

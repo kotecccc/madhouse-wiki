@@ -224,6 +224,7 @@ function observedSection(previous, path, raw, observedAt, source, cooldown) {
   if (replaces)
     return {
       data: normalized,
+      revision: (previous?.revision ?? 0) + 1,
       updatedAt: observedAt,
       dirty: false,
       completeness: "unknown",
@@ -231,6 +232,7 @@ function observedSection(previous, path, raw, observedAt, source, cooldown) {
     };
   return {
     ...projectExplicitResourceFields(previous, path, normalized),
+    revision: (previous?.revision ?? 0) + 1,
     dirty: true,
     completeness: "unknown",
     latestObservation,
@@ -413,6 +415,7 @@ export function createAccountSnapshots({
             );
           sections[sectionPath] = {
             ...section,
+            revision: (section.revision ?? 0) + 1,
             dirty: true,
             ...(isInventoryPath(sectionPath)
               ? {
@@ -467,8 +470,12 @@ export function createAccountSnapshots({
       const sections = { ...current.sections };
       for (const [sectionPath, dirty] of context.priorInventoryDirty) {
         const section = sections[sectionPath];
-        if (section)
-          sections[sectionPath] = { ...section, inventoryDirty: dirty };
+        if (section && section.inventoryDirty !== dirty)
+          sections[sectionPath] = {
+            ...section,
+            revision: (section.revision ?? 0) + 1,
+            inventoryDirty: dirty,
+          };
       }
       persist({ ...current, sections });
     }
@@ -840,6 +847,7 @@ export function createAccountSnapshots({
           ...fallbackRecord.sections,
           [context.path]: {
             ...fallbackSection,
+            revision: (fallbackSection.revision ?? 0) + 1,
             dirty: true,
             completeness: "unknown",
             latestObservation: {
@@ -1430,7 +1438,12 @@ export function createAccountSnapshots({
         ) {
           for (const [key, section] of Object.entries(sections))
             if (isInventoryPath(key))
-              sections[key] = { ...section, dirty: true, inventoryDirty: true };
+              sections[key] = {
+                ...section,
+                revision: (section.revision ?? 0) + 1,
+                dirty: true,
+                inventoryDirty: true,
+              };
         }
         const failedSections = (record.health?.failedSections || []).filter(
           (failed) =>
@@ -1503,6 +1516,7 @@ export function createAccountSnapshots({
             ...record.sections,
             [path]: {
               ...section,
+              revision: (section.revision ?? 0) + 1,
               dirty: true,
               completeness: "unknown",
               latestObservation: {
@@ -1843,6 +1857,26 @@ export function createAccountSnapshots({
     health(authorization) {
       const playerId = authorization && credentials.get(hash(authorization));
       return state(accounts.get(playerId));
+    },
+    resourceVersions(authorization) {
+      const digest = authorization && hash(authorization);
+      const record = digest && accounts.get(credentials.get(digest));
+      if (!record || record.revokedHashes?.includes(digest)) return null;
+      return {
+        revision: record.profileRevision ?? 0,
+        sections: Object.fromEntries(
+          Object.entries(record.sections || {})
+            .filter(([path]) => isSnapshotPath(path))
+            .map(([path, section]) => [
+              path,
+              {
+                revision: section.revision ?? 0,
+                updatedAt: section.updatedAt ?? null,
+                dirty: Boolean(section.dirty),
+              },
+            ]),
+        ),
+      };
     },
     resolveStoredOwner(authorization, telegramUserId) {
       if (

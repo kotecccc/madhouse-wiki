@@ -181,7 +181,6 @@ export function InventorySection({
         },
         {
           resources: active ? pathKey.split("|").filter(Boolean) : [],
-          revalidate: false,
         },
       ),
     [active, pathKey],
@@ -201,8 +200,7 @@ export function InventorySection({
           .map((path) => [path, "pending"]),
       ),
     }));
-    // Session API deduplicates requests and paces them across every account view.
-    // revalidate:false prevents timer/focus refreshes of inventory sections.
+    // Active sections share the session cache and server-coordinated reads.
     function load() {
       for (const path of pathKey.split("|").filter(Boolean)) {
         setUpdatedAt((current) => ({

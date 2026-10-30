@@ -71,6 +71,7 @@ const remote =
     launchBattle: () => readSession().activeBossBattle,
   });
 export const {
+  automationState,
   bossBattle,
   bossInvitations,
   raidSubscriptions,

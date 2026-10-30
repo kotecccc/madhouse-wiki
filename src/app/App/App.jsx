@@ -143,7 +143,6 @@ export function App() {
     sessionGeneration,
     onFriendCompleted,
     onWorkCollectionCompleted,
-    visibleScreen === "inventory",
   );
   const [inventoryResponses, setInventoryResponses] = useState({});
   const [inventoryDirty, setInventoryDirty] = useState([]);
