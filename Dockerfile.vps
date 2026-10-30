@@ -70,7 +70,7 @@ RUN node scripts/catalogue/restore-seed.mjs \
     && npm run validate:data \
     && npm run lint:ui \
     && npm run lint \
-    && npm test \
+    && NODE_ENV=test npm test \
     && npm run build \
     && npm run build:connector
 
