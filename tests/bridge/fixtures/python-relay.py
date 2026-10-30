@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import os
 import socket
+import ssl
 import sys
 import types
 
@@ -22,6 +23,9 @@ spec.loader.exec_module(bridge)
 
 gateway_port, game_port = map(int, sys.argv[2:4])
 ws = socket.create_connection(("127.0.0.1", gateway_port))
+if len(sys.argv) > 4 and sys.argv[4] == "tls":
+    context = ssl.create_default_context(cafile=os.path.join(os.path.dirname(__file__), "cargo-cert.pem"))
+    ws = context.wrap_socket(ws, server_hostname="cargohustle.online")
 key = base64.b64encode(os.urandom(16)).decode("ascii")
 ws.sendall((
     "GET /bridge/data HTTP/1.1\r\nHost: 127.0.0.1\r\n"

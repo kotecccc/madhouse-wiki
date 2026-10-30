@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -23,12 +22,13 @@ const listen = (server) =>
   new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const close = (server) => new Promise((resolve) => server.close(resolve));
 
-for (const { length, tooLarge } of [
+for (const { length, tooLarge, chunked } of [
   { length: 3500000, tooLarge: false },
   { length: 4500000, tooLarge: true },
+  { length: 350000, tooLarge: false, chunked: true },
 ])
   test(
-    `installed Python relay ${tooLarge ? "rejects oversized" : "preserves large"} fake clothing responses over TLS`,
+    `installed Python relay ${tooLarge ? "rejects oversized" : "preserves large"} ${chunked ? "streamed" : "fixed-length"} fake clothing responses over TLS`,
     { skip: !process.env.MADHOUSE_TEST_BRIDGE_AGENT },
     async () => {
       const body = JSON.stringify({
@@ -38,9 +38,18 @@ for (const { length, tooLarge } of [
       const game = createHttpsServer({ cert, key }, (_req, res) => {
         res.writeHead(200, {
           "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
+          ...(chunked ? {} : { "Content-Length": Buffer.byteLength(body) }),
         });
-        res.end(body);
+        if (!chunked) res.end(body);
+        else
+          void (async () => {
+            for (let offset = 0; offset < body.length; offset += 16384) {
+              if (res.destroyed) return;
+              res.write(body.slice(offset, offset + 16384));
+              await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+            res.end();
+          })();
       });
       await listen(game);
       const registry = {
@@ -66,7 +75,7 @@ for (const { length, tooLarge } of [
         consume: async () => true,
         heartbeatMs: 60000,
       });
-      const bridge = createHttpServer();
+      const bridge = createHttpsServer({ cert, key });
       bridge.on(
         "upgrade",
         (req, socket, head) =>
@@ -80,6 +89,7 @@ for (const { length, tooLarge } of [
           process.env.MADHOUSE_TEST_BRIDGE_AGENT,
           String(bridge.address().port),
           String(game.address().port),
+          "tls",
         ],
         { stdio: ["ignore", "pipe", "pipe"] },
       );

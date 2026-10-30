@@ -57,24 +57,33 @@ export const INVENTORY_ACTION_TYPES = {
     remove: "/api/ornaments/equip/",
   },
 };
-export function inventoryReadPath(type, zoneId) {
+export function inventoryReadPath(type, zoneId, categoryId) {
   const definition = INVENTORY_ACTION_TYPES[type];
   if (!definition) throw fail(400, "invalid_inventory_type");
+  if (type === "clothing_item" && categoryId != null) {
+    if (!Number.isSafeInteger(categoryId) || categoryId < 2 || categoryId > 8)
+      throw fail(400, "invalid_inventory_category");
+    return `/api/clothing/by-category/${categoryId}`;
+  }
   if (type === "ornament") {
     if (!positive(zoneId)) throw fail(400, "invalid_inventory_zone");
     return `/api/ornaments/zones/${zoneId}`;
   }
   return definition.path;
 }
-export function inventoryResponseItems(type, body) {
+export function inventoryResponseItems(type, body, categoryId) {
   if (!body || body.success === false || body.partial === true || body.error)
     throw fail(503, "inventory_unavailable");
   const items =
     type === "clothing_item"
-      ? Array.isArray(body.catalog?.sets) &&
-        body.catalog.sets.every((set) => Array.isArray(set.items))
-        ? body.catalog.sets.flatMap((set) => set.items)
-        : null
+      ? categoryId != null
+        ? body.categoryId === categoryId
+          ? body.items
+          : null
+        : Array.isArray(body.catalog?.sets) &&
+            body.catalog.sets.every((set) => Array.isArray(set.items))
+          ? body.catalog.sets.flatMap((set) => set.items)
+          : null
       : type === "room"
         ? body.catalog?.rooms
         : body.items;
@@ -126,8 +135,14 @@ export function inventoryPrice(value) {
     ? { amount: value.amount, currency: value.currency }
     : null;
 }
-export async function inventoryRead({ entry, type, zoneId, fetcher }) {
-  const path = inventoryReadPath(type, zoneId);
+export async function inventoryRead({
+  entry,
+  type,
+  zoneId,
+  categoryId,
+  fetcher,
+}) {
+  const path = inventoryReadPath(type, zoneId, categoryId);
   const response = await fetcher(root + path, {
     headers: { Authorization: entry.credential, Accept: "application/json" },
     cache: "no-store",
@@ -146,7 +161,7 @@ export async function inventoryRead({ entry, type, zoneId, fetcher }) {
   } catch {
     throw fail(503, "inventory_unavailable");
   }
-  return { path, body, items: inventoryResponseItems(type, body) };
+  return { path, body, items: inventoryResponseItems(type, body, categoryId) };
 }
 export async function inventoryWallet({ entry, body, fetcher }) {
   if (body.player?.wallet && typeof body.player.wallet === "object")
@@ -191,7 +206,19 @@ export async function inventoryAction({
       (args.action === "unequip" && !definition.remove))
   )
     throw fail(400, "invalid_inventory_action");
-  const current = await inventoryRead({ entry, type, zoneId, fetcher });
+  // A category read is an optional read-only inspection. Never use it to
+  // clear a pre-existing uncertain mutation without its original checkpoint.
+  const categoryId =
+    refreshOnly && !pending && type === "clothing_item"
+      ? args.categoryId
+      : undefined;
+  const current = await inventoryRead({
+    entry,
+    type,
+    zoneId,
+    categoryId,
+    fetcher,
+  });
   if (refreshOnly) {
     const itemId = pending?.entityId ?? pending?.weaponId;
     const item = current.items.find(

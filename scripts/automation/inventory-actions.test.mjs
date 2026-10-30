@@ -32,6 +32,66 @@ const definitions = [
   ["clothing_item", 4, "itemId", "/api/clothing", "POST"],
   ["ornament", 5, "elementId", "/api/ornaments", "POST"],
 ];
+test("read-only clothing category inspection validates the returned category", async () => {
+  const entry = { credential: "Bearer fake", equipment: { pending: null } };
+  const calls = [];
+  const fetcher = async (url, init) => {
+    calls.push({ path: new URL(url).pathname, method: init.method ?? "GET" });
+    return Response.json({ categoryId: 5, items: [{ id: 364, owned: true }] });
+  };
+  await inventoryAction({
+    entry,
+    args: { type: "clothing_item", categoryId: 5 },
+    commandId: "category-read-1",
+    refreshOnly: true,
+    fetcher,
+    save() {},
+  });
+  assert.deepEqual(calls, [
+    { path: "/api/clothing/by-category/5", method: "GET" },
+  ]);
+  await assert.rejects(
+    inventoryAction({
+      entry,
+      args: { type: "clothing_item", categoryId: 4 },
+      commandId: "category-read-2",
+      refreshOnly: true,
+      fetcher,
+      save() {},
+    }),
+    /inventory_unavailable/,
+  );
+  assert.equal(
+    calls.every(({ method }) => method === "GET"),
+    true,
+  );
+});
+test("category inspection cannot bypass an uncertain clothing checkpoint", async () => {
+  const pending = {
+    id: "prior",
+    type: "clothing_item",
+    entityId: 364,
+    action: "equip",
+  };
+  const entry = { credential: "Bearer fake", equipment: { pending } };
+  const calls = [];
+  const result = await inventoryAction({
+    entry,
+    args: { type: "clothing_item", categoryId: 5 },
+    commandId: "category-read-3",
+    refreshOnly: true,
+    fetcher: async (url) => {
+      calls.push(new URL(url).pathname);
+      return Response.json({
+        catalog: { sets: [{ items: [{ id: 364, equipped: false }] }] },
+      });
+    },
+    save() {},
+  });
+  assert.deepEqual(calls, ["/api/clothing"]);
+  assert.equal(result.pending, true);
+  assert.deepEqual(entry.equipment.pending, pending);
+});
 for (const [type, id, idKey, prefix, equipMethod] of definitions) {
   test(`${type}: purchase uses fresh quote, exact body and confirmed ownership`, async () => {
     const ctx = context();
