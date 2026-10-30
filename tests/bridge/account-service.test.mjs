@@ -123,6 +123,42 @@ test("queued mutation requires a matching live one-use permission", async () => 
   }
 });
 
+test("a coordinator-proven unsent bridge mutation preserves that distinction", async () => {
+  const gate = createQueueActionGate();
+  const f = fixture(goodProfile, null, {
+    queueActionGate: gate,
+    coordinate: (attempt) => {
+      if (attempt.method === "POST")
+        throw Object.assign(new Error("not sent"), { notDispatched: true });
+      return attempt.execute();
+    },
+  });
+  const job = {
+    id: "unsent-job-1",
+    status: "running",
+    type: "friend.response",
+    args: { playerId: 42, decision: "accept" },
+  };
+  try {
+    f.pair("101");
+    await f.service.bind("101", "Bearer private-test-token");
+    await gate.run(
+      job,
+      false,
+      "Bearer private-test-token",
+      () =>
+        assert.rejects(
+          f.service.send("101", "POST", "/api/friends/requests/42/accept"),
+          { code: "bridge_unavailable", notDispatched: true },
+        ),
+      () => true,
+    );
+  } finally {
+    f.devices.close();
+    f.close();
+  }
+});
+
 test("snapshot barrier must succeed after queue admission before bridge action bytes", async () => {
   const gate = createQueueActionGate();
   let sent = 0;

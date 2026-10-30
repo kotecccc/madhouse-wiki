@@ -975,7 +975,12 @@ export function createAccountSnapshots({
         redirect: "error",
         signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
       });
-    } catch {
+    } catch (error) {
+      if (
+        (init.method || "GET").toUpperCase() !== "GET" &&
+        error?.notDispatched === true
+      )
+        throw error;
       return json({ error: "game_unavailable" }, 503);
     }
   }

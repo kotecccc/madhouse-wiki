@@ -143,6 +143,7 @@ const commands = new Set([
   "friends.respond",
   "queue.enqueue",
   "queue.cancel",
+  "queue.resume",
   "queue.dismiss",
   "queue.move",
   "buddy.set",
@@ -261,8 +262,19 @@ export function createAutomationService({
   let currentReservation = null;
   const owner = randomUUID();
   const actorFetcher = fetcher;
-  fetcher = (url, init) =>
-    withWorkerLease(owner, now, () => actorFetcher(url, init));
+  fetcher = (url, init = {}) =>
+    withWorkerLease(owner, now, async () => {
+      try {
+        return await actorFetcher(url, init);
+      } catch (error) {
+        if (
+          error?.notDispatched &&
+          String(init.method || "GET").toUpperCase() !== "GET"
+        )
+          requestPriority.noteUnsentMutation();
+        throw error;
+      }
+    });
   let leaseAcquired = false;
   function ensureLease() {
     if (closed) throw failure(503, "automation_worker_unavailable");
@@ -3724,6 +3736,32 @@ export function createAutomationService({
           entry.pausedAuto.nextAttemptAt = 0;
           save(entry);
         }
+      }
+      return snapshot(entry);
+    }
+    if (input.command === "queue.resume") {
+      if (entry.receipts.includes(input.id)) return snapshot(entry);
+      if (input.expectedVersion !== entry.version)
+        throw failure(409, "automation_state_changed");
+      const job = entry.actionQueue
+        .snapshot()
+        .find((item) => item.id === input.args?.id);
+      if (
+        !job ||
+        job.status !== "paused" ||
+        job.reason !== "unsent_retry_budget"
+      )
+        throw failure(409, "queue_resume_unavailable");
+      const previousReceipts = entry.receipts;
+      entry.receipts = [...entry.receipts.slice(-127), input.id];
+      try {
+        if (!entry.actionQueue.resume(job.id))
+          throw failure(409, "queue_resume_unavailable");
+      } catch (error) {
+        entry.receipts = previousReceipts;
+        if (entry.storageFailed)
+          throw failure(503, "automation_storage_unavailable");
+        throw error;
       }
       return snapshot(entry);
     }

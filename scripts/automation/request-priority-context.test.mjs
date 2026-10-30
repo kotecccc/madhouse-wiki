@@ -38,3 +38,19 @@ test("concurrent accounts retain independent request priorities", async () => {
   release();
   assert.deepEqual(await Promise.all([first, second]), [60, 30]);
 });
+
+test("only an active attempt can report a proven unsent mutation", async () => {
+  const context = createRequestPriorityContext();
+  const result = await context.run({ priority: 1 }, false, async () => {
+    context.noteUnsentMutation();
+    return { status: "retry" };
+  });
+  assert.deepEqual(result, { status: "retry", unsentMutation: true });
+  context.noteUnsentMutation();
+  assert.deepEqual(
+    await context.run({ priority: 1 }, false, async () => ({
+      status: "retry",
+    })),
+    { status: "retry" },
+  );
+});

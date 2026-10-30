@@ -118,9 +118,12 @@ export function useActionQueue(
     setPending(true);
     setError(null);
     try {
-      const args = ["queue.cancel", "queue.dismiss", "queue.move"].includes(
-        card.command,
-      )
+      const args = [
+        "queue.cancel",
+        "queue.dismiss",
+        "queue.move",
+        "queue.resume",
+      ].includes(card.command)
         ? {
             id: card.id,
             ...(card.command === "queue.move"
@@ -140,7 +143,9 @@ export function useActionQueue(
       setError(
         card.command === "queue.move"
           ? "Не удалось изменить порядок очереди. Обновите её и попробуйте снова."
-          : "Не удалось остановить действие. Попробуйте ещё раз.",
+          : card.command === "queue.resume"
+            ? "Не удалось продолжить действие. Обновите очередь и попробуйте снова."
+            : "Не удалось остановить действие. Попробуйте ещё раз.",
       );
     } finally {
       setPending(false);

@@ -9,6 +9,7 @@ import { createAutomationService } from "../scripts/automation/service.mjs";
 import { createAutomationStateStore } from "../scripts/automation/state-store.mjs";
 import { createSessionApi } from "../shared/session-api.js";
 import { inventoryGame } from "./helpers/inventory-game.mjs";
+import { createDirectBoundary } from "../scripts/game/direct-boundary.mjs";
 
 test("stored actor state drives only subscribed resource refreshes after a server mutation", async () => {
   const directory = mkdtempSync(join(tmpdir(), "resource-versions-"));
@@ -194,6 +195,101 @@ test("a real queued worker publishes its saved observation to an active inventor
     api.clear();
   } finally {
     service.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a queued worker bounds coordinator-proven unsent retries and resumes only on command", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "resource-unsent-budget-"));
+  const store = createAutomationStateStore({ directory });
+  const game = inventoryGame();
+  let clock = 1_000_000;
+  let allowMutation = false;
+  const boundary = createDirectBoundary({
+    env: {
+      MADHOUSE_GAME_GLOBAL_INTERVAL_MS: "1",
+      MADHOUSE_GAME_ACCOUNT_INTERVAL_MS: "1",
+    },
+    fetcher: game.fetcher,
+  });
+  const snapshots = createAccountSnapshots({
+    store,
+    now: () => clock,
+    fetcher: (url, init) =>
+      boundary.request(url, {
+        ...init,
+        canDispatch: async () =>
+          (!init.canDispatch || (await init.canDispatch())) &&
+          ((init.method || "GET") === "GET" || allowMutation),
+      }),
+  });
+  const credential = "Bearer budget-worker";
+  await snapshots.read("https://cargohustle.online/api/me", {
+    headers: { Authorization: credential },
+  });
+  const service = createAutomationService({
+    store,
+    getBoss: () => null,
+    identifyPlayer: async () => ({ playerId: 1 }),
+    fetcher: snapshots.liveFetch,
+    now: () => clock,
+    random: () => 0,
+    schedule: () => ({}),
+    cancel: () => {},
+  });
+  try {
+    const entry = await service.identify(credential);
+    await service.command(entry, {
+      id: "budget-worker-job",
+      expectedVersion: service.snapshot(entry).version,
+      command: "queue.enqueue",
+      args: {
+        type: "inventory",
+        action: {
+          type: "weapon",
+          id: 1,
+          action: "buy",
+          price: { amount: 100, currency: "gold" },
+        },
+      },
+    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await entry.actionQueue.tick();
+      const job = service.snapshot(entry).queuedActions[0];
+      if (job.nextAt) clock = job.nextAt;
+    }
+    const paused = service.snapshot(entry).queuedActions[0];
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.reason, "unsent_retry_budget");
+    assert.equal(paused.unsentMutationAttempts, 3);
+    assert.equal(game.mutations().length, 0);
+    assert.equal(entry.actionQueue.hasDue(), false);
+    allowMutation = true;
+    const resume = {
+      id: "budget-resume-command",
+      expectedVersion: service.snapshot(entry).version,
+      command: "queue.resume",
+      args: { id: paused.id },
+    };
+    await service.command(entry, resume);
+    await service.command(entry, resume);
+    clock += 3_600_001;
+    assert.equal(entry.actionQueue.hasDue(), true);
+    await entry.actionQueue.tick();
+    assert.equal(service.snapshot(entry).queuedActions[0].status, "completed");
+    assert.equal(game.mutations().length, 1);
+    assert.equal(
+      boundary
+        .diagnostics()
+        .recent.filter(
+          (event) => event.outcome === "DIRECT_REQUEST_NOT_DISPATCHED",
+        ).length,
+      3,
+    );
+  } finally {
+    service.close();
+    boundary.close();
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }

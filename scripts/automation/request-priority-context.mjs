@@ -13,6 +13,10 @@ export function createRequestPriorityContext() {
       const context = storage.getStore();
       return () => (context?.active ? context.reservation : null);
     },
+    noteUnsentMutation() {
+      const context = storage.getStore();
+      if (context?.active) context.unsentMutation = true;
+    },
     async run(job, reconcile, callback, reservation) {
       const context = {
         active: true,
@@ -20,7 +24,10 @@ export function createRequestPriorityContext() {
         reservation,
       };
       try {
-        return await storage.run(context, callback);
+        const result = await storage.run(context, callback);
+        return context.unsentMutation && result?.status === "retry"
+          ? { ...result, unsentMutation: true }
+          : result;
       } finally {
         context.active = false;
       }

@@ -85,7 +85,8 @@ export function createAutomationHttp({
       entry =
         request.method === "GET" || isStop
           ? await service.readStored(authorization)
-          : input?.command === "queue.enqueue" && service.identifyForQueue
+          : ["queue.enqueue", "queue.resume"].includes(input?.command) &&
+              service.identifyForQueue
             ? await service.identifyForQueue(authorization)
             : await service.identify(authorization);
       return json(

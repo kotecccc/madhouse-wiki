@@ -2051,6 +2051,28 @@ test("a failed mutation leaves its profile invalidation barrier in place", async
   assert.equal(queue.calls.length, 3);
 });
 
+test("a coordinator-proven unsent mutation stays distinguishable from an unknown outcome", async () => {
+  let calls = 0;
+  const authorization = "Bearer unsent-test";
+  const snapshots = createAccountSnapshots({
+    store: memoryStore(),
+    fetcher: async () => {
+      calls++;
+      throw Object.assign(new Error("not sent"), { notDispatched: true });
+    },
+  });
+  snapshots.saveBridgeProfile(authorization, { playerId: 42 });
+  await assert.rejects(
+    snapshots.liveFetch(`${origin}/api/shop/buy`, {
+      method: "POST",
+      headers: { Authorization: authorization },
+    }),
+    (error) => error.notDispatched === true,
+  );
+  assert.equal(calls, 1);
+  assert.equal(snapshots.health(authorization).profileRevision, 1);
+});
+
 test("mutation barrier supersedes a delayed GET before its response can commit", async () => {
   const store = memoryStore();
   const calls = [];

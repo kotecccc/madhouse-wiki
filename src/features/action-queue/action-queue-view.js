@@ -562,52 +562,54 @@ export function actionQueueCards(state, catalogue = {}) {
             ? failureMessages.dependency_failed
             : job.status === "failed"
               ? failureMessages[job.reason] || "Не удалось выполнить"
-              : state.gameHealth?.status === "credentials_invalid" ||
-                  job.reason === "game_session_required"
-                ? "Требуется вход"
-                : job.cancelRequested
-                  ? "Ожидаем результат"
-                  : job.reason === "Ожидаем приглашение."
-                    ? "Ожидает приглашение"
-                    : job.status === "running"
-                      ? phases.running
-                      : job.blockedBy === "credentials"
-                        ? "Требуется вход"
-                        : job.blockedBy === "storage"
-                          ? "Ожидает сервер"
-                          : job.blockedBy === "action"
-                            ? ["auto.start", "raid.start"].includes(job.type)
-                              ? "Ожидает очереди"
-                              : "Ожидает другие действия"
-                            : job.blockedBy === "dependency"
-                              ? "Ожидает подтверждения действия"
-                              : job.blockedBy === "game"
-                                ? "Ожидает игру"
-                                : job.blockedBy === "rate"
-                                  ? "Ожидает очередь"
-                                  : job.eligible === false
-                                    ? [
-                                        "work.booster",
-                                        "work.start",
-                                        "character.start",
-                                        "subscription.start",
-                                        "battle.start",
-                                        "battle.attack",
-                                        "battle.heal",
-                                        "battle.buy",
-                                        "invitation.accept",
-                                        "business.start",
-                                        "floor.start",
-                                        "auto.start",
-                                        "raid.start",
-                                      ].includes(job.type)
-                                      ? ["auto.start", "raid.start"].includes(
-                                          job.type,
-                                        )
-                                        ? "Ожидает очереди"
-                                        : "Ожидает другие действия"
-                                      : "Ожидает окончания боя"
-                                    : phases[job.status] || "Ожидание",
+              : job.status === "paused" && job.reason === "unsent_retry_budget"
+                ? "Нужна повторная попытка"
+                : state.gameHealth?.status === "credentials_invalid" ||
+                    job.reason === "game_session_required"
+                  ? "Требуется вход"
+                  : job.cancelRequested
+                    ? "Ожидаем результат"
+                    : job.reason === "Ожидаем приглашение."
+                      ? "Ожидает приглашение"
+                      : job.status === "running"
+                        ? phases.running
+                        : job.blockedBy === "credentials"
+                          ? "Требуется вход"
+                          : job.blockedBy === "storage"
+                            ? "Ожидает сервер"
+                            : job.blockedBy === "action"
+                              ? ["auto.start", "raid.start"].includes(job.type)
+                                ? "Ожидает очереди"
+                                : "Ожидает другие действия"
+                              : job.blockedBy === "dependency"
+                                ? "Ожидает подтверждения действия"
+                                : job.blockedBy === "game"
+                                  ? "Ожидает игру"
+                                  : job.blockedBy === "rate"
+                                    ? "Ожидает очередь"
+                                    : job.eligible === false
+                                      ? [
+                                          "work.booster",
+                                          "work.start",
+                                          "character.start",
+                                          "subscription.start",
+                                          "battle.start",
+                                          "battle.attack",
+                                          "battle.heal",
+                                          "battle.buy",
+                                          "invitation.accept",
+                                          "business.start",
+                                          "floor.start",
+                                          "auto.start",
+                                          "raid.start",
+                                        ].includes(job.type)
+                                        ? ["auto.start", "raid.start"].includes(
+                                            job.type,
+                                          )
+                                          ? "Ожидает очереди"
+                                          : "Ожидает другие действия"
+                                        : "Ожидает окончания боя"
+                                      : phases[job.status] || "Ожидание",
       detail:
         job.type === "character.start"
           ? job.args.quotes
@@ -703,6 +705,9 @@ export function actionQueueCards(state, catalogue = {}) {
         : job.cancelRequested
           ? null
           : "queue.cancel",
+      ...(job.status === "paused" && job.reason === "unsent_retry_budget"
+        ? { pauseCommand: "queue.resume" }
+        : {}),
       cancelNotice:
         !job.cancelRequested && ["running", "reconciling"].includes(job.status)
           ? "Если действие уже отправлено, оно может завершиться; результат останется на проверке."

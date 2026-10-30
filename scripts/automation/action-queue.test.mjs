@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createActionQueue, retryDelay } from "./action-queue.mjs";
+import {
+  createActionQueue,
+  retryDelay,
+  MAX_UNSENT_MUTATION_ATTEMPTS,
+} from "./action-queue.mjs";
 
 test("moving waiting battle series persists order without interrupting active or urgent actions", async () => {
   let saved;
@@ -89,6 +93,56 @@ function setup(saved = []) {
     },
   };
 }
+
+test("proven unsent mutations have a durable retry budget and explicit resume", async () => {
+  const h = setup();
+  h.execute(async () => ({ status: "retry", unsentMutation: true }));
+  h.queue.add({ id: "budget-job", type: "buy", args: { id: 1 } });
+  for (let attempt = 0; attempt < MAX_UNSENT_MUTATION_ATTEMPTS; attempt++) {
+    await h.queue.tick();
+    h.advance(10_000_000);
+  }
+  assert.equal(h.stored()[0].status, "paused");
+  assert.equal(h.stored()[0].reason, "unsent_retry_budget");
+  assert.equal(
+    h.stored()[0].unsentMutationAttempts,
+    MAX_UNSENT_MUTATION_ATTEMPTS,
+  );
+  const restored = setup(h.stored());
+  assert.equal(restored.queue.hasDue(), false);
+  assert.equal(restored.queue.resume("budget-job"), true);
+  await restored.queue.tick();
+  assert.equal(restored.stored()[0].status, "completed");
+  assert.equal(restored.stored()[0].unsentMutationAttempts, 0);
+});
+
+test("waiting for demand and uncertain reconciliation do not consume the unsent budget", async () => {
+  const h = setup();
+  h.execute(async () => ({ status: "retry", reason: "Ожидаем приглашение." }));
+  h.queue.add({ id: "waiting-job", type: "buy", args: { id: 1 } });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await h.queue.tick();
+    h.advance(10_000_000);
+  }
+  assert.equal(h.stored()[0].status, "waiting");
+  assert.equal(h.stored()[0].unsentMutationAttempts, undefined);
+  const uncertain = setup();
+  uncertain.execute(async () => ({ status: "uncertain" }));
+  uncertain.reconcile(async () => ({ status: "uncertain" }));
+  uncertain.queue.add({ id: "unknown-job", type: "buy", args: { id: 1 } });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await uncertain.queue.tick();
+    uncertain.advance(10_000_000);
+  }
+  assert.equal(uncertain.stored()[0].status, "reconciling");
+  assert.deepEqual(uncertain.calls, [
+    "execute",
+    "reconcile",
+    "reconcile",
+    "reconcile",
+    "reconcile",
+  ]);
+});
 
 test("a permanent external fence rejects only unsent jobs without dispatching them", async () => {
   let stored;

@@ -15,6 +15,7 @@ const active = new Set([
 ]);
 const runnable = new Set(["queued", "waiting", "reconciling"]);
 const clone = (value) => structuredClone(value);
+export const MAX_UNSENT_MUTATION_ATTEMPTS = 3;
 
 export function retryDelay(attempt, random = Math.random) {
   const base = delays[Math.min(Math.max(attempt, 0), delays.length - 1)];
@@ -238,6 +239,10 @@ export function createActionQueue({
     entry.cancelRequested = false;
     entry.pauseRequested = false;
     entry.status = "queued";
+    if (entry.reason === "unsent_retry_budget") {
+      entry.unsentMutationAttempts = 0;
+      entry.reason = null;
+    }
     entry.nextAt = now();
     commit();
     return true;
@@ -369,6 +374,15 @@ export function createActionQueue({
         entry.status = entry.pauseRequested ? "paused" : "cancelled";
         if (!entry.pauseRequested) entry.finishedAt = now();
         entry.nextAt = null;
+      } else if (
+        result.status === "retry" &&
+        result.unsentMutation === true &&
+        (entry.unsentMutationAttempts ?? 0) + 1 >= MAX_UNSENT_MUTATION_ATTEMPTS
+      ) {
+        entry.unsentMutationAttempts = (entry.unsentMutationAttempts ?? 0) + 1;
+        entry.status = "paused";
+        entry.nextAt = null;
+        entry.reason = "unsent_retry_budget";
       } else {
         // A retry result is permitted only when the adapter has proved that
         // the operation was not submitted, including during reconciliation.
@@ -379,6 +393,9 @@ export function createActionQueue({
           result.retryAfterMs ?? 0,
         );
         entry.attempts++;
+        if (result.status === "retry" && result.unsentMutation === true)
+          entry.unsentMutationAttempts =
+            (entry.unsentMutationAttempts ?? 0) + 1;
         entry.nextAt = now() + delay;
         entry.reason = result.reason ?? null;
       }

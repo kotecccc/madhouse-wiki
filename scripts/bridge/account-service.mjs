@@ -378,7 +378,11 @@ export function createBridgeAccountService({
       });
     } catch (error) {
       logBridgeFailure(error);
-      throw failure("bridge_unavailable");
+      const unavailable = failure("bridge_unavailable");
+      if (error?.notDispatched === true) unavailable.notDispatched = true;
+      if (Number.isFinite(error?.retryAfterMs) && error.retryAfterMs >= 0)
+        unavailable.retryAfterMs = error.retryAfterMs;
+      throw unavailable;
     }
     if (
       !registry.isActive(identity) ||

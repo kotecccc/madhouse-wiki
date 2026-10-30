@@ -2,6 +2,25 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { actionQueueCards } from "./action-queue-view.js";
 
+test("a paused unsent retry budget offers an explicit resume and cancellation", () => {
+  const [card] = actionQueueCards({
+    serverTime: 1000,
+    queuedActions: [
+      {
+        id: "retry-job",
+        type: "inventory",
+        status: "paused",
+        reason: "unsent_retry_budget",
+        createdAt: 1,
+        args: { type: "weapon", id: 1, action: "buy" },
+      },
+    ],
+  });
+  assert.equal(card.status, "Нужна повторная попытка");
+  assert.equal(card.pauseCommand, "queue.resume");
+  assert.equal(card.command, "queue.cancel");
+});
+
 test("explains an unresolved stopped work action and the rejected unsent job", () => {
   const cards = actionQueueCards({
     serverTime: 100,
