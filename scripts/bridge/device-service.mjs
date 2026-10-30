@@ -13,10 +13,22 @@ export function createBridgeDeviceService({ registry } = {}) {
     typeof registry.ownerKey !== "function"
   )
     throw new TypeError("device_registry_required");
+  let onAuthenticatedReconnect = () => {};
   const pool = createDeviceTunnelPool({
     authorize: (identity) => registry.isActive(identity),
+    onAuthenticatedReconnect: (identity) =>
+      onAuthenticatedReconnect(identity.owner),
   });
   return Object.freeze({
+    setAuthenticatedReconnectHandler(handler) {
+      if (typeof handler !== "function")
+        throw new TypeError("reconnect_handler_required");
+      onAuthenticatedReconnect = handler;
+      return () => {
+        if (onAuthenticatedReconnect === handler)
+          onAuthenticatedReconnect = () => {};
+      };
+    },
     issueInvitation: (verifiedOwner) => registry.issueInvitation(verifiedOwner),
     listDevice: (verifiedOwner) => registry.listDevice(verifiedOwner),
     redeemInvitation: (invitation) => registry.redeemInvitation(invitation),

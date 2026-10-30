@@ -27,6 +27,66 @@ export function canQueueBossBattleStart(
   );
 }
 
+export function queuedBattleAction(state, type, battleId) {
+  const actions =
+    (state.manualBattleActionJobs?.length
+      ? state.manualBattleActionJobs
+      : state.queuedBattleActions
+    )?.filter(
+      (job) =>
+        job.type === type &&
+        (job.args?.bossId == null ||
+          Number(job.args.bossId) === Number(state.boss?.id)) &&
+        (battleId == null || job.args?.battleId === battleId),
+    ) ?? [];
+  return (
+    actions.find((job) => job.status === "reconciling") ?? actions[0] ?? null
+  );
+}
+
+export function queuedBattleActionNotice(job) {
+  if (!job) return null;
+  const reasonMessages = {
+    unsent_retry_budget:
+      "Повтор остановлен после подтверждённых неотправленных попыток.",
+    battle_finished: "Этот бой уже завершён.",
+    unknown_boss: "Босс недоступен.",
+    game_request_rejected: "Игровой сервер отклонил действие.",
+    dependency_failed: "Предыдущее действие не выполнено.",
+    game_session_required: "Требуется войти в игру.",
+    work_result_unresolved: "Результат предыдущего действия не подтверждён.",
+  };
+  const blockMessages = {
+    credentials: "Требуется войти в игру.",
+    storage: "Ожидаем доступности сервера.",
+    action: "Ожидаем завершения других действий.",
+    dependency: "Ожидаем подтверждения предыдущего действия.",
+    game: "Ожидаем доступности игры.",
+    rate: "Ожидаем окончания ограничения запросов.",
+  };
+  const reason =
+    reasonMessages[job.reason] ||
+    job.reason ||
+    blockMessages[job.blockedBy] ||
+    null;
+  const displayedReason =
+    typeof reason === "string" && /^[a-z0-9_]+$/.test(reason)
+      ? "Действие остановлено. Подробности доступны в очереди."
+      : reason;
+  if (job.status === "reconciling")
+    return `Результат действия не подтверждён. ${displayedReason || "Проверяем состояние игры."} Повтор не будет отправлен до подтверждения.`;
+  if (job.status === "paused")
+    return displayedReason || "Действие приостановлено. Проверьте очередь.";
+  if (job.status === "failed")
+    return displayedReason || "Действие остановлено. Проверьте очередь.";
+  if (displayedReason) return displayedReason;
+  if (job.status === "queued") return "Действие ожидает отправки в игру.";
+  if (job.status === "waiting")
+    return "Ожидаем возможности выполнить действие.";
+  if (job.status === "running") return "Действие выполняется.";
+  return null;
+}
+
 export function formatBattleCountdown(expiresAt, now) {
   if (!Number.isFinite(expiresAt) || !Number.isFinite(now)) return null;
   const total = Math.max(0, Math.ceil((expiresAt - now) / 1000));

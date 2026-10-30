@@ -18,6 +18,8 @@ import {
   sameBattleEvents,
   canQueueBossBattleStart,
   healingErrorNotice,
+  queuedBattleAction,
+  queuedBattleActionNotice,
 } from "../src/features/bosses/BossBattle/boss-battle-presentation.js";
 
 test("ordinary healing and purchase progress is not shown as an error", () => {
@@ -55,6 +57,53 @@ test("a completed battle can be queued again even before start availability is r
   assert.equal(
     canQueueBossBattleStart(state, { automationRunning: true }),
     false,
+  );
+});
+
+test("manual battle queue presentation keeps the real wait reason and uncertain result", () => {
+  const waiting = {
+    type: "battle.attack",
+    status: "waiting",
+    args: { battleId: "battle-1" },
+    reason: "Ожидаем игру.",
+  };
+  const uncertain = {
+    ...waiting,
+    status: "reconciling",
+    reason: "Результат удара нельзя однозначно подтвердить.",
+  };
+  assert.equal(
+    queuedBattleAction(
+      { queuedBattleActions: [waiting, uncertain] },
+      "battle.attack",
+      "battle-1",
+    ),
+    uncertain,
+  );
+  assert.equal(queuedBattleActionNotice(waiting), "Ожидаем игру.");
+  assert.equal(
+    queuedBattleActionNotice(uncertain),
+    "Результат действия не подтверждён. Результат удара нельзя однозначно подтвердить. Повтор не будет отправлен до подтверждения.",
+  );
+  assert.equal(
+    queuedBattleActionNotice({ type: "battle.start", status: "queued" }),
+    "Действие ожидает отправки в игру.",
+  );
+  assert.equal(
+    queuedBattleActionNotice({
+      type: "battle.start",
+      status: "failed",
+      reason: "unknown_boss",
+    }),
+    "Босс недоступен.",
+  );
+  assert.equal(
+    queuedBattleActionNotice({
+      type: "battle.attack",
+      status: "waiting",
+      blockedBy: "rate",
+    }),
+    "Ожидаем окончания ограничения запросов.",
   );
 });
 
@@ -134,14 +183,35 @@ test("battle header contains countdown, hides automation manual controls and kee
         state: {
           ...staleBattle,
           queuedBattleActions: [
-            { type: "battle.attack", args: { battleId: "battle-1" } },
+            {
+              type: "battle.attack",
+              status: "reconciling",
+              reason: "Проверяем результат.",
+              args: { battleId: "battle-1" },
+            },
           ],
         },
         now: 1000,
       }),
     );
     assert.match(queuedAttack, /disabled=""[^>]*>.*?Ударить/s);
-    assert.doesNotMatch(queuedAttack, /В очереди/);
+    assert.match(queuedAttack, /Результат действия не подтверждён/);
+    assert.match(queuedAttack, /Повтор не будет отправлен до подтверждения/);
+    const queuedFinish = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { ...staleBattle, queuedSingleBattle: true },
+        now: 1000,
+      }),
+    );
+    assert.match(queuedFinish, /Завершение этого боя ожидает запуска/);
+    const autoFinish = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: { ...staleBattle, queuedSingleBattle: true },
+        auto: { enabled: true },
+        now: 1000,
+      }),
+    );
+    assert.match(autoFinish, /Автобой продолжает этот бой до результата/);
     const finishedExample = {
       boss: { id: 7, name: "Boss" },
       battle: {

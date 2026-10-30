@@ -195,6 +195,14 @@ export async function createAutomationRuntime({
       transport.fetch(url, { ...init, gameSource: "automation" }),
     ...(bridge ? { queueActionGate: bridge.queueActionGate } : {}),
     ...(bridge ? { canonicalCredential: bridge.canonicalCredential } : {}),
+    ...(bridge
+      ? {
+          bridgeOwnerKeyForPlayer: (playerId) => {
+            const owner = bridge.ownerForPlayer?.(String(playerId));
+            return owner ? (bridge.ownerKey?.(owner) ?? null) : null;
+          },
+        }
+      : {}),
     accountHealth: snapshots.health,
     accountResourceVersions: snapshots.resourceVersions,
     verifyQueuedCredential: async (authorization) => {
@@ -253,8 +261,18 @@ export async function createAutomationRuntime({
     globalRaidsCustomEmoji: env.MADHOUSE_GLOBAL_RAIDS_PUBLISHER === "mtproto",
     telegramSiteUrl: env.WIKI_PUBLIC_ORIGIN || "https://madhouse-wiki.ru",
   });
+  const unregisterBridgeReconnect = bridge?.setAuthenticatedReconnectHandler?.(
+    (ownerKey) => service.wakeBridgeOwner(ownerKey),
+  );
   // Normal runtime serves authenticated commands. Explicit 0 is an operator kill switch.
-  if (enabled) await service.boot();
+  if (enabled) {
+    try {
+      await service.boot();
+    } catch (error) {
+      unregisterBridgeReconnect?.();
+      throw error;
+    }
+  }
   const automationHandle = createAutomationHttp({
     service,
     enabled,
@@ -471,6 +489,7 @@ export async function createAutomationRuntime({
       origin: env.WIKI_PUBLIC_ORIGIN,
     }),
     close() {
+      unregisterBridgeReconnect?.();
       service.close();
       store.close();
     },

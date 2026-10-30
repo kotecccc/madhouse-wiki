@@ -5,7 +5,6 @@ import {
 import { normalizeBoosters } from "../../works/WorkFarm/work-farm-plan.js";
 import { CardActionMenu } from "../../../components/ui/CardActionMenu/CardActionMenu.jsx";
 import { ApprovableButton } from "../../../components/ui/ConfirmButton/ConfirmButton.jsx";
-import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { useEffect, useState } from "react";
@@ -191,7 +190,6 @@ function ProfileSummary({ state }) {
   const [boosterQuotes, setBoosterQuotes] = useState([]);
   const [boosterError, setBoosterError] = useState(null);
   const [boosterPending, setBoosterPending] = useState(false);
-  const [boosterQueued, setBoosterQueued] = useState(false);
   useEffect(() => {
     if (!menuAnchor) return undefined;
     let alive = true;
@@ -242,7 +240,6 @@ function ProfileSummary({ state }) {
           },
         },
       });
-      setBoosterQueued(true);
       closeMenu();
     } catch {
       setBoosterError(
@@ -568,16 +565,6 @@ function ProfileSummary({ state }) {
         })}
       </dl>
       <Wallet entries={profile.wallet} />
-      {boosterQueued && (
-        <Toast
-          floating
-          success
-          title="Готово"
-          onDismiss={() => setBoosterQueued(false)}
-        >
-          Дефибриллятор применён.
-        </Toast>
-      )}
       {menuAnchor && (
         <CardActionMenu
           anchor={menuAnchor}

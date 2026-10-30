@@ -2889,7 +2889,7 @@ test("queued invitation captures server identity and joins once", async () => {
     const state = ctx.service.snapshot(entry);
     assert.equal(state.queuedActions[0].status, "completed");
     assert.equal(state.queuedActions[0].args.bossId, 7);
-    assert.equal(state.queuedActions[0].priority, 60);
+    assert.equal(state.queuedActions[0].priority, 45);
     assert.equal(state.battle.battle.id, "battle-9");
     assert.equal(
       ctx.calls.filter(

@@ -116,6 +116,177 @@ test("proven unsent mutations have a durable retry budget and explicit resume", 
   assert.equal(restored.stored()[0].unsentMutationAttempts, 0);
 });
 
+test("durable retry deadlines emit a wake without heartbeat polling", async () => {
+  let time = 1000;
+  let timer;
+  let delay;
+  let wakes = 0;
+  const queue = createActionQueue({
+    now: () => time,
+    random: () => 0,
+    persist: () => true,
+    setTimer: (callback, ms) => {
+      timer = callback;
+      delay = ms;
+      return { unref() {} };
+    },
+    clearTimer: () => {},
+    onWake: () => {
+      wakes++;
+    },
+    adapters: {
+      buy: {
+        validate: (args) => args,
+        execute: async () => ({ status: "retry", reason: "cooldown" }),
+      },
+    },
+  });
+  queue.add({ id: "event-wake-01", type: "buy", args: {} });
+  await queue.tick();
+  assert.equal(queue.snapshot()[0].status, "waiting");
+  assert.equal(delay, 10_000);
+  time += delay;
+  timer();
+  assert.equal(wakes, 1);
+});
+
+test("a failing eligibility check does not undo a durably saved intention", () => {
+  let saved;
+  const queue = createActionQueue({
+    persist: (entries) => {
+      saved = entries;
+      return true;
+    },
+    eligible: () => {
+      throw new Error("temporary state failure");
+    },
+    onWake: () => {},
+    adapters: { buy: { validate: (args) => args } },
+  });
+  try {
+    queue.add({ id: "eligibility-failure", type: "buy", args: {} });
+    assert.equal(saved[0].id, "eligibility-failure");
+  } finally {
+    queue.close();
+  }
+});
+
+test("a manual attack is selected before waiting independent automations", async () => {
+  const seen = [];
+  const adapter = {
+    validate: (args) => args,
+    execute: async (job) => {
+      seen.push(job.id);
+      return { status: "completed" };
+    },
+  };
+  const queue = createActionQueue({
+    persist: () => true,
+    adapters: { "auto.start": adapter, "battle.attack": adapter },
+  });
+  queue.add({
+    id: "auto-wait-one",
+    type: "auto.start",
+    args: {},
+    priority: 15,
+  });
+  queue.add({
+    id: "auto-wait-two",
+    type: "auto.start",
+    args: {},
+    priority: 15,
+  });
+  queue.add({
+    id: "manual-attack-one",
+    type: "battle.attack",
+    args: {},
+    priority: 50,
+  });
+  await queue.tick();
+  assert.deepEqual(seen, ["manual-attack-one"]);
+});
+
+test("wake scheduling coalesces unchanged deadlines and close cancels the timer", () => {
+  let scheduled = 0;
+  let cleared = 0;
+  let woke = 0;
+  const timers = new Map();
+  const queue = createActionQueue({
+    saved: [
+      {
+        id: "queued-wake-01",
+        type: "buy",
+        args: {},
+        status: "waiting",
+        createdAt: 1,
+        nextAt: 2000,
+      },
+    ],
+    now: () => 1000,
+    persist: () => true,
+    onWake: () => {
+      woke++;
+    },
+    setTimer: (callback, ms) => {
+      const id = ++scheduled;
+      timers.set(id, { callback, ms });
+      return id;
+    },
+    clearTimer: (id) => {
+      cleared++;
+      timers.delete(id);
+    },
+    adapters: { buy: { validate: (args) => args } },
+  });
+
+  assert.equal(scheduled, 1);
+  queue.rescheduleWake();
+  assert.equal(scheduled, 1);
+  assert.equal(cleared, 0);
+  queue.close();
+  queue.rescheduleWake();
+  assert.equal(cleared, 1);
+  assert.equal(scheduled, 1);
+  assert.equal(timers.size, 0);
+  assert.equal(woke, 0);
+});
+
+test("queues without a wake handler or an available readiness deadline do not arm timers", () => {
+  let scheduled = 0;
+  const options = {
+    saved: [
+      {
+        id: "queued-wake-02",
+        type: "buy",
+        args: {},
+        status: "waiting",
+        createdAt: 1,
+        nextAt: 2000,
+      },
+    ],
+    now: () => 1000,
+    persist: () => true,
+    setTimer: () => {
+      scheduled++;
+      return 1;
+    },
+    clearTimer: () => {},
+    adapters: { buy: { validate: (args) => args } },
+  };
+  const withoutHandler = createActionQueue(options);
+  assert.equal(scheduled, 0);
+  withoutHandler.close();
+
+  const unavailableGate = createActionQueue({
+    ...options,
+    onWake: () => {},
+    ready: () => false,
+    readyAt: () => null,
+  });
+  assert.equal(scheduled, 0);
+  unavailableGate.close();
+});
+
 test("waiting for demand and uncertain reconciliation do not consume the unsent budget", async () => {
   const h = setup();
   h.execute(async () => ({ status: "retry", reason: "Ожидаем приглашение." }));

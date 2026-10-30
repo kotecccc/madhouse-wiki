@@ -5,7 +5,13 @@ import { InventoryItemCard } from "./InventoryItemCard.jsx";
 
 // Keep measured space when a card leaves the viewport, so the surrounding grid
 // and the scroll position remain stable. Focused cards stay mounted.
-export function InventoryVirtualCard({ item, onAction, equipmentBusy }) {
+export function InventoryVirtualCard({
+  item,
+  onAction,
+  equipmentBusy,
+  equipmentChecking,
+  actionStatus,
+}) {
   const wrapper = useRef(null);
   const [visible, setVisible] = useState(true);
   const [focused, setFocused] = useState(false);
@@ -48,6 +54,8 @@ export function InventoryVirtualCard({ item, onAction, equipmentBusy }) {
           item={item}
           onAction={onAction}
           equipmentBusy={equipmentBusy}
+          equipmentChecking={equipmentChecking}
+          actionStatus={actionStatus}
         />
       ) : (
         <Skeleton as="article" />

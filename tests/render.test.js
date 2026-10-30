@@ -395,6 +395,7 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(overviewMarkup.includes("Тестовый игрок"));
     assert.ok(overviewMarkup.includes("Тестовая заначка"));
     assert.ok(overviewMarkup.includes("Осталось"));
+    assert.ok(!overviewMarkup.includes("Дефибриллятор применён."));
     assert.match(
       overviewMarkup,
       /<dd>950 <span class="status-text">\+ 50<\/span><\/dd>/,
@@ -1180,6 +1181,47 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
       invitationsHtml,
       /disabled=""[^>]*>Принять и открыть бой/,
     );
+    const queuedInvitationHtml = renderToStaticMarkup(
+      createElement(BossInvitationsContent, {
+        state: {
+          loaded: true,
+          items: [
+            {
+              invitationId: "queued-invite",
+              bossId: 41,
+              bossName: "Тестовый босс",
+              sender: "Друг",
+              available: true,
+            },
+          ],
+          queuedIds: ["queued-invite"],
+        },
+        queuedJobs: [
+          {
+            type: "invitation.accept",
+            status: "reconciling",
+            blockedBy: "rate",
+            args: { invitationId: "queued-invite" },
+          },
+        ],
+        onAccept: () => {},
+        onReconcile: () => {},
+      }),
+    );
+    assert.match(
+      queuedInvitationHtml,
+      /disabled=""[^>]*>Принять и открыть бой/,
+    );
+    assert.match(queuedInvitationHtml, /Результат вступления не подтверждён/);
+    assert.match(
+      queuedInvitationHtml,
+      /Ожидаем окончания ограничения запросов/,
+    );
+    assert.doesNotMatch(queuedInvitationHtml, />rate</);
+    assert.match(
+      queuedInvitationHtml,
+      /Повтор не будет отправлен до подтверждения/,
+    );
     const settingsHtml = settingsPanel();
     assert.ok(settingsHtml.includes("Цель и условия боя"));
     assert.ok(settingsHtml.includes("ui-disclosure ui-disclosure--sm"));
@@ -1549,6 +1591,91 @@ test("all sections, boss pages, requirements and upgrade dialogs render from can
     assert.ok(assistantHtml.includes("Тестовый босс"));
     assert.ok(assistantHtml.includes("Рассчитать и сохранить"));
     assert.ok(assistantHtml.includes("Собрать все материалы"));
+    const queuedBusinessHtml = renderToStaticMarkup(
+      createElement(BusinessAssistantDialog, {
+        business: kb.businesses[0],
+        onClose: () => {},
+        assistantStore: externalStore({
+          plans: [businessPlan],
+          loaded: true,
+          pending: false,
+          queuedBusinessIds: [kb.businesses[0].id],
+        }),
+        queueStore: externalStore({
+          presence: "present",
+          data: {
+            queuedActions: [
+              {
+                type: "business.start",
+                args: { businessId: kb.businesses[0].id },
+                status: "reconciling",
+                reason: "Проверяем запуск по серверному состоянию.",
+              },
+            ],
+          },
+        }),
+        battleStore: externalStore({}),
+        goalStore: externalStore(null),
+      }),
+    );
+    assert.match(queuedBusinessHtml, /Проверяем результат запуска/);
+    assert.match(
+      queuedBusinessHtml,
+      /Проверяем запуск по серверному состоянию/,
+    );
+    assert.doesNotMatch(queuedBusinessHtml, /Действие добавлено в очередь/);
+    const renderBusinessQueue = (queuedActions) =>
+      renderToStaticMarkup(
+        createElement(BusinessAssistantDialog, {
+          business: kb.businesses[0],
+          onClose: () => {},
+          assistantStore: externalStore({
+            plans: [businessPlan],
+            loaded: true,
+            pending: false,
+          }),
+          queueStore: externalStore({
+            presence: "present",
+            data: { queuedActions },
+          }),
+          battleStore: externalStore({}),
+          goalStore: externalStore(null),
+        }),
+      );
+    const oldBusinessFailure = {
+      type: "business.start",
+      args: { businessId: kb.businesses[0].id },
+      status: "failed",
+      createdAt: 1,
+      finishedAt: 2,
+      reason: "Старая ошибка сбора.",
+    };
+    const completedBusiness = {
+      type: "business.start",
+      args: { businessId: kb.businesses[0].id },
+      status: "completed",
+      createdAt: 3,
+      finishedAt: 4,
+    };
+    assert.doesNotMatch(
+      renderBusinessQueue([oldBusinessFailure, completedBusiness]),
+      /Старая ошибка сбора/,
+    );
+    assert.doesNotMatch(
+      renderBusinessQueue([{ ...oldBusinessFailure, dismissed: true }]),
+      /Старая ошибка сбора/,
+    );
+    assert.match(
+      renderBusinessQueue([
+        oldBusinessFailure,
+        {
+          ...completedBusiness,
+          status: "failed",
+          reason: "Новая ошибка сбора.",
+        },
+      ]),
+      /Новая ошибка сбора/,
+    );
     const collectingHtml = renderToStaticMarkup(
       createElement(BusinessAssistantDialog, {
         business: kb.businesses[0],

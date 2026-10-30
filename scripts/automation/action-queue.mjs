@@ -33,18 +33,25 @@ export function createActionQueue({
   random = Math.random,
   allowed = () => true,
   ready = () => true,
+  readyAt,
   canSettle = () => true,
   eligible = () => true,
   blockedBy = () => null,
   terminalBlock = () => null,
   onAttempt = () => {},
   onResult = () => {},
+  onWake,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
   runInContext = (_entry, _reconcile, run) => run(),
   retainIds = () => [],
   limit = 100,
 }) {
   let entries = Array.isArray(saved) ? clone(saved) : [];
   let working = false;
+  let wakeTimer = null;
+  let wakeAt = null;
+  let closed = false;
   // A crash after marking running may have occurred after dispatch. Only the
   // adapter's read-only reconciliation can resolve this state.
   for (const entry of entries) {
@@ -56,6 +63,69 @@ export function createActionQueue({
   function commit() {
     if (persist(clone(entries)) === false)
       throw new Error("action_queue_storage_unavailable");
+    scheduleWake();
+  }
+  function scheduleWake() {
+    if (closed || typeof onWake !== "function") return clearWakeTimer();
+    const hasReadyAt = typeof readyAt === "function";
+    let gateAt = null;
+    let resourcesReady = false;
+    try {
+      gateAt = hasReadyAt ? readyAt() : null;
+      resourcesReady = ready();
+    } catch {
+      return clearWakeTimer();
+    }
+    if (!resourcesReady && (!Number.isFinite(gateAt) || gateAt <= now()))
+      return clearWakeTimer();
+    let candidates;
+    try {
+      candidates = entries.filter(
+        (item) =>
+          runnable.has(item.status) &&
+          adapters[item.type] &&
+          dependenciesConfirmed(item) &&
+          eligible(item) &&
+          allowed(item),
+      );
+    } catch {
+      return clearWakeTimer();
+    }
+    const nextAt = candidates.reduce((earliest, item) => {
+      const dueAt = item.nextAt ?? 0;
+      return Math.min(
+        earliest,
+        resourcesReady && !hasReadyAt
+          ? dueAt
+          : Number.isFinite(gateAt)
+            ? Math.max(dueAt, gateAt)
+            : Infinity,
+      );
+    }, Infinity);
+    if (!Number.isFinite(nextAt)) return clearWakeTimer();
+    if (wakeTimer !== null && wakeAt === nextAt) return;
+    clearWakeTimer();
+    wakeAt = nextAt;
+    wakeTimer = setTimer(
+      () => {
+        wakeTimer = null;
+        wakeAt = null;
+        if (closed || nextAt > now()) return scheduleWake();
+        try {
+          const result = onWake();
+          result?.catch?.(() => {});
+        } catch {
+          // The durable entry remains available for the next external wake.
+        }
+      },
+      Math.min(2_147_483_647, Math.max(0, nextAt - now())),
+    );
+    wakeTimer?.unref?.();
+  }
+  function clearWakeTimer() {
+    if (wakeTimer !== null) clearTimer(wakeTimer);
+    wakeTimer = null;
+    wakeAt = null;
   }
   function add({ id, type, args, priority = 0, dependsOn = [] }) {
     if (
@@ -409,8 +479,10 @@ export function createActionQueue({
       commit();
     } finally {
       working = false;
+      scheduleWake();
     }
   }
+  scheduleWake();
   return {
     add,
     stop,
@@ -419,6 +491,11 @@ export function createActionQueue({
     resume,
     tick,
     hasDue,
+    rescheduleWake: scheduleWake,
+    close: () => {
+      closed = true;
+      clearWakeTimer();
+    },
     snapshot: () =>
       entries.map((entry) => ({
         ...clone(entry),

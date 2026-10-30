@@ -98,6 +98,27 @@ export const inventoryEntityId = (type, item) =>
   );
 export const inventoryEquipped = (type, item) =>
   type === "room" ? item.selected : item.equipped;
+function pendingEffectConfirmed(pending, type, item) {
+  if (!pending || !item) return false;
+  const action =
+    pending.action ??
+    (typeof pending.equip === "boolean"
+      ? pending.equip
+        ? "equip"
+        : "unequip"
+      : null);
+  if (action === "buy") return item.owned === true;
+  if (action === "repair")
+    return (
+      Number.isFinite(item.durability?.current) &&
+      item.durability.current > 0 &&
+      item.durability.current === item.durability.max &&
+      item.durability.isBroken !== true
+    );
+  if (action === "equip") return inventoryEquipped(type, item) === true;
+  if (action === "unequip") return inventoryEquipped(type, item) === false;
+  return false;
+}
 export function inventoryPrice(value) {
   return value &&
     nonnegative(value.amount) &&
@@ -172,15 +193,17 @@ export async function inventoryAction({
     throw fail(400, "invalid_inventory_action");
   const current = await inventoryRead({ entry, type, zoneId, fetcher });
   if (refreshOnly) {
+    const itemId = pending?.entityId ?? pending?.weaponId;
+    const item = current.items.find(
+      (value) => inventoryEntityId(type, value) === itemId,
+    );
+    if (pending && !pendingEffectConfirmed(pending, type, item))
+      return { item: item ?? null, pending: true };
     entry.equipment = { pending: null, checked: true, paths: [current.path] };
     save(entry);
     return {
-      item:
-        current.items.find(
-          (item) =>
-            inventoryEntityId(type, item) ===
-            (pending?.entityId ?? pending?.weaponId),
-        ) ?? null,
+      item: item ?? null,
+      pending: false,
     };
   }
   const item = current.items.find(

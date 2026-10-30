@@ -12,6 +12,7 @@ import { LockIndicator } from "../floors/LockIndicator/LockIndicator.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { Icon } from "../../components/ui/Icon/Icon.jsx";
 import { Divider } from "../../components/ui/Divider/Divider.jsx";
+import { Button } from "../../components/ui/Button/Button.jsx";
 import { fmt } from "../../lib/format.js";
 import "./InventoryItemCard.css";
 
@@ -104,6 +105,8 @@ export function InventoryItemCard({
   onEquip,
   onAction,
   equipmentBusy = false,
+  equipmentChecking = false,
+  actionStatus = null,
 }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuClosing, setMenuClosing] = useState(false);
@@ -382,6 +385,25 @@ export function InventoryItemCard({
         {room && status}
       </div>
       {!room && !locked && status}
+      {actionStatus && (
+        <div role="status">
+          <CardDescription size="xs">
+            {actionStatus.title}
+            {actionStatus.description ? `: ${actionStatus.description}` : ""}
+          </CardDescription>
+          {actionStatus.uncertain && actionStatus.canCheck && onAction && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="refresh"
+              disabled={equipmentChecking}
+              onClick={() => onAction(item, "check", true)}
+            >
+              Проверить инвентарь
+            </Button>
+          )}
+        </div>
+      )}
       {room && (
         <div className="inventory-item-details">
           <InventoryStats values={inventoryDisplayStats(item)} />

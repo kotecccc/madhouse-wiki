@@ -14,6 +14,11 @@ function retryAfterMs(response, now) {
   return Number.isFinite(date) ? Math.max(now(), date) : null;
 }
 
+function requestPriorityLevel(priority) {
+  const bounded = Math.max(0, Math.min(60, priority));
+  return Math.floor(bounded / 5);
+}
+
 export function createDirectExecutor({
   fetcher = globalThis.fetch,
   now = Date.now,
@@ -395,7 +400,13 @@ export function createDirectExecutor({
         )
           ? "read"
           : "action",
-        priority: source === "automation" ? 2 : source === "catalogue" ? 0 : 1,
+        priority: Number.isSafeInteger(context.priority)
+          ? requestPriorityLevel(context.priority)
+          : source === "automation"
+            ? 2
+            : source === "catalogue"
+              ? 0
+              : 1,
         attempt: Number.isSafeInteger(context.attempt) ? context.attempt : 1,
         cooldownScope:
           context.cooldownScope === "account" ? "account" : "global",

@@ -144,6 +144,106 @@ test("aging lets an old background request pass newer high priority work", async
   executor.close();
 });
 
+test("internal request priorities are capped at the reconciliation tier", async () => {
+  const c = clock();
+  const first = deferred();
+  const seen = [];
+  const executor = createDirectExecutor({
+    ...c,
+    maxDirectInFlight: 1,
+    minGlobalSpacingMs: 0,
+    minAccountSpacingMs: 0,
+    agingMs: 100_000,
+    fetcher: (_url, init) => {
+      seen.push(init.label);
+      return init.label === "hold" ? first.promise : response();
+    },
+  });
+  const hold = executor.request(url, { label: "hold" }, { accountId: "a" });
+  await flush();
+  const capped = executor.request(
+    url,
+    { label: "capped" },
+    { accountId: "b", source: "automation", priority: 60 },
+  );
+  const oversized = executor.request(
+    url,
+    { label: "oversized" },
+    { accountId: "c", source: "automation", priority: 100_000 },
+  );
+  first.resolve(response());
+  await Promise.all([hold, capped, oversized]);
+  assert.deepEqual(seen, ["hold", "capped", "oversized"]);
+  executor.close();
+});
+
+test("background P0 ages past a P12 request before the 20-second deadline", async () => {
+  const c = clock();
+  const first = deferred();
+  const seen = [];
+  const executor = createDirectExecutor({
+    ...c,
+    maxDirectInFlight: 1,
+    minGlobalSpacingMs: 0,
+    minAccountSpacingMs: 0,
+    agingMs: 1000,
+    maxQueueWaitMs: 20_000,
+    fetcher: (_url, init) => {
+      seen.push(init.label);
+      return init.label === "hold" ? first.promise : response();
+    },
+  });
+  const hold = executor.request(url, { label: "hold" }, { accountId: "a" });
+  await flush();
+  const background = executor.request(
+    url,
+    { label: "background" },
+    { accountId: "b", source: "catalogue", priority: 0 },
+  );
+  c.advance(14_000);
+  const urgent = executor.request(
+    url,
+    { label: "urgent" },
+    { accountId: "c", source: "automation", priority: 60 },
+  );
+  first.resolve(response());
+  await Promise.all([hold, background, urgent]);
+  assert.deepEqual(seen, ["hold", "background", "urgent"]);
+  executor.close();
+});
+
+test("priority 59 stays above priority 50 within the compressed levels", async () => {
+  const c = clock();
+  const first = deferred();
+  const seen = [];
+  const executor = createDirectExecutor({
+    ...c,
+    maxDirectInFlight: 1,
+    minGlobalSpacingMs: 0,
+    minAccountSpacingMs: 0,
+    fetcher: (_url, init) => {
+      seen.push(init.label);
+      return init.label === "hold" ? first.promise : response();
+    },
+  });
+  const hold = executor.request(url, { label: "hold" }, { accountId: "a" });
+  await flush();
+  const normal = executor.request(
+    url,
+    { label: "priority-50" },
+    { accountId: "b", source: "automation", priority: 50 },
+  );
+  const deadline = executor.request(
+    url,
+    { label: "priority-59" },
+    { accountId: "c", source: "automation", priority: 59 },
+  );
+  first.resolve(response());
+  await Promise.all([hold, normal, deadline]);
+  assert.deepEqual(seen, ["hold", "priority-59", "priority-50"]);
+  executor.close();
+});
+
 test("raw bridge 429 cools the shared account without consuming direct budget", async () => {
   const c = clock(),
     seen = [];

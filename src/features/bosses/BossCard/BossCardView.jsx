@@ -17,6 +17,7 @@ import {
 import {
   bossBattle,
   bossBattleAuto,
+  automationState,
 } from "../BossBattle/boss-battle-session.js";
 import {
   bossTargetAction,
@@ -67,6 +68,33 @@ const spacingSizes = new Set([
 ]);
 const spacingValue = (size) =>
   spacingSizes.has(String(size)) ? `var(--space-${size})` : undefined;
+
+const queueBlockMessages = {
+  action: "Ожидает освобождения очереди действий аккаунта.",
+  credentials: "Ожидает проверки игрового подключения.",
+  dependency: "Ожидает завершения предыдущего шага.",
+  game: "Ожидает восстановления доступа к игре.",
+  rate: "Ожидает окончания ограничения частоты запросов.",
+  storage: "Ожидает восстановления сохранения состояния.",
+};
+
+export function bossAutomationQueueNotice(job) {
+  if (!job) return null;
+  if (typeof job.reason === "string" && /[А-Яа-яЁё]/.test(job.reason))
+    return job.reason;
+  if (job.status === "reconciling")
+    return "Проверяем результат последнего шага автоматизации.";
+  if (
+    ["queued", "waiting"].includes(job.status) &&
+    queueBlockMessages[job.blockedBy]
+  )
+    return queueBlockMessages[job.blockedBy];
+  if (job.status === "queued") return "Автоматизация ожидает запуска.";
+  if (job.status === "waiting")
+    return "Автоматизация ожидает возможности продолжить.";
+  if (job.status === "running") return "Автоматизация выполняется.";
+  return "Автоматизация ожидает обработки серверной очередью.";
+}
 
 export function bossMenuRows(nodes, closeMenu) {
   return Children.toArray(nodes).flatMap((child) => {
@@ -198,28 +226,67 @@ export function BossCardView({
         }));
     setTargetPending(false);
     closeMenu();
-    setTargetNotice(
-      accepted
-        ? "Задача добавлена в очередь."
-        : "Не удалось добавить задачу в очередь.",
-    );
-    setTargetNoticeSuccess(accepted);
+    setTargetNotice(accepted ? null : "Не удалось добавить задачу в очередь.");
   }
-  const [targetNoticeSuccess, setTargetNoticeSuccess] = useState(false);
+  const automationQueue = useSyncExternalStore(
+    automationState.subscribe,
+    automationState.getSnapshot,
+    automationState.getSnapshot,
+  );
+  const autoSnapshot = useSyncExternalStore(
+    bossBattleAuto.subscribe,
+    bossBattleAuto.getSnapshot,
+    bossBattleAuto.getSnapshot,
+  );
+  const serverBattle = useSyncExternalStore(
+    bossBattle.subscribe,
+    bossBattle.getSnapshot,
+    bossBattle.getSnapshot,
+  );
+  const targetQueueJob = targetAction
+    ? [...(automationQueue.data?.queuedActions ?? [])]
+        .reverse()
+        .find(
+          (job) =>
+            ["auto.start", "raid.start"].includes(job.type) &&
+            job.args?.progressionTarget === true &&
+            Number(job.args?.settings?.bossId) ===
+              Number(targetAction.settings.bossId) &&
+            ["queued", "waiting", "running", "reconciling"].includes(
+              job.status,
+            ),
+        )
+    : null;
+  const targetBossId = Number(targetAction?.settings.bossId);
+  const matchingAuto =
+    autoSnapshot.enabled && Number(autoSnapshot.bossId) === targetBossId;
+  const matchingRaid =
+    (serverBattle.raid?.enabled || serverBattle.raid?.userPaused) &&
+    Number(serverBattle.raid?.bossId) === targetBossId;
+  const targetAutomationNotice = targetQueueJob
+    ? bossAutomationQueueNotice(targetQueueJob)
+    : matchingRaid
+      ? serverBattle.raid.userPaused
+        ? "Рейд приостановлен."
+        : serverBattle.raid.status === "waiting"
+          ? "Рейд ожидает приглашения или доступного боя."
+          : "Рейд выполняется."
+      : matchingAuto
+        ? autoSnapshot.pause
+          ? "Автобой приостановлен."
+          : autoSnapshot.phase === "waiting"
+            ? "Автобой ожидает следующего боя."
+            : "Автобой выполняется."
+        : null;
   const sessionReady = useSyncExternalStore(
     subscribeSession,
     () => readSession().status === "ready",
     () => false,
   );
   const directBattle = primaryBattleAction && showBattleAction && sessionReady;
-  const activeBattle = useSyncExternalStore(
-    bossBattle.subscribe,
-    () =>
-      activeBattleForBoss(
-        bossBattle.getSnapshot(),
-        Number(boss.numericId ?? boss.apiId),
-      ),
-    () => null,
+  const activeBattle = activeBattleForBoss(
+    serverBattle,
+    Number(boss.numericId ?? boss.apiId),
   );
   const { mobile, cardProps: mobileActionProps } = useMobileCardAction({
     enabled:
@@ -675,12 +742,16 @@ export function BossCardView({
         ) : (
           dropAction
         ))}
+      {targetAutomationNotice && (
+        <CardDescription as="p" role="status">
+          {targetAutomationNotice}
+        </CardDescription>
+      )}
       {targetNotice && (
         <Toast
           floating
-          success={targetNoticeSuccess}
-          urgent={!targetNoticeSuccess}
-          title={targetNoticeSuccess ? "В очереди" : "Ошибка"}
+          urgent
+          title="Ошибка"
           onDismiss={() => setTargetNotice(null)}
         >
           {targetNotice}

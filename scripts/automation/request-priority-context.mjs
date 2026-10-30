@@ -1,13 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+const storage = new AsyncLocalStorage();
+
+export function currentRequestPriority() {
+  const context = storage.getStore();
+  return context?.active ? context.priority : null;
+}
+
 // Async work scheduled by an adapter may outlive the queue attempt. Once the
 // attempt ends it must use its own background priority, not inherit urgency.
 export function createRequestPriorityContext() {
-  const storage = new AsyncLocalStorage();
   return {
     current() {
-      const context = storage.getStore();
-      return context?.active ? context.priority : null;
+      return currentRequestPriority();
     },
     capture() {
       const context = storage.getStore();

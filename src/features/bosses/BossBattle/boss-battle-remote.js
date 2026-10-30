@@ -1,4 +1,5 @@
 import { bossBattleReference } from "./boss-battle-reference.js";
+import { storedSessionIdentity } from "../../../../shared/auth-session.js";
 
 const EMPTY_BATTLE = Object.freeze({
   boss: null,
@@ -12,6 +13,7 @@ const EMPTY_BATTLE = Object.freeze({
   medicineOpen: false,
   purchase: null,
   purchaseUncertain: false,
+  manualBattleActionJobs: [],
 });
 const EMPTY_RAID = Object.freeze({ enabled: false });
 const EMPTY_AUTO = Object.freeze({
@@ -57,6 +59,68 @@ function commandId(makeId) {
   } catch {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
+}
+
+const MANUAL_BATTLE_JOB_STATUSES = new Set([
+  "queued",
+  "waiting",
+  "running",
+  "reconciling",
+  "paused",
+  "failed",
+]);
+const ACTIVE_MANUAL_BATTLE_JOB_STATUSES = new Set([
+  "queued",
+  "waiting",
+  "running",
+  "reconciling",
+]);
+
+function manualBattleJobKey(type, bossId, battleId = null) {
+  return type === "battle.attack"
+    ? `${type}:${bossId}:${battleId}`
+    : `${type}:${bossId}`;
+}
+
+function projectManualBattleJobs(queue, bossId, battleId, exactIds) {
+  if (!Number.isSafeInteger(bossId) || bossId <= 0) return [];
+  const latest = new Map();
+  for (const [index, job] of (queue ?? []).entries()) {
+    if (
+      !["battle.start", "battle.attack"].includes(job.type) ||
+      Number(job.args?.bossId) !== bossId
+    )
+      continue;
+    if (job.type === "battle.attack" && job.args?.battleId !== battleId)
+      continue;
+    const key = manualBattleJobKey(
+      job.type,
+      bossId,
+      job.type === "battle.attack" ? job.args?.battleId : null,
+    );
+    const previous = latest.get(key);
+    if (
+      !previous ||
+      (job.createdAt ?? 0) > (previous.job.createdAt ?? 0) ||
+      ((job.createdAt ?? 0) === (previous.job.createdAt ?? 0) &&
+        index > previous.index)
+    )
+      latest.set(key, { job, index });
+  }
+  const projected = [];
+  for (const [key, current] of latest) {
+    const exactId = exactIds.get(key);
+    const exact = exactId
+      ? (queue ?? []).find((item) => item.id === exactId)
+      : null;
+    const job =
+      exact && ACTIVE_MANUAL_BATTLE_JOB_STATUSES.has(exact.status)
+        ? exact
+        : current.job;
+    if (!job.dismissed && MANUAL_BATTLE_JOB_STATUSES.has(job.status))
+      projected.push(job);
+  }
+  return projected;
 }
 
 /** A server-backed, useSyncExternalStore-compatible facade for battle UI. */
@@ -133,11 +197,29 @@ export function createRemoteBattleSession({
   });
   let preferencesSnapshot = Object.freeze({ favoriteBossIds: [] });
   let automationSnapshot = Object.freeze({ presence: "unknown", data: null });
+  let manualQueueIdentity = storedSessionIdentity();
+  const manualBattleJobIds = new Map();
+  function syncManualQueueIdentity() {
+    const identity = storedSessionIdentity();
+    if (identity !== manualQueueIdentity) {
+      manualQueueIdentity = identity;
+      manualBattleJobIds.clear();
+    }
+  }
+  function pruneManualBattleJobIds() {
+    const ids = new Set((server?.queuedActions ?? []).map((job) => job.id));
+    for (const [key, id] of manualBattleJobIds)
+      if (!ids.has(id)) manualBattleJobIds.delete(key);
+    while (manualBattleJobIds.size > 128)
+      manualBattleJobIds.delete(manualBattleJobIds.keys().next().value);
+  }
 
   const notify = (set, value) => {
     for (const listener of [...set]) listener(value);
   };
   function publish() {
+    syncManualQueueIdentity();
+    pruneManualBattleJobIds();
     automationSnapshot = Object.freeze({
       presence: Array.isArray(server?.queuedActions)
         ? "present"
@@ -202,6 +284,12 @@ export function createRemoteBattleSession({
             job.status,
           ) &&
           Number(job.args.bossId) === numericId(battleState.boss ?? localBoss),
+      ),
+      manualBattleActionJobs: projectManualBattleJobs(
+        server?.queuedActions,
+        numericId(battleState.boss ?? localBoss),
+        battleState.battle?.id ?? null,
+        manualBattleJobIds,
       ),
       queuedSingleBattle: (server?.queuedActions ?? []).some(
         (job) =>
@@ -550,6 +638,7 @@ export function createRemoteBattleSession({
     for (const resolve of commandWaiters) resolve();
     commandWaiters.clear();
     pendingHealingCommands = 0;
+    manualBattleJobIds.clear();
     visible = false;
     pvpVisible = false;
     raidsVisible = false;
@@ -599,6 +688,7 @@ export function createRemoteBattleSession({
     if (healingCommand) pendingHealingCommands++;
     publish();
     const run = epoch;
+    let refreshEnqueuedBattleAction = false;
     const healingBefore = healingCommand
       ? JSON.stringify(server?.battle?.healing?.settings ?? null)
       : null;
@@ -652,7 +742,25 @@ export function createRemoteBattleSession({
         }
       }
       if (!connected || run !== epoch) return false;
+      if (
+        enqueue &&
+        ["battle.start", "battle.attack"].includes(args.type) &&
+        typeof value?.enqueuedJobId === "string"
+      ) {
+        syncManualQueueIdentity();
+        const bossId = Number(args.action?.bossId);
+        const battleId =
+          args.type === "battle.attack" ? args.action?.battleId : null;
+        manualBattleJobIds.set(
+          manualBattleJobKey(args.type, bossId, battleId),
+          value.enqueuedJobId,
+        );
+      }
       setServerState(value);
+      refreshEnqueuedBattleAction = Boolean(
+        enqueue &&
+        ["battle.start", "battle.attack", "battle.heal"].includes(args.type),
+      );
       return true;
     } catch (error) {
       if (!connected || run !== epoch) return false;
@@ -765,7 +873,7 @@ export function createRemoteBattleSession({
         if (healingCommand)
           pendingHealingCommands = Math.max(0, pendingHealingCommands - 1);
         publish();
-        schedulePoll();
+        schedulePoll(refreshEnqueuedBattleAction ? 250 : undefined, run);
       }
     }
   }
@@ -1152,10 +1260,11 @@ export function createRemoteBattleSession({
     bossBattleGoal: goal,
     pvpBattle: pvp,
     preferences,
-    syncState(value) {
+    syncState(value, { fast = false } = {}) {
       if (!connected || !value) return;
+      const run = epoch;
       setServerState(value);
-      schedulePoll();
+      schedulePoll(fast ? 250 : undefined, run);
     },
     connect,
     disconnect,

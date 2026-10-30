@@ -21,6 +21,8 @@ import {
   formatBattleCompletedAt,
   sameBattleEvent,
   sameBattleEvents,
+  queuedBattleAction,
+  queuedBattleActionNotice,
 } from "./boss-battle-presentation.js";
 import "./BossBattlePanel.css";
 
@@ -100,6 +102,7 @@ export function BossBattlePanel({
   now,
   departmentCode,
   onAttack,
+  manualActionPending = false,
   onFinishBattle,
   auto = { enabled: false, nextAttackAt: null, pause: false },
 }) {
@@ -130,9 +133,18 @@ export function BossBattlePanel({
     : 0;
   const expired = battle?.expiresAt != null && battle.expiresAt <= now;
   const hint = battleActionHint(state);
-  const queuedAttack = state.queuedBattleActions?.some(
-    (job) => job.type === "battle.attack" && job.args.battleId === battle?.id,
+  const queuedAttackAction = queuedBattleAction(
+    state,
+    "battle.attack",
+    battle?.id,
   );
+  const queuedStartAction = queuedBattleAction(state, "battle.start");
+  const queuedAttack = ["queued", "waiting", "running", "reconciling"].includes(
+    queuedAttackAction?.status,
+  );
+  const queuedNotice =
+    queuedBattleActionNotice(queuedAttackAction) ||
+    queuedBattleActionNotice(queuedStartAction);
   const canQueueAttack = Boolean(
     state.boss?.id &&
     battle?.id &&
@@ -324,7 +336,12 @@ export function BossBattlePanel({
           <Button
             variant="primary"
             icon="combat"
-            disabled={auto.enabled || !canQueueAttack || queuedAttack}
+            disabled={
+              auto.enabled ||
+              !canQueueAttack ||
+              queuedAttack ||
+              manualActionPending
+            }
             title={
               auto.enabled
                 ? "Ручной удар недоступен в авторежиме"
@@ -350,6 +367,18 @@ export function BossBattlePanel({
           </Button>
         </div>
       ) : null}
+      {queuedNotice && (
+        <CardDescription as="p" role="status">
+          {queuedNotice}
+        </CardDescription>
+      )}
+      {state.queuedSingleBattle && (
+        <CardDescription as="p" role="status">
+          {auto.enabled
+            ? "Автобой продолжает этот бой до результата."
+            : "Завершение этого боя ожидает запуска."}
+        </CardDescription>
+      )}
       {!battle && state.unavailableReason && (
         <CardDescription>{state.unavailableReason}</CardDescription>
       )}

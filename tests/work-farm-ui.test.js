@@ -151,6 +151,78 @@ test("farm progress controls expose real tasks and accessible progress without t
     assert.match(countHtml, /Вариант 2: купить дефибрилляторы/);
     assert.match(countHtml, /shared-modal-footer--spread/);
     assert.doesNotMatch(countHtml, /План заданий|Обновить данные/);
+    const queuedHtml = renderToStaticMarkup(
+      createElement(WorkFarmDialog, {
+        work: { workId: 7, title: "Блиндаж" },
+        onClose() {},
+        farmStore: { getSnapshot: () => countState, subscribe: () => () => {} },
+        queueStore: {
+          subscribe: () => () => {},
+          getSnapshot: () => ({
+            presence: "present",
+            data: {
+              queuedActions: [
+                {
+                  type: "work.start",
+                  args: { workId: 7 },
+                  status: "waiting",
+                  blockedBy: "rate",
+                },
+              ],
+            },
+          }),
+        },
+      }),
+    );
+    assert.match(queuedHtml, /Ожидает выполнения в очереди действий/);
+    assert.match(queuedHtml, /Ожидает следующего разрешённого действия/);
+    assert.match(queuedHtml, /Прогресс появится здесь после начала фарма/);
+    assert.doesNotMatch(queuedHtml, /Фарм добавлен в очередь/);
+    const workQueueStore = (queuedActions) => {
+      const snapshot = { presence: "present", data: { queuedActions } };
+      return {
+        subscribe: () => () => {},
+        getSnapshot: () => snapshot,
+      };
+    };
+    const renderWorkQueue = (queuedActions) =>
+      renderToStaticMarkup(
+        createElement(WorkFarmDialog, {
+          work: { workId: 7, title: "Блиндаж" },
+          onClose() {},
+          farmStore: {
+            getSnapshot: () => countState,
+            subscribe: () => () => {},
+          },
+          queueStore: workQueueStore(queuedActions),
+        }),
+      );
+    const oldWorkFailure = {
+      type: "work.start",
+      args: { workId: 7 },
+      status: "failed",
+      createdAt: 1,
+      finishedAt: 2,
+      reason: "Старая ошибка фарма.",
+    };
+    const completedWork = {
+      type: "work.start",
+      args: { workId: 7 },
+      status: "completed",
+      createdAt: 3,
+      finishedAt: 4,
+    };
+    const afterSuccessHtml = renderWorkQueue([oldWorkFailure, completedWork]);
+    assert.doesNotMatch(afterSuccessHtml, /Старая ошибка фарма/);
+    const dismissedFailureHtml = renderWorkQueue([
+      { ...oldWorkFailure, dismissed: true },
+    ]);
+    assert.doesNotMatch(dismissedFailureHtml, /Старая ошибка фарма/);
+    const latestFailureHtml = renderWorkQueue([
+      oldWorkFailure,
+      { ...completedWork, status: "failed", reason: "Новая ошибка фарма." },
+    ]);
+    assert.match(latestFailureHtml, /Новая ошибка фарма/);
     assert.match(html, /Применить дефибриллятор/);
     assert.match(known, /ui-icon--inherit/);
     const { RequirementCalculatorDialog } = await server.ssrLoadModule(

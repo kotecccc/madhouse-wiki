@@ -15,12 +15,13 @@ export function createAccountQueue(
   const accounts = new Map();
   function priority(url, init) {
     const explicit = requestPriority();
-    if (Number.isSafeInteger(explicit)) return explicit;
+    if (Number.isSafeInteger(explicit))
+      return Math.floor(Math.max(0, Math.min(60, explicit)) / 5);
     const path = new URL(url).pathname;
-    if (/invitations/.test(path)) return 60;
-    if (path === "/api/works/tasks/perform") return 20;
-    if (/\/attack$/.test(path)) return 10;
-    return init.method === "POST" ? 10 : 0;
+    if (/invitations/.test(path)) return 12;
+    if (path === "/api/works/tasks/perform") return 4;
+    if (/\/attack$/.test(path)) return 2;
+    return init.method === "POST" ? 2 : 0;
   }
   async function drain(key, lane) {
     if (lane.running) return;

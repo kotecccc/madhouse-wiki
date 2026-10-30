@@ -1,7 +1,6 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
-import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { BaseCard } from "../../../components/ui/BaseCard/BaseCard.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
@@ -13,6 +12,7 @@ import { BossCardView } from "../../bosses/BossCard/BossCardView.jsx";
 import { BusinessItemTile } from "../BusinessItemTile/BusinessItemTile.jsx";
 import { bossById } from "../../../model/knowledge-base.js";
 import {
+  automationState,
   businessAssistant,
   bossBattle,
   bossBattleGoal,
@@ -25,6 +25,61 @@ const money = (amount, currency) =>
     ? "Неизвестна"
     : `${fmt(amount)} ${{ gold: "монет", pills: "пилюль", dollar: "долларов" }[currency] || ""}`;
 const amountText = (amount) => (amount == null ? "неизвестно" : fmt(amount));
+const activeQueueStatuses = new Set([
+  "queued",
+  "waiting",
+  "running",
+  "reconciling",
+  "paused",
+]);
+const blockerLabels = {
+  action: "Ожидает завершения другого действия.",
+  credentials: "Проверьте игровую сессию.",
+  dependency: "Ожидает связанное действие.",
+  game: "Игра временно недоступна.",
+  rate: "Ожидает следующего разрешённого действия.",
+  storage: "Серверное хранилище временно недоступно.",
+};
+function businessQueueMessage(job) {
+  if (!job) return null;
+  const description =
+    job.reason ||
+    (job.blockedBy
+      ? blockerLabels[job.blockedBy] || "Ожидает освобождения очереди."
+      : null);
+  if (job.status === "failed")
+    return {
+      error: description || "Запуск завершился ошибкой.",
+    };
+  if (!activeQueueStatuses.has(job.status)) return null;
+  return {
+    title:
+      job.status === "reconciling"
+        ? "Проверяем результат запуска"
+        : job.status === "running"
+          ? "Запуск выполняется"
+          : job.status === "paused"
+            ? "Запуск приостановлен"
+            : "Ожидает запуска в очереди действий",
+    description,
+  };
+}
+function latestRelevantQueueJob(jobs) {
+  const visibleJobs = jobs.filter((job) => !job.dismissed);
+  const active = visibleJobs.find((job) => activeQueueStatuses.has(job.status));
+  if (active) return active;
+  const latest = visibleJobs.reduce((current, job, index) => {
+    if (!current) return { job, index };
+    const timestamp = job.finishedAt ?? job.createdAt ?? 0;
+    const currentTimestamp =
+      current.job.finishedAt ?? current.job.createdAt ?? 0;
+    return timestamp > currentTimestamp ||
+      (timestamp === currentTimestamp && index > current.index)
+      ? { job, index }
+      : current;
+  }, null)?.job;
+  return latest?.status === "failed" ? latest : null;
+}
 const useStore = (store) =>
   useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 
@@ -35,10 +90,12 @@ export function BusinessAssistantDialog({
   assistantStore = businessAssistant,
   battleStore = bossBattle,
   goalStore = bossBattleGoal,
+  queueStore = automationState,
 }) {
   const state = useStore(assistantStore);
   const battleState = useStore(battleStore);
   const activeGoal = useStore(goalStore);
+  const queueSnapshot = useStore(queueStore);
   const plan = state.plans?.find((item) => item.businessId === business.id);
   const maxLevel =
     business.maxLevel ||
@@ -49,7 +106,6 @@ export function BusinessAssistantDialog({
   const [draft, setDraft] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [runConfirmation, setRunConfirmation] = useState(false);
-  const [queueNotice, setQueueNotice] = useState(false);
   const selected = useRef(null);
   useEffect(() => {
     if (!state.loaded) {
@@ -116,7 +172,20 @@ export function BusinessAssistantDialog({
     (duration == null || [1, 2, 4].includes(duration));
   const busy = state.pending;
   const run = state.run;
-  const queued = state.queuedBusinessIds?.includes(business.id);
+  const businessQueueJobs =
+    queueSnapshot?.presence === "present"
+      ? (queueSnapshot.data?.queuedActions ?? []).filter(
+          (job) =>
+            job.type === "business.start" &&
+            String(job.args?.businessId) === String(business.id),
+        )
+      : [];
+  const queuedJob = latestRelevantQueueJob(businessQueueJobs);
+  const queued =
+    state.queuedBusinessIds?.some(
+      (businessId) => String(businessId) === String(business.id),
+    ) || activeQueueStatuses.has(queuedJob?.status);
+  const queueMessage = businessQueueMessage(queuedJob);
   const ownTerminalRun = !queued && run?.businessId === business.id;
   const running = ["running", "paused"].includes(run?.status);
   const selectedBoss = (item) => {
@@ -185,7 +254,6 @@ export function BusinessAssistantDialog({
     });
     if (mounted.current && ok) {
       setRunConfirmation(false);
-      setQueueNotice(true);
     }
   };
   const confirmGoal = async () => {
@@ -527,6 +595,22 @@ export function BusinessAssistantDialog({
           </Button>
         </BaseCard>
       )}
+      {queueMessage?.error && <ErrorToast message={queueMessage.error} />}
+      {queueMessage && !queueMessage.error && !running && (
+        <BaseCard role="status" className="business-assistant-column">
+          <CardTitle as="h3">{queueMessage.title}</CardTitle>
+          <CardDescription>
+            {queueMessage.description ||
+              "Прогресс появится здесь, когда сервер начнёт сбор. Подробности доступны в очереди действий."}
+          </CardDescription>
+        </BaseCard>
+      )}
+      {queued && !queuedJob && !running && (
+        <CardDescription role="status">
+          Запуск ожидает обработки. Прогресс появится здесь после начала сбора;
+          подробности доступны в очереди действий.
+        </CardDescription>
+      )}
       {ownTerminalRun &&
         !["running", "paused", "completed"].includes(run.status) && (
           <ErrorToast message={run.reason || "Выполнение остановлено."} />
@@ -639,16 +723,6 @@ export function BusinessAssistantDialog({
             </Button>
           </div>
         </BaseCard>
-      )}
-      {queueNotice && (
-        <Toast
-          floating
-          success
-          title="В очереди"
-          onDismiss={() => setQueueNotice(false)}
-        >
-          Действие добавлено в очередь.
-        </Toast>
       )}
     </Modal>
   );

@@ -50,7 +50,28 @@ async function loadIncoming(signal) {
   throw new Error("incomplete");
 }
 
-function RequestCard({ player, pending, busy, send }) {
+const queueBlockNotices = {
+  credentials: "Требуется войти в игру.",
+  storage: "Ожидаем доступности сервера.",
+  action: "Ожидаем завершения других действий.",
+  dependency: "Ожидаем подтверждения предыдущего действия.",
+  game: "Ожидаем доступности игры.",
+  rate: "Ожидаем окончания ограничения запросов.",
+};
+
+function queuedResponseNotice(job) {
+  if (!job) return null;
+  const reason = job.reason || queueBlockNotices[job.blockedBy];
+  if (job.status === "reconciling")
+    return `Результат заявки не подтверждён. ${reason || "Проверяем состояние игры."} Повтор не будет отправлен до подтверждения.`;
+  if (reason) return reason;
+  if (job.status === "queued") return "Заявка ожидает отправки в игру.";
+  if (job.status === "waiting") return "Ожидаем возможности обработать заявку.";
+  if (job.status === "running") return "Заявка обрабатывается.";
+  return null;
+}
+
+function RequestCard({ player, pending, pendingNotice, busy, send }) {
   const [anchor, setAnchor] = useState(null);
   const [closing, setClosing] = useState(false);
   const name = player.nickname || player.username || "Игрок";
@@ -154,7 +175,9 @@ function RequestCard({ player, pending, busy, send }) {
           })}
         </div>
         {pending && (
-          <CardDescription role="status">Проверяем заявку</CardDescription>
+          <CardDescription role="status">
+            {pendingNotice || "Проверяем заявку."}
+          </CardDescription>
         )}
       </div>
       {anchor && (
@@ -208,6 +231,24 @@ export function FriendsRequests({
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(null);
   const lock = useRef(false);
+  const observedResponses = useRef(new Map());
+  useEffect(() => {
+    const completed = new Set();
+    for (const job of automation?.queuedActions ?? []) {
+      if (job.type !== "friend.response") continue;
+      if (["queued", "waiting", "running", "reconciling"].includes(job.status))
+        observedResponses.current.set(job.id, job.args?.playerId);
+      else if (observedResponses.current.has(job.id)) {
+        if (job.status === "completed")
+          completed.add(observedResponses.current.get(job.id));
+        observedResponses.current.delete(job.id);
+      }
+    }
+    if (completed.size)
+      setRequests((current) =>
+        current.filter((item) => !completed.has(item.playerId)),
+      );
+  }, [automation?.queuedActions]);
   useEffect(() => {
     if (!active) return undefined;
     const controller = new AbortController();
@@ -240,6 +281,15 @@ export function FriendsRequests({
           ["queued", "waiting", "running", "reconciling"].includes(job.status),
       )
       .map((job) => job.args?.playerId),
+  );
+  const responseJobs = new Map(
+    (automation?.queuedActions ?? [])
+      .filter(
+        (job) =>
+          job.type === "friend.response" &&
+          ["queued", "waiting", "running", "reconciling"].includes(job.status),
+      )
+      .map((job) => [job.args?.playerId, job]),
   );
   if (automation?.friendResponse?.pending?.args?.playerId)
     pendingIds.add(automation.friendResponse.pending.args.playerId);
@@ -287,15 +337,10 @@ export function FriendsRequests({
           },
         });
         submitted++;
-        setRequests((current) =>
-          current.filter((item) => item.playerId !== player.playerId),
-        );
+        if (result?.enqueuedJobId)
+          observedResponses.current.set(result.enqueuedJobId, player.playerId);
         onAutomation?.(result);
       }
-      onNotice?.({
-        success: true,
-        message: `Добавлено в очередь: ${submitted}.${players.length > remaining.length ? ` Уже обрабатываются: ${players.length - remaining.length}.` : ""}`,
-      });
     } catch {
       onNotice?.({
         success: false,
@@ -358,6 +403,9 @@ export function FriendsRequests({
               key={player.playerId}
               player={player}
               pending={pending}
+              pendingNotice={queuedResponseNotice(
+                responseJobs.get(player.playerId),
+              )}
               busy={busy !== null}
               send={send}
             />

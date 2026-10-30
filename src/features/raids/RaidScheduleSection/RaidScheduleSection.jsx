@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { Icon } from "../../../components/ui/Icon/Icon.jsx";
 import { Skeleton } from "../../../components/ui/Skeleton/Skeleton.jsx";
 import { ContentSection } from "../../../components/ui/ContentSection/ContentSection.jsx";
@@ -19,6 +18,7 @@ import { RaidEventCard } from "../RaidEventCard/RaidEventCard.jsx";
 import {
   bossInvitations,
   raidSubscriptions,
+  automationState,
 } from "../../bosses/BossBattle/boss-battle-session.js";
 import { useBossCollection } from "../../bosses/collection/useBossCollection.js";
 import { RaidPost } from "../RaidPost/RaidPost.jsx";
@@ -32,6 +32,39 @@ const sections = [
   { value: "raids", label: "Рейды" },
   { value: "announcements", label: "Анонсы" },
 ];
+
+const queueBlockMessages = {
+  action: "Ожидает освобождения очереди действий аккаунта.",
+  credentials: "Ожидает проверки игрового подключения.",
+  dependency: "Ожидает завершения предыдущего шага.",
+  game: "Ожидает восстановления доступа к игре.",
+  rate: "Ожидает окончания ограничения частоты запросов.",
+  storage: "Ожидает восстановления сохранения состояния.",
+};
+
+export function raidQueueActionNotice(job) {
+  if (!job) return null;
+  if (typeof job.reason === "string" && /[А-Яа-яЁё]/.test(job.reason))
+    return job.reason;
+  const label =
+    job.type === "invitation.accept"
+      ? "Вступление в бой"
+      : job.type === "friend.request"
+        ? "Заявка в друзья"
+        : "Подписка на рейд";
+  if (job.status === "reconciling")
+    return `Проверяем результат: ${label.toLowerCase()}.`;
+  if (
+    ["queued", "waiting"].includes(job.status) &&
+    queueBlockMessages[job.blockedBy]
+  )
+    return queueBlockMessages[job.blockedBy];
+  if (job.status === "queued") return `${label} ожидает отправки в игру.`;
+  if (job.status === "waiting")
+    return `${label} ожидает возможности продолжить.`;
+  if (job.status === "running") return `${label} выполняется.`;
+  return `${label} ожидает обработки серверной очередью.`;
+}
 
 function RaidSkeletons({ label }) {
   return (
@@ -81,7 +114,6 @@ export function RaidScheduleSection({
   const [section, setSection] = useState(null);
   const manuallySelected = useRef(false);
   const previousAuthentication = useRef(authenticated);
-  const [queueNotice, setQueueNotice] = useState(null);
   const subscriptionState = useSyncExternalStore(
     raidSubscriptions.subscribe,
     raidSubscriptions.getSnapshot,
@@ -96,6 +128,12 @@ export function RaidScheduleSection({
     bossInvitations.getSnapshot,
     bossInvitations.getSnapshot,
   );
+  const automationQueue = useSyncExternalStore(
+    automationState.subscribe,
+    automationState.getSnapshot,
+    automationState.getSnapshot,
+  );
+  const queuedJobs = automationQueue.data?.queuedActions ?? [];
   useEffect(() => {
     raidSubscriptions.watch(authenticated && active);
     if (authenticated && active) void bossInvitations.refresh();
@@ -105,8 +143,7 @@ export function RaidScheduleSection({
     if (queueFocus) setSection("raids");
   }, [queueFocus]);
   const accept = async (id) => {
-    if (await bossInvitations.accept(id))
-      setQueueNotice("Приглашение добавлено в очередь.");
+    await bossInvitations.accept(id);
   };
   const groups = new Map();
   for (const item of invitations.items) {
@@ -242,16 +279,6 @@ export function RaidScheduleSection({
           setSection(value);
         }}
       />
-      {queueNotice && (
-        <Toast
-          floating
-          success
-          title="В очереди"
-          onDismiss={() => setQueueNotice(null)}
-        >
-          {queueNotice}
-        </Toast>
-      )}
       {section === null && (
         <RaidSkeletons label="Загрузка рейдов и приглашений" />
       )}
@@ -267,6 +294,19 @@ export function RaidScheduleSection({
               {invitations.notice && (
                 <CardDescription>{invitations.notice}</CardDescription>
               )}
+              {queuedJobs
+                .filter(
+                  (job) =>
+                    job.type === "invitation.accept" &&
+                    ["queued", "waiting", "running", "reconciling"].includes(
+                      job.status,
+                    ),
+                )
+                .map((job) => (
+                  <CardDescription key={job.id} as="p" role="status">
+                    {raidQueueActionNotice(job)}
+                  </CardDescription>
+                ))}
               {invitations.unresolved && (
                 <>
                   <ErrorToast message="Результат вступления пока не подтверждён." />
@@ -339,6 +379,11 @@ export function RaidScheduleSection({
           ) : (
             <>
               <ErrorToast message={subscriptionState.error} />
+              {subscriptionState.queuedSubscriptions?.map((job) => (
+                <CardDescription key={job.id} as="p" role="status">
+                  {raidQueueActionNotice(job)}
+                </CardDescription>
+              ))}
               {!subscriptionState.loaded && (
                 <RaidSkeletons label="Загрузка рейдов" />
               )}
@@ -372,15 +417,12 @@ export function RaidScheduleSection({
                 }}
                 onAcceptInvitation={accept}
                 onSubscribe={async (leader, boss, username, untilDrop) => {
-                  if (
-                    await raidSubscriptions.start(
-                      leader,
-                      boss,
-                      username,
-                      untilDrop,
-                    )
-                  )
-                    setQueueNotice("Подписка добавлена в очередь.");
+                  await raidSubscriptions.start(
+                    leader,
+                    boss,
+                    username,
+                    untilDrop,
+                  );
                 }}
                 onUnsubscribe={(id) => void raidSubscriptions.stop(id)}
               />
@@ -416,6 +458,19 @@ export function RaidScheduleSection({
               </Button>
             </ErrorToast>
           )}
+          {queuedJobs
+            .filter(
+              (job) =>
+                job.type === "friend.request" &&
+                ["queued", "waiting", "running", "reconciling"].includes(
+                  job.status,
+                ),
+            )
+            .map((job) => (
+              <CardDescription key={job.id} as="p" role="status">
+                {raidQueueActionNotice(job)}
+              </CardDescription>
+            ))}
           {latest && (
             <RaidPost
               post={latest}
@@ -424,13 +479,10 @@ export function RaidScheduleSection({
               authenticated={authenticated}
               subscriptionState={subscriptionState}
               onRequestFriend={async (target) => {
-                if (
-                  await raidSubscriptions.requestFriend(
-                    target.playerId ?? null,
-                    target.username ?? "",
-                  )
-                )
-                  setQueueNotice("Заявка добавлена в очередь.");
+                await raidSubscriptions.requestFriend(
+                  target.playerId ?? null,
+                  target.username ?? "",
+                );
               }}
             />
           )}

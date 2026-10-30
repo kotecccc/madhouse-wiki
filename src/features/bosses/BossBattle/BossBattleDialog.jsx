@@ -22,6 +22,8 @@ import {
   canQueueBossBattleStart,
   healingErrorNotice,
   isBossAutomationWaiting,
+  queuedBattleAction,
+  queuedBattleActionNotice,
 } from "./boss-battle-presentation.js";
 import { battleActionHint } from "./boss-battle-controller.js";
 import {
@@ -112,7 +114,24 @@ export function BossBattleDialog({ actionsTarget, attackTarget }) {
   const [queueNotice, setQueueNotice] = useState(null);
   const [healingDraft, setHealingDraft] = useState(null);
   const [rewardNotice, setRewardNotice] = useState(null);
+  const [manualSubmitting, setManualSubmitting] = useState(() => new Set());
+  const manualSubmissionRef = useRef(new Set());
   const shownRewards = useRef(new Set());
+  const submitManualAction = (key, action) => {
+    if (manualSubmissionRef.current.has(key)) return;
+    manualSubmissionRef.current.add(key);
+    setManualSubmitting(new Set(manualSubmissionRef.current));
+    void (async () => {
+      try {
+        await action();
+      } catch {
+        // The battle store publishes the action error and queue state.
+      } finally {
+        manualSubmissionRef.current.delete(key);
+        setManualSubmitting(new Set(manualSubmissionRef.current));
+      }
+    })();
+  };
   useEffect(() => {
     const unsubscribe = subscribeSession(() => bossBattle.close());
     const timer = window.setInterval(() => {
@@ -200,9 +219,15 @@ export function BossBattleDialog({ actionsTarget, attackTarget }) {
     : state;
   const departmentCode = departmentById[catalogueBoss?.departmentId]?.code;
   const actionHint = battleActionHint(state);
-  const queuedStart = state.queuedBattleActions?.some(
-    (job) => job.type === "battle.start",
+  const queuedStartAction = queuedBattleAction(state, "battle.start");
+  const queuedStart = ["queued", "waiting", "running", "reconciling"].includes(
+    queuedStartAction?.status,
   );
+  const queuedStartNotice = queuedBattleActionNotice(queuedStartAction);
+  const startSubmissionKey = `start:${state.boss?.id ?? "none"}`;
+  const attackSubmissionKey = `attack:${battle?.id ?? "none"}`;
+  const manualStartPending = manualSubmitting.has(startSubmissionKey);
+  const manualAttackPending = manualSubmitting.has(attackSubmissionKey);
   const canAttack = canQueueBossBattleStart(state, {
     preview,
     automationRunning,
@@ -296,14 +321,14 @@ export function BossBattleDialog({ actionsTarget, attackTarget }) {
               icon="combat"
               iconSize="large"
               aria-label="Напасть"
-              disabled={!canAttack}
+              disabled={!canAttack || manualStartPending}
               title={
-                queuedStart ? "Бой уже в очереди" : actionHint || state.notice
+                queuedStart
+                  ? queuedStartNotice || "Бой уже в очереди"
+                  : actionHint || state.notice
               }
               onClick={() =>
-                void bossBattle.start().then((accepted) => {
-                  if (accepted) setQueueNotice("Бой добавлен в очередь.");
-                })
+                submitManualAction(startSubmissionKey, () => bossBattle.start())
               }
             >
               Напасть
@@ -321,18 +346,15 @@ export function BossBattleDialog({ actionsTarget, attackTarget }) {
             goal={goal}
             now={Math.max(now, Date.now())}
             auto={preview ? { enabled: false } : auto}
+            manualActionPending={manualAttackPending}
             onFinishBattle={() =>
-              void bossBattleAuto
-                .finishBattle(state.boss.id, state.battle.id)
-                .then((accepted) => {
-                  if (accepted) setQueueNotice("Бой добавлен в очередь.");
-                })
+              void bossBattleAuto.finishBattle(state.boss.id, state.battle.id)
             }
             onAttack={() => {
               if (!bossBattleAuto.getSnapshot().enabled)
-                void bossBattle.attack().then((accepted) => {
-                  if (accepted) setQueueNotice("Удар добавлен в очередь.");
-                });
+                submitManualAction(attackSubmissionKey, () =>
+                  bossBattle.attack(),
+                );
             }}
           />
         </div>

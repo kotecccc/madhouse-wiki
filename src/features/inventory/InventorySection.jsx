@@ -1,4 +1,9 @@
-import { inventoryNeedsCheck, sendInventoryCommand } from "./equipment.js";
+import {
+  inventoryNeedsCheck,
+  reconcileInventoryCommand,
+  sendInventoryCommand,
+  verifyInventoryAction,
+} from "./equipment.js";
 import { InventoryVirtualCard } from "./InventoryVirtualCard.jsx";
 import { InventoryLoadMore } from "./InventoryLoadMore.jsx";
 import { inventoryHeaderLoading } from "./loading-state.js";
@@ -6,7 +11,19 @@ import { Skeleton } from "../../components/ui/Skeleton/Skeleton.jsx";
 import { Modal } from "../../components/ui/Modal/Modal.jsx";
 import { Pill } from "../../components/ui/Pill/Pill.jsx";
 import { InventoryItemCard } from "./InventoryItemCard.jsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  automationState,
+  syncBattleSession,
+} from "../bosses/BossBattle/boss-battle-session.js";
+import { subscribeSession } from "../../../shared/auth-session.js";
+import {
+  inventoryJobForItem,
+  inventoryPendingActionForItem,
+  inventoryJobStatusForItem,
+  inventoryQueueItemKey,
+  isInventoryJobActive,
+} from "./inventory-queue.js";
 import { knowledgeBase } from "virtual:madhouse-catalogue";
 import {
   getSessionJson,
@@ -64,50 +81,177 @@ export function InventorySection({
   onLoadingChange,
 }) {
   const equipmentPending = useRef(false);
+  const sessionEpoch = useRef(0);
+  const latestQueueSnapshot = useRef(null);
+  const snapshotAfterSessionChange = useRef(null);
+  const [sessionQueueReady, setSessionQueueReady] = useState(true);
+  const [trackedJobs, setTrackedJobs] = useState({});
+  const [commandQueueState, setCommandQueueState] = useState(null);
+  const queueSnapshot = useSyncExternalStore(
+    automationState.subscribe,
+    automationState.getSnapshot,
+    automationState.getSnapshot,
+  );
+  latestQueueSnapshot.current = queueSnapshot;
+  useEffect(() => {
+    if (
+      !sessionQueueReady &&
+      queueSnapshot !== snapshotAfterSessionChange.current
+    )
+      setSessionQueueReady(true);
+  }, [queueSnapshot, sessionQueueReady]);
+  const currentQueueState =
+    sessionQueueReady && queueSnapshot.presence === "present"
+      ? queueSnapshot.data
+      : null;
+  const serverQueueState =
+    commandQueueState &&
+    (!currentQueueState ||
+      (commandQueueState.version ?? -1) > (currentQueueState.version ?? -1))
+      ? commandQueueState
+      : currentQueueState;
   const [equipmentState, setEquipmentState] = useState({
     busy: false,
     needsCheck: false,
     notice: null,
   });
+  useEffect(
+    () =>
+      subscribeSession(() => {
+        sessionEpoch.current += 1;
+        snapshotAfterSessionChange.current = latestQueueSnapshot.current;
+        setSessionQueueReady(false);
+        equipmentPending.current = false;
+        setTrackedJobs({});
+        setCommandQueueState(null);
+        setEquipmentState({ busy: false, needsCheck: false, notice: null });
+      }),
+    [],
+  );
   async function equip(
     item,
     action = item?.equipped ? "unequip" : "equip",
     refreshOnly = false,
   ) {
+    const key = inventoryQueueItemKey({
+      type: item?.type ?? category,
+      id: item?.id,
+    });
+    if (
+      !refreshOnly &&
+      isInventoryJobActive(
+        inventoryJobForItem(serverQueueState, item, trackedJobs[key]?.id),
+      )
+    )
+      return;
     if (equipmentPending.current) return;
     equipmentPending.current = true;
+    const requestEpoch = sessionEpoch.current;
+    const commandId = crypto.randomUUID();
     setEquipmentState({ busy: true, needsCheck: false, notice: null });
     try {
-      await sendInventoryCommand({
-        get: getSessionJson,
-        post: postSessionJson,
-        item,
-        action,
-        type: item?.type ?? category,
-        zoneId:
-          item?.zoneId ??
-          references.find((entry) => entry.type === category && entry.zoneId)
-            ?.zoneId,
-        refreshOnly,
-      });
+      const type = item?.type ?? category;
+      const result = refreshOnly
+        ? await verifyInventoryAction({
+            get: getSessionJson,
+            item,
+            action:
+              trackedJobs[key]?.action ??
+              inventoryPendingActionForItem(serverQueueState, item),
+            type,
+            paths: inventoryPaths(type, references),
+            references,
+          })
+        : await sendInventoryCommand({
+            get: getSessionJson,
+            post: postSessionJson,
+            item,
+            action,
+            type,
+            commandId,
+            zoneId:
+              item?.zoneId ??
+              references.find(
+                (entry) => entry.type === category && entry.zoneId,
+              )?.zoneId,
+            onQueueAccepted: (acceptedState) => {
+              if (requestEpoch === sessionEpoch.current)
+                syncBattleSession(acceptedState, { fast: true });
+            },
+          });
+      if (requestEpoch !== sessionEpoch.current) return;
       setEquipmentState({
         busy: false,
         needsCheck: false,
-        notice: refreshOnly
-          ? "Экипировка проверена."
-          : "Действие добавлено в очередь.",
+        notice: null,
       });
-      if (!refreshOnly)
-        onNotice?.({ message: "Действие добавлено в очередь.", success: true });
+      if (!refreshOnly && result?.enqueuedJobId)
+        setTrackedJobs((current) => ({
+          ...current,
+          [key]: { id: result.enqueuedJobId, action },
+        }));
+      if (refreshOnly && trackedJobs[key]) {
+        if (result.confirmed)
+          setTrackedJobs((current) => {
+            const next = { ...current };
+            delete next[key];
+            return next;
+          });
+      }
+      if (!refreshOnly && Array.isArray(result?.queuedActions))
+        setCommandQueueState(result);
+      if (refreshOnly && Array.isArray(result?.queuedActions))
+        setCommandQueueState(result);
     } catch (error) {
+      if (requestEpoch !== sessionEpoch.current) return;
+      if (refreshOnly) {
+        setEquipmentState({ busy: false, needsCheck: true, notice: null });
+        onNotice?.({
+          message:
+            "Не удалось безопасно проверить инвентарь. Не повторяйте действие; результат пока не подтверждён.",
+          success: false,
+        });
+        return;
+      }
+      if (error.inventoryStage === "command") {
+        let reconciled = null;
+        try {
+          reconciled = await reconcileInventoryCommand({
+            get: getSessionJson,
+            commandId: error.commandId ?? commandId,
+            item,
+            action,
+            type: item?.type ?? category,
+          });
+        } catch {
+          // Keep the local guard when the read cannot establish the outcome.
+        }
+        if (requestEpoch !== sessionEpoch.current) return;
+        const trackedId = reconciled?.jobId ?? error.commandId ?? commandId;
+        setTrackedJobs((current) => ({
+          ...current,
+          [key]: { id: trackedId, action },
+        }));
+        if (Array.isArray(reconciled?.state?.queuedActions))
+          setCommandQueueState(reconciled.state);
+        setEquipmentState({ busy: false, needsCheck: true, notice: null });
+        onNotice?.({
+          message:
+            "Не удалось определить, принял ли сервер действие. Не повторяйте его; дождитесь сверки результата.",
+          success: false,
+        });
+        return;
+      }
       const needsCheck = await inventoryNeedsCheck(getSessionJson);
+      if (requestEpoch !== sessionEpoch.current) return;
       setEquipmentState({ busy: false, needsCheck, notice: null });
       onNotice?.({
         message: `${needsCheck ? "Не удалось подтвердить действие. Попробуйте снова." : "Не удалось выполнить действие. Если работает автоматизация, сначала остановите её."}${error.inventoryReason ? ` Причина: ${error.inventoryReason}.` : error.status ? ` Код ответа: ${error.status}.` : ""}${error.inventoryStage ? ` Этап: ${error.inventoryStage}.` : ""}`,
         success: false,
       });
     } finally {
-      equipmentPending.current = false;
+      if (requestEpoch === sessionEpoch.current)
+        equipmentPending.current = false;
     }
   }
   const [category, setCategory] = useState("clothing_item");
@@ -517,7 +661,22 @@ export function InventorySection({
                       key={`${item.type}:${item.id}`}
                       item={item}
                       onAction={equip}
-                      equipmentBusy={equipmentState.busy}
+                      equipmentChecking={equipmentState.busy}
+                      equipmentBusy={
+                        equipmentState.busy ||
+                        isInventoryJobActive(
+                          inventoryJobForItem(
+                            serverQueueState,
+                            item,
+                            trackedJobs[inventoryQueueItemKey(item)]?.id,
+                          ),
+                        )
+                      }
+                      actionStatus={inventoryJobStatusForItem(
+                        serverQueueState,
+                        item,
+                        trackedJobs[inventoryQueueItemKey(item)]?.id,
+                      )}
                     />
                   ))}
                 </div>

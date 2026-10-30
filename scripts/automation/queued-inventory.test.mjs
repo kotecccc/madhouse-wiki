@@ -203,22 +203,45 @@ test("service stores queued intents under the verified account and keeps cancell
     };
     const accepted = await service.command(first, command);
     assert.equal(accepted.queuedActions[0].status, "queued");
+    assert.equal(accepted.enqueuedJobId, "purchase-1");
+    const duplicate = await service.command(first, {
+      ...command,
+      id: "purchase-2",
+      expectedVersion: accepted.version,
+    });
+    assert.equal(duplicate.enqueuedJobId, "purchase-1");
+    assert.deepEqual(duplicate.queueReceiptJobs, [
+      ["purchase-1", "purchase-1"],
+      ["purchase-2", "purchase-1"],
+    ]);
+    assert.equal(duplicate.queuedActions.length, 1);
     assert.deepEqual(service.snapshot(second).queuedActions, []);
     assert.equal(JSON.stringify(accepted).includes("Bearer first"), false);
     assert.equal(game.mutations().length, 0);
     await service.command(first, {
       id: "cancel-0001",
-      expectedVersion: accepted.version,
+      expectedVersion: duplicate.version,
       command: "queue.cancel",
       args: { id: "purchase-1" },
     });
     service.close();
     service = makeService();
     const restored = await service.identify("Bearer first");
+    assert.deepEqual(service.snapshot(restored).queueReceiptJobs, [
+      ["purchase-1", "purchase-1"],
+      ["purchase-2", "purchase-1"],
+    ]);
     assert.equal(
       service.snapshot(restored).queuedActions[0].status,
       "cancelled",
     );
+    const replay = await service.command(restored, {
+      ...command,
+      id: "purchase-2",
+    });
+    assert.equal(replay.enqueuedJobId, "purchase-1");
+    assert.equal(replay.queuedActions.length, 1);
+    assert.equal(replay.queuedActions[0].status, "cancelled");
     assert.equal(game.mutations().length, 0);
   } finally {
     service.close();

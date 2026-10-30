@@ -640,9 +640,33 @@ test("restoring autobattle respects the durable shared queue cooldown", async ()
       now: () => clock,
       schedule: () => ({ unref() {} }),
       cancel: () => {},
+      bridgeOwnerKeyForPlayer: (playerId) =>
+        String(playerId) === "101" ? "verified-owner-key" : null,
     });
     await restored.boot();
     assert.deepEqual(ctx.calls.slice(before), []);
+    const beforeWake = ctx.store.read("101").queuedActions.map((job) => ({
+      id: job.id,
+      status: job.status,
+      nextAt: job.nextAt,
+      attempts: job.attempts,
+    }));
+    assert.equal(restored.wakeBridgeOwner("unrelated-owner-key"), false);
+    assert.equal(restored.wakeBridgeOwner("verified-owner-key"), true);
+    assert.deepEqual(ctx.calls.slice(before), []);
+    assert.deepEqual(
+      ctx.store.read("101").queuedActions.map((job) => ({
+        id: job.id,
+        status: job.status,
+        nextAt: job.nextAt,
+        attempts: job.attempts,
+      })),
+      beforeWake,
+    );
+    assert.deepEqual(ctx.store.getQueueCooldown(), {
+      readyAt: clock + 120000,
+      failures: 1,
+    });
   } finally {
     restored?.close();
     ctx.close();

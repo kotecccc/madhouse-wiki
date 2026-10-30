@@ -9,13 +9,38 @@ import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
 import { Modal } from "../../../components/ui/Modal/Modal.jsx";
-import { Toast } from "../../../components/ui/Toast/Toast.jsx";
-import { bossInvitations } from "../BossBattle/boss-battle-session.js";
+import {
+  automationState,
+  bossInvitations,
+} from "../BossBattle/boss-battle-session.js";
 import "./BossInvitations.css";
+
+const queueBlockNotices = {
+  credentials: "Требуется войти в игру.",
+  storage: "Ожидаем доступности сервера.",
+  action: "Ожидаем завершения других действий.",
+  dependency: "Ожидаем подтверждения предыдущего действия.",
+  game: "Ожидаем доступности игры.",
+  rate: "Ожидаем окончания ограничения запросов.",
+};
+
+function queuedInvitationNotice(job) {
+  if (!job) return null;
+  const reason = job.reason || queueBlockNotices[job.blockedBy];
+  if (job.status === "reconciling")
+    return `Результат вступления не подтверждён. ${reason || "Проверяем состояние игры."} Повтор не будет отправлен до подтверждения.`;
+  if (reason) return reason;
+  if (job.status === "queued") return "Принятие ожидает отправки в игру.";
+  if (job.status === "waiting")
+    return "Ожидаем возможности принять приглашение.";
+  if (job.status === "running") return "Принятие приглашения выполняется.";
+  return null;
+}
 
 export function BossInvitationsContent({
   state,
   preferredBossId,
+  queuedJobs = [],
   onAccept,
   onReconcile,
 }) {
@@ -24,6 +49,7 @@ export function BossInvitationsContent({
       Number(b.bossId === preferredBossId) -
       Number(a.bossId === preferredBossId),
   );
+  const unresolvedJob = queuedJobs.find((job) => job.status === "reconciling");
   return (
     <div className="boss-invitations-list">
       <CardDescription>
@@ -37,6 +63,11 @@ export function BossInvitationsContent({
       {state.unresolved && (
         <>
           <ErrorToast message="Результат вступления пока не подтверждён. Проверка обновит состояние и не отправит принятие повторно." />
+          {queuedInvitationNotice(unresolvedJob) && (
+            <CardDescription role="status">
+              {queuedInvitationNotice(unresolvedJob)}
+            </CardDescription>
+          )}
           <Button disabled={state.pending} onClick={onReconcile}>
             Проверить вступление
           </Button>
@@ -52,42 +83,60 @@ export function BossInvitationsContent({
       {state.loaded && items.length === 0 && (
         <CardDescription>Входящих приглашений нет.</CardDescription>
       )}
-      {items.map((item) => (
-        <BaseCard key={item.invitationId}>
-          <CardTitle>{item.bossName}</CardTitle>
-          <CardDescription>Зовёт: {item.sender}</CardDescription>
-          {!item.available && (
-            <CardDescription>Приглашение больше недоступно.</CardDescription>
-          )}
-          <Button
-            variant="primary"
-            disabled={
-              state.pending ||
-              state.queuedIds?.includes(item.invitationId) ||
-              !item.available
-            }
-            onClick={() => onAccept(item.invitationId)}
-          >
-            Принять и открыть бой
-          </Button>
-        </BaseCard>
-      ))}
+      {items.map((item) => {
+        const queuedJob = queuedJobs.find(
+          (job) => job.args?.invitationId === item.invitationId,
+        );
+        const queueNotice = queuedInvitationNotice(queuedJob);
+        return (
+          <BaseCard key={item.invitationId}>
+            <CardTitle>{item.bossName}</CardTitle>
+            <CardDescription>Зовёт: {item.sender}</CardDescription>
+            {!item.available && (
+              <CardDescription>Приглашение больше недоступно.</CardDescription>
+            )}
+            <Button
+              variant="primary"
+              disabled={
+                state.pending ||
+                state.queuedIds?.includes(item.invitationId) ||
+                !item.available
+              }
+              onClick={() => onAccept(item.invitationId)}
+            >
+              Принять и открыть бой
+            </Button>
+            {queueNotice && (
+              <CardDescription role="status">{queueNotice}</CardDescription>
+            )}
+          </BaseCard>
+        );
+      })}
     </div>
   );
 }
 
 export function BossInvitationsDialog({ preferredBossId, onClose }) {
-  const [queueNotice, setQueueNotice] = useState(false);
   const state = useSyncExternalStore(
     bossInvitations.subscribe,
     bossInvitations.getSnapshot,
     bossInvitations.getSnapshot,
   );
+  const automation = useSyncExternalStore(
+    automationState.subscribe,
+    automationState.getSnapshot,
+    automationState.getSnapshot,
+  );
+  const queuedJobs = (automation.data?.queuedActions ?? []).filter(
+    (job) =>
+      job.type === "invitation.accept" &&
+      ["queued", "waiting", "running", "reconciling"].includes(job.status),
+  );
   useEffect(() => {
     void bossInvitations.refresh();
   }, []);
   const accept = async (id) => {
-    if (await bossInvitations.accept(id)) setQueueNotice(true);
+    await bossInvitations.accept(id);
   };
   const reconcile = async () => {
     if (await bossInvitations.reconcile()) onClose();
@@ -105,19 +154,10 @@ export function BossInvitationsDialog({ preferredBossId, onClose }) {
       <BossInvitationsContent
         state={state}
         preferredBossId={preferredBossId}
+        queuedJobs={queuedJobs}
         onAccept={(id) => void accept(id)}
         onReconcile={() => void reconcile()}
       />
-      {queueNotice && (
-        <Toast
-          floating
-          success
-          title="В очереди"
-          onDismiss={() => setQueueNotice(false)}
-        >
-          Приглашение добавлено в очередь.
-        </Toast>
-      )}
     </Modal>
   );
 }

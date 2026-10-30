@@ -98,6 +98,29 @@ test("queue state updates wake a paused farm and reject older snapshots", async 
   assert.equal(h.workFarm.getSnapshot().run.status, "running");
 });
 
+test("manual battle enqueue and fast sync schedule one delayed state read", async () => {
+  const h = harness();
+  await h.connect();
+  assert.equal(await h.bossBattle.start(), true);
+  assert.equal(h.tasks.size, 1);
+  assert.equal([...h.tasks.values()][0].delay, 250);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.calls.filter(([method]) => method === "GET").length, 2);
+  assert.equal(h.tasks.size, 1);
+  assert.equal([...h.tasks.values()][0].delay, 15000);
+
+  h.syncState({ ...initialState(), version: 9 }, { fast: true });
+  assert.equal(h.tasks.size, 1);
+  assert.equal([...h.tasks.values()][0].delay, 250);
+  h.runTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.calls.filter(([method]) => method === "GET").length, 3);
+  assert.equal([...h.tasks.values()][0].delay, 15000);
+  h.disconnect();
+  assert.equal(h.tasks.size, 0);
+});
+
 test("raid subscription stays unavailable until server state has loaded", async () => {
   let resolveState;
   const h = harness({
@@ -1562,4 +1585,130 @@ test("battle view shows the queued strike only for its actual boss and battle", 
     ["hit-1"],
   );
   h.disconnect();
+});
+
+test("manual battle actions track the exact enqueued job and keep terminal state visible", async () => {
+  const state = initialState();
+  const h = harness({
+    state,
+    request: async (method, _path, _body) => {
+      if (method === "GET") return state;
+      const job = {
+        id: "manual-start-job",
+        type: "battle.start",
+        status: "failed",
+        reason: "unknown_boss",
+        args: { bossId: 8 },
+      };
+      return {
+        ...state,
+        version: 8,
+        queuedActions: [job],
+        enqueuedJobId: job.id,
+      };
+    },
+  });
+  await h.connect();
+  assert.equal(await h.bossBattle.start(), true);
+  assert.deepEqual(
+    h.bossBattle
+      .getSnapshot()
+      .manualBattleActionJobs.map((job) => [job.id, job.status]),
+    [["manual-start-job", "failed"]],
+  );
+  assert.deepEqual(h.bossBattle.getSnapshot().queuedBattleActions, []);
+  h.disconnect();
+});
+
+test("a newer job from another client replaces an older tracked terminal result", async () => {
+  const state = initialState();
+  const failed = {
+    id: "tracked-failed",
+    type: "battle.start",
+    status: "failed",
+    reason: "unknown_boss",
+    createdAt: 10,
+    args: { bossId: 8 },
+  };
+  const h = harness({
+    state,
+    request: async (method) => {
+      if (method === "GET") return state;
+      return {
+        ...state,
+        version: 8,
+        queuedActions: [failed],
+        enqueuedJobId: failed.id,
+      };
+    },
+  });
+  await h.connect();
+  assert.equal(await h.bossBattle.start(), true);
+  assert.equal(
+    h.bossBattle.getSnapshot().manualBattleActionJobs[0].id,
+    failed.id,
+  );
+
+  h.syncState({
+    ...state,
+    version: 9,
+    queuedActions: [
+      failed,
+      {
+        id: "newer-completed",
+        type: "battle.start",
+        status: "completed",
+        createdAt: 20,
+        args: { bossId: 8 },
+      },
+    ],
+  });
+  assert.deepEqual(h.bossBattle.getSnapshot().manualBattleActionJobs, []);
+  h.disconnect();
+});
+
+test("manual battle status restores the newest paused or failed job after reconnect and clears across accounts", async () => {
+  const oldAccountState = {
+    ...initialState(),
+    queuedActions: [
+      {
+        id: "old-failed",
+        type: "battle.attack",
+        status: "failed",
+        reason: "game_request_rejected",
+        createdAt: 10,
+        args: { bossId: 8, battleId: "b-1" },
+      },
+      {
+        id: "new-paused",
+        type: "battle.attack",
+        status: "paused",
+        reason: "unsent_retry_budget",
+        createdAt: 20,
+        args: { bossId: 8, battleId: "b-1" },
+      },
+    ],
+  };
+  let currentState = oldAccountState;
+  const h = harness({ request: async () => currentState });
+  await h.connect();
+  assert.deepEqual(
+    h.bossBattle.getSnapshot().manualBattleActionJobs.map((job) => job.id),
+    ["new-paused"],
+  );
+  h.disconnect();
+  currentState = initialState();
+  await h.connect();
+  assert.deepEqual(h.bossBattle.getSnapshot().manualBattleActionJobs, []);
+  h.disconnect();
+
+  const restored = harness({ state: oldAccountState });
+  await restored.connect();
+  assert.deepEqual(
+    restored.bossBattle
+      .getSnapshot()
+      .manualBattleActionJobs.map((job) => [job.id, job.status]),
+    [["new-paused", "paused"]],
+  );
+  restored.disconnect();
 });

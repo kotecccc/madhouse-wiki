@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createRequestPriorityContext } from "./request-priority-context.mjs";
+import {
+  createRequestPriorityContext,
+  currentRequestPriority,
+} from "./request-priority-context.mjs";
 
 test("request urgency ends with its queue attempt, including inherited tasks", async () => {
   const context = createRequestPriorityContext();
@@ -17,6 +20,24 @@ test("request urgency ends with its queue attempt, including inherited tasks", a
     })();
   });
   assert.equal(context.current(), null);
+  release();
+  assert.equal(await inherited, null);
+});
+
+test("direct-boundary priority lookup shares the active server context only", async () => {
+  const context = createRequestPriorityContext();
+  let release;
+  let inherited;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await context.run({ priority: 17 }, false, async () => {
+    assert.equal(currentRequestPriority(), 17);
+    inherited = (async () => {
+      await gate;
+      return currentRequestPriority();
+    })();
+  });
   release();
   assert.equal(await inherited, null);
 });

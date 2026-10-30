@@ -1,5 +1,4 @@
 import { ErrorToast } from "../../../components/ui/ErrorToast/ErrorToast.jsx";
-import { Toast } from "../../../components/ui/Toast/Toast.jsx";
 import { WorkStashCard } from "./WorkStashCard.jsx";
 import {
   getSessionJson,
@@ -21,7 +20,10 @@ import { Pill } from "../../../components/ui/Pill/Pill.jsx";
 import { Button } from "../../../components/ui/Button/Button.jsx";
 import { CardTitle } from "../../../components/ui/CardTitle/CardTitle.jsx";
 import { CardDescription } from "../../../components/ui/CardDescription/CardDescription.jsx";
-import { workFarm } from "../../bosses/BossBattle/boss-battle-session.js";
+import {
+  automationState,
+  workFarm,
+} from "../../bosses/BossBattle/boss-battle-session.js";
 import {
   planWorkFarm,
   latestWorkEnergy,
@@ -41,18 +43,79 @@ const validEnergy = (value) =>
   value.max > 0 &&
   value.current <= value.max;
 
+const activeQueueStatuses = new Set([
+  "queued",
+  "waiting",
+  "running",
+  "reconciling",
+  "paused",
+]);
+
+function queueBlockerText(blockedBy) {
+  return (
+    {
+      action: "Ожидает завершения другого действия.",
+      credentials: "Проверьте игровую сессию.",
+      dependency: "Ожидает связанное действие.",
+      game: "Игра временно недоступна.",
+      rate: "Ожидает следующего разрешённого действия.",
+      storage: "Серверное хранилище временно недоступно.",
+    }[blockedBy] || (blockedBy ? "Ожидает освобождения очереди." : null)
+  );
+}
+
+function queueJobMessage(job) {
+  if (!job) return null;
+  const reason = job.reason || queueBlockerText(job.blockedBy);
+  if (job.status === "failed")
+    return { error: reason || "Действие в очереди завершилось ошибкой." };
+  if (!activeQueueStatuses.has(job.status)) return null;
+  const title =
+    job.status === "reconciling"
+      ? "Проверяем результат действия"
+      : job.status === "running"
+        ? "Действие выполняется"
+        : job.status === "paused"
+          ? "Действие приостановлено"
+          : "Ожидает выполнения в очереди действий";
+  return { title, description: reason };
+}
+
+function latestRelevantQueueJob(jobs) {
+  const visibleJobs = jobs.filter((job) => !job.dismissed);
+  const active = visibleJobs.find((job) => activeQueueStatuses.has(job.status));
+  if (active) return active;
+  const latest = visibleJobs.reduce((current, job, index) => {
+    if (!current) return { job, index };
+    const timestamp = job.finishedAt ?? job.createdAt ?? 0;
+    const currentTimestamp =
+      current.job.finishedAt ?? current.job.createdAt ?? 0;
+    return timestamp > currentTimestamp ||
+      (timestamp === currentTimestamp && index > current.index)
+      ? { job, index }
+      : current;
+  }, null)?.job;
+  return latest?.status === "failed" ? latest : null;
+}
+
 export function WorkFarmDialog({
   work,
   energy,
   onClose,
   goalTargets = [],
   farmStore = workFarm,
+  queueStore = automationState,
   profileSnapshot,
 }) {
   const state = useSyncExternalStore(
     farmStore.subscribe,
     farmStore.getSnapshot,
     farmStore.getSnapshot,
+  );
+  const queueSnapshot = useSyncExternalStore(
+    queueStore.subscribe,
+    queueStore.getSnapshot,
+    queueStore.getSnapshot,
   );
   const workId = Number(
     work.workId ??
@@ -160,8 +223,6 @@ export function WorkFarmDialog({
       ? completed + count
       : Math.max(completed + 1, requested || completed + 1);
   const [launchError, setLaunchError] = useState(null);
-  const [boosterNotice, setBoosterNotice] = useState(null);
-  const [queueNotice, setQueueNotice] = useState(null);
   const remaining = Math.max(0, target - completed);
   const totalEnergy = useMemo(
     () =>
@@ -281,7 +342,6 @@ export function WorkFarmDialog({
       return;
     if (energyOnly) mode = "energy";
     setLaunchError(null);
-    setQueueNotice(null);
     const ok = await farmStore.start({
       workId,
       targetCycles: energyOnly ? completed + 1 : target,
@@ -302,18 +362,16 @@ export function WorkFarmDialog({
             "Запуск пока не подтверждён. Проверяем состояние задачи.",
         );
       }
-    } else setQueueNotice("Фарм добавлен в очередь.");
+    }
   }
   async function applyBooster(type) {
     setLaunchError(null);
-    setBoosterNotice(null);
     const ok = await farmStore.useBooster(workId, type);
     if (!ok)
       setLaunchError(
         farmStore.getSnapshot().notice ||
           "Применение пока не подтверждено. Проверяем состояние.",
       );
-    else setBoosterNotice("Дефибриллятор добавлен в очередь.");
   }
   const taskPreview = useMemo(
     () =>
@@ -331,6 +389,18 @@ export function WorkFarmDialog({
     [view, knownEnergy, energyOnly, target, energyBudget, active, run],
   );
   const progress = workFarmProgress(run, view);
+  const queueJobs =
+    queueSnapshot?.presence === "present"
+      ? (queueSnapshot.data?.queuedActions ?? []).filter(
+          (job) =>
+            ["work.start", "work.booster"].includes(job.type) &&
+            Number(job.args?.workId) === workId &&
+            !(active && job.type === "work.start"),
+        )
+      : [];
+  const queueJob = latestRelevantQueueJob(queueJobs);
+  const queueMessage = queueJobMessage(queueJob);
+  const waitingForFarm = queueJob?.type === "work.start" && !active;
   const activeProgress = active && (
     <div
       className="work-calculator-goal"
@@ -588,27 +658,17 @@ export function WorkFarmDialog({
             run?.workId === workId &&
             ["limited", "error"].includes(run.status) &&
             run.reason && <ErrorToast message={run.reason} />}
-          {boosterNotice && (
-            <Toast
-              floating
-              success
-              title="В очереди"
-              onDismiss={() => setBoosterNotice(null)}
-            >
-              {boosterNotice}
-            </Toast>
+          {queueMessage?.error && <ErrorToast message={queueMessage.error} />}
+          {queueMessage && !queueMessage.error && (
+            <CardDescription role="status">
+              {queueMessage.title}
+              {waitingForFarm
+                ? ". Прогресс появится здесь после начала фарма. Подробности доступны в очереди действий."
+                : ""}
+              {queueMessage.description ? ` ${queueMessage.description}` : ""}
+            </CardDescription>
           )}
           {!active && <ErrorToast message={launchError} />}
-          {queueNotice && (
-            <Toast
-              floating
-              success
-              title="В очереди"
-              onDismiss={() => setQueueNotice(null)}
-            >
-              {queueNotice}
-            </Toast>
-          )}
         </>
       }
     />

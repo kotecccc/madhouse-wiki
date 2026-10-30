@@ -50,6 +50,43 @@ function buddyStatus(buddy, playerId) {
 const format = (value) =>
   value == null ? "—" : new Intl.NumberFormat("ru-RU").format(value);
 
+const queueBlockNotices = {
+  credentials: "Требуется войти в игру.",
+  storage: "Ожидаем доступности сервера.",
+  action: "Ожидаем завершения других действий.",
+  dependency: "Ожидаем подтверждения предыдущего действия.",
+  game: "Ожидаем доступности игры.",
+  rate: "Ожидаем окончания ограничения запросов.",
+};
+
+function queuedRemovalNotice(job) {
+  if (!job) return null;
+  const reason = job.reason || queueBlockNotices[job.blockedBy];
+  if (job.status === "reconciling")
+    return `Результат удаления не подтверждён. ${reason || "Проверяем состояние друга."} Повтор не будет отправлен до подтверждения.`;
+  if (reason) return reason;
+  if (job.status === "queued") return "Удаление ожидает отправки в игру.";
+  if (job.status === "waiting") return "Ожидаем возможности удалить друга.";
+  if (job.status === "running") return "Удаление выполняется.";
+  return null;
+}
+
+function FriendRemovalQueueNotice({ automation, playerId }) {
+  const job = automation?.queuedActions?.find(
+    (item) =>
+      item.type === "friend.remove" &&
+      item.args?.playerId === playerId &&
+      ["queued", "waiting", "running", "reconciling"].includes(item.status),
+  );
+  if (!job && automation?.friendRemoval?.pending?.playerId !== playerId)
+    return null;
+  return (
+    <CardDescription role="status">
+      {queuedRemovalNotice(job) || "Проверяем удаление друга."}
+    </CardDescription>
+  );
+}
+
 const sendCommand = (command, args) =>
   sendFriendCommand({
     get: getSessionJson,
@@ -267,8 +304,6 @@ export function FriendsSection({
       setAction(null);
       setMenu(null);
       setMenuClosing(false);
-      if (target.kind === "remove")
-        onNotice?.({ success: true, message: "Действие добавлено в очередь." });
     } catch {
       try {
         const latest = await getSessionJson("/api/automation/state", {
@@ -426,9 +461,10 @@ export function FriendsSection({
               (player) =>
                 player.playerId === automation.friendRemoval.pending.playerId,
             ) && (
-              <CardDescription role="status">
-                Проверяем удаление друга.
-              </CardDescription>
+              <FriendRemovalQueueNotice
+                automation={automation}
+                playerId={automation.friendRemoval.pending.playerId}
+              />
             )}
           {automation?.buddyHelp?.hasPending && (
             <BaseCard>
@@ -657,12 +693,10 @@ export function FriendsSection({
                         {actionError}
                       </CardDescription>
                     )}
-                  {automation?.friendRemoval?.pending?.playerId ===
-                    player.playerId && (
-                    <CardDescription role="status">
-                      Проверяем удаление.
-                    </CardDescription>
-                  )}
+                  <FriendRemovalQueueNotice
+                    automation={automation}
+                    playerId={player.playerId}
+                  />
                 </div>
                 {menu?.playerId === player.playerId && (
                   <CardActionMenu

@@ -199,6 +199,34 @@ test("reconciliation and invitations precede farm steps at the next request boun
   ]);
 });
 
+test("priority 59 is ranked above priority 50 after the same account hold", async () => {
+  let release;
+  let priority = null;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const calls = [];
+  const fetcher = createAccountQueue(
+    async (url) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      if (path === "/api/hold") await gate;
+      return Response.json({ ok: true });
+    },
+    { requestPriority: () => priority, now: () => 1000 },
+  );
+  const init = { headers: { Authorization: "Bearer account" } };
+  const hold = fetcher("https://game/api/hold", init);
+  priority = 50;
+  const normal = fetcher("https://game/api/normal", init);
+  priority = 59;
+  const timeSensitive = fetcher("https://game/api/time-sensitive", init);
+  priority = null;
+  release();
+  await Promise.all([hold, normal, timeSensitive]);
+  assert.deepEqual(calls, ["/api/hold", "/api/time-sensitive", "/api/normal"]);
+});
+
 test("an older low-priority request eventually precedes newer urgent work", async () => {
   let release,
     clock = 0;
@@ -218,7 +246,9 @@ test("an older low-priority request eventually precedes newer urgent work", asyn
   const init = { headers: { Authorization: "Bearer account" } };
   const hold = fetcher("https://game/api/hold", init);
   const old = fetcher("https://game/api/me/bag", init);
-  clock = 61000;
+  // The default game request deadline is 20s. Aging must promote this read
+  // before that deadline, even against the maximum urgency class.
+  clock = 13000;
   const urgent = fetcher("https://game/api/bosses/invitations/42/accept", {
     ...init,
     method: "POST",

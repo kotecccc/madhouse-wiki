@@ -11,11 +11,13 @@ function error(code) {
  */
 export function createDeviceTunnelPool({
   authorize,
+  onAuthenticatedReconnect = () => {},
   reauthorizeMs = 1000,
   reconnectWaitMs = 18000,
 } = {}) {
   if (
     typeof authorize !== "function" ||
+    typeof onAuthenticatedReconnect !== "function" ||
     !Number.isSafeInteger(reauthorizeMs) ||
     reauthorizeMs < 10 ||
     !Number.isSafeInteger(reconnectWaitMs) ||
@@ -27,6 +29,7 @@ export function createDeviceTunnelPool({
   const revisions = new Map();
   const waiters = new Map();
   const reconnecting = new Map();
+  const reconnectRequired = new Set();
   let stopped = false;
 
   function notify(owner) {
@@ -118,21 +121,32 @@ export function createDeviceTunnelPool({
     }
     const record = { identity: { ...identity }, socket, state: "idle" };
     connections.set(identity.owner, record);
+    if (reconnectRequired.delete(identity.owner)) {
+      try {
+        Promise.resolve(onAuthenticatedReconnect(record.identity)).catch(
+          () => {},
+        );
+      } catch {
+        // A wake notification must not reject a valid device connection.
+      }
+    }
     const reconnectTimer = reconnecting.get(identity.owner);
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnecting.delete(identity.owner);
     notify(identity.owner);
-    const remove = () => {
+    const remove = (unexpected = false) => {
       clearInterval(record.timer);
       if (connections.get(identity.owner) === record) {
         connections.delete(identity.owner);
+        if (unexpected && !record.rejectReconnect && !stopped)
+          reconnectRequired.add(identity.owner);
         if (!record.rejectReconnect && !stopped)
           expectReconnect(identity.owner);
         notify(identity.owner);
       }
     };
-    socket.once("close", remove);
-    socket.once("error", remove);
+    socket.once("close", (code) => remove(code !== 1000));
+    socket.once("error", () => remove(true));
     // An idle agent must not inject bytes into a later TLS connection.
     const unexpected = () => {
       record.rejectReconnect = true;
@@ -205,6 +219,7 @@ export function createDeviceTunnelPool({
     const reconnectTimer = reconnecting.get(owner);
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnecting.delete(owner);
+    reconnectRequired.delete(owner);
     notify(owner);
     const record = connections.get(owner);
     if (!record || record.identity.device !== device) return;
@@ -232,6 +247,7 @@ export function createDeviceTunnelPool({
     stopped = true;
     for (const timer of reconnecting.values()) clearTimeout(timer);
     reconnecting.clear();
+    reconnectRequired.clear();
     for (const owner of waiters.keys()) notify(owner);
     for (const { socket } of connections.values()) socket.terminate();
     connections.clear();

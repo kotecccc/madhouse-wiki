@@ -12,6 +12,7 @@ import { createRaidWaiter } from "./raid-waiter.mjs";
 import { createAccountQueue } from "./account-queue.mjs";
 import { createWorkActionPermit } from "../bridge/work-action-permit.mjs";
 import { createActionQueue, retryDelay } from "./action-queue.mjs";
+import { actionPriority } from "./action-priority.mjs";
 import {
   createGameOutageFetch,
   emptyGameOutage,
@@ -231,6 +232,7 @@ export function createAutomationService({
   identifyPlayer,
   verifyQueuedCredential = async () => null,
   canonicalCredential = (authorization) => authorization,
+  bridgeOwnerKeyForPlayer = () => null,
   accountHealth = () => null,
   accountResourceVersions = () => null,
   snapshotFetch = fetcher,
@@ -296,6 +298,32 @@ export function createAutomationService({
       }
     }
     leaseAcquired = true;
+  }
+  function signalActionQueue(entry) {
+    if (!closed && !booting && heartbeat && !entry.busy && !entry.inventoryBusy)
+      entry.actionQueue?.rescheduleWake();
+  }
+  function wakeActionQueue(entry) {
+    if (closed || booting || !heartbeat || entry.busy || entry.inventoryBusy)
+      return;
+    try {
+      ensureLease();
+      if (!entry.actionQueue.hasDue()) return;
+    } catch {
+      entry.storageFailed = true;
+      return;
+    }
+    entry.busy = true;
+    entry.inventoryBusy = true;
+    void entry.actionQueue
+      .tick()
+      .catch(() => {})
+      .finally(() => {
+        entry.inventoryBusy = false;
+        signalActionQueue(entry);
+        entry.busy = false;
+        signalActionQueue(entry);
+      });
   }
   let temporaryOutage = emptyGameOutage();
   const currentGameOutage = () => store.getGameOutage?.() ?? temporaryOutage;
@@ -525,6 +553,7 @@ export function createAutomationService({
       raidSubscription: entry.raidSubscription?.getSnapshot() ?? null,
       telegramReport: entry.telegramReport,
       receipts: entry.receipts,
+      queueReceiptJobs: entry.queueReceiptJobs,
       queuedActions: entry.queuedActions,
       updatedAt: now(),
     };
@@ -566,6 +595,14 @@ export function createAutomationService({
       // No game call is allowed after a durability failure.
       entry.storageFailed = true;
     }
+    if (
+      !entry.storageFailed &&
+      !entry.busy &&
+      !entry.inventoryBusy &&
+      !booting &&
+      heartbeat
+    )
+      entry.actionQueue?.rescheduleWake();
   }
   const telegramNotifier = createTelegramBattleNotifier({
     telegram,
@@ -970,6 +1007,8 @@ export function createAutomationService({
         now(),
       ),
       queuedActions,
+      receipts: [...entry.receipts],
+      queueReceiptJobs: [...entry.queueReceiptJobs],
       queueNotBefore: queueReadyAt,
       gameHealth: accountHealth(entry.credential),
       resourceVersions: accountResourceVersions(entry.credential),
@@ -1120,6 +1159,7 @@ export function createAutomationService({
       },
       raidObservations: observeRaids(saved?.raidObservations, [], now()),
       receipts: saved?.receipts ?? [],
+      queueReceiptJobs: saved?.queueReceiptJobs ?? [],
       queuedActions: saved?.queuedActions ?? [],
       queueActiveBooster: false,
       pausedAuto: saved?.pausedAuto ?? null,
@@ -1381,6 +1421,7 @@ export function createAutomationService({
                 return Response.json({ weaponMaintenance: maintenance });
             } finally {
               entry.inventoryBusy = false;
+              signalActionQueue(entry);
             }
           }
         }
@@ -1478,6 +1519,7 @@ export function createAutomationService({
             });
           } finally {
             entry.inventoryBusy = false;
+            signalActionQueue(entry);
           }
           if (!allowed()) throw failure(409, "automation_stopped");
         },
@@ -1846,6 +1888,7 @@ export function createAutomationService({
       unlock: () => {
         entry.raidPolling = false;
         entry.busy = false;
+        signalActionQueue(entry);
       },
       refresh: async ({ force = false } = {}) => {
         await refreshAvailability();
@@ -1905,6 +1948,7 @@ export function createAutomationService({
       },
       unlock: () => {
         entry.busy = false;
+        signalActionQueue(entry);
       },
       capture: () => {
         if (
@@ -2113,6 +2157,7 @@ export function createAutomationService({
       },
       unlock: () => {
         entry.busy = false;
+        signalActionQueue(entry);
       },
       schedule,
       cancel,
@@ -2295,6 +2340,8 @@ export function createAutomationService({
       now,
       random,
       blockedBy: queueBlockedBy,
+      readyAt: () => queueNotBefore(entry),
+      onWake: () => wakeActionQueue(entry),
       terminalBlock: () => {
         const work = entry.workFarm.getSnapshot();
         const run = work.run;
@@ -2436,8 +2483,19 @@ export function createAutomationService({
         return currentReservation;
       },
       runInContext: (job, reconcile, callback, reservation, canDispatch) => {
+        const urgentInvitation =
+          job.type === "invitation.accept" &&
+          Number.isFinite(job.args?.expiresAt) &&
+          job.args.expiresAt - now() <= 60_000;
         const run = () =>
-          requestPriority.run(job, reconcile, callback, reservation);
+          requestPriority.run(
+            urgentInvitation
+              ? { ...job, priority: Math.max(job.priority, 59) }
+              : job,
+            reconcile,
+            callback,
+            reservation,
+          );
         return queueActionGate
           ? queueActionGate.run(
               job,
@@ -2778,6 +2836,7 @@ export function createAutomationService({
       return snapshot(entry);
     } finally {
       entry.busy = false;
+      signalActionQueue(entry);
     }
   }
   async function refreshInvitations(
@@ -3023,7 +3082,9 @@ export function createAutomationService({
       save(entry);
     } finally {
       entry.inventoryBusy = false;
+      signalActionQueue(entry);
       entry.busy = false;
+      signalActionQueue(entry);
       entry.friendSnapshotRefreshing = false;
     }
   }
@@ -3073,7 +3134,9 @@ export function createAutomationService({
     } finally {
       entry.friendRemovalRefreshing = false;
       entry.inventoryBusy = false;
+      signalActionQueue(entry);
       entry.busy = false;
+      signalActionQueue(entry);
     }
   }
   function discoverInvitations(entry) {
@@ -3118,6 +3181,7 @@ export function createAutomationService({
           now() + INVITATION_DISCOVERY_INTERVAL_MS,
         );
         entry.busy = false;
+        signalActionQueue(entry);
         if (entry.invitationDiscoveryPromise === discovery)
           entry.invitationDiscoveryPromise = null;
       });
@@ -3258,6 +3322,7 @@ export function createAutomationService({
           });
         } finally {
           entry.inventoryBusy = false;
+          signalActionQueue(entry);
         }
         if (!maintainAllowed() || invitation.expiresAt <= now())
           throw failure(409, "raid_stopped");
@@ -3574,6 +3639,7 @@ export function createAutomationService({
         return snapshot(entry);
       } finally {
         entry.busy = false;
+        signalActionQueue(entry);
       }
     }
     if (input.command === "energy.booster.use") {
@@ -3619,6 +3685,7 @@ export function createAutomationService({
         return snapshot(entry);
       } finally {
         entry.busy = false;
+        signalActionQueue(entry);
       }
     }
     if (input.command === "queue.enqueue") {
@@ -3648,9 +3715,14 @@ export function createAutomationService({
         ].includes(input.args?.type)
       )
         throw failure(400, "invalid_queue_type");
+      const receiptJobId = entry.queueReceiptJobs.find(
+        ([receiptId]) => receiptId === input.id,
+      )?.[1];
       const knownJob = entry.actionQueue
         .snapshot()
-        .find((job) => job.id === input.id);
+        .find((job) => job.id === (receiptJobId ?? input.id));
+      if (entry.receipts.includes(input.id) && knownJob)
+        return { ...snapshot(entry), enqueuedJobId: knownJob.id };
       const runningRaid = entry.raidWorker.getSnapshot();
       if (
         input.args.type === "raid.start" &&
@@ -3663,6 +3735,8 @@ export function createAutomationService({
       if (entry.receipts.includes(input.id) && !knownJob)
         throw failure(409, "automation_command_already_received");
       const previousReceipts = entry.receipts;
+      const previousQueueReceiptJobs = entry.queueReceiptJobs;
+      let enqueuedJobId;
       if (!entry.receipts.includes(input.id))
         entry.receipts = [...entry.receipts.slice(-127), input.id];
       try {
@@ -3706,32 +3780,21 @@ export function createAutomationService({
           type: input.args.type,
           args: action,
           dependsOn,
-          priority:
-            input.args.type === "invitation.accept"
-              ? 60
-              : ["work.start", "character.start"].includes(input.args.type)
-                ? 20
-                : [
-                      "business.start",
-                      "auto.start",
-                      "raid.start",
-                      "floor.start",
-                      "subscription.start",
-                    ].includes(input.args.type)
-                  ? 15
-                  : 30,
+          priority: actionPriority(input.args.type, action),
         });
-        // Equivalent clicks may reuse an existing job; their own receipt must
-        // still be durable before the response is returned.
-        if (
-          entry.receipts !== previousReceipts &&
-          (knownJob || job.id !== input.id)
-        )
+        enqueuedJobId = job.id;
+        if (!receiptJobId) {
+          entry.queueReceiptJobs = [
+            ...entry.queueReceiptJobs.slice(-127),
+            [input.id, job.id],
+          ];
           save(entry);
+        }
         if (entry.storageFailed)
           throw failure(503, "automation_storage_unavailable");
       } catch (error) {
         entry.receipts = previousReceipts;
+        entry.queueReceiptJobs = previousQueueReceiptJobs;
         throw failure(entry.storageFailed ? 503 : 400, error.message);
       }
       if (input.args.type === "battle.buy") {
@@ -3742,7 +3805,7 @@ export function createAutomationService({
           save(entry);
         }
       }
-      return snapshot(entry);
+      return { ...snapshot(entry), enqueuedJobId };
     }
     if (input.command === "queue.resume") {
       if (entry.receipts.includes(input.id)) return snapshot(entry);
@@ -5266,6 +5329,7 @@ export function createAutomationService({
       return snapshot(entry);
     } finally {
       entry.busy = wasBusy;
+      signalActionQueue(entry);
     }
   }
   async function command(entry, input) {
@@ -5309,6 +5373,19 @@ export function createAutomationService({
       if (entry.storageFailed)
         throw failure(503, "automation_storage_unavailable");
       return entry;
+    },
+    wakeBridgeOwner(ownerKey) {
+      if (closed || typeof ownerKey !== "string") return false;
+      const entry = [...actors.values()].find((actor) => {
+        try {
+          return bridgeOwnerKeyForPlayer(actor.playerId) === ownerKey;
+        } catch {
+          return false;
+        }
+      });
+      if (!entry || entry.storageFailed) return false;
+      entry.actionQueue?.rescheduleWake();
+      return true;
     },
     reconcileStored(entry) {
       ensureLease();
@@ -5453,25 +5530,12 @@ export function createAutomationService({
               .catch(() => {})
               .finally(() => {
                 entry.inventoryBusy = false;
+                signalActionQueue(entry);
                 entry.busy = false;
+                signalActionQueue(entry);
               });
           }
-          if (
-            !booting &&
-            entry.actionQueue.hasDue() &&
-            !entry.busy &&
-            !entry.inventoryBusy
-          ) {
-            entry.busy = true;
-            entry.inventoryBusy = true;
-            void entry.actionQueue
-              .tick()
-              .catch(() => {})
-              .finally(() => {
-                entry.inventoryBusy = false;
-                entry.busy = false;
-              });
-          }
+          if (!booting) wakeActionQueue(entry);
           if (
             !entry.busy &&
             !entry.inventoryBusy &&
@@ -5497,6 +5561,7 @@ export function createAutomationService({
               .catch(() => {})
               .finally(() => {
                 entry.busy = false;
+                signalActionQueue(entry);
               });
           }
           void refreshPendingFriendRemoval(entry);
@@ -5541,7 +5606,9 @@ export function createAutomationService({
               })
               .finally(() => {
                 entry.inventoryBusy = false;
+                signalActionQueue(entry);
                 entry.busy = false;
+                signalActionQueue(entry);
               });
           }
           if (
@@ -5560,6 +5627,7 @@ export function createAutomationService({
               .catch(() => {})
               .finally(() => {
                 entry.busy = false;
+                signalActionQueue(entry);
               });
           }
           if (now() < (entry.workerRetryAt ?? 0)) continue;
@@ -5698,10 +5766,12 @@ export function createAutomationService({
         save(entry);
       }
       booting = false;
+      for (const entry of actors.values()) entry.actionQueue.rescheduleWake();
     },
     close() {
       closed = true;
       for (const entry of actors.values()) {
+        entry.actionQueue.close();
         entry.floorRunner.dispose();
         for (const unsub of entry.unsubscribers) unsub();
         entry.workFarm.dispose();

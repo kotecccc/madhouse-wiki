@@ -125,6 +125,10 @@ export function createBridgeRuntime({
         bindGameAccount = bindAccount;
         installRecoveryStore = installStore;
       },
+      setAuthenticatedReconnectHandler(handler) {
+        if (closed) throw new Error("bridge_unavailable");
+        return service.setAuthenticatedReconnectHandler(handler);
+      },
       installRecoveryStore(store) {
         installRecoveryStore(store);
       },
@@ -139,6 +143,7 @@ export function createBridgeRuntime({
       }),
       ownerForPlayer: (playerId) =>
         storage.accounts.resolveVerifiedPlayer(String(playerId))?.owner ?? null,
+      ownerKey: (verifiedOwner) => storage.registry.ownerKey(verifiedOwner),
       canonicalCredential(authorization) {
         const token =
           typeof authorization === "string" &&

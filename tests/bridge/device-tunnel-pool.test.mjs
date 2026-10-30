@@ -8,10 +8,11 @@ class FakeSocket extends EventEmitter {
   bufferedAmount = 0;
   terminate() {
     this.readyState = 3;
-    this.emit("close");
+    this.emit("close", 1006);
   }
-  close() {
-    this.terminate();
+  close(code = 1000) {
+    this.readyState = 3;
+    this.emit("close", code);
   }
   pause() {}
   resume() {}
@@ -37,6 +38,43 @@ test("each authenticated owner may consume one stream only", async () => {
   assert.equal(second.status, "rejected");
   first.value.destroy();
   pool.close();
+});
+
+test("only an authenticated replacement after an abnormal tunnel close signals reconnect", async () => {
+  const reconnects = [];
+  let authorized = true;
+  const pool = createDeviceTunnelPool({
+    authorize: async () => authorized,
+    onAuthenticatedReconnect: (trustedIdentity) =>
+      reconnects.push(trustedIdentity.owner),
+    reconnectWaitMs: 1000,
+  });
+  try {
+    const first = new FakeSocket();
+    await pool.admit(identity, first);
+    await pool.open(identity.owner);
+    first.close(1011);
+
+    authorized = false;
+    await assert.rejects(pool.admit(identity, new FakeSocket()), {
+      code: "bridge_unavailable",
+    });
+    assert.deepEqual(reconnects, []);
+
+    authorized = true;
+    const replacement = new FakeSocket();
+    await pool.admit(identity, replacement);
+    await Promise.resolve();
+    assert.deepEqual(reconnects, [identity.owner]);
+
+    const consumed = await pool.open(identity.owner);
+    consumed.destroy();
+    await pool.admit(identity, new FakeSocket());
+    await Promise.resolve();
+    assert.deepEqual(reconnects, [identity.owner]);
+  } finally {
+    pool.close();
+  }
 });
 
 test("a waiting request claims only a fresh reauthenticated tunnel", async () => {

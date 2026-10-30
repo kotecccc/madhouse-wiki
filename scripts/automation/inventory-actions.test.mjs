@@ -149,7 +149,7 @@ test("lost replies and confirmation reads remain pending and never replay automa
     assert.equal(ctx.game.mutations().length, 1);
   }
 });
-test("explicit read-only reconciliation clears pending without a repeated mutation", async () => {
+test("explicit read-only reconciliation clears a lost purchase after ownership confirms", async () => {
   const ctx = context({ failMutation: true });
   await assert.rejects(
     ctx.run({
@@ -160,10 +160,46 @@ test("explicit read-only reconciliation clears pending without a repeated mutati
       price: { amount: 100, currency: "gold" },
     }),
   );
-  await ctx.run({ type: "weapon" }, true);
+  ctx.game.items.ornament.owned = true;
+  const result = await ctx.run({ type: "ornament" }, true);
+  assert.equal(result.pending, false);
   assert.equal(ctx.entry.equipment.pending, null);
   assert.deepEqual(ctx.entry.equipment.paths, ["/api/ornaments/zones/4"]);
   assert.equal(ctx.game.mutations().length, 1);
+});
+
+test("a successful refresh without the expected purchase effect keeps the checkpoint", async () => {
+  const ctx = context({ failMutation: true });
+  await assert.rejects(
+    ctx.run({
+      type: "weapon",
+      id: 1,
+      action: "buy",
+      price: { amount: 100, currency: "gold" },
+    }),
+  );
+  const checkpoint = structuredClone(ctx.entry.equipment.pending);
+  const result = await ctx.run({ type: "weapon" }, true);
+  assert.equal(result.item.owned, false);
+  assert.equal(result.pending, true);
+  assert.deepEqual(ctx.entry.equipment.pending, checkpoint);
+  await assert.rejects(
+    ctx.run({
+      type: "weapon",
+      id: 1,
+      action: "buy",
+      price: { amount: 100, currency: "gold" },
+    }),
+    /uncertain/,
+  );
+  assert.equal(ctx.game.mutations().length, 1);
+});
+test("refresh cannot infer an unequip from a legacy checkpoint with no action", async () => {
+  const ctx = context({ owned: true, equipped: false });
+  ctx.entry.equipment = { pending: { weaponId: 1 }, checked: false };
+  const result = await ctx.run({ type: "weapon" }, true);
+  assert.equal(result.pending, true);
+  assert.deepEqual(ctx.entry.equipment.pending, { weaponId: 1 });
 });
 test("failed reconciliation keeps the pending purchase and never submits it again", async () => {
   const ctx = context({ failMutation: true });

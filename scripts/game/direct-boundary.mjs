@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createDirectExecutor } from "./direct-executor.mjs";
 import { isTrustedBattleRecoveryPermit } from "../bridge/queue-action-gate.mjs";
 import { currentWorkerLease } from "../automation/worker-lease-context.mjs";
+import { currentRequestPriority } from "../automation/request-priority-context.mjs";
 
 function setting(env, name, fallback, maximum) {
   if (env[name] == null || env[name] === "") return fallback;
@@ -119,6 +120,7 @@ export function createDirectBoundary({
     recoveryPermit,
     path,
   }) {
+    const priority = currentRequestPriority();
     const workerLease = currentWorkerLease();
     if (!recoveryReady)
       return Promise.reject(
@@ -307,6 +309,7 @@ export function createDirectBoundary({
           ((method || "GET") === "GET" ||
             (method === "POST" && path === "/api/works/open")),
         source: method && method !== "GET" ? "automation" : "wiki",
+        ...(priority == null ? {} : { priority }),
         cooldownScope: authorization ? "account" : "global",
         ...(recoveryAttempt
           ? {
@@ -318,6 +321,7 @@ export function createDirectBoundary({
     );
   }
   async function request(url, init = {}, source = "wiki") {
+    const priority = currentRequestPriority();
     if (!recoveryReady)
       throw Object.assign(new Error("bridge_recovery_not_ready"), {
         notDispatched: true,
@@ -354,6 +358,7 @@ export function createDirectBoundary({
     const result = await executor.request(url, requestInit, {
       accountId,
       source: gameSource || source,
+      ...(priority == null ? {} : { priority }),
       attempt: gameAttempt,
       cooldownScope: digest ? "account" : "global",
       ...(trustedBootstrap

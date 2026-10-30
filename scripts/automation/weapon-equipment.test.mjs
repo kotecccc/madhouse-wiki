@@ -163,9 +163,9 @@ test("service persists equipment uncertainty across restart and rejects replayed
         id: "equip-command-2",
         expectedVersion: service.snapshot(entry).version,
       }),
-      /timeout/,
+      /weapon_equipment_uncertain/,
     );
-    assert.equal(mutations, before + 1);
+    assert.equal(mutations, before);
   } finally {
     service.close();
     store.close();
