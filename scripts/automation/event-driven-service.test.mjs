@@ -116,6 +116,28 @@ test("queued work wakes from an empty queue without a heartbeat tick", async () 
   }
 });
 
+test("manual equipment wakes from an empty queue without a heartbeat tick", async () => {
+  const game = inventoryGame({ owned: true });
+  const h = await harness(game.fetcher);
+  try {
+    assert.equal(typeof h.heartbeatCallback, "function");
+    await h.enqueue("wake-equip-weapon", {
+      type: "weapon",
+      id: 1,
+      action: "equip",
+    });
+    await waitFor(
+      () =>
+        h.service.snapshot(h.entry).queuedActions[0]?.status === "completed",
+      "event-driven equipment completion",
+    );
+    assert.equal(game.mutations().length, 1);
+    assert.equal(game.items.weapon.equipped, true);
+  } finally {
+    h.close();
+  }
+});
+
 test("wake storms preserve the durable checkpoint, serialization, and cancellation", async () => {
   let releaseFirst;
   let firstStarted;

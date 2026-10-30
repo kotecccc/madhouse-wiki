@@ -178,6 +178,14 @@ test("battle header contains countdown, hides automation manual controls and kee
     );
     assert.match(waitingAttack, /Ударить · 2 с/);
     assert.doesNotMatch(waitingAttack, /disabled=""[^>]*>.*?Ударить · 2 с/s);
+    const submittingAttack = renderToStaticMarkup(
+      createElement(BossBattlePanel, {
+        state: staleBattle,
+        now: 1000,
+        manualActionPending: true,
+      }),
+    );
+    assert.match(submittingAttack, /disabled=""[^>]*>.*?Удар…/s);
     const queuedAttack = renderToStaticMarkup(
       createElement(BossBattlePanel, {
         state: {

@@ -353,7 +353,7 @@ export function BossBattlePanel({
           >
             {auto.enabled
               ? "Ударить"
-              : state.pending === "attack"
+              : manualActionPending || state.pending === "attack"
                 ? "Удар…"
                 : waiting > 0
                   ? `Ударить · ${waiting} с`
