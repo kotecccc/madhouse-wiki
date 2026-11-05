@@ -387,6 +387,15 @@ export function BossBattleDialog({ actionsTarget, attackTarget }) {
               collapsed={auto.enabled || Boolean(state.raid?.enabled)}
               onSave={saveHealingSettings}
             />
+            {!preview && !state.medicineOpen && (
+              <Button
+                icon="pill"
+                disabled={Boolean(state.pending)}
+                onClick={() => void bossBattle.openMedicines()}
+              >
+                Купить или применить аптечку
+              </Button>
+            )}
             {!preview && state.medicineOpen && (
               <BossMedicinePanel
                 state={state}
