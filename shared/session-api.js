@@ -421,7 +421,7 @@ export function createSessionApi({
               "unavailable" ||
             method !== "GET" ||
             ![500, 502, 503, 504].includes(response.status) ||
-            attempt === 2
+            attempt === maxAttempts - 1
           )
             break;
           await response.body?.cancel();

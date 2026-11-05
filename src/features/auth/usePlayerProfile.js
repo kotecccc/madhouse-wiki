@@ -59,6 +59,8 @@ export function usePlayerProfile() {
 
   useEffect(() => {
     let controller;
+    let disposed = false;
+    let recoveringClearedData = false;
     const sessionIdentity = () => {
       try {
         return storedSessionIdentity();
@@ -164,6 +166,19 @@ export function usePlayerProfile() {
       (event) => {
         if (event.cleared) {
           setState(cachedState());
+          // Cache invalidation aborts its reads without changing the session.
+          // Reload after that invalidation completes, and never recursively
+          // retry when authorization for the recovery read itself fails.
+          if (!recoveringClearedData) {
+            recoveringClearedData = true;
+            queueMicrotask(async () => {
+              try {
+                if (!disposed) await load();
+              } finally {
+                recoveringClearedData = false;
+              }
+            });
+          }
         } else if (event.path === "/api/me") {
           setState((current) => ({
             ...current,
@@ -202,6 +217,7 @@ export function usePlayerProfile() {
     void load();
     const unsubscribe = subscribeSession(load);
     return () => {
+      disposed = true;
       controller?.abort();
       unsubscribe();
       unsubscribeData();

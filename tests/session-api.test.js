@@ -911,6 +911,28 @@ test("temporary GET failures recover within the shared request and cache only su
   assert.equal(calls, 3);
 });
 
+test("stored reads fail without sleeping for a retry that will not run", async () => {
+  let calls = 0;
+  const waits = [];
+  const authorize = (request) => ({
+    ...request,
+    headers: { Authorization: "fake" },
+  });
+  const api = createSessionApi({
+    interval: 0,
+    authorize,
+    authorizeStored: authorize,
+    pause: async (ms) => waits.push(ms),
+    fetcher: async () => {
+      calls++;
+      return new Response("", { status: 503 });
+    },
+  });
+  await assert.rejects(api.readStored("/api/me"));
+  assert.equal(calls, 1);
+  assert.deepEqual(waits, []);
+});
+
 test("authentication, throttling and writes are never automatically retried", async () => {
   for (const [method, status] of [
     ["GET", 401],
