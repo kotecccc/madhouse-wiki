@@ -426,6 +426,7 @@ test("results project granted rewards and documented battle stats without privat
       },
     }),
     7,
+    100_000,
   );
   assert.equal(b.outcome, "Победа");
   assert.deepEqual(b.rewards, ["Золото: 10", "Предмет: 2"]);
