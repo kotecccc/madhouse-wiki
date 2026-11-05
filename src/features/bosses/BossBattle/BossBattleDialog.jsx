@@ -390,7 +390,11 @@ export function BossBattleDialog({ actionsTarget, attackTarget }) {
             {!preview && !state.medicineOpen && (
               <Button
                 icon="pill"
-                disabled={Boolean(state.pending)}
+                disabled={
+                  Boolean(state.pending) ||
+                  !state.battle ||
+                  (state.battle.status !== "active" && !state.purchaseUncertain)
+                }
                 onClick={() => void bossBattle.openMedicines()}
               >
                 Купить или применить аптечку

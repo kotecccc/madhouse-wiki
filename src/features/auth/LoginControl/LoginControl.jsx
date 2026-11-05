@@ -390,7 +390,9 @@ export function LoginControl() {
         setError(
           error?.message === "wiki_reopen_required"
             ? "Закройте и откройте Wiki заново через меню бота Telegram."
-            : "Не удалось завершить подключение. Повторите попытку.",
+            : error?.message === "connector_not_ready"
+              ? "Форма входа не загрузилась. Повторите подключение или откройте Wiki заново из Telegram."
+              : "Не удалось завершить подключение. Повторите попытку.",
         );
     });
   };

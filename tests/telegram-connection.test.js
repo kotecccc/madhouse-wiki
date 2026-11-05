@@ -335,6 +335,55 @@ test("parent bridge accepts only exact child, ignores stale token after logout",
   assert.ok(sent.every((item) => item.origin === "https://connect.example"));
   bridge.destroy();
 });
+test("missing connector readiness fails promptly and retry retains the full login window", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let receive;
+  let serial = 0;
+  const sent = [];
+  const child = { postMessage: (data) => sent.push(data) };
+  const bridge = createConnectorBridge({
+    origin: "https://connect.example",
+    source: () => child,
+    listen: (listener) => {
+      receive = listener;
+    },
+    unlisten: () => {},
+    randomId: () => uuid(++serial),
+  });
+  const emit = (data) =>
+    receive({
+      origin: "https://connect.example",
+      source: child,
+      data: { channel: CHANNEL, version: VERSION, ...data },
+    });
+  assert.equal(bridge.isReady(), false);
+  const failed = assert.rejects(
+    bridge.request("connect-game", { interactive: true }),
+    /connector_not_ready/,
+  );
+  t.mock.timers.tick(15000);
+  await failed;
+  assert.equal(
+    sent.some((message) => message.action === "connect-game"),
+    false,
+  );
+  const retry = bridge.request("connect-game", { interactive: true });
+  t.mock.timers.tick(10000);
+  emit({ kind: "ready" });
+  assert.equal(bridge.isReady(), true);
+  const request = sent.find((message) => message.action === "connect-game");
+  assert.ok(request);
+  t.mock.timers.tick(15000);
+  emit({
+    id: request.id,
+    kind: "result",
+    status: "connected",
+    accessToken: "test-token",
+  });
+  assert.equal((await retry).accessToken, "test-token");
+  bridge.destroy({ preserveRemoteSession: true });
+});
+
 test("bridge timeout cancels the child flow and a failed exchange can start with a new nonce", async () => {
   let receive,
     serial = 0;

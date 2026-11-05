@@ -36,6 +36,7 @@ export function createConnectorBridge({
   onRevocationFailure = () => {},
   randomId = () => crypto.randomUUID(),
   timeout = 300000,
+  readinessTimeout = 15000,
 }) {
   origin = connectorOrigin(origin);
   if (!origin) throw new Error("invalid_connector_origin");
@@ -53,9 +54,19 @@ export function createConnectorBridge({
     if (error) current.reject(error);
     else current.resolve(result);
   };
+  const armTimeout = (entry, delay, code) => {
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => {
+      if (pending !== entry) return;
+      generation++;
+      sendCancel();
+      finish(new Error(code));
+    }, delay);
+  };
   const transmit = () => {
     if (ready && pending && !pending.sent) {
       pending.sent = true;
+      armTimeout(pending, pending.responseTimeout, "connection_timeout");
       send(pending.message);
     }
   };
@@ -289,6 +300,7 @@ export function createConnectorBridge({
     finish(new Error("cancelled"));
   }
   return {
+    isReady: () => ready,
     request(
       action,
       { expectedUserId, wikiInitData, interactive = false } = {},
@@ -316,21 +328,19 @@ export function createConnectorBridge({
         action === "connect-game" && interactive ? message.id : null;
       if (expectedUserId) message.expectedUserId = String(expectedUserId);
       if (wikiInitData) message.wikiInitData = wikiInitData;
-      const entry = { message, generation, sent: false };
+      const responseTimeout =
+        action === "logout" ? 150000 : interactive ? timeout : 45000;
+      const entry = { message, generation, sent: false, responseTimeout };
       entry.promise = new Promise((resolve, reject) => {
         entry.resolve = resolve;
         entry.reject = reject;
       });
-      entry.timer = setTimeout(
-        () => {
-          if (pending !== entry) return;
-          generation++;
-          sendCancel();
-          finish(new Error("connection_timeout"));
-        },
-        action === "logout" ? 150000 : interactive ? timeout : 45000,
-      );
       pending = entry;
+      armTimeout(
+        entry,
+        Math.min(readinessTimeout, responseTimeout),
+        "connector_not_ready",
+      );
       transmit();
       return entry.promise;
     },

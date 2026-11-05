@@ -62,6 +62,11 @@ export function TelegramConnection({
   const request = useCallback(
     async (interactive, { progressOnly = false, expectedUserId } = {}) => {
       if (!bridge.current) throw new Error("connection_unavailable");
+      if (interactive && !bridge.current.isReady() && iframe.current) {
+        // A retained hidden iframe may still be about:blank. Navigate it only
+        // before readiness, keeping the message listener and active login intact.
+        iframe.current.src = TELEGRAM_CONNECTOR_ORIGIN + "/";
+      }
       if (interactive) restoreAttempted.current = true;
       if (!interactive && interactiveActive.current)
         return { status: "pending" };
