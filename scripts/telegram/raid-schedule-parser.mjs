@@ -1,6 +1,7 @@
-const CHANNEL_USERNAME = "raidsMadness";
+const CHANNEL_USERNAME = "madhouse_wiki_raids";
 
-const REQUIRED_COLUMNS = ["zone", "time", "clan", "boss", "leader", "duration"];
+const COLUMNS = ["zone", "time", "clan", "boss", "leader", "duration", "count"];
+const REQUIRED_COLUMNS = ["zone", "boss", "leader"];
 
 function plainText(value, depth = 0) {
   if (depth > 16 || value == null) return "";
@@ -9,6 +10,7 @@ function plainText(value, depth = 0) {
   if (Array.isArray(value))
     return value.map((part) => plainText(part, depth + 1)).join("");
   if (typeof value !== "object") return "";
+  if (value._ === "textCustomEmoji") return value.alt || "";
   if (typeof value.text === "string") return value.text;
   if ("text" in value) return plainText(value.text, depth + 1);
   if (Array.isArray(value.texts))
@@ -39,6 +41,7 @@ function columnForHeader(value) {
   if (header === "зона" || header === "зоны") return "zone";
   if (header === "время") return "time";
   if (header === "клан") return "clan";
+  if (header === "боев" || header === "боёв") return "count";
   if (header === "босс") return "boss";
   if (header.startsWith("ведущ")) return "leader";
   if (header.startsWith("длит")) return "duration";
@@ -82,15 +85,15 @@ function rowsFromCells(rows) {
     if (!cells || cells.some((cell) => cell?.colspan > 1 || cell?.rowspan > 1))
       return [];
     const values = Object.fromEntries(
-      REQUIRED_COLUMNS.map((column) => [
+      COLUMNS.filter((column) => column in header).map((column) => [
         column,
         cellValue(cells[header[column]]),
       ]),
     );
-    if (!values.time || !values.boss) return [];
+    if (!values.boss || !values.leader) return [];
     return [values];
   });
-  return parsed.length ? parsed : null;
+  return parsed;
 }
 
 function splitTextRow(line) {
@@ -114,12 +117,15 @@ function rowsFromText(text) {
   const parsed = rows.slice(headerIndex + 1).flatMap((row) => {
     if (!row || row.every((cell) => /^:?-{2,}:?$/.test(cell))) return [];
     const values = Object.fromEntries(
-      REQUIRED_COLUMNS.map((column) => [column, row[header[column]] || ""]),
+      COLUMNS.filter((column) => column in header).map((column) => [
+        column,
+        row[header[column]] || "",
+      ]),
     );
-    if (!values.time || !values.boss) return [];
+    if (!values.boss || !values.leader) return [];
     return [values];
   });
-  return parsed.length ? parsed : null;
+  return parsed;
 }
 
 function tableRows(block) {
@@ -175,7 +181,7 @@ function findRaidTitle(message, blocks) {
       .replace(/\u00a0/g, " ")
       .trim();
     const match =
-      /(?:^|[^\p{L}\p{N}_])рейды\s*[—–-]\s*(\d{1,2}\.\d{1,2}\.\d{4})(?![\p{L}\p{N}_])/iu.exec(
+      /(?:^|[^\p{L}\p{N}_])рейды\s*[—–•-]\s*(\d{1,2}\.\d{1,2}\.\d{4})(?![\p{L}\p{N}_])/iu.exec(
         title,
       );
     if (!match) continue;
@@ -229,11 +235,21 @@ export function parseRaidChannelPost(message) {
   );
   const title = findRaidTitle(message, blocks);
   if (!title) return null;
+  const explicitlyEmpty = [
+    message.text,
+    ...blocks.map((block) => block.text),
+  ].some((value) =>
+    /^(?:Активных рейдов пока нет|Остальных рейдов сейчас нет)\.$/iu.test(
+      plainText(value).trim(),
+    ),
+  );
   const rows =
     blocks
       .filter((block) => block.type === "table" || block._ === "pageBlockTable")
       .map(tableRows)
-      .find(Boolean) || rowsFromText(message.text);
+      .find(Boolean) ||
+    rowsFromText(message.text) ||
+    (explicitlyEmpty ? [] : null);
   if (!rows) return null;
 
   const publishedAt = toIsoTimestamp(message.date);

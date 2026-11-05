@@ -32,7 +32,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  readSessionRefreshState,
   subscribeSessionData,
   getSessionJson,
 } from "../../../shared/session-api.js";
@@ -89,11 +88,6 @@ export function App() {
     battleState.previewBoss && battleState.battle?.status === "active",
   );
   const [toastTarget, setToastTarget] = useState(null);
-  const refreshing = useSyncExternalStore(
-    subscribeSessionData,
-    readSessionRefreshState,
-    () => false,
-  );
   const scrollRegionRef = useRef(null);
   const profileState = usePlayerProfile();
   const floorAvailability = useFloorAvailability();
@@ -461,7 +455,6 @@ export function App() {
             <SiteHeader
               onHome={() => changeScreen("overview")}
               loading={
-                refreshing ||
                 pull.loading ||
                 profileState.status === "loading" ||
                 floorAvailability.status === "loading" ||

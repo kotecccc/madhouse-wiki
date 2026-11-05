@@ -310,10 +310,6 @@ export function createAutomationStateStore({ directory }) {
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       record TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS global_raids (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      record TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS bridge_attempts (
       attempt_key TEXT PRIMARY KEY NOT NULL,
       revision INTEGER NOT NULL CHECK (revision >= 1),
@@ -374,12 +370,6 @@ export function createAutomationStateStore({ directory }) {
   );
   const saveChannelGameStatus = db.prepare(
     "INSERT INTO channel_game_status (singleton, record) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET record = excluded.record",
-  );
-  const selectGlobalRaids = db.prepare(
-    "SELECT record FROM global_raids WHERE singleton = 1",
-  );
-  const saveGlobalRaids = db.prepare(
-    "INSERT INTO global_raids (singleton, record) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET record = excluded.record",
   );
   const saveGameOutage =
     db.prepare(`INSERT INTO game_outage (singleton, record) VALUES (1, ?)
@@ -461,19 +451,6 @@ export function createAutomationStateStore({ directory }) {
         if (!lease || lease.owner !== worker || lease.expires_at <= now)
           throw new Error("automation_worker_unavailable");
         saveChannelGameStatus.run(record);
-      });
-    },
-    readGlobalRaids() {
-      const row = selectGlobalRaids.get();
-      return row ? decrypt(key, "global-raids", row.record) : null;
-    },
-    writeGlobalRaids(value, worker, now) {
-      const record = encrypt(key, "global-raids", value);
-      transaction(() => {
-        const lease = selectLease.get();
-        if (!lease || lease.owner !== worker || lease.expires_at <= now)
-          throw new Error("automation_worker_unavailable");
-        saveGlobalRaids.run(record);
       });
     },
     readSnapshots() {

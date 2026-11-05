@@ -1,6 +1,6 @@
 {
   "name": "madhouse-wiki",
-  "version": "1.33.9",
+  "version": "1.34.0",
   "private": true,
   "type": "module",
   "scripts": {

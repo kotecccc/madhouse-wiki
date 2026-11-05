@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import { raidSourceChannelUsername } from "./raid-schedule-parser.mjs";
 import { createRaidSessionStore } from "./raid-session-store.mjs";
 import { createRaidTelegramClient } from "./raid-mtproto-client.mjs";
 
@@ -53,7 +54,7 @@ const client = await createRaidTelegramClient();
 let saved = false;
 try {
   console.log(
-    "Scan this QR code with the Telegram account that can read @raidsMadness.",
+    "Scan this QR code with the Telegram account that can read @madhouse_wiki_raids.",
   );
   const user = await client.start({
     qrCodeHandler: async (url) => {
@@ -80,10 +81,11 @@ try {
     },
   });
   if (user.isBot) throw new Error("A user Telegram account is required.");
-  const channel = await client.getChat("@raidsMadness");
+  const channel = await client.getChat(`@${raidSourceChannelUsername()}`);
   if (
     channel.chatType !== "channel" ||
-    channel.username?.toLocaleLowerCase("en-US") !== "raidsmadness"
+    channel.username?.toLocaleLowerCase("en-US") !==
+      raidSourceChannelUsername().toLocaleLowerCase("en-US")
   )
     throw new Error(
       "The Telegram account could not resolve the target channel.",

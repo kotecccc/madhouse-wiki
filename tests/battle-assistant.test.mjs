@@ -887,7 +887,7 @@ test("stop during outage recovery cannot submit a late attack", async () => {
   );
 });
 
-test("joining a battle invites before the first ready strike even before personal quota", async () => {
+test("joining a battle strikes immediately and invites during the next cooldown", async () => {
   const controller = fakeController(
     baseState({ damageLimit: { bossId: 7, value: 40 } }),
   );
@@ -898,11 +898,15 @@ test("joining a battle invites before the first ready strike even before persona
   });
   assistant.begin("new-raid");
   const result = await assistant.step();
-  assert.equal(result.kind, "invite");
-  assert.ok(!controller.calls.some(([kind]) => kind === "attack"));
+  assert.equal(result.kind, "attack");
+  assert.deepEqual(controller.calls, [["attack"]]);
+  controller.setSnapshot({
+    ...controller.getSnapshot(),
+    battle: { ...controller.getSnapshot().battle, readyAt: 110000 },
+  });
+  assert.equal((await assistant.step()).kind, "invite");
   assert.equal(assistant.projection().invitation.invitedCount, 1);
   assert.equal(assistant.projection().invitation.nextAt, 135000);
-  assert.equal((await assistant.step()).kind, "attack");
 });
 
 test("only a matching operation proven unsent can release a reservation", () => {
@@ -922,4 +926,25 @@ test("only a matching operation proven unsent can release a reservation", () => 
   assert.equal(assistant.exportState().pending.operationId, "queued-operation");
   assert.equal(assistant.releaseUnsent("queued-operation"), true);
   assert.equal(assistant.exportState().pending, null);
+});
+
+test("initial invitation is deferred if the strike becomes ready during its fresh read", async () => {
+  let time = 100000;
+  const controller = fakeController(
+    baseState({
+      damageLimit: { bossId: 7, value: 40 },
+      battle: { ...baseState().battle, readyAt: 101000 },
+    }),
+    {
+      refresh: () => {
+        time = 102000;
+      },
+    },
+  );
+  const assistant = createBattleAssistant({ controller, now: () => time });
+  assistant.begin("new-raid");
+  assert.equal((await assistant.step()).kind, "wait");
+  assert.deepEqual(controller.calls, [["refresh"]]);
+  assert.equal((await assistant.step()).kind, "attack");
+  assert.deepEqual(controller.calls, [["refresh"], ["attack"]]);
 });

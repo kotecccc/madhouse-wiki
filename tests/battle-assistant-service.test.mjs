@@ -400,8 +400,8 @@ test("service automation proceeds from danger through stock, buy, heal and attac
     assert.deepEqual(mutations, [
       "/api/me/bag/combat-items/buy",
       "/api/bosses/battles/battle-1/items/use",
-      "/api/bosses/battles/battle-1/invitations/bulk",
       "/api/bosses/battles/battle-1/attack",
+      "/api/bosses/battles/battle-1/invitations/bulk",
     ]);
     const snapshot = ctx.service.snapshot(entry);
     assert.equal(snapshot.battle.healing.used.heal_10, 1);

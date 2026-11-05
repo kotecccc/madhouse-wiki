@@ -224,10 +224,10 @@ export function RaidScheduleSection({
         ? invitations.items.length
         : undefined,
     raids:
-      authenticated && subscriptionState.loaded
+      state.status === "ready"
         ? combineRaids(
+            latest?.raids ?? [],
             [],
-            subscriptionState.detectedRaids,
             subscriptionState.subscription,
             knowledgeBase.bosses,
           ).length
@@ -237,7 +237,7 @@ export function RaidScheduleSection({
   };
   const defaultSection = defaultRaidSection({
     authenticated,
-    raidsLoaded: subscriptionState.loaded,
+    raidsLoaded: state.status === "ready" || state.status === "error",
     invitationsLoaded: invitations.loaded,
     raidCount: counts.raids ?? 0,
     invitationCount: counts.invitations ?? 0,
@@ -374,41 +374,45 @@ export function RaidScheduleSection({
         <div className="raid-post-list">
           {!authenticated ? (
             <CardDescription>
-              Войдите в аккаунт, чтобы увидеть обнаруженные рейды.
+              Войдите в аккаунт, чтобы присоединиться к рейдам из канала.
             </CardDescription>
           ) : (
             <>
               <ErrorToast message={subscriptionState.error} />
+              {state.status === "error" && (
+                <ErrorToast message="Рейды из канала временно недоступны.">
+                  <Button variant="secondary" size="sm" onClick={onRetry}>
+                    Повторить
+                  </Button>
+                </ErrorToast>
+              )}
               {subscriptionState.queuedSubscriptions?.map((job) => (
                 <CardDescription key={job.id} as="p" role="status">
                   {raidQueueActionNotice(job)}
                 </CardDescription>
               ))}
-              {!subscriptionState.loaded && (
+              {state.status === "loading" && (
                 <RaidSkeletons label="Загрузка рейдов" />
               )}
-              {subscriptionState.loaded &&
-                subscriptionState.detectedRaids.length === 0 &&
+              {state.status === "ready" &&
+                !latest?.raids?.length &&
                 !subscriptionState.subscription?.enabled &&
                 !subscriptionState.subscription?.hasSuspendedGoal && (
                   <div className="raid-feed-state" role="status">
                     <Icon type="combat" size="hero" aria-hidden="true" />
                     <CardDescription>
-                      Рейдов пока нет. Рейд появится здесь, когда ведущий
-                      проведёт три боя с одним боссом за два часа и появится
-                      активное приглашение.
+                      В канале пока нет опубликованных рейдов.
                     </CardDescription>
                   </div>
                 )}
               <RaidPost
-                post={{ raids: [], raidDateLabel: "" }}
+                post={latest ?? { raids: [], raidDateLabel: "" }}
                 groupByFloor
                 floorAvailability={availability}
                 authenticated
                 active={active}
                 focusTarget={queueFocus}
                 onQueueFocusHandled={onQueueFocusHandled}
-                detectedRaids={subscriptionState.detectedRaids}
                 bossCollections={collection.bosses}
                 invitations={invitations.items}
                 subscriptionState={{

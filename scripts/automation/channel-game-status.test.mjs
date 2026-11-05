@@ -282,7 +282,7 @@ test("raid and status publishers serialize shared Telegram access and coalesce t
   assert.deepEqual(events, ["raid-start", "status"]);
 });
 
-test("automation service persists observations and sends status separately from raids", async () => {
+test("automation service publishes only game status and never a raid summary", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -319,14 +319,14 @@ test("automation service persists observations and sends status separately from 
     );
     await new Promise((resolve) => setTimeout(resolve, 1200));
     const sends = calls.filter((call) => call.method === "sendRichMessage");
-    assert.equal(sends.length, 2);
+    assert.equal(sends.length, 1);
     assert.equal(
       sends.filter((call) =>
         call.payload.rich_message.html.includes("Состояние игры"),
       ).length,
       1,
     );
-    assert.equal(store.readChannelGameStatus().messageId, 2);
+    assert.equal(store.readChannelGameStatus().messageId, 1);
   } finally {
     service.close();
     store.close();

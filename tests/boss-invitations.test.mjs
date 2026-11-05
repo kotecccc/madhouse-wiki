@@ -344,102 +344,19 @@ function setup(directory, options = {}) {
   };
 }
 
-test("TMA and global raids share one invitation read without battle detail requests", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "shared-invitation-poll-"));
-  const items = Array.from({ length: 6 }, (_, i) => ({
-    invitationId: `shared-${i}`,
-    battleId: `battle-${i}`,
-    bossId: 7,
-    leaderPlayerId: 42,
-    inviterPlayerId: 42,
-    peerPlayerId: 42,
-    peerNickname: "Leader",
-    status: "pending",
-    battleStatus: "active",
-    expiresAtUtc: future,
-    battleExpiresAtUtc: future,
-  }));
-  const ctx = setup(directory, { globalRaids: true, invitations: () => items });
+test("global raid discovery never occupies the account during an active battle", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "global-raids-active-battle-"));
+  const ctx = setup(directory, {
+    globalRaids: true,
+    activeBattle: { battleId: "battle-9", bossId: 7 },
+  });
   try {
     const entry = await ctx.service.identify(token);
     await ctx.service.boot();
-    await issue(ctx.service, entry, "shared-read-01", "invitations.refresh");
+    assert.equal(ctx.service.snapshot(entry).battle.battle?.status, "active");
+    await new Promise((resolve) => setTimeout(resolve, 1200));
     assert.equal(
-      ctx.calls.filter((c) => c.path === BOSS_INVITATIONS_PATH).length,
-      1,
-    );
-    assert.equal(
-      ctx.calls.filter((c) => /^\/api\/bosses\/battles\//.test(c.path)).length,
-      0,
-    );
-    assert.equal(ctx.service.snapshot(entry).invitations.items.length, 6);
-    assert.equal(ctx.store.readGlobalRaids().raids[0].count, 6);
-  } finally {
-    ctx.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("global summary imports the saved TMA history on the shared invitation poll", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "global-existing-history-"));
-  let ctx = setup(directory);
-  try {
-    await ctx.service.identify(token);
-    const saved = ctx.store.read(101);
-    saved.raidObservations = [
-      {
-        leaderPlayerId: 42,
-        bossId: 7,
-        battleId: "old-1",
-        seenAt: now - 300_000,
-      },
-      {
-        leaderPlayerId: 42,
-        bossId: 7,
-        battleId: "old-2",
-        seenAt: now - 200_000,
-      },
-      {
-        leaderPlayerId: 42,
-        bossId: 7,
-        battleId: "old-3",
-        seenAt: now - 100_000,
-      },
-    ];
-    ctx.store.write(101, saved);
-    ctx.close();
-    ctx = setup(directory, {
-      globalRaids: true,
-      invitations: () => [
-        {
-          invitationId: "active-invite",
-          battleId: "old-3",
-          bossId: 7,
-          leaderPlayerId: 42,
-          inviterPlayerId: 42,
-          peerPlayerId: 42,
-          peerNickname: "Leader",
-          status: "pending",
-          battleStatus: "active",
-          expiresAtUtc: future,
-          battleExpiresAtUtc: future,
-        },
-      ],
-    });
-    await ctx.service.boot();
-    const entry = await ctx.service.identify(token);
-    await issue(ctx.service, entry, "history-read-01", "invitations.refresh");
-    const detected = ctx.service.snapshot(entry).detectedRaids;
-    const rows = ctx.store.readGlobalRaids().raids;
-    assert.equal(detected[0].count, 3);
-    assert.equal(rows[0].count, 3);
-    assert.equal(rows[0].active, true);
-    assert.equal(
-      ctx.calls.filter((c) => c.path === BOSS_INVITATIONS_PATH).length,
-      1,
-    );
-    assert.equal(
-      ctx.calls.filter((c) => /^\/api\/bosses\/battles\//.test(c.path)).length,
+      ctx.calls.filter((call) => call.path === BOSS_INVITATIONS_PATH).length,
       0,
     );
   } finally {
@@ -464,7 +381,8 @@ test("a slow shared invitation poll waits a full interval after completion", asy
       }),
   });
   try {
-    await ctx.service.identify(token);
+    const entry = await ctx.service.identify(token);
+    entry.raidSubscription.getSnapshot = () => ({ enabled: true });
     await ctx.service.boot();
     await begun;
     ctx.setNow(now + 90_000);
@@ -575,39 +493,22 @@ test("accept persists invitation checkpoint before POST and confirms exact battl
   }
 });
 
-test("server discovers and persists invitations after restart without an open browser", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "raid-discovery-restart-"));
-  let ctx = setup(directory);
+test("idle accounts never scan invitations or republish raids after restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "raid-no-discovery-"));
+  let ctx = setup(directory, { globalRaids: true });
   try {
     await ctx.service.identify(token);
     ctx.close();
-    ctx = setup(directory, {
-      invitations: () => [
-        {
-          invitationId: "invite-discovery",
-          battleId: "battle-discovery",
-          bossId: 7,
-          leaderPlayerId: 42,
-          inviterPlayerId: 42,
-          peerPlayerId: 42,
-          status: "pending",
-          battleStatus: "active",
-          expiresAtUtc: future,
-          battleExpiresAtUtc: future,
-        },
-      ],
-    });
+    ctx = setup(directory, { globalRaids: true });
     await ctx.service.boot();
-    await new Promise((resolve) => setTimeout(resolve, 1300));
-    assert.deepEqual(ctx.store.read("101").raidObservations, [
-      {
-        leaderPlayerId: 42,
-        bossId: 7,
-        battleId: "battle-discovery",
-        seenAt: now,
-      },
-    ]);
-    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const entry = await ctx.service.identify(token);
+    assert.deepEqual(ctx.service.snapshot(entry).detectedRaids, []);
+    assert.equal(ctx.store.read("101").raidObservations, undefined);
+    assert.equal(
+      ctx.calls.filter((call) => call.path === BOSS_INVITATIONS_PATH).length,
+      0,
+    );
   } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
@@ -630,6 +531,7 @@ test("page launch waits for background invitation discovery rather than failing 
   });
   try {
     const entry = await ctx.service.identify(token);
+    entry.raidSubscription.getSnapshot = () => ({ enabled: true });
     await ctx.service.boot();
     await discoveryStarted;
     let settled = false;
@@ -640,59 +542,10 @@ test("page launch waits for background invitation discovery rather than failing 
     assert.equal(settled, false);
     release();
     const snapshot = await launch;
-    assert.equal(snapshot.subscription.enabled, false);
+    assert.equal(snapshot.subscription.enabled, true);
     assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
   } finally {
     release?.();
-    ctx.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("observations survive failed reads and restart without counting a repeated battle", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "raid-discovery-failure-"));
-  let battle = "one";
-  let unavailable = false;
-  const invitations = () => {
-    if (unavailable) throw new Error("temporary outage");
-    return [
-      {
-        invitationId: `invite-${battle}`,
-        battleId: battle,
-        bossId: 7,
-        leaderPlayerId: 42,
-        inviterPlayerId: 42,
-        peerPlayerId: 42,
-        status: "pending",
-        battleStatus: "active",
-        expiresAtUtc: future,
-        battleExpiresAtUtc: future,
-      },
-    ];
-  };
-  let ctx = setup(directory, { invitations });
-  try {
-    let entry = await ctx.service.identify(token);
-    await issue(ctx.service, entry, "read-raid-01", "invitations.refresh");
-    await issue(ctx.service, entry, "read-raid-02", "invitations.refresh");
-    battle = "two";
-    ctx.setNow(now + 11_000);
-    await issue(ctx.service, entry, "read-raid-03", "invitations.refresh");
-    unavailable = true;
-    ctx.setNow(now + 22_000);
-    await assert.rejects(
-      issue(ctx.service, entry, "read-raid-04", "invitations.refresh"),
-    );
-    assert.equal(ctx.store.read("101").raidObservations.length, 2);
-    ctx.close();
-    unavailable = false;
-    battle = "three";
-    ctx = setup(directory, { invitations, now: now + 33_000 });
-    entry = await ctx.service.identify(token);
-    await issue(ctx.service, entry, "read-raid-05", "invitations.refresh");
-    assert.equal(ctx.service.snapshot(entry).detectedRaids[0].count, 3);
-    assert.equal(ctx.calls.filter((call) => call.method === "POST").length, 0);
-  } finally {
     ctx.close();
     rmSync(directory, { recursive: true, force: true });
   }

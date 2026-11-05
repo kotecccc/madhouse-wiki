@@ -5,7 +5,7 @@ Updated: 2026-10-21.
 ## Data flow
 
 One long-lived MTProto worker listens to new, edited, and deleted posts from
-`@raidsMadness`. It writes parsed schedules to the private Vercel Blob. At
+`@madhouse_wiki_raids`. It writes parsed schedules to the private Vercel Blob. At
 startup and every ten minutes it scans up to 500 recent messages to recover
 changes missed during a disconnect. A renewable Blob lease prevents a second
 worker or the recovery endpoint from using the same Telegram session. The

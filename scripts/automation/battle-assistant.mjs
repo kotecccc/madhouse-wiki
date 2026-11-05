@@ -591,10 +591,7 @@ export function createBattleAssistant({
       publish();
     }
     // Prefer an already-ready strike. Invitations use an otherwise idle cooldown.
-    if (
-      (initialInvite && !ledger.inviteBlocked) ||
-      Math.max(state.battle.readyAt, notBefore) > now()
-    ) {
+    if (Math.max(state.battle.readyAt, notBefore) > now()) {
       if (ledger.inviteBlocked || ledger.inviteAt > now())
         return { kind: "wait" };
       // One bounded fresh read before the mutation; stale quota never authorizes it.
@@ -613,7 +610,7 @@ export function createBattleAssistant({
         return { kind: "stop" };
       if (
         invitationNotice ||
-        (!initialInvite && Math.max(state.battle.readyAt, notBefore) <= now())
+        Math.max(state.battle.readyAt, notBefore) <= now()
       )
         return { kind: "wait" };
       const result = await controller.inviteAll({

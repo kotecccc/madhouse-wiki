@@ -1,7 +1,7 @@
 import { get, put } from "../storage/client.mjs";
 import { strongBlobEtag } from "./raid-blob-etag.mjs";
 
-const BLOB_PATH = "madhouse-raids/schedule.json";
+const BLOB_PATH = "madhouse-raids/madhouse_wiki_raids-schedule.json";
 const MAX_BLOB_SIZE = 1024 * 1024;
 const MAX_RECORDS = 180;
 const WRITE_ATTEMPTS = 4;

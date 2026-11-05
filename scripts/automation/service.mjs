@@ -6,7 +6,6 @@ import { createWeaponRecoveryFetch } from "../bridge/weapon-recovery-fetch.mjs";
 import { withWorkerLease } from "./worker-lease-context.mjs";
 import { observeTelegramBattle } from "./telegram-battle-report.mjs";
 import { createTelegramBattleNotifier } from "./telegram-battle-notifier.mjs";
-import { createGlobalRaidsWorker } from "./global-raids-worker.mjs";
 import { logFriendError } from "./friend-diagnostics.mjs";
 import { recoverBrokenWeapon } from "./weapon-recovery.mjs";
 import { inventoryAction } from "./inventory-actions.mjs";
@@ -86,7 +85,6 @@ import {
   isFinishedInvitation,
   projectBossInvitations,
 } from "./boss-invitations.mjs";
-import { detectedRaids, observeRaids } from "./raid-observations.mjs";
 import { createRaidPriority } from "./raid-priority.mjs";
 import { tickBuddyStash } from "./buddy-stash.mjs";
 import { tickBuddyBooster } from "./buddy-booster.mjs";
@@ -552,7 +550,6 @@ export function createAutomationService({
       raidFriendWatch: entry.raidFriendWatch,
       preferences: entry.preferences,
       invitations: entry.invitations,
-      raidObservations: observeRaids(entry.raidObservations, [], now()),
       raid: entry.raidWorker.getSnapshot(),
       raidSubscription: entry.raidSubscription?.getSnapshot() ?? null,
       telegramReport: entry.telegramReport,
@@ -614,30 +611,6 @@ export function createAutomationService({
     save,
     siteUrl: telegramSiteUrl,
   });
-  const globalRaids =
-    globalRaidsChatId &&
-    globalRaidsTelegram &&
-    store.readGlobalRaids &&
-    store.writeGlobalRaids
-      ? createGlobalRaidsWorker({
-          store,
-          owner,
-          now,
-          telegram: globalRaidsTelegram,
-          chatId: globalRaidsChatId,
-          getBoss,
-          getLeaderProfile: async (playerId) => {
-            const entry = [...actors.values()].find(
-              (actor) => actor.credential && !actor.storageFailed,
-            );
-            if (!entry) return null;
-            return gameJson(entry.credential, `/api/players/${playerId}`);
-          },
-          customEmoji: globalRaidsCustomEmoji,
-          pinCurrent: globalRaidsCustomEmoji,
-          isClosed: () => closed,
-        })
-      : null;
   const channelGameStatus =
     globalRaidsChatId &&
     globalRaidsTelegram &&
@@ -654,7 +627,6 @@ export function createAutomationService({
         })
       : null;
   const tickChannelPublications = createChannelPublicationTick({
-    raids: globalRaids,
     status: channelGameStatus,
     isClosed: () => closed,
   });
@@ -1025,11 +997,7 @@ export function createAutomationService({
           log: value.log ?? [],
         };
       })(),
-      detectedRaids: detectedRaids(
-        entry.raidObservations,
-        entry.invitations.items,
-        now(),
-      ),
+      detectedRaids: [],
       queuedActions,
       receipts: [...entry.receipts],
       queueReceiptJobs: [...entry.queueReceiptJobs],
@@ -1181,7 +1149,6 @@ export function createAutomationService({
         refreshedAt: null,
         notice: null,
       },
-      raidObservations: observeRaids(saved?.raidObservations, [], now()),
       receipts: saved?.receipts ?? [],
       queueReceiptJobs: saved?.queueReceiptJobs ?? [],
       queuedActions: saved?.queuedActions ?? [],
@@ -2944,21 +2911,6 @@ export function createAutomationService({
           ? "Вступление не подтверждено. Проверьте состояние перед новым приглашением."
           : null,
       };
-      entry.raidObservations = observeRaids(
-        entry.raidObservations,
-        entry.invitations.items,
-        now(),
-      );
-      try {
-        globalRaids?.observe(
-          entry.playerId,
-          raw,
-          entry.invitations.items,
-          entry.raidObservations,
-        );
-      } catch {
-        // Global reporting must never interrupt account automation.
-      }
       if (!suppressSubscription)
         entry.raidSubscription?.observe(entry.invitations.items, true);
       save(entry);
@@ -3164,16 +3116,18 @@ export function createAutomationService({
     }
   }
   function discoverInvitations(entry) {
+    // Only an explicitly selected subscription needs background invitations.
+    // The public raid list comes from Telegram, never from account scans.
+    const subscription = entry.raidSubscription?.getSnapshot();
+    if (!subscription?.enabled && !subscription?.checkpoint) return;
     const state = entry.controller.getSnapshot();
     const inBattle = state.battle?.status === "active";
     if (inBattle) {
       // A fight prevents joining another. Do not count this unobserved time as
       // a quiet interval for an active subscription, and refresh after combat.
       entry.raidSubscription?.observe([], false);
-      if (!globalRaids) {
-        entry.invitationDiscoveryAt = 0;
-        return;
-      }
+      entry.invitationDiscoveryAt = 0;
+      return;
     }
     if (
       closed ||

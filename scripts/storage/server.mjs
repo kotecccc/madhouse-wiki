@@ -19,6 +19,7 @@ import { pathToFileURL } from "node:url";
 const MAX = new Map([
   ["madhouse-wiki/catalogue/reference.sqlite", 16 * 1024 * 1024],
   ["madhouse-raids/schedule.json", 1024 * 1024],
+  ["madhouse-raids/madhouse_wiki_raids-schedule.json", 1024 * 1024],
   ["madhouse-raids/telegram-session.enc.json", 16 * 1024],
   ["madhouse-raids/sync-lock.json", 2 * 1024],
 ]);

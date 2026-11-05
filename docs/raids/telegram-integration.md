@@ -1,7 +1,7 @@
 # Telegram raid schedule feed
 
 The raid feed is separate from the SQLite game catalogue. A long-lived MTProto
-worker listens to new, edited, and deleted channel posts from `@raidsMadness`,
+worker listens to new, edited, and deleted channel posts from `@madhouse_wiki_raids`,
 parses schedule posts, and writes them to a private Vercel Blob. It reconciles
 recent channel history at startup and every ten minutes to recover updates
 missed while disconnected. The public `/api/raids` endpoint returns parsed
@@ -26,7 +26,7 @@ checked-in file. For a local worker, use the ignored `.env.local` and run
 `npm run start:raids-worker`; see [the realtime runbook](../launch/raids-realtime.md)
 for long-lived host and recovery guidance.
 
-An MTProto session grants full access to the Telegram account that authorized it. The worker uses it only to read the fixed `@raidsMadness` channel. The encrypted blob is private, the encryption key stays in environment variables, and the browser receives neither the session nor the key. Do not run the provisioning script in a shared terminal or paste Telegram QR codes, login codes, or session strings into chat.
+An MTProto session grants full access to the Telegram account that authorized it. The worker uses it only to read the fixed `@madhouse_wiki_raids` channel. The encrypted blob is private, the encryption key stays in environment variables, and the browser receives neither the session nor the key. Do not run the provisioning script in a shared terminal or paste Telegram QR codes, login codes, or session strings into chat.
 
 To rotate the stored session, run the setup script with `--replace`, then revoke the previous `Madhouse Wiki raid importer` device in Telegram Settings → Devices. If provisioning fails before saving, the script attempts to log out and revoke the new session.
 
@@ -35,7 +35,7 @@ To rotate the stored session, run the setup script with `--replace`, then revoke
 - The worker scans up to 500 recent channel history entries at startup and every ten minutes, batch-upserts parsed schedules by Telegram message ID, and updates changed source posts.
 - It removes a schedule from the feed when a fetched source message is edited so it no longer matches, or when a source post disappears from the scanned history window.
 - New, edited, and deleted posts are applied as they arrive through the MTProto update stream. A renewable private Blob lease prevents a second worker or recovery sync from using the session at the same time.
-- `/api/raids` returns up to 30 parsed schedules without CDN caching. The browser refreshes the public feed every 10 seconds while the Wiki is open.
+- `/api/raids` returns up to 30 parsed schedules without CDN caching. The browser refreshes the public feed every three minutes while the Wiki is open.
 - Schedule values remain source data. They are not added to `local-data/madhouse.sqlite` and are not treated as verified game catalogue definitions.
 
 ## Endpoints
@@ -73,3 +73,24 @@ three schedules per page and loads more when the end approaches the viewport;
 a “Загрузить ещё” button also supports keyboard/manual use. Closing the archive
 unmounts its content and aborts pending fetches. Reopening starts from its first
 page. The development fixture uses the same query validation and paging helper.
+
+## External raid source
+
+`madhouse_wiki_raids` is maintained externally. Account invitation polling no
+longer detects raid series or publishes raid tables. Invitations are read on
+request or while an explicitly selected raid/Buddy subscription is running;
+active fights do not run background invitation discovery.
+
+The importer accepts dated headings (`Рейды — DD.MM.YYYY` or
+`Активные рейды • DD.MM.YYYY`) and rich-message or tab/pipe-separated tables
+with `Зона`, `Босс`, `Ведущий`. `Время`, `Клан`, `Длительность`, and `Боёв` are
+optional source fields. Missing times and durations are not inferred. A public
+leader username allows a subscription; a nickname alone remains copyable but
+is not guessed to be a game identity. The latest imported post is the current
+list; earlier posts remain in the archive.
+
+The new source uses `madhouse-raids/madhouse_wiki_raids-schedule.json` so old
+channel message IDs and cached posts cannot be reused. The existing encrypted
+Telegram session and sync lease are retained. Deploy both the Wiki service
+and raid importer for the switch to take effect. No game requests are needed
+to render the public channel list.

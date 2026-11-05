@@ -1,5 +1,10 @@
 import { sortRaidsByTime } from "../../lib/raid-schedule.js";
 
+const normalizeBoss = (value) =>
+  normalize(value)
+    .replace(/^[^\p{L}\p{N}]+/u, "")
+    .trim();
+
 const normalize = (value) =>
   String(value || "")
     .trim()
@@ -62,18 +67,18 @@ export function combineRaids(
       (item) =>
         item.leaderUsername &&
         normalize(item.leaderUsername) === normalize(raid.leader) &&
-        normalize(item.bossName) === normalize(raid.boss),
+        normalizeBoss(item.bossName) === normalizeBoss(raid.boss),
     );
     let match = matches.length === 1 ? matches[0] : null;
     if (match) used.add(`${match.leaderPlayerId}:${match.bossId}`);
     if (
       !match &&
       matches.length === 0 &&
-      /^@?[A-Za-z0-9_]{1,64}$/.test(String(raid.leader || "").trim())
+      /^@[A-Za-z0-9_]{1,64}$/.test(String(raid.leader || "").trim())
     ) {
       const exact = bosses.filter(
         (boss) =>
-          normalize(boss.name) === normalize(raid.boss) &&
+          normalizeBoss(boss.name) === normalizeBoss(raid.boss) &&
           Number.isSafeInteger(Number(boss.numericId ?? boss.apiId)) &&
           Number(boss.numericId ?? boss.apiId) > 0,
       );

@@ -67,3 +67,13 @@ test("a public raid can be selected when its boss and handle are unambiguous", (
     null,
   );
 });
+
+test("channel rows match decorated boss names but never guess a handle from a nickname", () => {
+  const bosses = [{ numericId: 7, name: "Освальд" }];
+  const raid = { boss: "👹 Освальд", leader: "@alice" };
+  assert.equal(combineRaids([raid], [], null, bosses)[0].candidate.bossId, 7);
+  assert.equal(
+    combineRaids([{ ...raid, leader: "Alice" }], [], null, bosses)[0].candidate,
+    null,
+  );
+});
