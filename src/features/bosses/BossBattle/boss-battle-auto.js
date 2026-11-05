@@ -60,8 +60,6 @@ export function createBossBattleAutoAttack({
   let timer = null;
   let runId = 0;
   let ownAttack = false;
-  let strikes = 0;
-  let pauseAfter = intBetween(random, 5, 10);
   let listeners = new Set();
   let disposed = false;
   let state = controller.getSnapshot();
@@ -89,15 +87,15 @@ export function createBossBattleAutoAttack({
     attackNotBefore = null;
     publish();
   }
-  function delayNext(id, base, isPause = false) {
+  function delayNext(id, base) {
     if (!enabled || disposed || id !== runId) return;
     clearTimer();
-    const delay = base + (isPause ? intBetween(random, 5, 10) * 1000 : 0);
+    const delay = base;
     attackNotBefore = now() + delay;
     nextAttackAt = attackNotBefore;
     const wakeAt =
       controller.nextActionAt?.(attackNotBefore) ?? attackNotBefore;
-    pause = isPause;
+    pause = false;
     timer = schedule(
       () => {
         if (!enabled || disposed || id !== runId) return;
@@ -169,12 +167,6 @@ export function createBossBattleAutoAttack({
       halt();
       return;
     }
-    if (!result || result.kind === "attack") strikes++;
-    let yawning = strikes >= pauseAfter;
-    if (yawning) {
-      strikes = 0;
-      pauseAfter = intBetween(random, 5, 10);
-    }
     const cooldown = Math.max(0, state.battle.readyAt - now());
     if (result && result.kind !== "attack") {
       const idle = result.kind === "wait" || result.kind === "invite";
@@ -186,7 +178,7 @@ export function createBossBattleAutoAttack({
           (result.retryAt ?? now()) - now(),
         ) + (idle ? 0 : intBetween(random, 2, 4) * 1000),
       );
-    } else delayNext(id, cooldown + intBetween(random, 2, 4) * 1000, yawning);
+    } else delayNext(id, cooldown + intBetween(random, 2, 4) * 1000);
   }
   function onControllerChange() {
     state = controller.getSnapshot();
@@ -249,8 +241,6 @@ export function createBossBattleAutoAttack({
         enabled,
         nextAttackAt,
         pause,
-        strikes,
-        pauseAfter,
         targetBattleId,
         attackNotBefore,
       };
@@ -267,16 +257,6 @@ export function createBossBattleAutoAttack({
       enabled = true;
       const id = ++runId;
       targetBattleId = state.battle.id;
-      strikes =
-        checkpoint?.targetBattleId === targetBattleId &&
-        Number.isSafeInteger(checkpoint.strikes)
-          ? Math.max(0, checkpoint.strikes)
-          : 0;
-      pauseAfter =
-        checkpoint?.targetBattleId === targetBattleId &&
-        Number.isSafeInteger(checkpoint.pauseAfter)
-          ? Math.max(5, Math.min(10, checkpoint.pauseAfter))
-          : intBetween(random, 5, 10);
       const cooldown = Math.max(
         0,
         state.battle.readyAt - now(),

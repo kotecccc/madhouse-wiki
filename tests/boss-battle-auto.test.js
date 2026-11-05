@@ -129,26 +129,23 @@ test("cooldown and strike delay combine, then waits for confirmation before sche
   assert.equal(f.auto.getSnapshot().nextAttackAt, 107_000);
 });
 
-for (const threshold of [5, 10]) {
-  test(`adds a 5 to 10 second pause after ${threshold} confirmed strikes`, async () => {
-    const f = fixture({ randomValue: threshold === 5 ? 0 : 0.999 });
+for (const randomValue of [0, 0.999]) {
+  test(`long series keeps a bounded delay without periodic rests (${randomValue})`, async () => {
+    const f = fixture({ randomValue });
     f.auto.start();
-    if (f.attackCount) {
+    for (let i = 0; i < 30; i++) {
+      assert.equal(f.attackCount, i + 1);
       f.resolve();
       await new Promise(setImmediate);
+      const snap = f.auto.getSnapshot();
+      assert.equal(snap.pause, false);
+      assert.equal(
+        snap.nextAttackAt - f.time(),
+        randomValue === 0 ? 2000 : 4000,
+      );
+      f.advance(snap.nextAttackAt - f.time());
     }
-    for (let i = 1; i < threshold; i++) {
-      const due = [...f.timers.values()][0].at;
-      f.advance(due - f.time());
-      f.resolve();
-      await new Promise(setImmediate);
-    }
-    const snap = f.auto.getSnapshot();
-    assert.equal(snap.pause, true);
-    assert.equal(
-      snap.nextAttackAt - f.time(),
-      (threshold === 5 ? 2 : 4) * 1000 + (threshold === 5 ? 5 : 10) * 1000,
-    );
+    f.auto.dispose();
   });
 }
 
