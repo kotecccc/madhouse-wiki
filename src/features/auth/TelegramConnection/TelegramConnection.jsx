@@ -299,6 +299,7 @@ export function TelegramConnection({
       width={440}
       contentScrollable={uiState?.stage !== "consent"}
       visible={open}
+      keepMounted
       onClose={() => {
         onClose();
       }}

@@ -35,6 +35,7 @@ export function Modal({
   contentVariant = "default",
   contentAlignment = "start",
   visible = true,
+  keepMounted = false,
   loading = false,
   onRefresh,
   refreshKey,
@@ -128,12 +129,14 @@ export function Modal({
     }
   }
   runRefreshRef.current = runRefresh;
-  if (!visible) return null;
+  if (!visible && !keepMounted) return null;
   const page = (
     <section
       ref={pageRef}
       tabIndex={-1}
-      hidden={Boolean(host && pages.length && pages.at(-1).id !== generatedId)}
+      hidden={Boolean(
+        !visible || (host && pages.length && pages.at(-1).id !== generatedId),
+      )}
       className={`shared-modal${footer === false ? " shared-modal--no-footer" : ""}${contentVariant === "inset" ? " shared-modal--inset" : ""} ${className}`.trim()}
       aria-labelledby={id}
       aria-busy={loading || undefined}

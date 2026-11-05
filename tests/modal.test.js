@@ -33,6 +33,20 @@ test("shared page uses a labelled surface with a separate body and optional acti
         ),
       );
     const html = render();
+    const hiddenFrame = (keepMounted) =>
+      renderToStaticMarkup(
+        createElement(
+          Modal,
+          { title: "Подключение", visible: false, keepMounted },
+          createElement("iframe", { src: "https://connect.example/" }),
+        ),
+      );
+    assert.equal(hiddenFrame(false), "");
+    assert.match(hiddenFrame(true), /<section[^>]*hidden=""/);
+    assert.match(
+      hiddenFrame(true),
+      /<iframe src="https:\/\/connect.example\/"/,
+    );
     assert.equal((html.match(/<section\b/g) || []).length, 1);
     assert.doesNotMatch(html, /<dialog\b/);
     assert.match(html, /aria-labelledby="drop-title"/);
